@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS bewerbung_blacklist (
 ALTER TABLE bewerbung_blacklist ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "admin_full_access_blacklist" ON bewerbung_blacklist
-  FOR ALL USING (public.has_role('admin'::text));
+  FOR ALL USING (is_admin(auth.uid()))
+  WITH CHECK (is_admin(auth.uid()));
 
 CREATE OR REPLACE FUNCTION update_updated_at_blacklist()
 RETURNS TRIGGER AS $$
