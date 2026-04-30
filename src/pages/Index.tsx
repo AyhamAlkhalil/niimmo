@@ -19,12 +19,13 @@ import { ZaehlerVerwaltung } from "@/components/dashboard/ZaehlerVerwaltung";
 import { MietaufstellungBank } from "@/components/dashboard/MietaufstellungBank";
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
+import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
 import { useState, useMemo, useCallback } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot } from "lucide-react";
+import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
@@ -61,6 +62,7 @@ const Index = () => {
   const [showMietaufstellung, setShowMietaufstellung] = useState<boolean>(false);
   const [showDevLog, setShowDevLog] = useState<boolean>(false);
   const [showAgentLogs, setShowAgentLogs] = useState<boolean>(false);
+  const [showBlacklist, setShowBlacklist] = useState<boolean>(false);
   const [rueckstaendeOpen, setRueckstaendeOpen] = useState<boolean>(false);
   const [rentIncreaseOpen, setRentIncreaseOpen] = useState<boolean>(false);
   const [listSource, setListSource] = useState<'rueckstaende' | 'rentincrease' | null>(null);
@@ -320,6 +322,11 @@ const Index = () => {
     return <AgentLogViewer onBack={() => setShowAgentLogs(false)} />;
   }
 
+  // Blacklist anzeigen (nur für Admins)
+  if (showBlacklist && isAdmin) {
+    return <BlacklistVerwaltung onBack={() => setShowBlacklist(false)} />;
+  }
+
   // Stammdaten-Ansicht anzeigen
   if (showStammdaten) {
     return <EditableMietUebersicht onBack={() => setShowStammdaten(false)} />;
@@ -434,6 +441,15 @@ const Index = () => {
                   >
                     <FileSpreadsheet className="h-4 w-4 mr-1.5 shrink-0" />
                     <span className="truncate">Mietaufstellung</span>
+                  </Button>
+                  <Button
+                    onClick={() => setShowBlacklist(true)}
+                    variant="ghost"
+                    size="sm"
+                    className="bg-orange-50/60 hover:bg-orange-100/80 backdrop-blur-sm border border-orange-200/50 text-orange-700 hover:text-orange-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
+                  >
+                    <ShieldAlert className="h-4 w-4 mr-1.5 shrink-0" />
+                    <span className="truncate">Blacklist</span>
                   </Button>
                   <Button
                     onClick={() => setShowAgentLogs(true)}

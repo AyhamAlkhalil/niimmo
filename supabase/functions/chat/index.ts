@@ -86,6 +86,7 @@ serve(async (req) => {
       nebenkostenZahlungenResult,
       kostenpositionenResult,
       whatsappResult,
+      blacklistResult,
     ] = await Promise.all([
       supabase.from("immobilien").select("id, name, adresse, einheiten_anzahl, objekttyp, kaufpreis, baujahr, hat_gas, hat_strom, hat_wasser, restschuld"),
       supabase.from("mietvertrag").select("id, kaltmiete, betriebskosten, status, start_datum, ende_datum, kuendigungsdatum, mahnstufe, kaution_betrag, kaution_ist, kaution_status, einheit_id, lastschrift, verwendungszweck, anzahl_personen, letzte_mieterhoehung_am"),
@@ -110,6 +111,7 @@ serve(async (req) => {
       supabase.from("nebenkosten_zahlungen").select("id, zahlung_id, nebenkostenart_id, einheit_id, verteilung_typ"),
       supabase.from("kostenpositionen").select("id, immobilie_id, gesamtbetrag, bezeichnung, zeitraum_von, zeitraum_bis, ist_umlagefaehig, quelle").order("zeitraum_von", { ascending: false }).limit(50),
       supabase.from("whatsapp_nachrichten").select("id, nachricht, richtung, telefonnummer, zeitstempel, absender_name, mietvertrag_id, gelesen").order("zeitstempel", { ascending: false }).limit(30),
+      supabase.from("bewerbung_blacklist").select("id, name, email, telefon, grund, notizen, created_at").order("created_at", { ascending: false }),
     ]);
 
     // ── Extract data ──
@@ -129,8 +131,18 @@ serve(async (req) => {
     const nebenkostenZahlungen = nebenkostenZahlungenResult.data || [];
     const kostenpositionen = kostenpositionenResult.data || [];
     const whatsappNachrichten = whatsappResult.data || [];
+    const blacklist = blacklistResult.data || [];
 
-    console.log(`Loaded: ${immobilien.length} Immobilien, ${mietvertraege.length} Verträge, ${mieter.length} Mieter, ${darlehen.length} Darlehen, ${versicherungen.length} Versicherungen`);
+    const blacklistDetails = blacklist.map(b => {
+      let detail = `- ${b.name}`;
+      if (b.email) detail += `, E-Mail: ${b.email}`;
+      if (b.telefon) detail += `, Tel: ${b.telefon}`;
+      if (b.grund) detail += `, Grund: ${b.grund}`;
+      if (b.notizen) detail += ` (${b.notizen})`;
+      return detail;
+    }).join("\n");
+
+    console.log(`Loaded: ${immobilien.length} Immobilien, ${mietvertraege.length} Verträge, ${mieter.length} Mieter, ${darlehen.length} Darlehen, ${versicherungen.length} Versicherungen, ${blacklist.length} Blacklist-Einträge`);
 
     // ── Statistics ──
     const aktiveMV = mietvertraege.filter(v => v.status === "aktiv");
@@ -352,6 +364,9 @@ ${dokumenteDetails || "Keine Dokumente vorhanden"}
 
 ─── WHATSAPP-NACHRICHTEN (letzte) ───
 ${whatsappDetails || "Keine WhatsApp-Nachrichten vorhanden"}
+
+─── BEWERBUNGS-BLACKLIST ───
+${blacklistDetails || "Keine Personen auf der Blacklist"}
 `;
 
     const systemPrompt = `Du bist Chilla, der interne KI-Assistent der NiImmo Immobilienverwaltung. Du bist der absolute Experte für das gesamte Portfolio und kennst ALLE Daten in Echtzeit.
@@ -381,6 +396,8 @@ ${databaseContext}
 6. KOMMUNIKATION: Du siehst die letzten WhatsApp-Nachrichten und kannst über den Kommunikationsverlauf berichten.
 
 7. DASHBOARD-HILFE: Du erklärst wie das NiImmo Dashboard funktioniert — Navigation, Zahlungsverwaltung, Mahnwesen, Übergabeprotokolle, Nebenkostenabrechnung etc.
+
+8. BEWERBUNGS-BLACKLIST: Du kennst alle ${blacklist.length} Personen auf der Blacklist (abgelehnte Bewerber/Mietinteressenten). Du kannst prüfen ob ein Name, eine E-Mail oder Telefonnummer auf der Blacklist steht, und den Grund nennen. Wenn jemand fragt "Ist [Name] auf der Blacklist?" durchsuche die Liste gezielt.
 
 ═══ REGELN ═══
 - Antworte IMMER auf Deutsch
