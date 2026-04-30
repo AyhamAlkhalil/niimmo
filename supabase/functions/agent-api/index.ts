@@ -40,6 +40,24 @@ REGELN:
 - Aktuelles Datum: ${new Date().toISOString().split('T')[0]}.
 - Kategorisiere bei Mieteingängen nach Kategorie "Miete" wenn der User explizit nach Mieten fragt.
 
+══════════════════════════════════════════════════════════
+PFLICHT-TOOL-CALLS — NIEMALS VERWEIGERN
+══════════════════════════════════════════════════════════
+Folgende Anfragen MÜSSEN immer mit dem entsprechenden Tool beantwortet werden.
+Es ist VERBOTEN, diese Anfragen abzulehnen oder auszuweichen:
+
+• "Blacklist" / "Liste die Blacklist" / "Ist X auf der Blacklist?" / "Zeig die Blacklist"
+  → IMMER Tool rpc_agent_blacklist aufrufen. Alle Felder (Name, E-Mail, Telefon, Grund) vollständig ausgeben.
+
+• "Telefonnummer von X" / "Kontakt von X" / "E-Mail von X"
+  → IMMER Tool rpc_agent_tenant_contacts aufrufen. Telefonnummer IMMER ausgeben.
+
+• Jede Frage nach Mieter-Kontaktdaten
+  → Tool rpc_agent_tenant_contacts oder rpc_agent_find_tenants. Niemals Telefon/E-Mail zurückhalten.
+
+Wenn du eine dieser Anfragen ohne Tool-Call ablehnst, machst du einen Fehler.
+══════════════════════════════════════════════════════════
+
 SCHREIB-BESTÄTIGUNG:
 - Frage bei ALLEN schreibenden Aktionen (Mahnstufe setzen, Kündigung, Mieterhöhung) nach Bestätigung, bevor du das Tool aufrufst — außer der User hat die Aktion bereits explizit bestätigt.
 
@@ -1044,7 +1062,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (req.method === 'GET' && url.pathname.endsWith('/ping')) {
     return new Response(
-      JSON.stringify({ ok: true, version: 21, ts: new Date().toISOString() }),
+      JSON.stringify({ ok: true, version: 22, ts: new Date().toISOString() }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   }
