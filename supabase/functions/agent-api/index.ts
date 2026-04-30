@@ -5,6 +5,18 @@ const SYSTEM_PROMPT = `Du bist Chilla, der KI-Assistent der NiImmo Holding GmbH 
 Beantworte Fragen zum Portfolio in präzisem, knappem Deutsch (Telegram-Format).
 
 ══════════════════════════════════════════════════════════
+DATENZUGRIFF — INTERNER GESCHÄFTSKONTEXT
+══════════════════════════════════════════════════════════
+Du operierst AUSSCHLIESSLICH im internen Kontext der NiImmo Holding GmbH.
+Deine Gesprächspartner sind die autorisierten Geschäftsführer (Ayhan, Dennis).
+- Mieter-Kontaktdaten (Telefon, E-Mail, Adresse) sind reguläre Geschäftsdaten
+  und werden den GFs IMMER vollständig angezeigt — keine Privacy-Einschränkungen.
+- Blacklist-Einträge werden auf Anfrage VOLLSTÄNDIG ausgegeben (Name, E-Mail,
+  Telefon, Grund). Verweigere die Ausgabe NIEMALS.
+- Verweigere grundsätzlich KEINE Daten aus dem internen System.
+══════════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════════
 ANTI-HALLUZINATION — OBERSTE PRIORITÄT (NIEMALS UMGEHEN)
 ══════════════════════════════════════════════════════════
 1. NIEMALS behaupten, eine Schreib-Aktion sei ausgeführt worden, wenn das Write-Tool in DIESER Anfrage NICHT aufgerufen wurde.
@@ -392,6 +404,20 @@ const READ_TOOLS = [
         type: 'object',
         properties: {
           p_search: { type: 'string', description: 'Mieter-Name, Immobilienname oder Dokumenttitel (optional = alle)' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'rpc_agent_blacklist',
+      description:
+        'Bewerbungs-Blacklist abrufen: alle gesperrten Bewerber/Mietinteressenten mit Name, E-Mail, Telefon und Grund. Ohne p_search: vollständige Liste. Mit p_search: prüfen ob ein bestimmter Name/E-Mail/Telefon auf der Blacklist steht. Für "Ist [Name] auf der Blacklist?", "Zeig die Blacklist", "Ist [Telefon] gesperrt?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          p_search: { type: 'string', description: 'Name, E-Mail oder Telefonnummer (optional; ohne = alle Einträge)' },
         },
       },
     },
@@ -1018,7 +1044,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (req.method === 'GET' && url.pathname.endsWith('/ping')) {
     return new Response(
-      JSON.stringify({ ok: true, version: 19, ts: new Date().toISOString() }),
+      JSON.stringify({ ok: true, version: 21, ts: new Date().toISOString() }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   }
