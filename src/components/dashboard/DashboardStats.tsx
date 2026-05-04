@@ -30,21 +30,30 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const { data: mietvertraege } = useQuery({
     queryKey: ['alle-mietvertrag'],
     queryFn: async () => {
+      const heute = new Date().toISOString().split('T')[0];
       const { data, error } = await supabase
         .from('mietvertrag')
         .select(`
-          id, 
+          id,
           kaltmiete,
           betriebskosten,
-          status, 
-          ende_datum, 
+          status,
+          start_datum,
+          ende_datum,
           kuendigungsdatum,
           einheit_id,
           einheiten(
             id,
             immobilie_id
           )
-        `);
+        `)
+        .in('status', ['aktiv', 'gekuendigt'])
+        // Verträge die bereits begonnen haben
+        .or(`start_datum.is.null,start_datum.lte.${heute}`)
+        // Verträge deren ende_datum noch nicht abgelaufen ist
+        .or(`ende_datum.is.null,ende_datum.gte.${heute}`)
+        // Verträge deren kuendigungsdatum noch nicht abgelaufen ist
+        .or(`kuendigungsdatum.is.null,kuendigungsdatum.gte.${heute}`);
       if (error) throw error;
       return data || [];
     }
@@ -98,19 +107,13 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
 
   const aktiveMietvertraege = mietvertraege?.filter(mv => mv.status === 'aktiv') || [];
   const gekuendigteMietvertraege = mietvertraege?.filter(mv => mv.status === 'gekuendigt') || [];
-  // Nur Verträge die bereits begonnen haben (start_datum <= heute)
-  const heute = new Date();
-  heute.setHours(0, 0, 0, 0);
-  const relevanteVertraege = [...aktiveMietvertraege, ...gekuendigteMietvertraege].filter(v => {
-    if (!v.start_datum) return true;
-    return new Date(v.start_datum + 'T00:00:00') <= heute;
-  });
-  
+  const relevanteVertraege = [...aktiveMietvertraege, ...gekuendigteMietvertraege];
+
   const gesamtKaltmiete = relevanteVertraege.reduce((sum, v) => sum + (v.kaltmiete || 0), 0);
   const gesamtBetriebskosten = relevanteVertraege.reduce((sum, v) => sum + (v.betriebskosten || 0), 0);
   const erwartedMiete = gesamtKaltmiete + gesamtBetriebskosten;
   const differenz = erwartedMiete - (erfassedMiete || 0);
-  
+
   const vermieteteEinheiten = aktiveMietvertraege.length + gekuendigteMietvertraege.length;
   const leerstände = gesamtEinheiten ? gesamtEinheiten - vermieteteEinheiten : 0;
 
