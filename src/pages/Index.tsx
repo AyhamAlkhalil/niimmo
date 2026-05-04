@@ -182,10 +182,7 @@ const Index = () => {
       }, 0);
     } else if (navigationSource === 'search') {
       // Coming from search, go back to dashboard and scroll to search
-      setSelectedImmobilie(null);
-      setSelectedEinheit(null);
-      setSelectedMietvertrag(null);
-      setNavigationSource('dashboard');
+      updateNav({ selectedImmobilie: null, selectedEinheit: null, selectedMietvertrag: null, selectedTab: null, navigationSource: 'dashboard' });
       // Scroll to search panel after returning
       setTimeout(() => {
         document.getElementById('search-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

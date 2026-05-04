@@ -483,7 +483,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                     <div
                       key={dok.id}
                       className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
-                      onClick={() => handleImmobilieClick(dok.immobilie_id, undefined, 'dokumente')}
+                      onClick={() => dok.immobilie_id && handleImmobilieClick(dok.immobilie_id, undefined, 'dokumente')}
                     >
                       <div className="flex items-center justify-between">
                         <div className="min-w-0">
