@@ -243,11 +243,14 @@ const Index = () => {
     }
   };
 
-  const handleSearchImmobilieClick = (immobilieId: string, einheitId?: string) => {
-    setSelectedImmobilie(immobilieId);
-    setSelectedEinheit(einheitId || null);
-    setSelectedMietvertrag(null);
-    setNavigationSource('search');
+  const handleSearchImmobilieClick = (immobilieId: string, einheitId?: string, tab?: string) => {
+    updateNav({
+      selectedImmobilie: immobilieId,
+      selectedEinheit: einheitId || null,
+      selectedMietvertrag: null,
+      selectedTab: tab || null,
+      navigationSource: 'search',
+    });
   };
 
   const handleRentIncreaseContractClick = async (mietvertragId: string) => {
@@ -509,9 +512,10 @@ const Index = () => {
 
         {/* Suchfunktion */}
         <div id="search-panel">
-          <SearchPanel 
+          <SearchPanel
             onImmobilieSelect={handleSearchImmobilieClick}
             onMietvertragClick={handleSearchMietvertragClick}
+            onDarlehenSelect={() => setShowDarlehen(true)}
           />
         </div>
 
