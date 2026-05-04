@@ -1,5 +1,6 @@
 
-import { Building2, Euro, Home, TrendingDown, TrendingUp, Percent, Pencil, Check, X } from "lucide-react";
+import { Building2, Euro, Home, TrendingDown, TrendingUp, Percent, Pencil, Check, X, AlertTriangle } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
@@ -329,7 +330,21 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
           </div>
           <div>
             <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">Erfasste Miete</p>
-            <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">€{(erfassedMiete || 0).toLocaleString()}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">€{(erfassedMiete || 0).toLocaleString()}</p>
+              {(erfassedMiete === 0 || erfassedMiete === null || erfassedMiete === undefined) && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      <p className="text-xs">Noch keine Zahlungen für diesen Monat erfasst. Bitte laden Sie einen Kontoauszug (CSV) im Controlboard hoch.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+            </div>
           </div>
           <div>
             <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">Differenz</p>
