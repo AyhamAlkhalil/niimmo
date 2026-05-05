@@ -410,35 +410,46 @@ export function MietvertragTimelineView({
   const renderZahlungCard = (zahlung: any) => {
     const isIgnored = zahlung.kategorie === 'Ignorieren';
     const isKaution = zahlung.kategorie === 'Mietkaution';
-    
-    const bgColor = isIgnored 
+    const isBKA = zahlung.kategorie === 'Betriebskostenabrechnung';
+
+    const bgColor = isIgnored
       ? 'from-gray-50 to-slate-50 dark:from-gray-950/30 dark:to-slate-950/30'
-      : isKaution 
+      : isKaution
         ? 'from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
-        : 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30';
-    
-    const borderColor = isIgnored 
+        : isBKA
+          ? 'from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30'
+          : 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30';
+
+    const borderColor = isIgnored
       ? 'border-gray-200 dark:border-gray-800/50 border-dashed'
       : isKaution
         ? 'border-blue-200 dark:border-blue-800/50'
-        : 'border-emerald-200 dark:border-emerald-800/50';
-    const iconBg = isIgnored 
+        : isBKA
+          ? 'border-amber-200 dark:border-amber-800/50'
+          : 'border-emerald-200 dark:border-emerald-800/50';
+    const iconBg = isIgnored
       ? 'bg-gray-100 dark:bg-gray-900/50'
       : isKaution
         ? 'bg-blue-100 dark:bg-blue-900/50'
-        : 'bg-emerald-100 dark:bg-emerald-900/50';
-    
-    const iconColor = isIgnored 
+        : isBKA
+          ? 'bg-amber-100 dark:bg-amber-900/50'
+          : 'bg-emerald-100 dark:bg-emerald-900/50';
+
+    const iconColor = isIgnored
       ? 'text-gray-400'
       : isKaution
         ? 'text-blue-600 dark:text-blue-400'
-        : 'text-emerald-600 dark:text-emerald-400';
-    
-    const textColor = isIgnored 
+        : isBKA
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-emerald-600 dark:text-emerald-400';
+
+    const textColor = isIgnored
       ? 'text-gray-400'
       : isKaution
         ? 'text-blue-700 dark:text-blue-300'
-        : 'text-emerald-700 dark:text-emerald-300';
+        : isBKA
+          ? 'text-amber-700 dark:text-amber-300'
+          : 'text-emerald-700 dark:text-emerald-300';
 
     return (
       <div
@@ -496,6 +507,7 @@ export function MietvertragTimelineView({
                 <SelectContent>
                   <SelectItem value="Miete">Miete</SelectItem>
                   <SelectItem value="Mietkaution">Mietkaution</SelectItem>
+                  <SelectItem value="Betriebskostenabrechnung">Betriebskostenabrechnung</SelectItem>
                   <SelectItem value="Rücklastschrift">Rücklastschrift</SelectItem>
                   <SelectItem value="Ignorieren">Ignorieren</SelectItem>
                 </SelectContent>

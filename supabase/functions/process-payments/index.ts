@@ -236,10 +236,10 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<any> {
                   type: "string", 
                   description: "UUID des zugeordneten Mietvertrags oder null wenn nicht zuordenbar" 
                 },
-                kategorie: { 
-                  type: "string", 
-                  enum: ["Miete", "Mietkaution", "Rücklastschrift", "Nichtmiete", "Ignorieren"],
-                  description: "Kategorie der Zahlung"
+                kategorie: {
+                  type: "string",
+                  enum: ["Miete", "Mietkaution", "Rücklastschrift", "Nichtmiete", "Ignorieren", "Betriebskostenabrechnung"],
+                  description: "Kategorie der Zahlung. 'Betriebskostenabrechnung' nur bei Jahres-/Nebenkostenabrechnungen (Nachzahlung oder Erstattung), nicht bei laufenden monatlichen Nebenkosten-Vorauszahlungen."
                 },
                 zuordnungsgrund: {
                   type: "string",
@@ -572,16 +572,36 @@ function selectBestContractByDate(payment: Payment, matchingContracts: ContractI
   return matchingContracts[0];
 }
 
+// Erkennt ob ein Verwendungszweck auf eine Betriebskostenabrechnung hinweist.
+// Wichtig: verhindert, dass BKA-Zahlungen via IBAN/Namen-Match als "Miete" landen.
+function isBetriebskostenabrechnung(verwendungszweck: string): boolean {
+  const vz = verwendungszweck.toLowerCase();
+  return vz.includes("betriebskostenabrechnung") ||
+         vz.includes("nebenkostenabrechnung") ||
+         vz.includes("bk-abrechnung") ||
+         vz.includes("bk abrechnung") ||
+         vz.includes("jahresabrechnung nebenkosten") ||
+         vz.includes("jahresabrechnung betriebskosten") ||
+         vz.includes("nachzahlung betriebskosten") ||
+         vz.includes("nachzahlung nebenkosten") ||
+         vz.includes("erstattung betriebskosten") ||
+         vz.includes("erstattung nebenkosten");
+}
+
 function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonderfallRegeln?: SonderfallRegel[]): ProcessedPayment | null {
   const verwendungszweck = payment.verwendungszweck?.toLowerCase() || "";
   const empfaenger = payment.empfaengername?.toLowerCase() || "";
-  
+
   // SONDERFALL-REGELN aus DB (ersetzt hardcoded Sonderfälle)
   if (sonderfallRegeln && sonderfallRegeln.length > 0) {
     const sonderfallResult = checkSonderfallRegeln(payment, sonderfallRegeln, contracts);
     if (sonderfallResult) return sonderfallResult;
   }
-  
+
+  // BKA-Keyword-Check: Muss VOR IBAN/Namen-Match stehen, damit eine Betriebskosten-
+  // abrechnung nicht fälschlich als "Miete" kategorisiert wird.
+  const bka = isBetriebskostenabrechnung(verwendungszweck);
+
   // 1. IBAN-Match (highest priority - includes weitere_bankkonten)
   // Collect ALL matching contracts first, then select best one by date
   // WICHTIG: BG-IBAN ausschließen — Verträge mit der staatlichen BG-IBAN dürfen nicht per IBAN gematcht werden
@@ -618,10 +638,11 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
                         Math.abs(payment.betrag - bestContract.kaution) <= BETRAG_TOLERANZ;
       const matchType = matchInfo?.matchType === 'weitere' ? 'Weitere IBAN' : 'IBAN';
       const multiInfo = ibanMatchedContracts.length > 1 ? ` (1 von ${ibanMatchedContracts.length} Verträgen, ausgewählt nach Datum)` : '';
+      const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
       return {
         ...payment,
         mietvertrag_id: bestContract.id,
-        kategorie: isKaution ? "Mietkaution" : "Miete",
+        kategorie,
         zuordnungsgrund: `${matchType}-Match: ${bestContract.mieter}${multiInfo}`,
         confidence: matchInfo?.matchType === 'weitere' ? 90 : 95,
         selected: true
@@ -641,10 +662,11 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
           const isKaution = kautionImText &&
                             contract.kaution &&
                             Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ;
+          const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
           return {
             ...payment,
             mietvertrag_id: contract.id,
-            kategorie: isKaution ? "Mietkaution" : "Miete",
+            kategorie,
             zuordnungsgrund: `Verwendungszweck-Match: "${vzweck}" für ${contract.mieter}`,
             confidence: 85,
             selected: true
@@ -689,10 +711,11 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
       const kautionBetragMatch = contract.kaution ? Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ : false;
       const isKaution = kautionInText && contract.kaution && kautionBetragMatch;
       console.log(`Name-Match result for ${contract.mieter}: betrag=${payment.betrag}, kaution=${contract.kaution}, kautionInText=${kautionInText}, kautionBetragMatch=${kautionBetragMatch}, isKaution=${isKaution}`);
+      const nameKategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
       return {
         ...payment,
         mietvertrag_id: contract.id,
-        kategorie: isKaution ? "Mietkaution" : "Miete",
+        kategorie: nameKategorie,
         zuordnungsgrund: `Namen-Match: "${matchedNames.join(', ')}" für ${contract.mieter}`,
         confidence: matchedParts >= 2 ? 90 : 80,
         selected: true
@@ -1013,10 +1036,11 @@ async function processStandardPayment(
 ): Promise<ProcessedPayment> {
   const verwendungszweck = (payment.verwendungszweck || "").toLowerCase();
   
-  // Check if payment looks like rent based on keywords
+  // Check if payment looks like rent or BKA based on keywords
   const looksLikeRent = verwendungszweck.includes("miete") ||
                         verwendungszweck.includes("miet") ||
-                        verwendungszweck.includes("bv.");
+                        verwendungszweck.includes("bv.") ||
+                        isBetriebskostenabrechnung(verwendungszweck);
   
   if (!looksLikeRent && !nichtmieteVerdacht) {
     // Doesn't look like rent, skip AI
@@ -1281,7 +1305,7 @@ serve(async (req) => {
             duplikate: duplicates.length,
             zugeordnet: 0,
             nicht_zugeordnet: 0,
-            nach_kategorie: { miete: 0, mietkaution: 0, ruecklastschrift: 0, nichtmiete: 0 },
+            nach_kategorie: { miete: 0, mietkaution: 0, ruecklastschrift: 0, nichtmiete: 0, betriebskostenabrechnung: 0 },
             durchschnittliche_konfidenz: 0
           },
           results: [],
@@ -1433,6 +1457,7 @@ serve(async (req) => {
         mietkaution: results.filter(r => r.kategorie === "Mietkaution").length,
         ruecklastschrift: results.filter(r => r.kategorie === "Rücklastschrift").length,
         nichtmiete: results.filter(r => r.kategorie === "Nichtmiete").length,
+        betriebskostenabrechnung: results.filter(r => r.kategorie === "Betriebskostenabrechnung").length,
       },
       durchschnittliche_konfidenz: results.length > 0 
         ? Math.round(results.reduce((sum, r) => sum + r.confidence, 0) / results.length)

@@ -61,6 +61,7 @@ interface Stats {
     mietkaution: number;
     ruecklastschrift: number;
     nichtmiete: number;
+    betriebskostenabrechnung: number;
   };
   durchschnittliche_konfidenz: number;
 }
@@ -181,7 +182,7 @@ export function PaymentAssignmentResultsModal({
   const [immobilieCorrections, setImmobilieCorrections] = useState<Record<number, string | null>>({});
   const [categoryCorrections, setCategoryCorrections] = useState<Record<number, string>>({});
 
-  const KATEGORIE_OPTIONS = ["Miete", "Nichtmiete", "Mietkaution", "Rücklastschrift", "Nebenkosten", "Ignorieren"] as const;
+  const KATEGORIE_OPTIONS = ["Miete", "Nichtmiete", "Mietkaution", "Rücklastschrift", "Nebenkosten", "Ignorieren", "Betriebskostenabrechnung"] as const;
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     // Default: select all Miete results with mietvertrag_id
@@ -372,6 +373,7 @@ export function PaymentAssignmentResultsModal({
       Rücklastschrift: "bg-red-100 text-red-800 border-red-200",
       Nichtmiete: "bg-gray-100 text-gray-800 border-gray-200",
       Ignorieren: "bg-gray-100 text-gray-500 border-gray-200",
+      Betriebskostenabrechnung: "bg-amber-100 text-amber-800 border-amber-200",
     };
     return <Badge className={colors[kategorie] || "bg-gray-100"}>{kategorie}</Badge>;
   };
