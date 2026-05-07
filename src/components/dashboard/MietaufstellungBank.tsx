@@ -116,9 +116,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
   const handleSave = useCallback(
     async (einheitId: string, valueStr: string) => {
-      const value = parseFloat(valueStr.replace(",", "."));
+      const trimmed = valueStr.trim();
+      // Leeres Feld → null (SOLL löschen); sonst Zahl parsen
+      const value = trimmed === "" ? null : parseFloat(trimmed.replace(",", "."));
       setEditing((prev) => { const next = { ...prev }; delete next[einheitId]; return next; });
-      if (isNaN(value) || value < 0) return;
+      // Ungültige Zahl (aber nicht null) → abbrechen ohne Speichern
+      if (value !== null && (isNaN(value) || value < 0)) return;
       const { error } = await supabase
         .from("einheiten")
         .update({ soll_miete: value })
@@ -126,7 +129,10 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
       if (error) {
         toast({ title: "Fehler", description: "SOLL-Miete konnte nicht gespeichert werden.", variant: "destructive" });
       } else {
-        queryClient.invalidateQueries({ queryKey: ["mietaufstellung-bank"] });
+        // Lokalen Cache direkt updaten – kein Refetch, keine Umsortierung
+        queryClient.setQueryData(["mietaufstellung-bank"], (old: UnitRow[] | undefined) =>
+          (old ?? []).map((row) => row.einheitId === einheitId ? { ...row, sollMiete: value } : row)
+        );
       }
     },
     [toast, queryClient]
