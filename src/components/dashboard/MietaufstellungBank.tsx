@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Printer, Pencil, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Printer, Pencil, Check, Loader2, AlertTriangle } from "lucide-react";
 import { getCurrentContract } from "@/utils/contractUtils";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -23,13 +23,15 @@ interface UnitRow {
   einheitentyp: string | null;
   qm: number | null;
   sollMiete: number | null;
+  // IST-Daten: nur bei aktiv/gekuendigt befüllt, bei Leerstand/beendet null
   kaltmiete: number | null;
   betriebskosten: number | null;
   startDatum: string | null;
   endeDatum: string | null;
-  contractStatus: string | null;
   mieterNames: string[];
-  isVacant: boolean;
+  isVacant: boolean;      // true für: kein Vertrag ODER beendeter Vertrag
+  isGekuendigt: boolean;  // true wenn Mieter noch zahlt, aber Vertrag läuft aus
+  lastEndDate: string | null; // letztes Ende-Datum bei beendeten Verträgen
 }
 
 const fmt = (val: number | null | undefined, decimals = 2): string => {
@@ -71,13 +73,21 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         const imm = e.immobilien as any;
         const contracts = (e.mietvertrag ?? []) as any[];
         const currentContract = getCurrentContract(contracts);
-        const isVacant = !currentContract;
-        const mieterNames = isVacant
-          ? []
-          : (currentContract.mietvertrag_mieter ?? [])
+
+        // KORREKTUR: beendete Verträge = Leerstand, kein IST-Beitrag
+        const isVacant = !currentContract || currentContract.status === "beendet";
+        const isGekuendigt = !isVacant && currentContract?.status === "gekuendigt";
+
+        // IST-Daten nur aus laufenden Verträgen (aktiv / gekuendigt)
+        const activeContract = isVacant ? null : currentContract;
+
+        const mieterNames = activeContract
+          ? (activeContract.mietvertrag_mieter ?? [])
               .map((mm: any) => mm.mieter)
               .filter(Boolean)
-              .map((m: any) => `${m.vorname ?? ""} ${m.nachname ?? ""}`.trim());
+              .map((m: any) => `${m.vorname ?? ""} ${m.nachname ?? ""}`.trim())
+          : [];
+
         return {
           einheitId: e.id,
           immobilieId: imm.id,
@@ -88,13 +98,17 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           einheitentyp: e.einheitentyp,
           qm: e.qm,
           sollMiete: e.soll_miete,
-          kaltmiete: currentContract?.kaltmiete ?? null,
-          betriebskosten: currentContract?.betriebskosten ?? null,
-          startDatum: currentContract?.start_datum ?? null,
-          endeDatum: currentContract?.ende_datum ?? null,
-          contractStatus: currentContract?.status ?? null,
+          kaltmiete: activeContract?.kaltmiete ?? null,
+          betriebskosten: activeContract?.betriebskosten ?? null,
+          startDatum: activeContract?.start_datum ?? null,
+          endeDatum: activeContract?.ende_datum ?? null,
           mieterNames,
           isVacant,
+          isGekuendigt,
+          lastEndDate:
+            isVacant && currentContract?.status === "beendet"
+              ? currentContract.ende_datum
+              : null,
         };
       });
     },
@@ -133,18 +147,33 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
   const grandTotals = useMemo(() => {
     let qm = 0, km = 0, bkv = 0, soll = 0;
+    let vacantCount = 0, missingSollCount = 0, gekuendigtCount = 0;
     const annuitaetMap = new Map<string, number>();
+
     for (const row of rows) {
       qm += row.qm ?? 0;
-      km += row.kaltmiete ?? 0;
-      bkv += row.betriebskosten ?? 0;
+
+      if (!row.isVacant) {
+        // IST: nur tatsächlich laufende Verträge
+        km += row.kaltmiete ?? 0;
+        bkv += row.betriebskosten ?? 0;
+      } else {
+        vacantCount++;
+        if (row.sollMiete == null) missingSollCount++;
+      }
+
+      if (row.isGekuendigt) gekuendigtCount++;
+
+      // SOLL: soll_miete wo gesetzt; bei Leerstand ohne soll_miete = 0 (ehrlich)
       const istPm = (row.kaltmiete ?? 0) + (row.betriebskosten ?? 0);
-      soll += row.sollMiete ?? istPm;
+      soll += row.sollMiete ?? (row.isVacant ? 0 : istPm);
+
       if (row.immobilieAnnuitaet != null) annuitaetMap.set(row.immobilieId, row.immobilieAnnuitaet);
     }
+
     const annuitaet = Array.from(annuitaetMap.values()).reduce((s, v) => s + v, 0);
     const ist = km + bkv;
-    return { qm, km, bkv, ist, soll, annuitaet };
+    return { qm, km, bkv, ist, soll, annuitaet, vacantCount, missingSollCount, gekuendigtCount };
   }, [rows]);
 
   if (isLoading) {
@@ -170,8 +199,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           .glass-card { background: white !important; box-shadow: none !important; border: 1px solid #e5e7eb !important; border-radius: 4px !important; }
           .modern-dashboard-bg { background: white !important; }
           .print-title { display: block !important; }
+          .print-summary { display: flex !important; }
+          .print-warning { display: block !important; }
+          tr.row-gekuendigt td { background: #fff7ed !important; }
+          tr.row-vacant td { background: #fefce8 !important; }
         }
         .print-title { display: none; }
+        .print-summary { display: none; }
+        .print-warning { display: none; }
       `}</style>
 
       <div className="container mx-auto px-4 py-6">
@@ -196,34 +231,61 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           </div>
         </div>
 
-        {/* Print-only title */}
+        {/* Print-only title + summary */}
         <div className="print-title mb-3">
-          <h1 className="text-xl font-bold">Mietaufstellung</h1>
+          <h1 className="text-xl font-bold">Mietaufstellung für Bank</h1>
           <p className="text-xs text-gray-500">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
         </div>
+        <div className="print-summary gap-6 mb-4 text-xs border border-gray-300 rounded p-3">
+          <div><span className="text-gray-500">Gesamtfläche:</span> <b>{fmt(grandTotals.qm, 0)} m²</b></div>
+          <div><span className="text-gray-500">IST p.m.:</span> <b>{fmtEuro(grandTotals.ist)}</b></div>
+          <div><span className="text-gray-500">IST p.a.:</span> <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
+          <div><span className="text-gray-500">SOLL p.m.:</span> <b>{fmtEuro(grandTotals.soll)}</b></div>
+          <div><span className="text-gray-500">Annuität p.m.:</span> <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
+          <div><span className="text-gray-500">Leerstand:</span> <b>{grandTotals.vacantCount} Einh.</b></div>
+        </div>
 
-        {/* Grand totals summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4 no-print">
+        {/* Warning-Banner: fehlende SOLL-Mieten */}
+        {grandTotals.missingSollCount > 0 && (
+          <div className="no-print mb-4 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 flex items-start gap-3">
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800">
+              <b>{grandTotals.missingSollCount} Leerstand-Einheit{grandTotals.missingSollCount > 1 ? "en" : ""}</b> ohne SOLL-Miete —
+              die SOLL-Gesamtsumme ist dadurch unvollständig. Bitte direkt in der Tabelle eintragen.
+            </p>
+          </div>
+        )}
+
+        {/* Summary-Karten */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 mb-4 no-print">
           {[
             { label: "Gesamtfläche", value: `${fmt(grandTotals.qm, 0)} m²` },
             { label: "IST-Miete p.m.", value: fmtEuro(grandTotals.ist) },
             { label: "IST-Miete p.a.", value: fmtEuro(grandTotals.ist * 12) },
-            { label: "SOLL-Miete p.m.", value: fmtEuro(grandTotals.soll) },
-            { label: "Annuität p.m. ges.", value: fmtEuro(grandTotals.annuitaet) },
+            { label: "SOLL-Miete p.m.", value: fmtEuro(grandTotals.soll), note: grandTotals.missingSollCount > 0 ? `${grandTotals.missingSollCount} fehlen` : undefined, noteColor: "text-amber-600" },
+            { label: "Annuität p.m.", value: fmtEuro(grandTotals.annuitaet) },
+            {
+              label: "Leerstand",
+              value: `${grandTotals.vacantCount} Einh.`,
+              note: grandTotals.gekuendigtCount > 0 ? `+ ${grandTotals.gekuendigtCount} läuft aus` : undefined,
+              noteColor: "text-orange-500",
+              negative: grandTotals.vacantCount > 0,
+            },
             {
               label: "Überschuss IST p.a.",
               value: fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12),
               negative: (grandTotals.ist - grandTotals.annuitaet) < 0,
             },
-          ].map(({ label, value, negative }) => (
+          ].map(({ label, value, note, noteColor, negative }) => (
             <div key={label} className="glass-card rounded-xl p-3 text-center">
               <div className="text-xs text-gray-500 mb-1">{label}</div>
               <div className={cn("font-bold text-sm font-mono", negative && "text-red-600")}>{value}</div>
+              {note && <div className={cn("text-[10px] mt-0.5", noteColor)}>{note}</div>}
             </div>
           ))}
         </div>
 
-        {/* Main table */}
+        {/* Haupt-Tabelle */}
         <div className="glass-card rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse print-table">
@@ -232,7 +294,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                   <th className="px-2 py-2 text-center font-semibold whitespace-nowrap">Nr.</th>
                   <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Lage</th>
                   <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Nutzung</th>
-                  <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Mieter</th>
+                  <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Mieter / Status</th>
                   <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Fläche m²</th>
                   <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">€/m²</th>
                   <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">KM</th>
@@ -250,11 +312,17 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 {(() => {
                   let nr = 0;
                   return grouped.flatMap((imm) => {
+                    // IST: nur nicht-leere Einheiten
                     const immKm  = imm.units.reduce((s, u) => s + (u.kaltmiete ?? 0), 0);
                     const immBkv = imm.units.reduce((s, u) => s + (u.betriebskosten ?? 0), 0);
                     const immIst = immKm + immBkv;
-                    const immSoll = imm.units.reduce((s, u) => s + (u.sollMiete ?? ((u.kaltmiete ?? 0) + (u.betriebskosten ?? 0))), 0);
+                    const immSoll = imm.units.reduce((s, u) => {
+                      const istPm = (u.kaltmiete ?? 0) + (u.betriebskosten ?? 0);
+                      return s + (u.sollMiete ?? (u.isVacant ? 0 : istPm));
+                    }, 0);
                     const immQm  = imm.units.reduce((s, u) => s + (u.qm ?? 0), 0);
+                    const immVacant = imm.units.filter(u => u.isVacant).length;
+                    const immGekuendigt = imm.units.filter(u => u.isGekuendigt).length;
                     const ueberschussIst  = (immIst  - (imm.annuitaet ?? 0)) * 12;
                     const ueberschussSoll = (immSoll - (imm.annuitaet ?? 0)) * 12;
 
@@ -265,6 +333,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                         </td>
                         <td colSpan={2} className="px-2 py-2 text-orange-700 text-xs">
                           {imm.adresse}
+                          {immVacant > 0 && (
+                            <span className="ml-2 text-yellow-700 font-semibold">· {immVacant}× Leerstand</span>
+                          )}
+                          {immGekuendigt > 0 && (
+                            <span className="ml-2 text-orange-600 font-semibold">· {immGekuendigt}× läuft aus</span>
+                          )}
                         </td>
                         <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">
                           {fmt(immQm, 0)} m²
@@ -296,39 +370,56 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                     const unitRows = imm.units.map((unit) => {
                       nr++;
                       const istPm  = (unit.kaltmiete ?? 0) + (unit.betriebskosten ?? 0);
-                      const sollPm = unit.sollMiete ?? istPm;
-                      const diffPm = istPm - sollPm;
+                      const sollPm = unit.sollMiete ?? (unit.isVacant ? null : istPm);
+                      const diffPm = sollPm != null ? (istPm - sollPm) : null;
                       const eurProQm = unit.kaltmiete && unit.qm ? unit.kaltmiete / unit.qm : null;
                       const sollNotSet = unit.sollMiete == null;
-
-                      const laufzeit = unit.isVacant
-                        ? "LEERSTAND"
-                        : unit.endeDatum
-                        ? `${fmtDate(unit.startDatum)} – ${fmtDate(unit.endeDatum)}${unit.contractStatus === "gekuendigt" ? " (gek.)" : ""}`
-                        : `${fmtDate(unit.startDatum)} – unbefristet`;
-
                       const isEditing = unit.einheitId in editing;
+
+                      // Laufzeit-Text je nach Status
+                      let laufzeit: string;
+                      if (unit.isVacant) {
+                        laufzeit = unit.lastEndDate
+                          ? `Leerstand · bis ${fmtDate(unit.lastEndDate)}`
+                          : "LEERSTAND";
+                      } else if (unit.endeDatum) {
+                        laufzeit = `${fmtDate(unit.startDatum)} – ${fmtDate(unit.endeDatum)}${unit.isGekuendigt ? " (gek.)" : ""}`;
+                      } else {
+                        laufzeit = `seit ${fmtDate(unit.startDatum)}`;
+                      }
 
                       return (
                         <tr
                           key={unit.einheitId}
                           className={cn(
-                            "border-b border-gray-100 hover:bg-gray-50 transition-colors",
-                            unit.isVacant && "bg-yellow-50/70"
+                            "border-b border-gray-100 transition-colors",
+                            unit.isVacant && "row-vacant bg-yellow-50/70",
+                            unit.isGekuendigt && "row-gekuendigt bg-orange-50/50",
+                            !unit.isVacant && !unit.isGekuendigt && "hover:bg-gray-50"
                           )}
                         >
                           <td className="px-2 py-1.5 text-center text-gray-400 tabular-nums">{nr}</td>
                           <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{unit.etage ?? "—"}</td>
                           <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{unit.einheitentyp ?? "—"}</td>
+
+                          {/* Mieter / Status */}
                           <td className="px-2 py-1.5 max-w-[160px]">
                             {unit.isVacant ? (
                               <span className="text-yellow-700 font-medium">LEERSTAND</span>
+                            ) : unit.isGekuendigt ? (
+                              <div>
+                                <span className="block truncate" title={unit.mieterNames.join(", ")}>
+                                  {unit.mieterNames.join(", ") || "—"}
+                                </span>
+                                <span className="text-orange-600 text-[10px] font-medium">⚠ Vertrag gekündigt</span>
+                              </div>
                             ) : (
                               <span className="block truncate" title={unit.mieterNames.join(", ")}>
                                 {unit.mieterNames.join(", ") || "—"}
                               </span>
                             )}
                           </td>
+
                           <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
                             {unit.qm != null ? fmt(unit.qm, 0) : "—"}
                           </td>
@@ -336,23 +427,39 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                             {unit.isVacant ? "—" : eurProQm != null ? fmt(eurProQm, 2) : "—"}
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
-                            {unit.isVacant ? "—" : fmtEuro(unit.kaltmiete)}
+                            {unit.isVacant ? <span className="text-gray-400">0,00 €</span> : fmtEuro(unit.kaltmiete)}
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
-                            {unit.isVacant ? "—" : fmtEuro(unit.betriebskosten)}
+                            {unit.isVacant ? <span className="text-gray-400">0,00 €</span> : fmtEuro(unit.betriebskosten)}
                           </td>
                           <td className="px-2 py-1.5 text-right tabular-nums font-medium text-gray-700">
-                            {unit.isVacant ? "—" : fmtEuro(istPm)}
-                          </td>
-                          <td className="px-2 py-1.5 text-gray-500 text-xs whitespace-nowrap">{laufzeit}</td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
-                            {unit.isVacant ? "—" : fmtEuro(istPm)}
-                          </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
-                            {unit.isVacant ? "—" : fmtEuro(istPm * 12)}
+                            {unit.isVacant ? <span className="text-gray-400">0,00 €</span> : fmtEuro(istPm)}
                           </td>
 
-                          {/* SOLL p.m. — editable */}
+                          {/* Laufzeit */}
+                          <td className={cn(
+                            "px-2 py-1.5 text-xs whitespace-nowrap",
+                            unit.isVacant && "text-yellow-700",
+                            unit.isGekuendigt && "text-orange-600",
+                            !unit.isVacant && !unit.isGekuendigt && "text-gray-500"
+                          )}>
+                            {laufzeit}
+                          </td>
+
+                          {/* IST p.m. */}
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {unit.isVacant
+                              ? <span className="text-gray-400">0,00 €</span>
+                              : <span className="text-gray-700">{fmtEuro(istPm)}</span>}
+                          </td>
+                          {/* IST p.a. */}
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {unit.isVacant
+                              ? <span className="text-gray-400">0,00 €</span>
+                              : <span className="text-gray-700">{fmtEuro(istPm * 12)}</span>}
+                          </td>
+
+                          {/* SOLL p.m. — editierbar, auch für Leerstand */}
                           <td className="px-1 py-1">
                             {isEditing ? (
                               <div className="flex items-center gap-0.5 justify-end">
@@ -380,34 +487,50 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                             ) : (
                               <button
                                 className={cn(
-                                  "text-right w-full rounded px-1 py-0.5 group flex items-center justify-end gap-0.5 no-print-border",
+                                  "text-right w-full rounded px-1 py-0.5 group flex items-center justify-end gap-0.5",
                                   "hover:bg-blue-50 cursor-pointer no-print-cursor"
                                 )}
                                 onClick={() =>
-                                  setEditing((prev) => ({ ...prev, [unit.einheitId]: String(unit.sollMiete ?? istPm) }))
+                                  setEditing((prev) => ({
+                                    ...prev,
+                                    [unit.einheitId]: String(unit.sollMiete ?? (unit.isVacant ? "" : istPm)),
+                                  }))
                                 }
                                 title="Klicken zum Bearbeiten"
                               >
-                                <span className={cn("tabular-nums", sollNotSet && "text-gray-400 italic")}>
-                                  {fmtEuro(sollPm)}
-                                </span>
+                                {sollNotSet && unit.isVacant ? (
+                                  <span className="text-red-500 font-medium flex items-center gap-0.5 text-[10px]">
+                                    <AlertTriangle className="h-2.5 w-2.5 no-print" />
+                                    Nicht gesetzt
+                                  </span>
+                                ) : (
+                                  <span className={cn(
+                                    "tabular-nums",
+                                    sollNotSet && !unit.isVacant && "text-gray-400 italic"
+                                  )}>
+                                    {sollPm != null ? fmtEuro(sollPm) : "—"}
+                                  </span>
+                                )}
                                 <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-40 shrink-0 no-print" />
                               </button>
                             )}
                           </td>
 
+                          {/* SOLL p.a. */}
                           <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
                             {unit.sollMiete != null ? fmtEuro(unit.sollMiete * 12) : "—"}
                           </td>
+
+                          {/* Diff. p.m. (IST – SOLL) */}
                           <td
                             className={cn(
                               "px-2 py-1.5 text-right tabular-nums",
-                              diffPm > 0  && "text-orange-600 font-medium",
-                              diffPm < 0  && "text-green-600 font-medium",
-                              diffPm === 0 && "text-gray-300"
+                              diffPm != null && diffPm > 0 && "text-orange-600 font-medium",
+                              diffPm != null && diffPm < 0 && "text-green-600 font-medium",
+                              (diffPm == null || diffPm === 0) && "text-gray-300"
                             )}
                           >
-                            {diffPm !== 0 ? fmtEuro(diffPm) : "—"}
+                            {diffPm != null && diffPm !== 0 ? fmtEuro(diffPm) : "—"}
                           </td>
                         </tr>
                       );
@@ -417,9 +540,16 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                   });
                 })()}
 
-                {/* Grand total row */}
+                {/* Gesamt-Zeile */}
                 <tr className="bg-gray-800 text-white border-t-2 border-gray-600">
-                  <td colSpan={4} className="px-2 py-2 font-bold">Gesamt</td>
+                  <td colSpan={4} className="px-2 py-2 font-bold">
+                    Gesamt
+                    {grandTotals.missingSollCount > 0 && (
+                      <span className="ml-2 text-amber-400 text-[10px] font-normal">
+                        ({grandTotals.missingSollCount} Leerstand ohne SOLL)
+                      </span>
+                    )}
+                  </td>
                   <td className="px-2 py-2 text-right tabular-nums font-bold">{fmt(grandTotals.qm, 0)} m²</td>
                   <td className="px-2 py-2" />
                   <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.km)}</td>
@@ -433,6 +563,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                     <span className={cn("font-semibold tabular-nums", (grandTotals.ist - grandTotals.annuitaet) < 0 ? "text-red-400" : "text-green-400")}>
                       {fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)} p.a.
                     </span>
+                    {grandTotals.vacantCount > 0 && (
+                      <>
+                        <span className="mx-1.5 opacity-40">|</span>
+                        <span className="text-yellow-400">{grandTotals.vacantCount} Leerstand</span>
+                      </>
+                    )}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
                   <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist * 12)}</td>
@@ -454,7 +590,9 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         </div>
 
         <p className="mt-3 text-xs text-gray-400 text-center no-print">
-          SOLL-Wert anklicken zum Bearbeiten (Enter = speichern, Esc = abbrechen) · Kursiv = noch kein SOLL gesetzt (zeigt IST als Vorschlag)
+          SOLL-Wert anklicken zum Bearbeiten (Enter = speichern, Esc = abbrechen) ·
+          Kursiv/grau = kein SOLL gesetzt (Fallback auf IST) ·
+          <span className="text-red-400"> Rot = Leerstand ohne SOLL (bitte eintragen)</span>
         </p>
       </div>
     </div>
