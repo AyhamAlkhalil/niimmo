@@ -625,7 +625,6 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                 <th className="text-[10px] font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">Kaltmiete</th>
                 <th className="text-[10px] font-bold py-2 px-2 w-[60px] text-right h-12 align-middle text-muted-foreground">NK</th>
                 <th className="text-[10px] font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">Warmmiete</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">SOLL p.m.</th>
                 <th className="text-[10px] font-bold py-2 px-2 w-[40px] text-center h-12 align-middle text-muted-foreground">Pers.</th>
                 <th className="text-[10px] font-bold py-2 px-2 w-[85px] h-12 text-left align-middle text-muted-foreground">Beginn</th>
                 <th className="text-[10px] font-bold py-2 px-2 w-[85px] h-12 text-left align-middle text-muted-foreground">Ende</th>
@@ -634,7 +633,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
             <tbody className="[&_tr:last-child]:border-0">
               {grouped.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={16} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={15} className="text-center py-12 text-muted-foreground">
                     {search ? "Keine Ergebnisse für diese Suche" : "Keine Daten vorhanden"}
                   </TableCell>
                 </TableRow>
@@ -682,7 +681,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                       <TableCell className="py-2 px-2 text-right text-xs font-medium">
                         {groupWarm.toFixed(0)} €
                       </TableCell>
-                      <TableCell colSpan={4} className="py-2 px-2" />
+                      <TableCell colSpan={3} className="py-2 px-2" />
                     </TableRow>
 
                     {/* Unit rows */}
@@ -767,11 +766,6 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                                   {(row.kaltmiete + row.betriebskosten).toFixed(2)} €
                                 </span>
                               )}
-                            </TableCell>
-                            <TableCell className="py-1 px-2 text-right">
-                              <span className={`text-xs ${row.sollMiete == null ? "text-gray-400 italic" : "font-medium"}`}>
-                                {row.sollMiete != null ? `${row.sollMiete.toFixed(2)} €` : "—"}
-                              </span>
                             </TableCell>
                             <TableCell className="py-1 px-2 text-center">
                               {!row.isLeerstand && (
