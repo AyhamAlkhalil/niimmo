@@ -34,12 +34,34 @@ const getTypLabel = (type: string) => {
   return labels[type] || type;
 };
 
+const getUnit = (type: string) => {
+  if (type === 'strom' || type === 'strom_2') return 'kWh';
+  return 'm³';
+};
+
 const getQuelleLabel = (quelle: string | null) => {
   switch (quelle) {
     case 'einzug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-green-300 text-green-700">Einzug</Badge>;
     case 'auszug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-300 text-orange-700">Auszug</Badge>;
     default: return <Badge variant="outline" className="text-[9px] px-1 py-0">Manuell</Badge>;
   }
+};
+
+const computeVerbrauch = (
+  entries: { id: string; zaehler_typ: string; zaehler_nummer: string | null; stand: number | null }[],
+  index: number
+): number | null => {
+  const entry = entries[index];
+  if (entry.stand == null) return null;
+  for (let i = index + 1; i < entries.length; i++) {
+    const prev = entries[i];
+    if (prev.zaehler_typ !== entry.zaehler_typ) continue;
+    if (prev.zaehler_nummer !== entry.zaehler_nummer) continue;
+    if (prev.stand == null) return null;
+    const delta = Number(entry.stand) - Number(prev.stand);
+    return delta >= 0 ? delta : null;
+  }
+  return null;
 };
 
 export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistorieProps) => {
@@ -92,11 +114,14 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                   <TableHead className="py-1 px-2 h-6">Typ</TableHead>
                   <TableHead className="py-1 px-2 h-6">Zähler-Nr</TableHead>
                   <TableHead className="py-1 px-2 h-6 text-right">Stand</TableHead>
+                  <TableHead className="py-1 px-2 h-6 text-right">Verbrauch</TableHead>
                   <TableHead className="py-1 px-2 h-6">Quelle</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {historie.map((entry) => (
+                {historie.map((entry, index) => {
+                  const verbrauch = computeVerbrauch(historie, index);
+                  return (
                   <TableRow key={entry.id} className="text-[10px]">
                     <TableCell className="py-0.5 px-2">
                       {format(new Date(entry.datum), 'dd.MM.yyyy', { locale: de })}
@@ -113,11 +138,21 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                     <TableCell className="py-0.5 px-2 text-right font-mono">
                       {entry.stand != null ? Number(entry.stand).toLocaleString('de-DE', { minimumFractionDigits: 1 }) : '-'}
                     </TableCell>
+                    <TableCell className="py-0.5 px-2 text-right font-mono">
+                      {verbrauch != null ? (
+                        <span className="text-emerald-600 font-medium">
+                          +{verbrauch.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} {getUnit(entry.zaehler_typ)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="py-0.5 px-2">
                       {getQuelleLabel(entry.quelle)}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
