@@ -199,23 +199,24 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         @media print {
           body, html { background: white !important; }
           .no-print { display: none !important; }
-          @page { size: A3 landscape; margin: 8mm; }
-          .print-table { font-size: 6.5pt !important; }
-          .print-table th, .print-table td { padding: 2px 3px !important; }
-          .glass-card { background: white !important; box-shadow: none !important; border: 1px solid #e5e7eb !important; border-radius: 4px !important; }
+          @page { size: A3 landscape; margin: 6mm; }
+          .print-table { font-size: 6pt !important; width: 100% !important; }
+          .print-table th, .print-table td { padding: 1.5px 3px !important; white-space: nowrap !important; }
+          .glass-card { background: white !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
           .modern-dashboard-bg { background: white !important; }
           .print-title { display: block !important; }
           .print-summary { display: flex !important; }
           .print-warning { display: block !important; }
           tr.row-gekuendigt td { background: #fff7ed !important; }
           tr.row-vacant td { background: #fefce8 !important; }
+          px { padding: 0 !important; }
         }
         .print-title { display: none; }
         .print-summary { display: none; }
         .print-warning { display: none; }
       `}</style>
 
-      <div className="container mx-auto px-4 py-6">
+      <div className="px-4 py-6">
 
         {/* Screen header */}
         <div className="glass-card p-4 sm:p-6 rounded-2xl mb-4 no-print">
@@ -293,25 +294,24 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
         {/* Haupt-Tabelle */}
         <div className="glass-card rounded-2xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse print-table">
+            <table className="w-full text-[11px] border-collapse print-table">
               <thead>
                 <tr className="bg-gray-800 text-white">
-                  <th className="px-2 py-2 text-center font-semibold whitespace-nowrap">Nr.</th>
-                  <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Lage</th>
-                  <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Nutzung</th>
-                  <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Mieter / Status</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Fläche m²</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">€/m²</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">KM</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">BKV</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Gesamt-<br />miete</th>
-                  <th className="px-2 py-2 text-left font-semibold whitespace-nowrap">Laufzeit</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">IST<br />p.m.</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">IST<br />p.a.</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">SOLL<br />p.m.</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">SOLL<br />p.a.</th>
-                  <th className="px-2 py-2 text-right font-semibold whitespace-nowrap">Diff.<br />p.m.</th>
+                  <th className="px-1.5 py-1.5 text-center font-semibold whitespace-nowrap w-7">Nr.</th>
+                  <th className="px-1.5 py-1.5 text-left font-semibold whitespace-nowrap">Lage</th>
+                  <th className="px-1.5 py-1.5 text-left font-semibold whitespace-nowrap">Nutzung</th>
+                  <th className="px-1.5 py-1.5 text-left font-semibold">Mieter</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">m²</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">€/m²</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">KM</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">BKV</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">Gesamt</th>
+                  <th className="px-1.5 py-1.5 text-left font-semibold whitespace-nowrap">Laufzeit</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">IST p.m.</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">IST p.a.</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">SOLL p.m.</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">SOLL p.a.</th>
+                  <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">Diff.</th>
                 </tr>
               </thead>
               <tbody>
@@ -334,10 +334,10 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
                     const headerRow = (
                       <tr key={`h-${imm.id}`} className="bg-orange-100 border-t-2 border-b border-orange-300">
-                        <td colSpan={2} className="px-2 py-2 font-bold text-orange-900 whitespace-nowrap">
+                        <td colSpan={2} className="px-1.5 py-1.5 font-bold text-orange-900 whitespace-nowrap">
                           {imm.name}
                         </td>
-                        <td colSpan={2} className="px-2 py-2 text-orange-700 text-xs">
+                        <td colSpan={2} className="px-1.5 py-1.5 text-orange-700 text-xs">
                           {imm.adresse}
                           {immVacant > 0 && (
                             <span className="ml-2 text-yellow-700 font-semibold">· {immVacant}× Leerstand</span>
@@ -346,14 +346,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                             <span className="ml-2 text-orange-600 font-semibold">· {immGekuendigt}× läuft aus</span>
                           )}
                         </td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">
                           {fmt(immQm, 0)} m²
                         </td>
-                        <td className="px-2 py-2" />
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immKm)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immBkv)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immIst)}</td>
-                        <td className="px-2 py-2 text-xs text-orange-800">
+                        <td className="px-1.5 py-1.5" />
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immKm)}</td>
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immBkv)}</td>
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immIst)}</td>
+                        <td className="px-1.5 py-1.5 text-xs text-orange-800">
                           Annuität: <span className="font-semibold tabular-nums">{fmtEuro(imm.annuitaet)}</span>
                           <span className="mx-1.5 text-orange-400">|</span>
                           Überschuss IST:{" "}
@@ -365,11 +365,11 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                             {fmtEuro(ueberschussSoll)}
                           </span>
                         </td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immIst)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immIst * 12)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immSoll)}</td>
-                        <td className="px-2 py-2 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immSoll * 12)}</td>
-                        <td className="px-2 py-2" />
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immIst)}</td>
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immIst * 12)}</td>
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immSoll)}</td>
+                        <td className="px-1.5 py-1.5 text-right font-bold text-orange-900 tabular-nums">{fmtEuro(immSoll * 12)}</td>
+                        <td className="px-1.5 py-1.5" />
                       </tr>
                     );
 
@@ -404,12 +404,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                             !unit.isVacant && !unit.isGekuendigt && "hover:bg-gray-50"
                           )}
                         >
-                          <td className="px-2 py-1.5 text-center text-gray-400 tabular-nums">{nr}</td>
-                          <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{unit.etage ?? "—"}</td>
-                          <td className="px-2 py-1.5 text-gray-700 whitespace-nowrap">{unit.einheitentyp ?? "—"}</td>
+                          <td className="px-1.5 py-1 text-center text-gray-400 tabular-nums">{nr}</td>
+                          <td className="px-1.5 py-1 text-gray-700 whitespace-nowrap">{unit.etage ?? "—"}</td>
+                          <td className="px-1.5 py-1 text-gray-700 whitespace-nowrap">{unit.einheitentyp ?? "—"}</td>
 
                           {/* Mieter / Status */}
-                          <td className="px-2 py-1.5 max-w-[160px]">
+                          <td className="px-1.5 py-1 max-w-[140px]">
                             {unit.isVacant ? (
                               <span className="text-yellow-700 font-medium">LEERSTAND</span>
                             ) : unit.isGekuendigt ? (
@@ -426,25 +426,25 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                             )}
                           </td>
 
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
+                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-700">
                             {unit.qm != null ? fmt(unit.qm, 0) : "—"}
                           </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
+                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-500">
                             {unit.isVacant ? "—" : eurProQm != null ? fmt(eurProQm, 2) : "—"}
                           </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
+                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-700">
                             {unit.isVacant ? <span className="text-gray-400">0,00 €</span> : fmtEuro(unit.kaltmiete)}
                           </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-500">
+                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-500">
                             {unit.isVacant ? <span className="text-gray-400">0,00 €</span> : fmtEuro(unit.betriebskosten)}
                           </td>
-                          <td className="px-2 py-1.5 text-right tabular-nums font-medium text-gray-700">
+                          <td className="px-1.5 py-1 text-right tabular-nums font-medium text-gray-700">
                             {unit.isVacant ? <span className="text-gray-400">0,00 €</span> : fmtEuro(istPm)}
                           </td>
 
                           {/* Laufzeit */}
                           <td className={cn(
-                            "px-2 py-1.5 text-xs whitespace-nowrap",
+                            "px-1.5 py-1 text-xs whitespace-nowrap",
                             unit.isVacant && "text-yellow-700",
                             unit.isGekuendigt && "text-orange-600",
                             !unit.isVacant && !unit.isGekuendigt && "text-gray-500"
@@ -453,13 +453,13 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                           </td>
 
                           {/* IST p.m. */}
-                          <td className="px-2 py-1.5 text-right tabular-nums">
+                          <td className="px-1.5 py-1 text-right tabular-nums">
                             {unit.isVacant
                               ? <span className="text-gray-400">0,00 €</span>
                               : <span className="text-gray-700">{fmtEuro(istPm)}</span>}
                           </td>
                           {/* IST p.a. */}
-                          <td className="px-2 py-1.5 text-right tabular-nums">
+                          <td className="px-1.5 py-1 text-right tabular-nums">
                             {unit.isVacant
                               ? <span className="text-gray-400">0,00 €</span>
                               : <span className="text-gray-700">{fmtEuro(istPm * 12)}</span>}
@@ -523,14 +523,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                           </td>
 
                           {/* SOLL p.a. */}
-                          <td className="px-2 py-1.5 text-right tabular-nums text-gray-700">
+                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-700">
                             {unit.sollMiete != null ? fmtEuro(unit.sollMiete * 12) : "—"}
                           </td>
 
                           {/* Diff. p.m. (IST – SOLL) */}
                           <td
                             className={cn(
-                              "px-2 py-1.5 text-right tabular-nums",
+                              "px-1.5 py-1 text-right tabular-nums",
                               diffPm != null && diffPm > 0 && "text-orange-600 font-medium",
                               diffPm != null && diffPm < 0 && "text-green-600 font-medium",
                               (diffPm == null || diffPm === 0) && "text-gray-300"
@@ -548,7 +548,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
                 {/* Gesamt-Zeile */}
                 <tr className="bg-gray-800 text-white border-t-2 border-gray-600">
-                  <td colSpan={4} className="px-2 py-2 font-bold">
+                  <td colSpan={4} className="px-1.5 py-1.5 font-bold">
                     Gesamt
                     {grandTotals.missingSollCount > 0 && (
                       <span className="ml-2 text-amber-400 text-[10px] font-normal">
@@ -556,12 +556,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmt(grandTotals.qm, 0)} m²</td>
-                  <td className="px-2 py-2" />
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.km)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.bkv)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
-                  <td className="px-2 py-2 text-xs">
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmt(grandTotals.qm, 0)} m²</td>
+                  <td className="px-1.5 py-1.5" />
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.km)}</td>
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.bkv)}</td>
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
+                  <td className="px-1.5 py-1.5 text-xs">
                     Annuität ges.:{" "}
                     <span className="font-semibold tabular-nums">{fmtEuro(grandTotals.annuitaet)}</span>
                     <span className="mx-1.5 opacity-40">|</span>
@@ -576,13 +576,13 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                       </>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist * 12)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.soll)}</td>
-                  <td className="px-2 py-2 text-right tabular-nums font-bold">{fmtEuro(grandTotals.soll * 12)}</td>
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist * 12)}</td>
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.soll)}</td>
+                  <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.soll * 12)}</td>
                   <td
                     className={cn(
-                      "px-2 py-2 text-right tabular-nums font-bold",
+                      "px-1.5 py-1.5 text-right tabular-nums font-bold",
                       (grandTotals.ist - grandTotals.soll) > 0 && "text-orange-300",
                       (grandTotals.ist - grandTotals.soll) < 0 && "text-green-300",
                     )}
@@ -592,7 +592,6 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 </tr>
               </tbody>
             </table>
-          </div>
         </div>
 
         <p className="mt-3 text-xs text-gray-400 text-center no-print">
