@@ -199,11 +199,17 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
   }
 
   return (
-    <div className="min-h-screen modern-dashboard-bg">
+    <div className="min-h-screen modern-dashboard-bg mietaufstellung-print-root">
       <style>{`
         @media print {
-          body, html { background: white !important; }
-          .no-print { display: none !important; }
+          /* Alles ausblenden – nur unseren Print-Container zeigen */
+          html, body { background: white !important; }
+          body { visibility: hidden !important; }
+          .mietaufstellung-print-root { visibility: visible !important; }
+          .mietaufstellung-print-root * { visibility: visible !important; }
+          /* Bedienelemente innerhalb des Containers trotzdem verstecken */
+          .no-print,
+          .no-print * { visibility: hidden !important; display: none !important; }
           @page { size: A3 landscape; margin: 6mm; }
           .print-table { font-size: 6pt !important; width: 100% !important; }
           .print-table th, .print-table td { padding: 1.5px 3px !important; white-space: nowrap !important; }
