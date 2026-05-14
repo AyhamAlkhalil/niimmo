@@ -52,24 +52,35 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Record<string, string>>({});
-  const [editingAnn, setEditingAnn] = useState<Record<string, string>>({});
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["mietaufstellung-bank"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("einheiten")
-        .select(`
+      const [einheitenRes, darlehenRes] = await Promise.all([
+        supabase.from("einheiten").select(`
           id, etage, qm, einheitentyp, soll_miete,
-          immobilien!inner( id, name, adresse, "Annuität" ),
+          immobilien!inner( id, name, adresse ),
           mietvertrag(
             id, status, kaltmiete, betriebskosten, start_datum, ende_datum,
             mietvertrag_mieter( mieter( vorname, nachname ) )
           )
-        `);
-      if (error) throw error;
+        `),
+        supabase.from("darlehen_immobilien").select(`
+          immobilie_id,
+          darlehen( monatliche_rate )
+        `),
+      ]);
+      if (einheitenRes.error) throw einheitenRes.error;
 
-      return (data ?? []).map((e): UnitRow => {
+      // Variante C: jede Immobilie trägt die volle Rate jedes verknüpften Darlehens
+      const annMap = new Map<string, number>();
+      for (const di of darlehenRes.data ?? []) {
+        const rate = (di.darlehen as any)?.monatliche_rate ?? 0;
+        if (di.immobilie_id && rate > 0)
+          annMap.set(di.immobilie_id, (annMap.get(di.immobilie_id) ?? 0) + rate);
+      }
+
+      return (einheitenRes.data ?? []).map((e): UnitRow => {
         const imm = e.immobilien as any;
         const contracts = (e.mietvertrag ?? []) as any[];
         const currentContract = getCurrentContract(contracts);
@@ -90,7 +101,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           immobilieId: imm.id,
           immobilieName: imm.name,
           immobilieAdresse: imm.adresse,
-          immobilieAnnuitaet: imm["Annuität"],
+          immobilieAnnuitaet: annMap.get(imm.id) ?? null,
           etage: e.etage,
           einheitentyp: e.einheitentyp,
           qm: e.qm,
@@ -126,25 +137,6 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           (old ?? []).map((row) => row.einheitId === einheitId ? { ...row, sollMiete: value } : row)
         );
         queryClient.invalidateQueries({ queryKey: ["miet-overview"] });
-      }
-    },
-    [toast, queryClient]
-  );
-
-  // Annuität speichern (immobilien."Annuität")
-  const handleSaveAnn = useCallback(
-    async (immId: string, valueStr: string) => {
-      const trimmed = valueStr.trim();
-      const value = trimmed === "" ? null : parseFloat(trimmed.replace(",", "."));
-      setEditingAnn((prev) => { const next = { ...prev }; delete next[immId]; return next; });
-      if (value !== null && (isNaN(value) || value < 0)) return;
-      const { error } = await supabase.from("immobilien").update({ "Annuität": value }).eq("id", immId);
-      if (error) {
-        toast({ title: "Fehler", description: "Annuität konnte nicht gespeichert werden.", variant: "destructive" });
-      } else {
-        queryClient.setQueryData(["mietaufstellung-bank"], (old: UnitRow[] | undefined) =>
-          (old ?? []).map((row) => row.immobilieId === immId ? { ...row, immobilieAnnuitaet: value } : row)
-        );
       }
     },
     [toast, queryClient]
@@ -235,7 +227,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold font-sans text-gradient-red">Mietaufstellung</h1>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Stand: {format(new Date(), "dd.MM.yyyy")} · SOLL und Annuität sind direkt in der Tabelle editierbar
+                  Stand: {format(new Date(), "dd.MM.yyyy")} · SOLL-Miete direkt editierbar · Annuität aus Darlehen
                 </p>
               </div>
             </div>
@@ -318,7 +310,6 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                   const immVacant  = imm.units.filter(u => u.isVacant).length;
                   const ueberschussIst  = (immIst  - (imm.annuitaet ?? 0)) * 12;
                   const ueberschussSoll = (immSoll - (imm.annuitaet ?? 0)) * 12;
-                  const isEditingAnn = imm.id in editingAnn;
 
                   const headerRow = (
                     <tr key={`h-${imm.id}`} className="bg-gray-100 border-t-2 border-b border-gray-300">
@@ -339,40 +330,15 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                       <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immBkv)}</td>
                       <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immIst)}</td>
 
-                      {/* Laufzeit-Spalte: enthält Annuität (editierbar) + Überschuss */}
+                      {/* Laufzeit-Spalte: Annuität (aus Darlehen, read-only) + Überschuss */}
                       <td className="px-1.5 py-1.5 text-[10px] text-gray-600 whitespace-nowrap">
-                        {isEditingAnn ? (
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-500">Annuität:</span>
-                            <Input
-                              className="h-5 w-20 text-[10px] text-right py-0 px-1"
-                              value={editingAnn[imm.id]}
-                              onChange={(e) => setEditingAnn(prev => ({ ...prev, [imm.id]: e.target.value }))}
-                              onBlur={() => handleSaveAnn(imm.id, editingAnn[imm.id])}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") handleSaveAnn(imm.id, editingAnn[imm.id]);
-                                if (e.key === "Escape") setEditingAnn(prev => { const n = { ...prev }; delete n[imm.id]; return n; });
-                              }}
-                              autoFocus
-                            />
-                            <span className="text-gray-500">p.m.</span>
-                            <button
-                              className="text-green-600"
-                              onMouseDown={(e) => { e.preventDefault(); handleSaveAnn(imm.id, editingAnn[imm.id]); }}
-                            >
-                              <Check className="h-3 w-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            className="group hover:bg-gray-200 px-1 py-0.5 rounded inline-flex items-center gap-1 no-print-cursor"
-                            onClick={() => setEditingAnn(prev => ({ ...prev, [imm.id]: String(imm.annuitaet ?? "") }))}
-                            title="Annuität bearbeiten"
-                          >
-                            <span>Annuität: <b className="tabular-nums">{imm.annuitaet != null ? fmtEuro(imm.annuitaet) : "—"}</b></span>
-                            <Pencil className="h-2 w-2 opacity-0 group-hover:opacity-50 no-print" />
-                          </button>
-                        )}
+                        <span>
+                          Annuität:{" "}
+                          <b className="tabular-nums">
+                            {imm.annuitaet != null ? fmtEuro(imm.annuitaet) : <span className="text-gray-400 font-normal">—</span>}
+                          </b>
+                          {" p.m."}
+                        </span>
                         <span className="mx-1 text-gray-300">|</span>
                         Überschuss IST:{" "}
                         <span className={cn("font-semibold tabular-nums", ueberschussIst < 0 ? "text-red-600" : "text-emerald-600")}>
@@ -566,7 +532,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         </div>
 
         <p className="mt-3 text-xs text-gray-400 text-center no-print">
-          SOLL-Wert und Annuität direkt in der Tabelle anklicken zum Bearbeiten · Leeres Feld = SOLL löschen
+          SOLL-Miete direkt anklicken zum Bearbeiten · Leeres Feld speichern = SOLL löschen · Annuität wird aus hinterlegten Darlehen berechnet
         </p>
       </div>
     </div>
