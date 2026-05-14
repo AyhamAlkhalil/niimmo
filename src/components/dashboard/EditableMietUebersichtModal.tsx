@@ -201,7 +201,7 @@ function buildBankHtml(
 </style>
 </head>
 <body>
-<h2>Mietaufstellung für Bank</h2>
+<h2>Mietaufstellung</h2>
 <p>Stand: ${today} &nbsp;·&nbsp; SOLL-Miete kursiv = IST-Wert als Vorschlag (kein SOLL gesetzt)</p>
 <table>
   <thead>

@@ -233,7 +233,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 Zurück
               </Button>
               <div>
-                <h1 className="text-xl sm:text-2xl font-bold font-sans text-gradient-red">Mietaufstellung für Bank</h1>
+                <h1 className="text-xl sm:text-2xl font-bold font-sans text-gradient-red">Mietaufstellung</h1>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Stand: {format(new Date(), "dd.MM.yyyy")} · SOLL und Annuität sind direkt in der Tabelle editierbar
                 </p>
@@ -248,7 +248,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
         {/* Print-only Titel + Kennzahlen */}
         <div className="print-title mb-3">
-          <h1 className="text-xl font-bold">Mietaufstellung für Bank</h1>
+          <h1 className="text-xl font-bold">Mietaufstellung</h1>
           <p className="text-xs text-gray-500">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
         </div>
         <div className="print-summary gap-6 mb-4 text-xs border border-gray-200 rounded p-3">
