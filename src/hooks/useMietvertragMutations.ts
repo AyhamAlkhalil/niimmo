@@ -314,6 +314,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       initialValues.strom_zaehler = einheitData.strom_zaehler || '';
       initialValues.gas_zaehler = einheitData.gas_zaehler || '';
       initialValues.qm = einheitData.qm ?? null;
+      initialValues.soll_miete = einheitData.soll_miete ?? null;
     }
     if (mieter) {
       mieter.forEach((m) => {
@@ -407,7 +408,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       // Update einheit fields
       if (einheitData) {
         const einheitUpdates: Partial<Einheit> = {};
-        ['kaltwasser_zaehler', 'warmwasser_zaehler', 'strom_zaehler', 'gas_zaehler', 'qm'].forEach(field => {
+        ['kaltwasser_zaehler', 'warmwasser_zaehler', 'strom_zaehler', 'gas_zaehler', 'qm', 'soll_miete'].forEach(field => {
           if (editedValues[field] !== undefined) einheitUpdates[field] = editedValues[field];
         });
         if (Object.keys(einheitUpdates).length > 0) {
@@ -439,6 +440,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
         queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
         queryClient.invalidateQueries({ queryKey: ['einheiten'] }),
+        queryClient.invalidateQueries({ queryKey: ['mietaufstellung-bank'] }),
         queryClient.invalidateQueries({ queryKey: ['all-mietvertraege'] }),
         queryClient.invalidateQueries({ queryKey: ['mietvertraege'] }),
         queryClient.invalidateQueries({ predicate: (query) => Array.isArray(query.queryKey) && query.queryKey[0] === 'mietvertrag-detail' }),

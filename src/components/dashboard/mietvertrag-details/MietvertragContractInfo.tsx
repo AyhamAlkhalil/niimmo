@@ -61,6 +61,7 @@ export function MietvertragContractInfo({
   const betriebskosten = isGlobalEditMode && editedValues.betriebskosten !== undefined ? editedValues.betriebskosten : vertrag.betriebskosten;
   const anzahlPersonen = isGlobalEditMode && editedValues.anzahl_personen !== undefined ? editedValues.anzahl_personen : vertrag.anzahl_personen;
   const qmValue = isGlobalEditMode && editedValues.qm !== undefined ? editedValues.qm : einheit?.qm;
+  const sollMieteValue = isGlobalEditMode && editedValues.soll_miete !== undefined ? editedValues.soll_miete : einheit?.soll_miete;
   const mietbeginnValue = isGlobalEditMode
     ? (editedValues.start_datum ?? (vertrag.start_datum || ''))
     : (vertrag.start_datum || '');
@@ -236,25 +237,14 @@ export function MietvertragContractInfo({
               />
             </div>
 
-            {/* Warmmiete total + QM row */}
+            {/* Warmmiete + QM row */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <div className="group flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Warmmiete:</span>
-                  <span className="text-sm font-bold text-primary">
-                    {formatBetrag(Number(kaltmiete || 0) + Number(betriebskosten || 0))}
-                  </span>
-                  <CopyButton text={String(Number(kaltmiete || 0) + Number(betriebskosten || 0))} fieldName="Warmmiete" />
-                </div>
-                {einheit?.soll_miete != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">SOLL-Miete:</span>
-                    <span className="text-sm font-semibold text-foreground">
-                      {formatBetrag(Number(einheit.soll_miete))}
-                    </span>
-                    <span className="text-xs text-muted-foreground">p.m.</span>
-                  </div>
-                )}
+              <div className="group flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Warmmiete:</span>
+                <span className="text-sm font-bold text-primary">
+                  {formatBetrag(Number(kaltmiete || 0) + Number(betriebskosten || 0))}
+                </span>
+                <CopyButton text={String(Number(kaltmiete || 0) + Number(betriebskosten || 0))} fieldName="Warmmiete" />
               </div>
               <MietvertragEditableField
                 label="Wohnfläche (m²)"
@@ -278,8 +268,28 @@ export function MietvertragContractInfo({
               />
             </div>
 
-            {/* Kaltmiete/m² + Personen */}
+            {/* SOLL-Miete (Einheit) + Kaltmiete/m² */}
             <div className="grid grid-cols-2 gap-2">
+              <MietvertragEditableField
+                label="SOLL-Miete (p.m.)"
+                value={sollMieteValue !== null && sollMieteValue !== undefined ? Number(sollMieteValue) : ''}
+                isEditing={isGlobalEditMode}
+                onEdit={() => {}}
+                onValueChange={isGlobalEditMode ? (raw) => {
+                  const trimmed = raw.trim();
+                  onUpdateEditedValue?.('soll_miete', trimmed === '' ? null : parseFloat(trimmed) || null);
+                } : undefined}
+                onSave={(value) => {
+                  if (isGlobalEditMode) onUpdateEditedValue?.('soll_miete', value ? parseFloat(value) : null);
+                }}
+                onCancel={onCancelEdit}
+                type="number"
+                step="0.01"
+                placeholder="–"
+                formatter={(val) => val ? formatBetrag(Number(val)) : '–'}
+                hideEditButton={true}
+                isGlobalEditMode={isGlobalEditMode}
+              />
               {qmValue && Number(qmValue) > 0 ? (
                 <div className="group flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">Kaltmiete/m²:</span>
@@ -288,6 +298,11 @@ export function MietvertragContractInfo({
                   </span>
                 </div>
               ) : <div />}
+            </div>
+
+            {/* Personen */}
+            <div className="grid grid-cols-2 gap-2">
+              <div />
               <MietvertragEditableField
                 label="Personen"
                 value={anzahlPersonen !== null && anzahlPersonen !== undefined ? Number(anzahlPersonen) : ''}
