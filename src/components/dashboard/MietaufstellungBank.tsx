@@ -209,6 +209,13 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           .modern-dashboard-bg { background: white !important; }
           .print-title { display: block !important; }
           .print-summary { display: flex !important; }
+          /* Farben im Druck erzwingen */
+          .print-title h1 { color: #000 !important; font-size: 14pt !important; margin-bottom: 1px !important; }
+          .print-title p { color: #333 !important; font-size: 7pt !important; margin-bottom: 4px !important; }
+          .print-summary { border: 1.5px solid #555 !important; border-radius: 3px !important; padding: 4px 8px !important; background: #f5f5f5 !important; }
+          .print-summary > div { color: #000 !important; font-size: 7pt !important; }
+          .print-summary .ps-label { color: #444 !important; font-weight: normal !important; }
+          .print-summary b { color: #000 !important; font-weight: 700 !important; }
         }
         .print-title { display: none; }
         .print-summary { display: none; }
@@ -239,17 +246,17 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         </div>
 
         {/* Print-only Titel + Kennzahlen */}
-        <div className="print-title mb-3">
-          <h1 className="text-xl font-bold">Mietaufstellung</h1>
-          <p className="text-xs text-gray-500">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
+        <div className="print-title mb-2">
+          <h1 className="text-xl font-bold text-gray-900">Mietaufstellung</h1>
+          <p className="text-xs text-gray-700">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
         </div>
-        <div className="print-summary gap-6 mb-4 text-xs border border-gray-200 rounded p-3">
-          <div><span className="text-gray-500">Fläche:</span> <b>{fmt(grandTotals.qm, 0)} m²</b></div>
-          <div><span className="text-gray-500">IST p.m.:</span> <b>{fmtEuro(grandTotals.ist)}</b></div>
-          <div><span className="text-gray-500">IST p.a.:</span> <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
-          <div><span className="text-gray-500">SOLL p.m.:</span> <b>{fmtEuro(grandTotals.soll)}</b></div>
-          <div><span className="text-gray-500">Annuität p.m.:</span> <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
-          <div><span className="text-gray-500">Leerstand:</span> <b>{grandTotals.vacantCount} Einh.</b></div>
+        <div className="print-summary gap-6 mb-3">
+          <div><span className="ps-label">Fläche:</span> <b>{fmt(grandTotals.qm, 0)} m²</b></div>
+          <div><span className="ps-label">IST p.m.:</span> <b>{fmtEuro(grandTotals.ist)}</b></div>
+          <div><span className="ps-label">IST p.a.:</span> <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
+          <div><span className="ps-label">SOLL p.m.:</span> <b>{fmtEuro(grandTotals.soll)}</b></div>
+          <div><span className="ps-label">Annuität p.m.:</span> <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
+          <div><span className="ps-label">Leerstand:</span> <b>{grandTotals.vacantCount} Einh.</b></div>
         </div>
 
         {/* Kennzahlen-Karten */}
