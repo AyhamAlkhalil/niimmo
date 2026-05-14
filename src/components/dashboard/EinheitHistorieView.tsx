@@ -1,11 +1,13 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Calendar, Users, Euro, Building2, Clock, FileText } from "lucide-react";
+import { ArrowLeft, Calendar, Users, Euro, Building2, Clock, FileText, Pencil, Check, X } from "lucide-react";
 import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
 
 interface EinheitHistorieViewProps {
@@ -26,6 +28,29 @@ interface Periode {
 
 export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: EinheitHistorieViewProps) => {
   const [selectedVertragId, setSelectedVertragId] = useState<string | null>(null);
+  const [isEditingSoll, setIsEditingSoll] = useState(false);
+  const [sollValue, setSollValue] = useState<string>("");
+  const [currentSollMiete, setCurrentSollMiete] = useState<number | null>(einheit?.soll_miete ?? null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const handleSollSave = useCallback(async () => {
+    const trimmed = sollValue.trim();
+    const value = trimmed === "" ? null : parseFloat(trimmed.replace(",", "."));
+    if (value !== null && (isNaN(value) || value < 0)) {
+      setIsEditingSoll(false);
+      return;
+    }
+    const { error } = await supabase.from("einheiten").update({ soll_miete: value }).eq("id", einheitId);
+    if (error) {
+      toast({ title: "Fehler", description: "SOLL-Miete konnte nicht gespeichert werden.", variant: "destructive" });
+    } else {
+      setCurrentSollMiete(value);
+      queryClient.invalidateQueries({ queryKey: ["mietaufstellung-bank"] });
+      queryClient.invalidateQueries({ queryKey: ["einheiten"] });
+    }
+    setIsEditingSoll(false);
+  }, [sollValue, einheitId, toast, queryClient]);
 
   const { data: alleMietvertraege, isLoading: vertraegeLoading } = useQuery({
     queryKey: ['alle-mietvertrag-einheit-historie', einheitId],
@@ -221,6 +246,50 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
                 {einheit?.qm && `${einheit.qm} m² • `}
                 {einheit?.etage && `${einheit.etage}`}
               </span>
+            </div>
+
+            {/* Einheitsdaten: SOLL-Miete editierbar */}
+            <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-2">
+              <Euro className="h-4 w-4 text-gray-400 shrink-0" />
+              <span className="text-sm text-gray-500 shrink-0">SOLL-Miete:</span>
+              {isEditingSoll ? (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    className="h-7 w-28 text-sm text-right py-0 px-2"
+                    value={sollValue}
+                    onChange={(e) => setSollValue(e.target.value)}
+                    onBlur={handleSollSave}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSollSave();
+                      if (e.key === "Escape") setIsEditingSoll(false);
+                    }}
+                    autoFocus
+                    placeholder="0,00"
+                  />
+                  <button onClick={handleSollSave} className="text-green-600 hover:text-green-700">
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setIsEditingSoll(false)} className="text-gray-400 hover:text-gray-600">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="group flex items-center gap-1.5 text-sm font-medium text-gray-800 hover:text-gray-900 rounded px-1 py-0.5 hover:bg-gray-100"
+                  onClick={() => {
+                    setSollValue(currentSollMiete != null ? String(currentSollMiete) : "");
+                    setIsEditingSoll(true);
+                  }}
+                  title="Klicken zum Bearbeiten"
+                >
+                  {currentSollMiete != null
+                    ? `${currentSollMiete.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+                    : <span className="text-gray-400 italic">nicht hinterlegt</span>
+                  }
+                  <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-40" />
+                </button>
+              )}
+              <span className="text-xs text-gray-400">(p.m.)</span>
             </div>
           </div>
         </div>

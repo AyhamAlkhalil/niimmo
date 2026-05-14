@@ -238,12 +238,23 @@ export function MietvertragContractInfo({
 
             {/* Warmmiete total + QM row */}
             <div className="grid grid-cols-2 gap-2">
-              <div className="group flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Warmmiete:</span>
-                <span className="text-sm font-bold text-primary">
-                  {formatBetrag(Number(kaltmiete || 0) + Number(betriebskosten || 0))}
-                </span>
-                <CopyButton text={String(Number(kaltmiete || 0) + Number(betriebskosten || 0))} fieldName="Warmmiete" />
+              <div className="space-y-1">
+                <div className="group flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Warmmiete:</span>
+                  <span className="text-sm font-bold text-primary">
+                    {formatBetrag(Number(kaltmiete || 0) + Number(betriebskosten || 0))}
+                  </span>
+                  <CopyButton text={String(Number(kaltmiete || 0) + Number(betriebskosten || 0))} fieldName="Warmmiete" />
+                </div>
+                {einheit?.soll_miete != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">SOLL-Miete:</span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {formatBetrag(Number(einheit.soll_miete))}
+                    </span>
+                    <span className="text-xs text-muted-foreground">p.m.</span>
+                  </div>
+                )}
               </div>
               <MietvertragEditableField
                 label="Wohnfläche (m²)"
