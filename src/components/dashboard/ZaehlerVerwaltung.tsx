@@ -421,23 +421,29 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
   // Filtered immobilien
   const filteredImmobilien = immobilien?.filter(i => {
     if (!searchTerm) return true;
-    const normalize = (v: string) => v.toLowerCase().replace(/\s+/g, '');
-    const s = normalize(searchTerm);
-    if (normalize(i.name).includes(s) || normalize(i.adresse).includes(s)) return true;
-    // Search in meter numbers
+    const norm = (v: string) => v.toLowerCase().replace(/\s+/g, '');
+    const s = norm(searchTerm);
+    const match = (v: string | null | undefined) => !!v && norm(v).includes(s);
+
+    if (match(i.name) || match(i.adresse)) return true;
+
+    // Hausanschlusszähler (property level)
+    if (
+      match(i.allgemein_strom_zaehler) || match(i.allgemein_gas_zaehler) || match(i.allgemein_wasser_zaehler) ||
+      match(i.allgemein_strom_zaehler_2) || match(i.allgemein_gas_zaehler_2) || match(i.allgemein_wasser_zaehler_2)
+    ) return true;
+
+    // Einheitenzähler
     return i.einheiten?.some((e: any) =>
-      (e.kaltwasser_zaehler && normalize(e.kaltwasser_zaehler).includes(s)) ||
-      (e.warmwasser_zaehler && normalize(e.warmwasser_zaehler).includes(s)) ||
-      (e.strom_zaehler && normalize(e.strom_zaehler).includes(s)) ||
-      (e.gas_zaehler && normalize(e.gas_zaehler).includes(s)) ||
-      normalize(String(e.zaehler || '')).includes(s)
+      match(e.kaltwasser_zaehler) || match(e.warmwasser_zaehler) ||
+      match(e.strom_zaehler) || match(e.gas_zaehler) ||
+      match(String(e.zaehler || ''))
     );
   });
 
   const matchesSearch = (value: string | null | undefined): boolean => {
     if (!searchTerm || !value) return false;
-    const norm = (v: string) => v.toLowerCase().replace(/\s+/g, '');
-    return norm(value).includes(norm(searchTerm));
+    return value.toLowerCase().replace(/\s+/g, '').includes(searchTerm.toLowerCase().replace(/\s+/g, ''));
   };
 
   const getPropertyMeterTypes = (immobilie: any) => {
