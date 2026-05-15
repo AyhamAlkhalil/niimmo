@@ -421,15 +421,16 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
   // Filtered immobilien
   const filteredImmobilien = immobilien?.filter(i => {
     if (!searchTerm) return true;
-    const s = searchTerm.toLowerCase();
-    if (i.name.toLowerCase().includes(s) || i.adresse.toLowerCase().includes(s)) return true;
+    const normalize = (v: string) => v.toLowerCase().replace(/\s+/g, '');
+    const s = normalize(searchTerm);
+    if (normalize(i.name).includes(s) || normalize(i.adresse).includes(s)) return true;
     // Search in meter numbers
     return i.einheiten?.some((e: any) =>
-      e.kaltwasser_zaehler?.toLowerCase().includes(s) ||
-      e.warmwasser_zaehler?.toLowerCase().includes(s) ||
-      e.strom_zaehler?.toLowerCase().includes(s) ||
-      e.gas_zaehler?.toLowerCase().includes(s) ||
-      String(e.zaehler || '').includes(s)
+      (e.kaltwasser_zaehler && normalize(e.kaltwasser_zaehler).includes(s)) ||
+      (e.warmwasser_zaehler && normalize(e.warmwasser_zaehler).includes(s)) ||
+      (e.strom_zaehler && normalize(e.strom_zaehler).includes(s)) ||
+      (e.gas_zaehler && normalize(e.gas_zaehler).includes(s)) ||
+      normalize(String(e.zaehler || '')).includes(s)
     );
   });
 
