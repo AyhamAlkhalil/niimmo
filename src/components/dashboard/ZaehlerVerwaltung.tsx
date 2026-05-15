@@ -434,6 +434,12 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     );
   });
 
+  const matchesSearch = (value: string | null | undefined): boolean => {
+    if (!searchTerm || !value) return false;
+    const norm = (v: string) => v.toLowerCase().replace(/\s+/g, '');
+    return norm(value).includes(norm(searchTerm));
+  };
+
   const getPropertyMeterTypes = (immobilie: any) => {
     const types: Array<'wasser' | 'strom' | 'gas'> = [];
     if (immobilie.hat_strom !== false) types.push('strom');
@@ -677,7 +683,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                   placeholder="Zähler-Nr."
                                   value={editedZaehler ?? currentZaehler ?? ''}
                                   onChange={(e) => handlePropertyInputChange(immobilie.id, type, 'zaehler', e.target.value)}
-                                  className="h-6 text-xs px-1.5"
+                                  className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
                                 />
                                 <Input
                                   type="number"
@@ -737,7 +743,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                       placeholder="Zähler-Nr."
                                       value={editedZaehler ?? currentZaehler ?? ''}
                                       onChange={(e) => handlePropertyInputChange(immobilie.id, type2, 'zaehler', e.target.value)}
-                                      className="h-6 text-xs px-1.5"
+                                      className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
                                     />
                                     <Input
                                       type="number"
@@ -818,7 +824,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                             placeholder="Nr."
                                             value={editedZaehler ?? currentZaehler ?? ''}
                                             onChange={(e) => handleInputChange(einheit.id, type, 'zaehler', e.target.value)}
-                                            className="h-6 text-xs px-1.5"
+                                            className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
                                           />
                                           <Input
                                             type="number"
