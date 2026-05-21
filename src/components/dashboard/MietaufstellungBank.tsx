@@ -169,13 +169,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         vacantCount++;
       }
       if (row.isGekuendigt) gekuendigtCount++;
-      const istPm = (row.kaltmiete ?? 0) + (row.betriebskosten ?? 0);
-      soll += row.sollMiete ?? (row.isVacant ? 0 : istPm);
+      soll += row.sollMiete ?? (row.isVacant ? 0 : (row.kaltmiete ?? 0));
       if (row.immobilieAnnuitaet != null) annuitaetMap.set(row.immobilieId, row.immobilieAnnuitaet);
     }
 
     const annuitaet = Array.from(annuitaetMap.values()).reduce((s, v) => s + v, 0);
-    const ist = km + bkv;
+    const ist = km; // IST = nur Kaltmiete, BKV wird ignoriert
     return { qm, km, bkv, ist, soll, annuitaet, vacantCount, gekuendigtCount };
   }, [rows]);
 
@@ -207,8 +206,10 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           .print-table th, .print-table td { padding: 1.5px 3px !important; white-space: nowrap !important; }
           .glass-card { background: white !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
           .modern-dashboard-bg { background: white !important; }
-          .print-title { display: block !important; color: #000 !important; }
-          .print-summary { display: flex !important; color: #000 !important; }
+          .print-title { display: block !important; }
+          .print-title * { color: #000 !important; }
+          .print-summary { display: flex !important; }
+          .print-summary * { color: #000 !important; }
         }
         .print-title { display: none; }
         .print-summary { display: none; }
@@ -240,31 +241,31 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
         {/* Print-only Titel + Kennzahlen */}
         <div className="print-title mb-3">
-          <h1 className="text-xl font-bold">Mietaufstellung</h1>
+          <h1 className="text-xl font-bold">Mietaufstellung der Nimo Wohnungsbaugesellschaft MBH</h1>
           <p className="text-xs">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
         </div>
         <div className="print-summary gap-6 mb-4 text-xs border border-gray-400 rounded p-3">
-          <div><span>Fläche:</span> <b>{fmt(grandTotals.qm, 0)} m²</b></div>
-          <div><span>IST p.m.:</span> <b>{fmtEuro(grandTotals.ist)}</b></div>
-          <div><span>IST p.a.:</span> <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
-          <div><span>SOLL p.m.:</span> <b>{fmtEuro(grandTotals.soll)}</b></div>
-          <div><span>Annuität p.m.:</span> <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
-          <div><span>Leerstand:</span> <b>{grandTotals.vacantCount} Einh.</b></div>
+          <div><span>Überschuss p.m.:</span> <b>{fmtEuro(grandTotals.ist - grandTotals.annuitaet)}</b></div>
+          <div><span>Überschuss p.a.:</span> <b>{fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)}</b></div>
+          <div><span>IST p.m.:</span>         <b>{fmtEuro(grandTotals.ist)}</b></div>
+          <div><span>IST p.a.:</span>         <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
+          <div><span>SOLL p.m.:</span>        <b>{fmtEuro(grandTotals.soll)}</b></div>
+          <div><span>SOLL p.a.:</span>        <b>{fmtEuro(grandTotals.soll * 12)}</b></div>
+          <div><span>Annuität p.m.:</span>    <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
+          <div><span>Leerstand:</span>        <b>{grandTotals.vacantCount} Einh.</b></div>
         </div>
 
         {/* Kennzahlen-Karten */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4 no-print">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-4 no-print">
           {[
-            { label: "Gesamtfläche", value: `${fmt(grandTotals.qm, 0)} m²` },
-            { label: "IST-Miete p.m.", value: fmtEuro(grandTotals.ist) },
-            { label: "IST-Miete p.a.", value: fmtEuro(grandTotals.ist * 12) },
-            { label: "SOLL-Miete p.m.", value: fmtEuro(grandTotals.soll) },
+            { label: "Überschuss p.m.", value: fmtEuro(grandTotals.ist - grandTotals.annuitaet), negative: (grandTotals.ist - grandTotals.annuitaet) < 0 },
+            { label: "Überschuss p.a.", value: fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12), negative: (grandTotals.ist - grandTotals.annuitaet) < 0 },
+            { label: "IST p.m.", value: fmtEuro(grandTotals.ist) },
+            { label: "IST p.a.", value: fmtEuro(grandTotals.ist * 12) },
+            { label: "SOLL p.m.", value: fmtEuro(grandTotals.soll) },
+            { label: "SOLL p.a.", value: fmtEuro(grandTotals.soll * 12) },
             { label: "Annuität p.m.", value: fmtEuro(grandTotals.annuitaet) },
-            {
-              label: "Überschuss IST p.a.",
-              value: fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12),
-              negative: (grandTotals.ist - grandTotals.annuitaet) < 0,
-            },
+            { label: "Leerstand", value: `${grandTotals.vacantCount} Einh.` },
           ].map(({ label, value, negative }) => (
             <div key={label} className="glass-card rounded-xl p-3 text-center">
               <div className="text-xs text-gray-500 mb-1">{label}</div>
@@ -301,10 +302,9 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 return grouped.flatMap((imm) => {
                   const immKm   = imm.units.reduce((s, u) => s + (u.kaltmiete ?? 0), 0);
                   const immBkv  = imm.units.reduce((s, u) => s + (u.betriebskosten ?? 0), 0);
-                  const immIst  = immKm + immBkv;
+                  const immIst  = immKm; // IST = nur Kaltmiete
                   const immSoll = imm.units.reduce((s, u) => {
-                    const istPm = (u.kaltmiete ?? 0) + (u.betriebskosten ?? 0);
-                    return s + (u.sollMiete ?? (u.isVacant ? 0 : istPm));
+                    return s + (u.sollMiete ?? (u.isVacant ? 0 : (u.kaltmiete ?? 0)));
                   }, 0);
                   const immQm      = imm.units.reduce((s, u) => s + (u.qm ?? 0), 0);
                   const immVacant  = imm.units.filter(u => u.isVacant).length;
@@ -360,7 +360,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
                   const unitRows = imm.units.map((unit) => {
                     nr++;
-                    const istPm   = (unit.kaltmiete ?? 0) + (unit.betriebskosten ?? 0);
+                    const istPm   = unit.kaltmiete ?? 0; // IST = nur Kaltmiete
                     const sollPm  = unit.sollMiete ?? (unit.isVacant ? null : istPm);
                     const diffPm  = sollPm != null && !unit.isVacant ? (istPm - sollPm) : null;
                     const eurProQm = unit.kaltmiete && unit.qm ? unit.kaltmiete / unit.qm : null;
