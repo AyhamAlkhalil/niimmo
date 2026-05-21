@@ -472,7 +472,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                         </td>
 
                         <td className="px-1.5 py-1 text-right tabular-nums text-gray-600">
-                          {unit.sollMiete != null ? fmtEuro(unit.sollMiete * 12) : "—"}
+                          {sollPm != null ? fmtEuro(sollPm * 12) : "—"}
                         </td>
 
                         <td className={cn(
