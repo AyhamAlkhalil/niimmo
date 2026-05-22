@@ -203,6 +203,8 @@ export type Database = {
           hochgeladen_am: string | null
           id: string
           status: string | null
+          zeitraum_bis: string | null
+          zeitraum_von: string | null
         }
         Insert: {
           anzahl_datensaetze?: number | null
@@ -212,6 +214,8 @@ export type Database = {
           hochgeladen_am?: string | null
           id?: string
           status?: string | null
+          zeitraum_bis?: string | null
+          zeitraum_von?: string | null
         }
         Update: {
           anzahl_datensaetze?: number | null
@@ -221,6 +225,8 @@ export type Database = {
           hochgeladen_am?: string | null
           id?: string
           status?: string | null
+          zeitraum_bis?: string | null
+          zeitraum_von?: string | null
         }
         Relationships: []
       }

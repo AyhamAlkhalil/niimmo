@@ -170,21 +170,22 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   const queryClient = useQueryClient();
   // Removed progress bar - using simple toast instead
 
-  // Fetch last CSV upload info
-  const { data: lastUpload } = useQuery({
-    queryKey: ['last-csv-upload'],
+  // Fetch CSV upload history (last 10)
+  const { data: uploadHistory } = useQuery({
+    queryKey: ['csv-upload-history'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('csv_uploads')
         .select('*')
         .order('hochgeladen_am', { ascending: false })
-        .limit(1)
-        .single();
+        .limit(10);
 
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
+      if (error) throw error;
+      return data ?? [];
     },
   });
+
+  const lastUpload = uploadHistory?.[0] ?? null;
 
   // Fetch unassigned payments (for the "Nicht zugeordnete" tab)
   const { data: unassignedPayments, isLoading: unassignedLoading } = useQuery({
@@ -805,20 +806,27 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     }
     
     if (csvFile) {
+      const buchungsdaten = allResultsToSave
+        .map(r => r.buchungsdatum)
+        .filter(Boolean)
+        .sort();
       await supabase.from('csv_uploads').insert({
         dateiname: csvFile.name,
         dateigroe_bytes: csvFile.size,
         anzahl_datensaetze: allResultsToSave.length,
         status: 'verarbeitet',
+        zeitraum_von: buchungsdaten[0] ?? null,
+        zeitraum_bis: buchungsdaten.at(-1) ?? null,
       });
     }
-    
+
     setCsvFile(null);
     setAiResults([]);
     setAiDuplicates([]);
     setAiStats(null);
-    
+
     // Refresh queries
+    queryClient.invalidateQueries({ queryKey: ['csv-upload-history'] });
     queryClient.invalidateQueries({ queryKey: ['unassigned-payments'] });
     queryClient.invalidateQueries({ queryKey: ['zahlungen-overview'] });
     queryClient.invalidateQueries({ queryKey: ['zahlungen'] });
@@ -905,27 +913,61 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
               </div>
 
               <div className="space-y-4">
-                {lastUpload && (
-                  <div 
-                    className="bg-muted/50 p-4 rounded-lg cursor-pointer hover:bg-muted/80 transition-colors"
-                    onClick={() => setLastUploadReviewOpen(true)}
-                    title="Klicken um Zuordnungsergebnisse anzuzeigen"
-                  >
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {uploadHistory && uploadHistory.length > 0 && (
+                  <Collapsible defaultOpen>
+                    <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full group">
                       <FileText className="h-4 w-4" />
-                      <span>Letzter Upload: <strong>{lastUpload.dateiname}</strong></span>
-                      <span>•</span>
-                      <Calendar className="h-4 w-4" />
-                      <span>{format(new Date(lastUpload.hochgeladen_am), 'dd.MM.yyyy HH:mm')}</span>
-                      {lastUpload.anzahl_datensaetze && (
-                        <>
-                          <span>•</span>
-                          <span>{lastUpload.anzahl_datensaetze} Datensätze</span>
-                        </>
-                      )}
-                      <span className="ml-auto text-xs text-primary font-medium">Ergebnisse anzeigen →</span>
-                    </div>
-                  </div>
+                      <span>Upload-Historie</span>
+                      <ChevronDown className="h-3.5 w-3.5 ml-auto group-data-[state=open]:rotate-180 transition-transform" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 rounded-lg border overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/40 hover:bg-muted/40">
+                              <TableHead className="text-xs py-2">Datei</TableHead>
+                              <TableHead className="text-xs py-2">Zeitraum</TableHead>
+                              <TableHead className="text-xs py-2 text-right">Anz.</TableHead>
+                              <TableHead className="text-xs py-2 text-right">Hochgeladen</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {uploadHistory.map((upload, idx) => (
+                              <TableRow
+                                key={upload.id}
+                                className={`text-xs ${idx === 0 ? 'cursor-pointer hover:bg-primary/5' : ''}`}
+                                onClick={idx === 0 ? () => setLastUploadReviewOpen(true) : undefined}
+                                title={idx === 0 ? 'Klicken um Zuordnungsergebnisse des letzten Uploads anzuzeigen' : undefined}
+                              >
+                                <TableCell className="py-2 font-medium max-w-[160px] truncate" title={upload.dateiname}>
+                                  {idx === 0 && <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 mb-0.5" />}
+                                  {upload.dateiname}
+                                </TableCell>
+                                <TableCell className="py-2 text-muted-foreground">
+                                  {upload.zeitraum_von && upload.zeitraum_bis
+                                    ? `${format(new Date(upload.zeitraum_von), 'dd.MM.yy')} – ${format(new Date(upload.zeitraum_bis), 'dd.MM.yy')}`
+                                    : upload.zeitraum_von
+                                      ? format(new Date(upload.zeitraum_von), 'dd.MM.yy')
+                                      : '–'}
+                                </TableCell>
+                                <TableCell className="py-2 text-right text-muted-foreground">
+                                  {upload.anzahl_datensaetze ?? '–'}
+                                </TableCell>
+                                <TableCell className="py-2 text-right text-muted-foreground">
+                                  {upload.hochgeladen_am
+                                    ? format(new Date(upload.hochgeladen_am), 'dd.MM.yy HH:mm')
+                                    : '–'}
+                                  {idx === 0 && (
+                                    <span className="ml-1.5 text-primary font-medium">→</span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
                 )}
 
                 <div>
