@@ -37,8 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-      }
+      if (error) console.error('[useAuth] getSession fehlgeschlagen:', error);
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
@@ -53,6 +52,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setLoading(true);
     const { error } = await supabase.auth.signOut();
     if (error) {
+      console.error('[useAuth] signOut fehlgeschlagen:', error);
     } else {
       setUser(null);
       setSession(null);

@@ -683,6 +683,19 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                           Jetzt bearbeiten
                         </Button>
                       </div>
+                    ) : tilgungsplan.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-10 text-amber-600">
+                        <AlertCircle className="h-8 w-8 opacity-70" />
+                        <div className="text-sm text-center font-medium">
+                          Rate deckt die Zinsen nicht
+                        </div>
+                        <div className="text-xs text-gray-500 text-center max-w-xs">
+                          Die monatliche Rate ({selectedDarlehen.monatliche_rate?.toLocaleString("de-DE", { minimumFractionDigits: 2 })} €) ist niedriger als die monatlichen Zinsen. Das Darlehen kann so nicht getilgt werden. Bitte Rate erhöhen.
+                        </div>
+                        <Button variant="outline" size="sm" className="mt-1" onClick={() => openEdit(selectedDarlehen)}>
+                          Rate anpassen
+                        </Button>
+                      </div>
                     ) : (
                       <>
                         <div className="flex items-center justify-between mb-3">

@@ -22,11 +22,13 @@ export const useAutoExpireContract = (
 
     const updateStatus = async () => {
       try {
-        await supabase
+        const { error } = await supabase
           .from('mietvertrag')
           .update({ status: 'beendet' })
           .eq('id', vertragId);
+        if (error) console.error('[useAutoExpireContract] Status-Update fehlgeschlagen:', error);
       } catch (error) {
+        console.error('[useAutoExpireContract] Unerwarteter Fehler:', error);
       }
     };
 

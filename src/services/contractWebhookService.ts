@@ -41,7 +41,8 @@ export class ContractWebhookService {
 
       return true;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      console.error('[ContractWebhookService] notifyContractCreated fehlgeschlagen:', error);
       return false;
     }
   }
@@ -65,9 +66,13 @@ export class ContractWebhookService {
         body: JSON.stringify(payload)
       });
 
+      if (!response.ok) {
+        console.error('[ContractWebhookService] notifyContractTerminated HTTP-Fehler:', response.status, response.statusText);
+      }
       return response.ok;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      console.error('[ContractWebhookService] notifyContractTerminated fehlgeschlagen:', error);
       return false;
     }
   }

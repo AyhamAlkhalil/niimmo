@@ -16,7 +16,11 @@ export function useBasiszinsPerioden() {
         .eq("typ", "basiszinssatz")
         .order("stichtag", { ascending: false });
 
-      if (error || !data || data.length === 0) return null;
+      if (error) {
+        console.error('[useBasiszinsPerioden] DB-Fehler — Fallback wird verwendet:', error);
+        return null;
+      }
+      if (!data || data.length === 0) return null;
 
       return data.map((row) => ({
         ab: row.stichtag,

@@ -49,8 +49,9 @@ export const ImmobilienCard = ({ immobilie, onClick }: ImmobilienCardProps) => {
     }
   });
 
-  const auslastung = einheitenStatus ? 
-    Math.min(100, Math.round(((einheitenStatus.aktive + einheitenStatus.gekuendigt) / einheitenStatus.gesamt) * 100)) : 0;
+  const auslastung = einheitenStatus && einheitenStatus.gesamt > 0
+    ? Math.min(100, Math.round(((einheitenStatus.aktive + einheitenStatus.gekuendigt) / einheitenStatus.gesamt) * 100))
+    : 0;
 
   return (
     <div className="h-full">
