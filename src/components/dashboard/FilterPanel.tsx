@@ -38,7 +38,7 @@ export const FilterPanel = ({ filters, onFilterChange, activeFiltersCount }: Fil
               <SelectContent className="bg-white border modern-shadow-lg z-50">
                 <SelectItem value="all" className="font-sans cursor-pointer">Alle Status</SelectItem>
                 <SelectItem value="aktiv" className="font-sans cursor-pointer">Aktiv</SelectItem>
-                <SelectItem value="gekündigt" className="font-sans cursor-pointer">Gekündigt</SelectItem>
+                <SelectItem value="gekuendigt" className="font-sans cursor-pointer">Gekündigt</SelectItem>
                 <SelectItem value="leerstehend" className="font-sans cursor-pointer">Leerstehend</SelectItem>
               </SelectContent>
             </Select>

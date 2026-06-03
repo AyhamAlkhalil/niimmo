@@ -575,7 +575,7 @@ export const MietvertragInfo = ({ vertrag, einheit, immobilie }: MietvertragInfo
                   </p>
                 </div>
                 
-                {vertrag?.status === 'gekündigt' && vertrag?.kuendigungsdatum && (
+                {vertrag?.status === 'gekuendigt' && vertrag?.kuendigungsdatum && (
                   <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
                     <div className="flex items-center space-x-2 mb-1">
                       <AlertTriangle className="h-4 w-4 text-yellow-600" />

@@ -13,7 +13,7 @@ export const MietvertragHeader = ({ onBack, status }: MietvertragHeaderProps) =>
     switch (status) {
       case 'aktiv':
         return 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg shadow-green-200';
-      case 'gekündigt':
+      case 'gekuendigt':
         return 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white shadow-lg shadow-yellow-200';
       default:
         return 'bg-gradient-to-r from-gray-500 to-gray-600 text-white shadow-lg shadow-gray-200';
@@ -44,7 +44,7 @@ export const MietvertragHeader = ({ onBack, status }: MietvertragHeaderProps) =>
         </div>
         {status && (
           <Badge className={`px-4 py-2 text-sm font-semibold rounded-full ${getStatusColor()}`}>
-            {status === 'aktiv' ? '● Aktiv' : status === 'gekündigt' ? '⚠ Gekündigt' : status}
+            {status === 'aktiv' ? '● Aktiv' : status === 'gekuendigt' ? '⚠ Gekündigt' : status}
           </Badge>
         )}
       </div>
