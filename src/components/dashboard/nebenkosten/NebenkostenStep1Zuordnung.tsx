@@ -151,16 +151,13 @@ export function NebenkostenStep1Zuordnung({ immobilieId, selectedYear }: Nebenko
         }
       }
 
-      const zahlung = zahlungen?.find((z) => z.id === zahlungId);
-      const buchungsdatum = zahlung?.buchungsdatum || new Date().toISOString().split("T")[0];
-
       const { error } = await supabase.from("kostenpositionen").insert({
         immobilie_id: immobilieId,
         zahlung_id: zahlungId,
         nebenkostenart_id: nebenkostenartId,
         gesamtbetrag: Math.abs(betrag),
-        zeitraum_von: buchungsdatum,
-        zeitraum_bis: buchungsdatum,
+        zeitraum_von: `${selectedYear}-01-01`,
+        zeitraum_bis: `${selectedYear}-12-31`,
         bezeichnung,
         ist_umlagefaehig: istUmlagefaehig,
         quelle: "zahlung",
