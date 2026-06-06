@@ -116,10 +116,10 @@ export async function generateNebenkostenAbrechnungPdf(
   doc.setFontSize(10);
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.mieterName, marginLeft, y);
+  doc.text(data.mieterName, marginLeft, y, { maxWidth: contentWidth });
   y += 5;
   doc.setFont('helvetica', 'normal');
-  doc.text(data.einheitBezeichnung, marginLeft, y);
+  doc.text(data.einheitBezeichnung, marginLeft, y, { maxWidth: contentWidth });
   y += 5;
   doc.text(data.immobilieAdresse, marginLeft, y);
 
@@ -218,7 +218,7 @@ export async function generateNebenkostenAbrechnungPdf(
   doc.text('Ihre geleisteten Vorauszahlungen:', marginLeft, y);
   y += 5;
   doc.text(
-    `${data.anzahlMonate} Monat${data.anzahlMonate !== 1 ? 'e' : ''} × ${data.monatlicheVorauszahlung.toFixed(2)} €/Monat`,
+    `${data.anzahlMonate.toFixed(1)} Monate × ${data.monatlicheVorauszahlung.toFixed(2)} €/Monat`,
     marginLeft + 6, y
   );
   doc.setTextColor(0, 0, 0);

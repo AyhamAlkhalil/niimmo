@@ -176,6 +176,23 @@ export function NebenkostenStep3Abrechnung({
     },
   });
 
+  // Versand-Status je Mietvertrag/Jahr — für Doppelversand-Schutz
+  const { data: versandStatus } = useQuery({
+    queryKey: ['nebenkosten-abrechnungen-status', immobilieId, selectedYear],
+    queryFn: async () => {
+      const mietvertragIds = mietvertraege?.map(mv => mv.id) || [];
+      if (mietvertragIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from('nebenkosten_abrechnungen')
+        .select('*')
+        .in('mietvertrag_id', mietvertragIds)
+        .eq('abrechnungsjahr', selectedYear);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!mietvertraege && mietvertraege.length > 0,
+  });
+
   // Bezugsgrößen über alle Einheiten
   const bezugsgroessen = useMemo(() => {
     if (!einheiten) return { qm: 0, personen: 0, anzahl: 0 };
@@ -250,14 +267,10 @@ export function NebenkostenStep3Abrechnung({
       const belegteTage = Math.max(0, differenceInDays(overlapEnde, overlapStart) + 1);
       const zeitanteilFaktor = belegteTage / gesamtTage;
 
-      // Monate berechnen (für Vorauszahlungen)
-      const anzahlMonate = Math.max(1,
-        (overlapEnde.getFullYear() - overlapStart.getFullYear()) * 12 +
-        (overlapEnde.getMonth() - overlapStart.getMonth()) + 1
-      );
-
       const monatlicheVorauszahlung = mv.betriebskosten || 0;
-      const vorauszahlungenGesamt = monatlicheVorauszahlung * anzahlMonate;
+      // Tagesbasiert – konsistent mit der Kostenverteilung (kein Math.max-Clamp)
+      const vorauszahlungenGesamt = monatlicheVorauszahlung * 12 * zeitanteilFaktor;
+      const anzahlMonate = parseFloat((12 * zeitanteilFaktor).toFixed(2));
 
       // Kostenanteile pro Kategorie
       const kostenDetails: NebenkostenKostenDetail[] = [];
@@ -313,6 +326,71 @@ export function NebenkostenStep3Abrechnung({
 
   const gesamtNachzahlungen = abrechnungen.filter(a => a.saldo > 0).reduce((s, a) => s + a.saldo, 0);
   const gesamtGuthaben = abrechnungen.filter(a => a.saldo < 0).reduce((s, a) => s + Math.abs(a.saldo), 0);
+
+  function getVersandInfo(mietvertragId: string) {
+    return versandStatus?.find(v => v.mietvertrag_id === mietvertragId) ?? null;
+  }
+
+  async function saveAbrechnungRecord(abrechnung: MieterAbrechnung, versandt: boolean) {
+    const payload: Record<string, unknown> = {
+      mietvertrag_id: abrechnung.mietvertragId,
+      abrechnungsjahr: selectedYear,
+      saldo: Math.round(abrechnung.saldo * 100) / 100,
+      vorauszahlungen: Math.round(abrechnung.vorauszahlungenGesamt * 100) / 100,
+      kosten_gesamt: Math.round(abrechnung.kostenAnteilGesamt * 100) / 100,
+    };
+    if (versandt) payload.versandt_am = new Date().toISOString();
+    const { error } = await supabase
+      .from('nebenkosten_abrechnungen')
+      .upsert(payload, { onConflict: 'mietvertrag_id,abrechnungsjahr' });
+    if (error) throw error;
+  }
+
+  async function saveKostenpositionAnteile() {
+    if (!kostenpositionen?.length || !einheiten?.length || !abrechnungen.length) return;
+
+    const kpIds = kostenpositionen.map(kp => kp.id);
+    await supabase.from('kostenposition_anteile').delete().in('kostenposition_id', kpIds);
+
+    const inserts: Record<string, unknown>[] = [];
+    for (const kp of kostenpositionen) {
+      const art = (kp as any).nebenkostenart;
+      let schluessel = 'qm';
+      if (art) {
+        const kat = findKategorieByArtName(art.name);
+        schluessel = art.verteilerschluessel_art || kat?.schluessel || 'qm';
+      }
+      for (const abr of abrechnungen) {
+        const einheit = einheiten.find(e => e.id === abr.einheitId);
+        if (!einheit) continue;
+        const basisAnteil = berechneAnteil(
+          { qm: einheit.qm, anzahl_personen: einheit.anzahl_personen },
+          schluessel
+        );
+        inserts.push({
+          kostenposition_id: kp.id,
+          einheit_id: abr.einheitId,
+          anteil_prozent: basisAnteil * abr.zeitanteilFaktor * 100,
+          anteil_betrag: kp.gesamtbetrag * basisAnteil * abr.zeitanteilFaktor,
+          verteilerschluessel_art: schluessel,
+          bezugsgroesse_einheit:
+            schluessel === 'qm' ? einheit.qm
+            : schluessel === 'personen' ? einheit.anzahl_personen : 1,
+          bezugsgroesse_gesamt:
+            schluessel === 'qm' ? bezugsgroessen.qm
+            : schluessel === 'personen' ? bezugsgroessen.personen : bezugsgroessen.anzahl,
+          zeitraum_von: format(abr.nutzungVon, 'yyyy-MM-dd'),
+          zeitraum_bis: format(abr.nutzungBis, 'yyyy-MM-dd'),
+          zeitanteil_faktor: abr.zeitanteilFaktor,
+        });
+      }
+    }
+
+    if (inserts.length > 0) {
+      const { error } = await supabase.from('kostenposition_anteile').insert(inserts);
+      if (error) throw error;
+    }
+  }
 
   // PDF generieren und herunterladen
   async function handleDownloadPdf(abrechnung: MieterAbrechnung) {
@@ -414,6 +492,10 @@ export function NebenkostenStep3Abrechnung({
       if (error) throw new Error(error.message || 'E-Mail konnte nicht gesendet werden');
       if (data?.error) throw new Error(data.error);
 
+      await saveKostenpositionAnteile();
+      await saveAbrechnungRecord(abrechnung, true);
+      queryClient.invalidateQueries({ queryKey: ['nebenkosten-abrechnungen-status', immobilieId, selectedYear] });
+
       toast({ title: "E-Mail gesendet", description: `Abrechnung wurde an ${abrechnung.mieterEmail} gesendet.` });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
@@ -486,6 +568,24 @@ export function NebenkostenStep3Abrechnung({
 
   return (
     <div className="space-y-6">
+      {/* Warnung: fehlende BK-Vorauszahlung im Mietvertrag */}
+      {abrechnungen.some(a => a.monatlicheVorauszahlung === 0) && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Fehlende Betriebskosten-Vorauszahlung</p>
+              <p className="text-xs text-amber-700 mt-1">
+                Kein BK-Betrag im Mietvertrag hinterlegt — Vorauszahlung wird als 0 € gerechnet:{' '}
+                <span className="font-medium">
+                  {abrechnungen.filter(a => a.monatlicheVorauszahlung === 0).map(a => a.mieterName).join(', ')}
+                </span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Übersichts-Header */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <Card className="bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200">
@@ -696,7 +796,7 @@ export function NebenkostenStep3Abrechnung({
                                 <span>{abrechnung.kostenAnteilGesamt.toFixed(2)} €</span>
                               </div>
                               <div className="flex items-center justify-between text-sm text-muted-foreground">
-                                <span>Vorauszahlungen ({abrechnung.anzahlMonate} × {abrechnung.monatlicheVorauszahlung.toFixed(2)} €)</span>
+                                <span>Vorauszahlungen ({abrechnung.anzahlMonate.toFixed(1)} Monate × {abrechnung.monatlicheVorauszahlung.toFixed(2)} €)</span>
                                 <span>– {abrechnung.vorauszahlungenGesamt.toFixed(2)} €</span>
                               </div>
                               <div className={cn(
@@ -725,24 +825,43 @@ export function NebenkostenStep3Abrechnung({
                                 PDF herunterladen
                               </Button>
 
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => handleSendEmail(abrechnung)}
-                                disabled={isEmailLoading || !abrechnung.mieterEmail}
-                                title={!abrechnung.mieterEmail ? 'Keine E-Mail-Adresse hinterlegt' : undefined}
-                              >
-                                {isEmailLoading ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Mail className="h-4 w-4" />
-                                )}
-                                Per E-Mail senden
-                                {abrechnung.mieterEmail && (
-                                  <span className="text-xs text-muted-foreground ml-1">({abrechnung.mieterEmail})</span>
-                                )}
-                              </Button>
+                              {(() => {
+                                const versandInfo = getVersandInfo(abrechnung.mietvertragId);
+                                const bereitsVersendet = !!versandInfo?.versandt_am;
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className={cn(
+                                        "gap-2",
+                                        bereitsVersendet && "border-blue-300 text-blue-700 hover:bg-blue-50"
+                                      )}
+                                      onClick={() => handleSendEmail(abrechnung)}
+                                      disabled={isEmailLoading || !abrechnung.mieterEmail}
+                                      title={!abrechnung.mieterEmail ? 'Keine E-Mail-Adresse hinterlegt' : undefined}
+                                    >
+                                      {isEmailLoading ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : bereitsVersendet ? (
+                                        <CheckCircle2 className="h-4 w-4" />
+                                      ) : (
+                                        <Mail className="h-4 w-4" />
+                                      )}
+                                      {bereitsVersendet ? 'Erneut senden' : 'Per E-Mail senden'}
+                                      {abrechnung.mieterEmail && (
+                                        <span className="text-xs text-muted-foreground ml-1">({abrechnung.mieterEmail})</span>
+                                      )}
+                                    </Button>
+                                    {bereitsVersendet && versandInfo?.versandt_am && (
+                                      <p className="text-xs text-blue-600 flex items-center gap-1 ml-1">
+                                        <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                        Versendet am {format(parseISO(versandInfo.versandt_am), 'dd.MM.yyyy, HH:mm', { locale: de })} Uhr
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })()}
 
                               {isNachzahlung && (
                                 <Button
