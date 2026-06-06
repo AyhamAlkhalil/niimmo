@@ -144,7 +144,7 @@ export function NebenkostenStep3Abrechnung({
           ende_datum,
           status,
           mietvertrag_mieter(
-            mieter:mieter_id(id, vorname, nachname, email)
+            mieter:mieter_id(id, vorname, nachname, hauptmail)
           )
         `)
         .in('einheit_id', einheitIds);
@@ -289,7 +289,7 @@ export function NebenkostenStep3Abrechnung({
         mieterName: mieterData
           ? `${mieterData.vorname} ${mieterData.nachname || ''}`.trim()
           : 'Unbekannter Mieter',
-        mieterEmail: mieterData?.email || null,
+        mieterEmail: mieterData?.hauptmail || null,
         einheitId: mv.einheit_id,
         einheitName,
         qm,
@@ -399,31 +399,20 @@ export function NebenkostenStep3Abrechnung({
 
       const pdfBase64 = await pdfToBase64(pdfData);
 
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-nebenkostenabrechnung`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify({
-            recipientEmail: abrechnung.mieterEmail,
-            recipientName: abrechnung.mieterName,
-            pdfBase64,
-            immobilieAdresse,
-            einheitBezeichnung: abrechnung.einheitName,
-            abrechnungsjahr: selectedYear,
-            saldo: abrechnung.saldo,
-          }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('send-nebenkostenabrechnung', {
+        body: {
+          recipientEmail: abrechnung.mieterEmail,
+          recipientName: abrechnung.mieterName,
+          pdfBase64,
+          immobilieAdresse,
+          einheitBezeichnung: abrechnung.einheitName,
+          abrechnungsjahr: selectedYear,
+          saldo: abrechnung.saldo,
+        },
+      });
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'E-Mail konnte nicht gesendet werden');
-      }
+      if (error) throw new Error(error.message || 'E-Mail konnte nicht gesendet werden');
+      if (data?.error) throw new Error(data.error);
 
       toast({ title: "E-Mail gesendet", description: `Abrechnung wurde an ${abrechnung.mieterEmail} gesendet.` });
     } catch (err: unknown) {
