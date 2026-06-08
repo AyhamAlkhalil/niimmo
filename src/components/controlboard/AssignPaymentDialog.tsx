@@ -38,10 +38,11 @@ export function AssignPaymentDialog({ open, onOpenChange, payment }: AssignPayme
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
 
-  // Reset assignment type when payment changes
+  // Reset search and assignment type when dialog opens with a new payment
   useEffect(() => {
     if (payment) {
       setAssignmentType(payment.kategorie === 'Nebenkosten' ? 'property' : 'contract');
+      setSearchTerm("");
     }
   }, [payment]);
 
