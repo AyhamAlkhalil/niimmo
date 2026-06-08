@@ -148,7 +148,6 @@ export function MietvertragMeterReadings({
                         onCancel={onCancelEditMeterNumber}
                         type="text"
                         formatter={(value) => String(value) || "Nicht gesetzt"}
-                        hideEditButton={true}
                       />
                     </div>
                   </div>
@@ -175,7 +174,6 @@ export function MietvertragMeterReadings({
                         type="number"
                         step="0.01"
                         formatter={formatMeterValue}
-                        hideEditButton={true}
                       />
                     </div>
                     
@@ -199,7 +197,6 @@ export function MietvertragMeterReadings({
                         type="number"
                         step="0.01"
                         formatter={formatMeterValue}
-                        hideEditButton={true}
                       />
                     </div>
                   </div>

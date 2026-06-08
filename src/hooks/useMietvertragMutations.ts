@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
+import { format } from "date-fns";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -246,6 +247,23 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       }
       const { error } = await supabase.from('mietvertrag').update({ [field]: numericValue }).eq('id', vertragId);
       if (error) throw error;
+
+      // History-Eintrag in zaehlerstand_historie
+      if (einheitData?.id) {
+        const quelle = field.endsWith('_einzug') ? 'einzug' : 'auszug';
+        const typ = field.replace('_einzug', '').replace('_auszug', '');
+        const zaehlerNrKey = `${typ}_zaehler` as keyof typeof einheitData;
+        await supabase.from('zaehlerstand_historie').insert({
+          einheit_id: einheitData.id,
+          zaehler_typ: typ,
+          zaehler_nummer: (einheitData[zaehlerNrKey] as string | null) ?? null,
+          stand: numericValue,
+          datum: format(new Date(), 'yyyy-MM-dd'),
+          quelle,
+        });
+        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+      }
+
       toast({ title: "Aktualisiert", description: "Zählerstand wurde erfolgreich aktualisiert." });
       setEditingMeter(null);
       await Promise.all([

@@ -11,6 +11,7 @@ import { sortUnitsByNumber, getCurrentContract, filterActiveAndTerminatedContrac
 import { useEditableField } from "@/hooks/useEditableField";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { format } from "date-fns";
 import { ImmobilienDocumentsTab } from "./ImmobilienDocumentsTab";
 import { ImmobilienNebenkostenTabNew } from "./nebenkosten/ImmobilienNebenkostenTabNew";
 import { ImmobilienVersicherungenTab } from "./ImmobilienVersicherungenTab";
@@ -328,23 +329,6 @@ export const ImmobilienDetail = ({
                   immobilie.allgemein_wasser_stand_2 || immobilie.allgemein_strom_stand_2 || immobilie.allgemein_gas_stand_2
                 );
                 
-                const saveMeterField = async (field: string, value: string, type: 'text' | 'number' | 'date') => {
-                  const updateData: Record<string, any> = {};
-                  if (type === 'number') {
-                    updateData[field] = value ? parseFloat(value) : null;
-                  } else {
-                    updateData[field] = value || null;
-                  }
-                  const { error } = await supabase.from('immobilien').update(updateData).eq('id', immobilieId);
-                  if (error) {
-                    toast.error('Fehler beim Speichern');
-                  } else {
-                    toast.success('Gespeichert');
-                    queryClient.invalidateQueries({ queryKey: ['immobilie', immobilieId] });
-                  }
-                  setEditingMeter(null);
-                };
-
                 const renderMeterRow = (meters: Array<{ key: string; label: string; icon: any; zaehlerField: string; standField: string; datumField: string }>, title?: string) => (
                   <>
                     {title && <p className="text-xs font-semibold text-muted-foreground mb-2">{title}</p>}
@@ -383,9 +367,34 @@ export const ImmobilienDetail = ({
                                 </div>
                                 <div className="flex gap-1 justify-end">
                                   <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={async () => {
-                                    await saveMeterField(zaehlerField, meterValues[`${key}_zaehler`] ?? zaehlerVal, 'text');
-                                    await saveMeterField(standField, meterValues[`${key}_stand`] ?? String(standVal ?? ''), 'number');
-                                    await saveMeterField(datumField, meterValues[`${key}_datum`] ?? datumVal, 'date');
+                                    const zVal = meterValues[`${key}_zaehler`] ?? zaehlerVal;
+                                    const sVal = meterValues[`${key}_stand`] ?? String(standVal ?? '');
+                                    const dVal = meterValues[`${key}_datum`] ?? datumVal;
+                                    const updates: Record<string, unknown> = {
+                                      [zaehlerField]: zVal || null,
+                                      [standField]: sVal ? parseFloat(sVal) : null,
+                                      [datumField]: dVal || null,
+                                    };
+                                    const { error } = await supabase.from('immobilien').update(updates).eq('id', immobilieId);
+                                    if (error) {
+                                      toast.error('Fehler beim Speichern');
+                                    } else {
+                                      toast.success('Gespeichert');
+                                      queryClient.invalidateQueries({ queryKey: ['immobilie', immobilieId] });
+                                      const standNum = updates[standField] as number | null;
+                                      if (standNum != null) {
+                                        await supabase.from('zaehlerstand_historie').insert({
+                                          immobilie_id: immobilieId,
+                                          zaehler_typ: key,
+                                          zaehler_nummer: (updates[zaehlerField] as string | null) ?? null,
+                                          stand: standNum,
+                                          datum: (updates[datumField] as string | null) ?? format(new Date(), 'yyyy-MM-dd'),
+                                          quelle: 'manuell',
+                                        });
+                                        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+                                      }
+                                    }
+                                    setEditingMeter(null);
                                   }}>
                                     <Check className="h-3 w-3 text-green-600" />
                                   </Button>

@@ -448,9 +448,9 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
 
   const getPropertyMeterTypes = (immobilie: any) => {
     const types: Array<'wasser' | 'strom' | 'gas'> = [];
+    if (immobilie.hat_wasser !== false) types.push('wasser');
     if (immobilie.hat_strom !== false) types.push('strom');
     if (immobilie.hat_gas !== false) types.push('gas');
-    if (immobilie.hat_wasser !== false) types.push('wasser');
     return types;
   };
 
