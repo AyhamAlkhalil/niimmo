@@ -252,8 +252,8 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       if (einheitData?.id) {
         const quelle = field.endsWith('_einzug') ? 'einzug' : 'auszug';
         const typ = field.replace('_einzug', '').replace('_auszug', '');
-        const zaehlerNrKey = `${typ}_zaehler` as keyof typeof einheitData;
-        await supabase.from('zaehlerstand_historie').insert({
+        const zaehlerNrKey = `${typ}_zaehler` as keyof Einheit;
+        const { error: histError } = await supabase.from('zaehlerstand_historie').insert({
           einheit_id: einheitData.id,
           zaehler_typ: typ,
           zaehler_nummer: (einheitData[zaehlerNrKey] as string | null) ?? null,
@@ -261,7 +261,9 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           datum: format(new Date(), 'yyyy-MM-dd'),
           quelle,
         });
-        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+        if (!histError) {
+          queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+        }
       }
 
       toast({ title: "Aktualisiert", description: "Zählerstand wurde erfolgreich aktualisiert." });
@@ -421,6 +423,36 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       if (Object.keys(mietvertragUpdates).length > 0) {
         const { error } = await supabase.from('mietvertrag').update(mietvertragUpdates).eq('id', vertragId);
         if (error) throw error;
+      }
+
+      // History-Einträge für geänderte Zählerstände im Global-Edit-Mode
+      if (einheitData?.id) {
+        const zaehlerFelder = [
+          'kaltwasser_einzug', 'warmwasser_einzug', 'strom_einzug', 'gas_einzug',
+          'kaltwasser_auszug', 'warmwasser_auszug', 'strom_auszug', 'gas_auszug',
+        ] as const;
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const inserts = zaehlerFelder
+          .filter(f => (mietvertragUpdates as Record<string, unknown>)[f] != null)
+          .map(f => {
+            const quelle = f.endsWith('_einzug') ? 'einzug' : 'auszug';
+            const typ = f.replace('_einzug', '').replace('_auszug', '');
+            const zaehlerNrKey = `${typ}_zaehler` as keyof Einheit;
+            return {
+              einheit_id: einheitData!.id,
+              zaehler_typ: typ,
+              zaehler_nummer: (einheitData![zaehlerNrKey] as string | null) ?? null,
+              stand: (mietvertragUpdates as Record<string, unknown>)[f] as number,
+              datum: today,
+              quelle,
+            };
+          });
+        if (inserts.length > 0) {
+          const { error: histError } = await supabase.from('zaehlerstand_historie').insert(inserts);
+          if (!histError) {
+            queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+          }
+        }
       }
 
       // Update einheit fields
