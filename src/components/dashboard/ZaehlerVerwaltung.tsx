@@ -238,6 +238,8 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     if (propChanges.length === 0) return;
     setSavingProperties(prev => new Set(prev).add(immobilieId));
 
+    const currentImmobilie = immobilien?.find(i => i.id === immobilieId);
+
     try {
       const updates: Record<string, unknown> = {};
       const today = format(new Date(), 'yyyy-MM-dd');
@@ -261,13 +263,20 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
         }
         if (change.stand !== undefined) {
           const standValue = change.stand ? parseFloat(change.stand) : null;
-          updates[`allgemein_${baseType}_stand${suffix}`] = standValue;
-          if (standValue !== null && change.datum === undefined) {
-            updates[`allgemein_${baseType}_datum${suffix}`] = today;
+          const newDatum = change.datum || today;
+          const existingDatum = (currentImmobilie as any)?.[`allgemein_${baseType}_datum${suffix}`] as string | null;
+          // Aktuellen Stand nur überschreiben wenn kein älteres Datum eingetragen wird
+          const isNewerOrSame = !change.datum || !existingDatum || new Date(newDatum) >= new Date(existingDatum);
+          if (isNewerOrSame) {
+            updates[`allgemein_${baseType}_stand${suffix}`] = standValue;
+            updates[`allgemein_${baseType}_datum${suffix}`] = newDatum;
           }
         }
-        if (change.datum !== undefined) {
-          updates[`allgemein_${baseType}_datum${suffix}`] = change.datum || null;
+        if (change.datum !== undefined && change.stand === undefined) {
+          const existingDatum = (currentImmobilie as any)?.[`allgemein_${baseType}_datum${suffix}`] as string | null;
+          if (!existingDatum || new Date(change.datum) >= new Date(existingDatum)) {
+            updates[`allgemein_${baseType}_datum${suffix}`] = change.datum || null;
+          }
         }
       }
 
@@ -322,6 +331,8 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     if (unitChanges.length === 0) return;
     setSavingUnits(prev => new Set(prev).add(einheitId));
 
+    const currentEinheit = immobilien?.flatMap(i => i.einheiten || []).find((e: any) => e.id === einheitId);
+
     try {
       const updates: Record<string, unknown> = {};
       const today = format(new Date(), 'yyyy-MM-dd');
@@ -332,13 +343,20 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
         }
         if (change.stand !== undefined) {
           const standValue = change.stand ? parseFloat(change.stand) : null;
-          updates[`${change.type}_stand_aktuell`] = standValue;
-          if (standValue !== null && change.datum === undefined) {
-            updates[`${change.type}_stand_datum`] = today;
+          const newDatum = change.datum || today;
+          const existingDatum = (currentEinheit as any)?.[`${change.type}_stand_datum`] as string | null;
+          // Aktuellen Stand nur überschreiben wenn kein älteres Datum eingetragen wird
+          const isNewerOrSame = !change.datum || !existingDatum || new Date(newDatum) >= new Date(existingDatum);
+          if (isNewerOrSame) {
+            updates[`${change.type}_stand_aktuell`] = standValue;
+            updates[`${change.type}_stand_datum`] = newDatum;
           }
         }
-        if (change.datum !== undefined) {
-          updates[`${change.type}_stand_datum`] = change.datum || null;
+        if (change.datum !== undefined && change.stand === undefined) {
+          const existingDatum = (currentEinheit as any)?.[`${change.type}_stand_datum`] as string | null;
+          if (!existingDatum || new Date(change.datum) >= new Date(existingDatum)) {
+            updates[`${change.type}_stand_datum`] = change.datum || null;
+          }
         }
       }
 
