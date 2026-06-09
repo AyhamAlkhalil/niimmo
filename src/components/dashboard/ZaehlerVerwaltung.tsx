@@ -17,7 +17,9 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
-  Gauge
+  Gauge,
+  Pencil,
+  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -25,38 +27,27 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ZaehlerHistorie } from "@/components/dashboard/ZaehlerHistorie";
 
-interface MeterReading {
-  einheitId: string;
-  type: 'kaltwasser' | 'warmwasser' | 'strom' | 'gas';
-  zaehlerNummer: string;
-  stand: string;
-  datum: string;
-}
-
-interface PropertyMeterReading {
-  immobilieId: string;
-  type: 'wasser' | 'strom' | 'gas' | 'versorger_strom' | 'versorger_gas' | 'versorger_wasser';
-  zaehlerNummer?: string;
-  stand?: string;
-  datum?: string;
-  name?: string;
-  email?: string;
-}
-
 interface ZaehlerVerwaltungProps {
   onBack: () => void;
 }
 
+const UNIT_TYPES = ['kaltwasser', 'warmwasser', 'strom', 'gas'] as const;
+type UnitType = typeof UNIT_TYPES[number];
+
 export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
   const queryClient = useQueryClient();
   const [expandedImmobilien, setExpandedImmobilien] = useState<Set<string>>(new Set());
-  const [editedReadings, setEditedReadings] = useState<Record<string, MeterReading>>({});
-  const [editedPropertyReadings, setEditedPropertyReadings] = useState<Record<string, PropertyMeterReading>>({});
-  const [savingUnits, setSavingUnits] = useState<Set<string>>(new Set());
-  const [savingProperties, setSavingProperties] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Fetch all properties with their units
+  // Edit-Modus: eine Einheit oder eine Immobilie gleichzeitig
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [unitDraft, setUnitDraft] = useState<Record<string, string>>({});
+  const [savingUnit, setSavingUnit] = useState(false);
+
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
+  const [propertyDraft, setPropertyDraft] = useState<Record<string, string>>({});
+  const [savingProperty, setSavingProperty] = useState(false);
+
   const { data: immobilien, isLoading } = useQuery({
     queryKey: ['zaehler-verwaltung-immobilien'],
     queryFn: async () => {
@@ -74,7 +65,6 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           allgemein_gas_zaehler_2, allgemein_gas_stand_2, allgemein_gas_datum_2,
           allgemein_wasser_zaehler_2, allgemein_wasser_stand_2, allgemein_wasser_datum_2
         `);
-
       if (propsError) throw propsError;
 
       const sortedProps = [...(props || [])].sort((a, b) =>
@@ -95,7 +85,6 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
             `)
             .eq('immobilie_id', prop.id)
             .order('zaehler');
-
           if (unitsError) throw unitsError;
 
           const unitIds = units?.map(u => u.id) || [];
@@ -103,398 +92,321 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           if (unitIds.length > 0) {
             const { data: contractData } = await supabase
               .from('mietvertrag')
-              .select(`
-                id, einheit_id, status,
-                mietvertrag_mieter!inner(mieter:mieter_id(vorname, nachname))
-              `)
+              .select(`id, einheit_id, status, mietvertrag_mieter!inner(mieter:mieter_id(vorname, nachname))`)
               .in('einheit_id', unitIds)
               .eq('status', 'aktiv');
             contracts = contractData || [];
           }
-
-          const contractMap = new Map(
-            contracts.map(c => [c.einheit_id, c])
-          );
-
+          const contractMap = new Map(contracts.map(c => [c.einheit_id, c]));
           return {
             ...prop,
-            einheiten: units?.map(u => ({
-              ...u,
-              vertrag: contractMap.get(u.id)
-            })) || []
+            einheiten: units?.map(u => ({ ...u, vertrag: contractMap.get(u.id) })) || [],
           };
         })
       );
-
       return propsWithUnits;
-    }
+    },
   });
 
-  const updateMeterMutation = useMutation({
+  const updateUnitMutation = useMutation({
     mutationFn: async ({ einheitId, updates }: { einheitId: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase
-        .from('einheiten')
-        .update(updates)
-        .eq('id', einheitId);
+      const { error } = await supabase.from('einheiten').update(updates).eq('id', einheitId);
       if (error) throw error;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] });
-    }
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] }),
   });
 
-  const updatePropertyMeterMutation = useMutation({
+  const updatePropertyMutation = useMutation({
     mutationFn: async ({ immobilieId, updates }: { immobilieId: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase
-        .from('immobilien')
-        .update(updates)
-        .eq('id', immobilieId);
+      const { error } = await supabase.from('immobilien').update(updates).eq('id', immobilieId);
       if (error) throw error;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] });
-    }
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] }),
   });
+
+  // ── Einheit Edit-Modus ──────────────────────────────────────────────────────
+
+  const startEditUnit = (einheit: any) => {
+    // Gleichzeitig nur eine Einheit bearbeiten — anderen abbrechen
+    if (editingPropertyId) cancelEditProperty();
+    const draft: Record<string, string> = {};
+    for (const t of UNIT_TYPES) {
+      draft[`${t}_zaehler`] = einheit[`${t}_zaehler`] ?? '';
+      draft[`${t}_stand`]   = einheit[`${t}_stand_aktuell`]?.toString() ?? '';
+      draft[`${t}_datum`]   = einheit[`${t}_stand_datum`] ?? '';
+    }
+    setUnitDraft(draft);
+    setEditingUnitId(einheit.id);
+  };
+
+  const cancelEditUnit = () => {
+    setEditingUnitId(null);
+    setUnitDraft({});
+  };
+
+  const saveUnitDraft = async (einheit: any) => {
+    setSavingUnit(true);
+    try {
+      const updates: Record<string, unknown> = {};
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const historyInserts: any[] = [];
+
+      for (const t of UNIT_TYPES) {
+        const origZaehler = einheit[`${t}_zaehler`] ?? '';
+        const origStand   = einheit[`${t}_stand_aktuell`]?.toString() ?? '';
+        const origDatum   = einheit[`${t}_stand_datum`] ?? '';
+        const newZaehler  = unitDraft[`${t}_zaehler`] ?? '';
+        const newStand    = unitDraft[`${t}_stand`] ?? '';
+        const newDatum    = unitDraft[`${t}_datum`] || '';
+
+        if (newZaehler !== origZaehler) {
+          updates[`${t}_zaehler`] = newZaehler || null;
+        }
+
+        if (newStand !== origStand) {
+          const standValue = newStand ? parseFloat(newStand) : null;
+          const effectiveDatum = newDatum || today;
+          // Datum-Guard: aktuellen Stand nur überschreiben wenn neues Datum nicht älter
+          const isNewerOrSame = !newDatum || !origDatum || new Date(effectiveDatum) >= new Date(origDatum);
+          if (isNewerOrSame) {
+            updates[`${t}_stand_aktuell`] = standValue;
+            updates[`${t}_stand_datum`]   = effectiveDatum;
+          }
+          if (standValue !== null) {
+            historyInserts.push({
+              einheit_id: einheit.id,
+              zaehler_typ: t,
+              zaehler_nummer: (updates[`${t}_zaehler`] as string ?? newZaehler) || null,
+              stand: standValue,
+              datum: newDatum || today,
+              quelle: 'manuell',
+            });
+          }
+        } else if (newDatum !== origDatum && newDatum) {
+          const isNewerOrSame = !origDatum || new Date(newDatum) >= new Date(origDatum);
+          if (isNewerOrSame) updates[`${t}_stand_datum`] = newDatum;
+        }
+      }
+
+      if (Object.keys(updates).length === 0 && historyInserts.length === 0) {
+        cancelEditUnit();
+        return;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await updateUnitMutation.mutateAsync({ einheitId: einheit.id, updates });
+      }
+      for (const entry of historyInserts) {
+        await supabase.from('zaehlerstand_historie').insert(entry);
+      }
+      if (historyInserts.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+      }
+
+      cancelEditUnit();
+      toast.success('Zählerstände gespeichert');
+    } catch {
+      toast.error('Fehler beim Speichern');
+    } finally {
+      setSavingUnit(false);
+    }
+  };
+
+  // ── Hausanschluss Edit-Modus ────────────────────────────────────────────────
+
+  const startEditProperty = (immobilie: any) => {
+    if (editingUnitId) cancelEditUnit();
+    const draft: Record<string, string> = {};
+    for (const t of ['wasser', 'strom', 'gas'] as const) {
+      draft[`${t}_zaehler`]   = immobilie[`allgemein_${t}_zaehler`] ?? '';
+      draft[`${t}_stand`]     = immobilie[`allgemein_${t}_stand`]?.toString() ?? '';
+      draft[`${t}_datum`]     = immobilie[`allgemein_${t}_datum`] ?? '';
+      draft[`${t}_2_zaehler`] = immobilie[`allgemein_${t}_zaehler_2`] ?? '';
+      draft[`${t}_2_stand`]   = immobilie[`allgemein_${t}_stand_2`]?.toString() ?? '';
+      draft[`${t}_2_datum`]   = immobilie[`allgemein_${t}_datum_2`] ?? '';
+      draft[`versorger_${t}_name`]  = immobilie[`versorger_${t}_name`] ?? '';
+      draft[`versorger_${t}_email`] = immobilie[`versorger_${t}_email`] ?? '';
+    }
+    setPropertyDraft(draft);
+    setEditingPropertyId(immobilie.id);
+  };
+
+  const cancelEditProperty = () => {
+    setEditingPropertyId(null);
+    setPropertyDraft({});
+  };
+
+  const savePropertyDraft = async (immobilie: any) => {
+    setSavingProperty(true);
+    try {
+      const updates: Record<string, unknown> = {};
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const historyInserts: any[] = [];
+
+      for (const t of ['wasser', 'strom', 'gas'] as const) {
+        for (const suffix of ['', '_2'] as const) {
+          const key = suffix ? `${t}_2` : t;
+          const dbBase = `allgemein_${t}`;
+          const origZaehler = immobilie[`${dbBase}_zaehler${suffix}`] ?? '';
+          const origStand   = immobilie[`${dbBase}_stand${suffix}`]?.toString() ?? '';
+          const origDatum   = immobilie[`${dbBase}_datum${suffix}`] ?? '';
+          const newZaehler  = propertyDraft[`${key}_zaehler`] ?? '';
+          const newStand    = propertyDraft[`${key}_stand`] ?? '';
+          const newDatum    = propertyDraft[`${key}_datum`] || '';
+
+          if (newZaehler !== origZaehler) {
+            updates[`${dbBase}_zaehler${suffix}`] = newZaehler || null;
+          }
+          if (newStand !== origStand) {
+            const standValue = newStand ? parseFloat(newStand) : null;
+            const effectiveDatum = newDatum || today;
+            const isNewerOrSame = !newDatum || !origDatum || new Date(effectiveDatum) >= new Date(origDatum);
+            if (isNewerOrSame) {
+              updates[`${dbBase}_stand${suffix}`] = standValue;
+              updates[`${dbBase}_datum${suffix}`] = effectiveDatum;
+            }
+            if (standValue !== null) {
+              historyInserts.push({
+                immobilie_id: immobilie.id,
+                zaehler_typ: key,
+                zaehler_nummer: (updates[`${dbBase}_zaehler${suffix}`] as string ?? newZaehler) || null,
+                stand: standValue,
+                datum: newDatum || today,
+                quelle: 'manuell',
+              });
+            }
+          } else if (newDatum !== origDatum && newDatum) {
+            const isNewerOrSame = !origDatum || new Date(newDatum) >= new Date(origDatum);
+            if (isNewerOrSame) updates[`${dbBase}_datum${suffix}`] = newDatum;
+          }
+        }
+
+        // Versorger
+        const origName  = immobilie[`versorger_${t}_name`] ?? '';
+        const origEmail = immobilie[`versorger_${t}_email`] ?? '';
+        if (propertyDraft[`versorger_${t}_name`] !== origName)
+          updates[`versorger_${t}_name`] = propertyDraft[`versorger_${t}_name`] || null;
+        if (propertyDraft[`versorger_${t}_email`] !== origEmail)
+          updates[`versorger_${t}_email`] = propertyDraft[`versorger_${t}_email`] || null;
+      }
+
+      if (Object.keys(updates).length === 0 && historyInserts.length === 0) {
+        cancelEditProperty();
+        return;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await updatePropertyMutation.mutateAsync({ immobilieId: immobilie.id, updates });
+      }
+      for (const entry of historyInserts) {
+        await supabase.from('zaehlerstand_historie').insert(entry);
+      }
+      if (historyInserts.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+      }
+
+      cancelEditProperty();
+      toast.success('Hausanschlusszähler gespeichert');
+    } catch {
+      toast.error('Fehler beim Speichern');
+    } finally {
+      setSavingProperty(false);
+    }
+  };
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  const toggleUtilityConfig = async (immobilieId: string, field: 'hat_strom' | 'hat_gas' | 'hat_wasser', value: boolean) => {
+    try {
+      const { error } = await supabase.from('immobilien').update({ [field]: value }).eq('id', immobilieId);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] });
+      toast.success('Versorgungskonfiguration gespeichert');
+    } catch {
+      toast.error('Fehler beim Speichern');
+    }
+  };
 
   const toggleImmobilie = (id: string) => {
     setExpandedImmobilien(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
 
-  const expandAll = () => {
-    if (!immobilien) return;
-    setExpandedImmobilien(new Set(immobilien.map(i => i.id)));
-  };
-
-  const collapseAll = () => {
-    setExpandedImmobilien(new Set());
-  };
-
-  // Unit meter input handling
-  const handleInputChange = (einheitId: string, type: string, field: 'zaehler' | 'stand' | 'datum', value: string) => {
-    const key = `${einheitId}-${type}`;
-    const fieldMap = { zaehler: 'zaehlerNummer', stand: 'stand', datum: 'datum' } as const;
-    setEditedReadings(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        einheitId,
-        type: type as MeterReading['type'],
-        [fieldMap[field]]: value
-      }
-    }));
-  };
-
-  const getEditedValue = (einheitId: string, type: string, field: 'zaehler' | 'stand' | 'datum') => {
-    const key = `${einheitId}-${type}`;
-    const edited = editedReadings[key];
-    if (!edited) return undefined;
-    if (field === 'zaehler') return edited.zaehlerNummer;
-    if (field === 'stand') return edited.stand;
-    return edited.datum;
-  };
-
-  // Property meter input handling
-  const handlePropertyInputChange = (immobilieId: string, type: string, field: 'zaehler' | 'stand' | 'datum' | 'name' | 'email', value: string) => {
-    const key = `${immobilieId}-${type}`;
-    const fieldMap = { zaehler: 'zaehlerNummer', stand: 'stand', datum: 'datum', name: 'name', email: 'email' } as const;
-    setEditedPropertyReadings(prev => ({
-      ...prev,
-      [key]: {
-        ...prev[key],
-        immobilieId,
-        type: type as PropertyMeterReading['type'],
-        [fieldMap[field]]: value
-      }
-    }));
-  };
-
-  const getEditedPropertyValue = (immobilieId: string, type: string, field: 'zaehler' | 'stand' | 'datum' | 'name' | 'email') => {
-    const key = `${immobilieId}-${type}`;
-    const edited = editedPropertyReadings[key];
-    if (!edited) return undefined;
-    if (field === 'zaehler') return edited.zaehlerNummer;
-    if (field === 'stand') return edited.stand;
-    if (field === 'name') return edited.name;
-    if (field === 'email') return edited.email;
-    return edited.datum;
-  };
-
-  const hasUnsavedPropertyChanges = (immobilieId: string) =>
-    Object.keys(editedPropertyReadings).some(key => key.startsWith(`${immobilieId}-`));
-
-  const hasUnsavedChanges = (einheitId: string) =>
-    Object.keys(editedReadings).some(key => key.startsWith(`${einheitId}-`));
-
-  const savePropertyChanges = async (immobilieId: string) => {
-    const propChanges = Object.entries(editedPropertyReadings)
-      .filter(([key]) => key.startsWith(`${immobilieId}-`))
-      .map(([, reading]) => reading);
-
-    if (propChanges.length === 0) return;
-    setSavingProperties(prev => new Set(prev).add(immobilieId));
-
-    const currentImmobilie = immobilien?.find(i => i.id === immobilieId);
-
-    try {
-      const updates: Record<string, unknown> = {};
-      const today = format(new Date(), 'yyyy-MM-dd');
-
-      for (const change of propChanges) {
-        // Handle versorger fields
-        if (change.type.startsWith('versorger_')) {
-          const utilityType = change.type.replace('versorger_', '');
-          if (change.name !== undefined) {
-            updates[`versorger_${utilityType}_name`] = change.name || null;
-          }
-          if (change.email !== undefined) {
-            updates[`versorger_${utilityType}_email`] = change.email || null;
-          }
-          continue;
-        }
-        const baseType = change.type.replace('_2', '');
-        const suffix = change.type.endsWith('_2') ? '_2' : '';
-        if (change.zaehlerNummer !== undefined) {
-          updates[`allgemein_${baseType}_zaehler${suffix}`] = change.zaehlerNummer || null;
-        }
-        if (change.stand !== undefined) {
-          const standValue = change.stand ? parseFloat(change.stand) : null;
-          const newDatum = change.datum || today;
-          const existingDatum = (currentImmobilie as any)?.[`allgemein_${baseType}_datum${suffix}`] as string | null;
-          // Aktuellen Stand nur überschreiben wenn kein älteres Datum eingetragen wird
-          const isNewerOrSame = !change.datum || !existingDatum || new Date(newDatum) >= new Date(existingDatum);
-          if (isNewerOrSame) {
-            updates[`allgemein_${baseType}_stand${suffix}`] = standValue;
-            updates[`allgemein_${baseType}_datum${suffix}`] = newDatum;
-          }
-        }
-        if (change.datum !== undefined && change.stand === undefined) {
-          const existingDatum = (currentImmobilie as any)?.[`allgemein_${baseType}_datum${suffix}`] as string | null;
-          if (!existingDatum || new Date(change.datum) >= new Date(existingDatum)) {
-            updates[`allgemein_${baseType}_datum${suffix}`] = change.datum || null;
-          }
-        }
-      }
-
-      await updatePropertyMeterMutation.mutateAsync({ immobilieId, updates });
-
-      // Insert history entries for meter readings
-      for (const change of propChanges) {
-        if (change.type.startsWith('versorger_')) continue;
-        if (change.stand === undefined) continue;
-        const standValue = change.stand ? parseFloat(change.stand) : null;
-        if (standValue === null) continue;
-        const baseType = change.type.replace('_2', '');
-        const suffix = change.type.endsWith('_2') ? '_2' : '';
-        const zaehlerKey = `allgemein_${baseType}_zaehler${suffix}` as keyof typeof updates;
-        const datumKey = `allgemein_${baseType}_datum${suffix}` as keyof typeof updates;
-        const zaehlerNr = (updates[zaehlerKey] as string) ?? change.zaehlerNummer ?? null;
-        const datum = (updates[datumKey] as string) ?? format(new Date(), 'yyyy-MM-dd');
-        await supabase.from('zaehlerstand_historie').insert({
-          immobilie_id: immobilieId,
-          zaehler_typ: change.type,
-          zaehler_nummer: zaehlerNr,
-          stand: standValue,
-          datum,
-          quelle: 'manuell',
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-
-      setEditedPropertyReadings(prev => {
-        const next = { ...prev };
-        Object.keys(next).filter(key => key.startsWith(`${immobilieId}-`)).forEach(key => delete next[key]);
-        return next;
-      });
-
-      toast.success("Hausanschlusszähler gespeichert");
-    } catch (error) {
-      toast.error("Fehler beim Speichern der Hausanschlusszähler");
-    } finally {
-      setSavingProperties(prev => {
-        const next = new Set(prev);
-        next.delete(immobilieId);
-        return next;
-      });
-    }
-  };
-
-  const saveUnitChanges = async (einheitId: string) => {
-    const unitChanges = Object.entries(editedReadings)
-      .filter(([key]) => key.startsWith(`${einheitId}-`))
-      .map(([, reading]) => reading);
-
-    if (unitChanges.length === 0) return;
-    setSavingUnits(prev => new Set(prev).add(einheitId));
-
-    const currentEinheit = immobilien?.flatMap(i => i.einheiten || []).find((e: any) => e.id === einheitId);
-
-    try {
-      const updates: Record<string, unknown> = {};
-      const today = format(new Date(), 'yyyy-MM-dd');
-
-      for (const change of unitChanges) {
-        if (change.zaehlerNummer !== undefined) {
-          updates[`${change.type}_zaehler`] = change.zaehlerNummer || null;
-        }
-        if (change.stand !== undefined) {
-          const standValue = change.stand ? parseFloat(change.stand) : null;
-          const newDatum = change.datum || today;
-          const existingDatum = (currentEinheit as any)?.[`${change.type}_stand_datum`] as string | null;
-          // Aktuellen Stand nur überschreiben wenn kein älteres Datum eingetragen wird
-          const isNewerOrSame = !change.datum || !existingDatum || new Date(newDatum) >= new Date(existingDatum);
-          if (isNewerOrSame) {
-            updates[`${change.type}_stand_aktuell`] = standValue;
-            updates[`${change.type}_stand_datum`] = newDatum;
-          }
-        }
-        if (change.datum !== undefined && change.stand === undefined) {
-          const existingDatum = (currentEinheit as any)?.[`${change.type}_stand_datum`] as string | null;
-          if (!existingDatum || new Date(change.datum) >= new Date(existingDatum)) {
-            updates[`${change.type}_stand_datum`] = change.datum || null;
-          }
-        }
-      }
-
-      await updateMeterMutation.mutateAsync({ einheitId, updates });
-
-      // Insert history entries for meter readings
-      for (const change of unitChanges) {
-        if (change.stand === undefined) continue;
-        const standValue = change.stand ? parseFloat(change.stand) : null;
-        if (standValue === null) continue;
-        const zaehlerNr = (updates[`${change.type}_zaehler`] as string) ?? change.zaehlerNummer ?? null;
-        const datum = (updates[`${change.type}_stand_datum`] as string) ?? format(new Date(), 'yyyy-MM-dd');
-        await supabase.from('zaehlerstand_historie').insert({
-          einheit_id: einheitId,
-          zaehler_typ: change.type,
-          zaehler_nummer: zaehlerNr,
-          stand: standValue,
-          datum,
-          quelle: 'manuell',
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-
-      setEditedReadings(prev => {
-        const next = { ...prev };
-        Object.keys(next).filter(key => key.startsWith(`${einheitId}-`)).forEach(key => delete next[key]);
-        return next;
-      });
-
-      toast.success("Zählerstände gespeichert");
-    } catch (error) {
-      toast.error("Fehler beim Speichern der Zählerstände");
-    } finally {
-      setSavingUnits(prev => {
-        const next = new Set(prev);
-        next.delete(einheitId);
-        return next;
-      });
-    }
-  };
+  const expandAll  = () => { if (immobilien) setExpandedImmobilien(new Set(immobilien.map(i => i.id))); };
+  const collapseAll = () => setExpandedImmobilien(new Set());
 
   const getMeterIcon = (type: string, className = "h-3.5 w-3.5") => {
     switch (type) {
       case 'kaltwasser': return <Droplets className={`${className} text-blue-500`} />;
       case 'warmwasser': return <ThermometerSun className={`${className} text-orange-500`} />;
-      case 'strom': return <Zap className={`${className} text-yellow-600`} />;
-      case 'gas': return <Flame className={`${className} text-red-500`} />;
-      default: return null;
+      case 'strom':      return <Zap className={`${className} text-yellow-600`} />;
+      case 'gas':        return <Flame className={`${className} text-red-500`} />;
+      default:           return null;
     }
   };
 
   const getMeterLabel = (type: string) => {
-    switch (type) {
-      case 'kaltwasser': return 'KW';
-      case 'warmwasser': return 'WW';
-      case 'strom': return 'Strom';
-      case 'gas': return 'Gas';
-      case 'wasser': return 'Wasser';
-      default: return type;
-    }
+    const labels: Record<string, string> = {
+      kaltwasser: 'KW', warmwasser: 'WW', strom: 'Strom', gas: 'Gas', wasser: 'Wasser',
+    };
+    return labels[type] || type;
   };
 
   const getPropertyMeterIcon = (type: string, className = "h-3.5 w-3.5") => {
     switch (type) {
       case 'wasser': return <Droplets className={`${className} text-blue-600`} />;
-      case 'strom': return <Zap className={`${className} text-yellow-600`} />;
-      case 'gas': return <Flame className={`${className} text-red-500`} />;
-      default: return null;
+      case 'strom':  return <Zap className={`${className} text-yellow-600`} />;
+      case 'gas':    return <Flame className={`${className} text-red-500`} />;
+      default:       return null;
     }
   };
 
-  const formatStandDatum = (datum: string | null) => {
-    if (!datum) return '-';
-    return format(new Date(datum), 'dd.MM.yy', { locale: de });
+  const formatStandDatum = (datum: string | null) =>
+    datum ? format(new Date(datum), 'dd.MM.yy', { locale: de }) : '-';
+
+  const getPropertyMeterTypes = (immobilie: any) => {
+    const types: Array<'wasser' | 'strom' | 'gas'> = [];
+    if (immobilie.hat_wasser !== false) types.push('wasser');
+    if (immobilie.hat_strom  !== false) types.push('strom');
+    if (immobilie.hat_gas    !== false) types.push('gas');
+    return types;
   };
 
-  // Total unsaved changes count
-  const totalUnsaved = Object.keys(editedReadings).length + Object.keys(editedPropertyReadings).length;
+  const getUnitMeterTypes = (immobilie: any) => {
+    const types: Array<UnitType> = [];
+    if (immobilie.hat_wasser !== false) { types.push('kaltwasser'); types.push('warmwasser'); }
+    if (immobilie.hat_strom  !== false) types.push('strom');
+    if (immobilie.hat_gas    !== false) types.push('gas');
+    return types;
+  };
 
-  // Filtered immobilien
+  const hasSecondSet = (immobilie: any) =>
+    immobilie.allgemein_strom_zaehler_2 != null || immobilie.allgemein_gas_zaehler_2 != null ||
+    immobilie.allgemein_wasser_zaehler_2 != null || immobilie.allgemein_strom_stand_2 ||
+    immobilie.allgemein_gas_stand_2 || immobilie.allgemein_wasser_stand_2;
+
+  const matchesSearch = (value: string | null | undefined) => {
+    if (!searchTerm || !value) return false;
+    return value.toLowerCase().replace(/\s+/g, '').includes(searchTerm.toLowerCase().replace(/\s+/g, ''));
+  };
+
   const filteredImmobilien = immobilien?.filter(i => {
     if (!searchTerm) return true;
     const norm = (v: string) => v.toLowerCase().replace(/\s+/g, '');
     const s = norm(searchTerm);
     const match = (v: string | null | undefined) => !!v && norm(v).includes(s);
-
     if (match(i.name) || match(i.adresse)) return true;
-
-    // Hausanschlusszähler (property level)
-    if (
-      match(i.allgemein_strom_zaehler) || match(i.allgemein_gas_zaehler) || match(i.allgemein_wasser_zaehler) ||
-      match(i.allgemein_strom_zaehler_2) || match(i.allgemein_gas_zaehler_2) || match(i.allgemein_wasser_zaehler_2)
-    ) return true;
-
-    // Einheitenzähler
+    if (match(i.allgemein_strom_zaehler) || match(i.allgemein_gas_zaehler) || match(i.allgemein_wasser_zaehler) ||
+        match(i.allgemein_strom_zaehler_2) || match(i.allgemein_gas_zaehler_2) || match(i.allgemein_wasser_zaehler_2))
+      return true;
     return i.einheiten?.some((e: any) =>
       match(e.kaltwasser_zaehler) || match(e.warmwasser_zaehler) ||
-      match(e.strom_zaehler) || match(e.gas_zaehler) ||
-      match(String(e.zaehler || ''))
+      match(e.strom_zaehler) || match(e.gas_zaehler) || match(String(e.zaehler || ''))
     );
   });
-
-  const matchesSearch = (value: string | null | undefined): boolean => {
-    if (!searchTerm || !value) return false;
-    return value.toLowerCase().replace(/\s+/g, '').includes(searchTerm.toLowerCase().replace(/\s+/g, ''));
-  };
-
-  const getPropertyMeterTypes = (immobilie: any) => {
-    const types: Array<'wasser' | 'strom' | 'gas'> = [];
-    if (immobilie.hat_wasser !== false) types.push('wasser');
-    if (immobilie.hat_strom !== false) types.push('strom');
-    if (immobilie.hat_gas !== false) types.push('gas');
-    return types;
-  };
-
-  const getUnitMeterTypes = (immobilie: any) => {
-    const types: Array<'kaltwasser' | 'warmwasser' | 'strom' | 'gas'> = [];
-    if (immobilie.hat_wasser !== false) { types.push('kaltwasser'); types.push('warmwasser'); }
-    if (immobilie.hat_strom !== false) types.push('strom');
-    if (immobilie.hat_gas !== false) types.push('gas');
-    return types;
-  };
-
-  const toggleUtilityConfig = async (immobilieId: string, field: 'hat_strom' | 'hat_gas' | 'hat_wasser', value: boolean) => {
-    try {
-      const { error } = await supabase
-        .from('immobilien')
-        .update({ [field]: value })
-        .eq('id', immobilieId);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] });
-      toast.success('Versorgungskonfiguration gespeichert');
-    } catch (error) {
-      toast.error('Fehler beim Speichern');
-    }
-  };
-
-  const meterTypes = ['kaltwasser', 'warmwasser', 'strom', 'gas'] as const;
 
   if (isLoading) {
     return (
@@ -514,12 +426,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
         <div className="glass-card p-3 sm:p-4 rounded-xl mb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onBack}
-                className="h-8 w-8 p-0"
-              >
+              <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <Gauge className="h-5 w-5 text-primary" />
@@ -530,16 +437,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {totalUnsaved > 0 && (
-                <Badge variant="destructive" className="text-xs">
-                  {totalUnsaved} ungespeichert
-                </Badge>
-              )}
-            </div>
           </div>
-
-          {/* Search & controls */}
           <div className="flex items-center gap-2 mt-3">
             <Input
               placeholder="Suche nach Objekt, Adresse oder Zähler-Nr..."
@@ -547,366 +445,344 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="h-8 text-sm flex-1"
             />
-            <Button variant="outline" size="sm" onClick={expandAll} className="h-8 text-xs whitespace-nowrap">
-              Alle öffnen
-            </Button>
-            <Button variant="outline" size="sm" onClick={collapseAll} className="h-8 text-xs whitespace-nowrap">
-              Alle schließen
-            </Button>
+            <Button variant="outline" size="sm" onClick={expandAll} className="h-8 text-xs whitespace-nowrap">Alle öffnen</Button>
+            <Button variant="outline" size="sm" onClick={collapseAll} className="h-8 text-xs whitespace-nowrap">Alle schließen</Button>
           </div>
         </div>
 
         {/* Properties List */}
         <div className="space-y-3">
-          {filteredImmobilien?.map((immobilie) => (
-            <div key={immobilie.id} className="glass-card rounded-xl overflow-hidden">
-              <Collapsible
-                open={expandedImmobilien.has(immobilie.id)}
-                onOpenChange={() => toggleImmobilie(immobilie.id)}
-              >
-                <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center justify-between p-3 hover:bg-muted/30 transition-colors cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      {expandedImmobilien.has(immobilie.id) ? (
-                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      <Building2 className="h-4 w-4 text-primary" />
-                      <span className="font-semibold text-sm">{immobilie.name}</span>
-                      <span className="text-xs text-muted-foreground hidden sm:inline">· {immobilie.adresse}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {hasUnsavedPropertyChanges(immobilie.id) && (
-                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                          geändert
-                        </Badge>
-                      )}
+          {filteredImmobilien?.map((immobilie) => {
+            const propTypes = getPropertyMeterTypes(immobilie);
+            const isEditingProp = editingPropertyId === immobilie.id;
+
+            return (
+              <div key={immobilie.id} className="glass-card rounded-xl overflow-hidden">
+                <Collapsible
+                  open={expandedImmobilien.has(immobilie.id)}
+                  onOpenChange={() => toggleImmobilie(immobilie.id)}
+                >
+                  <CollapsibleTrigger className="w-full">
+                    <div className="flex items-center justify-between p-3 hover:bg-muted/30 transition-colors cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        {expandedImmobilien.has(immobilie.id)
+                          ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                        <Building2 className="h-4 w-4 text-primary" />
+                        <span className="font-semibold text-sm">{immobilie.name}</span>
+                        <span className="text-xs text-muted-foreground hidden sm:inline">· {immobilie.adresse}</span>
+                      </div>
                       <Badge variant="secondary" className="text-xs">
                         {immobilie.einheiten?.length || 0} Einheiten
                       </Badge>
                     </div>
-                  </div>
-                </CollapsibleTrigger>
+                  </CollapsibleTrigger>
 
-                <CollapsibleContent>
-                  <div className="border-t">
-                    {/* Hausanschlusszähler Section */}
-                    <div className="bg-muted/30 p-2 sm:p-3 border-b">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                          Hausanschlusszähler
-                        </span>
-                        <div className="flex items-center gap-3">
-                          {/* Utility config checkboxes */}
-                          <div className="flex items-center gap-3 mr-2">
-                            <label className="flex items-center gap-1.5 cursor-pointer">
-                              <Checkbox
-                                checked={immobilie.hat_strom !== false}
-                                onCheckedChange={(checked) => toggleUtilityConfig(immobilie.id, 'hat_strom', !!checked)}
-                              />
-                              <Zap className="h-3 w-3 text-yellow-600" />
-                              <span className="text-xs">Strom</span>
-                            </label>
-                            <label className="flex items-center gap-1.5 cursor-pointer">
-                              <Checkbox
-                                checked={immobilie.hat_gas !== false}
-                                onCheckedChange={(checked) => toggleUtilityConfig(immobilie.id, 'hat_gas', !!checked)}
-                              />
-                              <Flame className="h-3 w-3 text-red-500" />
-                              <span className="text-xs">Gas</span>
-                            </label>
-                            <label className="flex items-center gap-1.5 cursor-pointer">
-                              <Checkbox
-                                checked={immobilie.hat_wasser !== false}
-                                onCheckedChange={(checked) => toggleUtilityConfig(immobilie.id, 'hat_wasser', !!checked)}
-                              />
-                              <Droplets className="h-3 w-3 text-blue-500" />
-                              <span className="text-xs">Wasser</span>
-                            </label>
-                          </div>
-                          {hasUnsavedPropertyChanges(immobilie.id) && (
-                            <Button
-                              size="sm"
-                              onClick={(e) => { e.stopPropagation(); savePropertyChanges(immobilie.id); }}
-                              disabled={savingProperties.has(immobilie.id)}
-                              className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700"
-                            >
-                              {savingProperties.has(immobilie.id) ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <>
-                                  <Save className="h-3 w-3 mr-1" />
-                                  Speichern
-                                </>
-                              )}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      {/* Versorger-Details pro Versorgungsart */}
-                      {getPropertyMeterTypes(immobilie).length > 0 && (
-                        <div className={`grid gap-2 mb-2`} style={{ gridTemplateColumns: `repeat(${getPropertyMeterTypes(immobilie).length || 1}, 1fr)` }}>
-                          {getPropertyMeterTypes(immobilie).map((type) => {
-                            const nameKey = `versorger_${type}_name` as keyof typeof immobilie;
-                            const emailKey = `versorger_${type}_email` as keyof typeof immobilie;
-                            return (
-                              <div key={`versorger-${type}`} className="bg-background rounded p-1.5 sm:p-2">
-                                <div className="flex items-center gap-1 mb-1">
-                                  {type === 'strom' && <Zap className="h-3 w-3 text-yellow-600" />}
-                                  {type === 'gas' && <Flame className="h-3 w-3 text-red-500" />}
-                                  {type === 'wasser' && <Droplets className="h-3 w-3 text-blue-500" />}
-                                  <span className="text-xs font-medium">Versorger {getMeterLabel(type)}</span>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <Input
-                                    placeholder="Versorger-Name"
-                                    value={getEditedPropertyValue(immobilie.id, `versorger_${type}` as any, 'name') ?? (immobilie[nameKey] as string | null) ?? ''}
-                                    onChange={(e) => handlePropertyInputChange(immobilie.id, `versorger_${type}` as any, 'name', e.target.value)}
-                                    className="h-6 text-xs px-1.5"
+                  <CollapsibleContent>
+                    <div className="border-t">
+                      {/* ── Hausanschlusszähler ──────────────────────────────── */}
+                      <div className="bg-muted/30 p-2 sm:p-3 border-b">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                            Hausanschlusszähler
+                          </span>
+                          <div className="flex items-center gap-3">
+                            {/* Versorgungsart-Checkboxen */}
+                            <div className="flex items-center gap-3 mr-2">
+                              {[
+                                { field: 'hat_strom' as const, icon: <Zap className="h-3 w-3 text-yellow-600" />, label: 'Strom' },
+                                { field: 'hat_gas'   as const, icon: <Flame className="h-3 w-3 text-red-500" />,    label: 'Gas' },
+                                { field: 'hat_wasser' as const, icon: <Droplets className="h-3 w-3 text-blue-500" />, label: 'Wasser' },
+                              ].map(({ field, icon, label }) => (
+                                <label key={field} className="flex items-center gap-1.5 cursor-pointer">
+                                  <Checkbox
+                                    checked={immobilie[field] !== false}
+                                    onCheckedChange={(checked) => toggleUtilityConfig(immobilie.id, field, !!checked)}
                                   />
-                                  <Input
-                                    type="email"
-                                    placeholder="E-Mail"
-                                    value={getEditedPropertyValue(immobilie.id, `versorger_${type}` as any, 'email') ?? (immobilie[emailKey] as string | null) ?? ''}
-                                    onChange={(e) => handlePropertyInputChange(immobilie.id, `versorger_${type}` as any, 'email', e.target.value)}
-                                    className="h-6 text-xs px-1.5"
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <div className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${getPropertyMeterTypes(immobilie).length || 1}, 1fr)` }}>
-                        {getPropertyMeterTypes(immobilie).map((type) => {
-                          const zaehlerKey = `allgemein_${type}_zaehler` as keyof typeof immobilie;
-                          const standKey = `allgemein_${type}_stand` as keyof typeof immobilie;
-                          const datumKey = `allgemein_${type}_datum` as keyof typeof immobilie;
-
-                          const currentZaehler = immobilie[zaehlerKey] as string | null;
-                          const currentStand = immobilie[standKey] as number | null;
-                          const standDatum = immobilie[datumKey] as string | null;
-
-                          const editedZaehler = getEditedPropertyValue(immobilie.id, type, 'zaehler');
-                          const editedStand = getEditedPropertyValue(immobilie.id, type, 'stand');
-
-                          return (
-                            <div key={type} className="bg-background rounded p-1.5 sm:p-2">
-                              <div className="flex items-center gap-1 mb-1">
-                                {getPropertyMeterIcon(type, "h-3 w-3")}
-                                <span className="text-xs font-medium">{getMeterLabel(type)}</span>
-                                {standDatum && (
-                                  <span className="text-[10px] text-muted-foreground ml-auto">
-                                    {formatStandDatum(standDatum)}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="space-y-0.5">
-                                <Input
-                                  placeholder="Zähler-Nr."
-                                  value={editedZaehler ?? currentZaehler ?? ''}
-                                  onChange={(e) => handlePropertyInputChange(immobilie.id, type, 'zaehler', e.target.value)}
-                                  className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
-                                />
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="Stand"
-                                  value={editedStand ?? currentStand ?? ''}
-                                  onChange={(e) => handlePropertyInputChange(immobilie.id, type, 'stand', e.target.value)}
-                                  className="h-6 text-xs px-1.5"
-                                />
-                                <Input
-                                  type="date"
-                                  placeholder="Datum"
-                                  value={getEditedPropertyValue(immobilie.id, type, 'datum') ?? standDatum ?? ''}
-                                  onChange={(e) => handlePropertyInputChange(immobilie.id, type, 'datum', e.target.value)}
-                                  className="h-6 text-xs px-1.5"
-                                />
-                              </div>
+                                  {icon}
+                                  <span className="text-xs">{label}</span>
+                                </label>
+                              ))}
                             </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Zweiter Satz Hausanschlusszähler (Sonderfall z.B. Gehrden, Schellerten) */}
-                      {(immobilie.allgemein_strom_zaehler_2 != null || immobilie.allgemein_gas_zaehler_2 != null || immobilie.allgemein_wasser_zaehler_2 != null ||
-                        immobilie.allgemein_strom_stand_2 || immobilie.allgemein_gas_stand_2 || immobilie.allgemein_wasser_stand_2) && (
-                        <>
-                          <div className="mt-2 mb-1">
-                            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Hausanschlusszähler 2</span>
+                            {/* Bearbeiten / Speichern / Abbrechen */}
+                            {isEditingProp ? (
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  onClick={(e) => { e.stopPropagation(); savePropertyDraft(immobilie); }}
+                                  disabled={savingProperty}
+                                  className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700"
+                                >
+                                  {savingProperty
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <><Save className="h-3 w-3 mr-1" />Speichern</>}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={(e) => { e.stopPropagation(); cancelEditProperty(); }}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => { e.stopPropagation(); startEditProperty(immobilie); }}
+                                className="h-6 px-2 text-xs"
+                              >
+                                <Pencil className="h-3 w-3 mr-1" />
+                                Bearbeiten
+                              </Button>
+                            )}
                           </div>
-                          <div className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${getPropertyMeterTypes(immobilie).length || 1}, 1fr)` }}>
-                            {getPropertyMeterTypes(immobilie).map((type) => {
-                              const type2 = `${type}_2` as const;
-                              const zaehlerKey = `allgemein_${type}_zaehler_2` as keyof typeof immobilie;
-                              const standKey = `allgemein_${type}_stand_2` as keyof typeof immobilie;
-                              const datumKey = `allgemein_${type}_datum_2` as keyof typeof immobilie;
+                        </div>
 
-                              const currentZaehler = immobilie[zaehlerKey] as string | null;
-                              const currentStand = immobilie[standKey] as number | null;
-                              const standDatum = immobilie[datumKey] as string | null;
-
-                              const editedZaehler = getEditedPropertyValue(immobilie.id, type2, 'zaehler');
-                              const editedStand = getEditedPropertyValue(immobilie.id, type2, 'stand');
-
-                              return (
-                                <div key={type2} className="bg-background rounded p-1.5 sm:p-2">
+                        {propTypes.length > 0 && (
+                          <>
+                            {/* Versorger */}
+                            <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: `repeat(${propTypes.length}, 1fr)` }}>
+                              {propTypes.map((type) => (
+                                <div key={`versorger-${type}`} className="bg-background rounded p-1.5 sm:p-2">
                                   <div className="flex items-center gap-1 mb-1">
-                                    {getPropertyMeterIcon(type, "h-3 w-3")}
-                                    <span className="text-xs font-medium">{getMeterLabel(type)} (2)</span>
-                                    {standDatum && (
-                                      <span className="text-[10px] text-muted-foreground ml-auto">
-                                        {formatStandDatum(standDatum)}
-                                      </span>
-                                    )}
+                                    {type === 'strom'  && <Zap      className="h-3 w-3 text-yellow-600" />}
+                                    {type === 'gas'    && <Flame    className="h-3 w-3 text-red-500" />}
+                                    {type === 'wasser' && <Droplets className="h-3 w-3 text-blue-500" />}
+                                    <span className="text-xs font-medium">Versorger {getMeterLabel(type)}</span>
                                   </div>
-                                  <div className="space-y-0.5">
-                                    <Input
-                                      placeholder="Zähler-Nr."
-                                      value={editedZaehler ?? currentZaehler ?? ''}
-                                      onChange={(e) => handlePropertyInputChange(immobilie.id, type2, 'zaehler', e.target.value)}
-                                      className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
-                                    />
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      placeholder="Stand"
-                                      value={editedStand ?? currentStand ?? ''}
-                                      onChange={(e) => handlePropertyInputChange(immobilie.id, type2, 'stand', e.target.value)}
-                                      className="h-6 text-xs px-1.5"
-                                    />
-                                    <Input
-                                      type="date"
-                                      placeholder="Datum"
-                                      value={getEditedPropertyValue(immobilie.id, type2, 'datum') ?? standDatum ?? ''}
-                                      onChange={(e) => handlePropertyInputChange(immobilie.id, type2, 'datum', e.target.value)}
-                                      className="h-6 text-xs px-1.5"
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                      <div className="mt-2">
-                        <ZaehlerHistorie immobilieId={immobilie.id} label="Hausanschluss-Historie" />
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="text-xs">
-                            <TableHead className="w-[80px] py-2">Einheit</TableHead>
-                            <TableHead className="w-[120px] py-2 hidden sm:table-cell">Mieter</TableHead>
-                            {getUnitMeterTypes(immobilie).map(type => (
-                              <TableHead key={type} className="py-2 text-center min-w-[100px]">
-                                <div className="flex items-center justify-center gap-1">
-                                  {getMeterIcon(type)}
-                                  <span>{getMeterLabel(type)}</span>
-                                </div>
-                              </TableHead>
-                            ))}
-                            <TableHead className="w-[70px] py-2"></TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {immobilie.einheiten?.map((einheit: any) => {
-                            const tenantName = einheit.vertrag?.mietvertrag_mieter?.[0]?.mieter
-                              ? `${einheit.vertrag.mietvertrag_mieter[0].mieter.vorname} ${einheit.vertrag.mietvertrag_mieter[0].mieter.nachname?.[0] || ''}.`
-                              : '-';
-
-                            return (
-                              <React.Fragment key={einheit.id}>
-                                <TableRow className="text-xs">
-                                  <TableCell className="py-1.5 font-medium">
-                                    <div>
-                                      <span>{einheit.zaehler}</span>
-                                      {einheit.etage && (
-                                        <span className="text-muted-foreground ml-1">({einheit.etage})</span>
-                                      )}
+                                  {isEditingProp ? (
+                                    <div className="space-y-0.5">
+                                      <Input
+                                        placeholder="Versorger-Name"
+                                        value={propertyDraft[`versorger_${type}_name`] ?? ''}
+                                        onChange={(e) => setPropertyDraft(prev => ({ ...prev, [`versorger_${type}_name`]: e.target.value }))}
+                                        className="h-6 text-xs px-1.5"
+                                      />
+                                      <Input
+                                        type="email"
+                                        placeholder="E-Mail"
+                                        value={propertyDraft[`versorger_${type}_email`] ?? ''}
+                                        onChange={(e) => setPropertyDraft(prev => ({ ...prev, [`versorger_${type}_email`]: e.target.value }))}
+                                        className="h-6 text-xs px-1.5"
+                                      />
                                     </div>
-                                  </TableCell>
-                                  <TableCell className="py-1.5 text-muted-foreground hidden sm:table-cell truncate max-w-[120px]">
-                                    {tenantName}
-                                  </TableCell>
-                                  {getUnitMeterTypes(immobilie).map((type) => {
-                                    const zaehlerKey = `${type}_zaehler` as keyof typeof einheit;
-                                    const standKey = `${type}_stand_aktuell` as keyof typeof einheit;
-                                    const datumKey = `${type}_stand_datum` as keyof typeof einheit;
-                                    const currentZaehler = einheit[zaehlerKey] as string | null;
-                                    const currentStand = einheit[standKey] as number | null;
-                                    const standDatum = einheit[datumKey] as string | null;
-                                    const editedZaehler = getEditedValue(einheit.id, type, 'zaehler');
-                                    const editedStand = getEditedValue(einheit.id, type, 'stand');
+                                  ) : (
+                                    <div className="text-xs text-muted-foreground space-y-0.5">
+                                      <div>{(immobilie as any)[`versorger_${type}_name`] || <span className="italic">kein Name</span>}</div>
+                                      <div>{(immobilie as any)[`versorger_${type}_email`] || <span className="italic">keine E-Mail</span>}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Zähler (Hauptsatz) */}
+                            {[
+                              { label: 'Hausanschlusszähler', suffix: '' as const },
+                              ...(hasSecondSet(immobilie) ? [{ label: 'Hausanschlusszähler 2', suffix: '_2' as const }] : []),
+                            ].map(({ label, suffix }) => (
+                              <div key={suffix || 'main'} className={suffix ? 'mt-2' : ''}>
+                                {suffix && <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{label}</p>}
+                                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${propTypes.length}, 1fr)` }}>
+                                  {propTypes.map((type) => {
+                                    const draftKey = suffix ? `${type}_2` : type;
+                                    const dbZ = (immobilie as any)[`allgemein_${type}_zaehler${suffix}`] as string | null;
+                                    const dbS = (immobilie as any)[`allgemein_${type}_stand${suffix}`]  as number | null;
+                                    const dbD = (immobilie as any)[`allgemein_${type}_datum${suffix}`]  as string | null;
                                     return (
-                                      <TableCell key={type} className="py-1.5">
-                                        <div className="flex flex-col gap-0.5">
-                                          <Input
-                                            placeholder="Nr."
-                                            value={editedZaehler ?? currentZaehler ?? ''}
-                                            onChange={(e) => handleInputChange(einheit.id, type, 'zaehler', e.target.value)}
-                                            className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
-                                          />
-                                          <Input
-                                            type="number"
-                                            step="0.01"
-                                            placeholder="Stand"
-                                            value={editedStand ?? currentStand ?? ''}
-                                            onChange={(e) => handleInputChange(einheit.id, type, 'stand', e.target.value)}
-                                            className="h-6 text-xs px-1.5"
-                                          />
-                                          <Input
-                                            type="date"
-                                            placeholder="Datum"
-                                            value={getEditedValue(einheit.id, type, 'datum') ?? standDatum ?? ''}
-                                            onChange={(e) => handleInputChange(einheit.id, type, 'datum', e.target.value)}
-                                            className="h-6 text-xs px-1.5"
-                                          />
+                                      <div key={draftKey} className="bg-background rounded p-1.5 sm:p-2">
+                                        <div className="flex items-center gap-1 mb-1">
+                                          {getPropertyMeterIcon(type, "h-3 w-3")}
+                                          <span className="text-xs font-medium">{getMeterLabel(type)}{suffix ? ' (2)' : ''}</span>
+                                          {dbD && !isEditingProp && (
+                                            <span className="text-[10px] text-muted-foreground ml-auto">{formatStandDatum(dbD)}</span>
+                                          )}
                                         </div>
-                                      </TableCell>
+                                        {isEditingProp ? (
+                                          <div className="space-y-0.5">
+                                            <Input
+                                              placeholder="Zähler-Nr."
+                                              value={propertyDraft[`${draftKey}_zaehler`] ?? ''}
+                                              onChange={(e) => setPropertyDraft(prev => ({ ...prev, [`${draftKey}_zaehler`]: e.target.value }))}
+                                              className={`h-6 text-xs px-1.5${matchesSearch(dbZ) ? ' ring-2 ring-red-500' : ''}`}
+                                            />
+                                            <Input
+                                              type="number" step="0.01" placeholder="Stand"
+                                              value={propertyDraft[`${draftKey}_stand`] ?? ''}
+                                              onChange={(e) => setPropertyDraft(prev => ({ ...prev, [`${draftKey}_stand`]: e.target.value }))}
+                                              className="h-6 text-xs px-1.5"
+                                            />
+                                            <Input
+                                              type="date"
+                                              value={propertyDraft[`${draftKey}_datum`] ?? ''}
+                                              onChange={(e) => setPropertyDraft(prev => ({ ...prev, [`${draftKey}_datum`]: e.target.value }))}
+                                              className="h-6 text-xs px-1.5"
+                                            />
+                                          </div>
+                                        ) : (
+                                          <div className="text-xs space-y-0.5">
+                                            <div className={`font-mono text-muted-foreground text-[10px]${matchesSearch(dbZ) ? ' text-red-600 font-bold' : ''}`}>
+                                              {dbZ || <span className="italic">kein Zähler</span>}
+                                            </div>
+                                            <div className="font-medium">
+                                              {dbS != null ? dbS.toLocaleString('de-DE') : <span className="text-muted-foreground">—</span>}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
                                     );
                                   })}
-                                  <TableCell className="py-1.5">
-                                    {hasUnsavedChanges(einheit.id) && (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => saveUnitChanges(einheit.id)}
-                                        disabled={savingUnits.has(einheit.id)}
-                                        className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700"
-                                      >
-                                        {savingUnits.has(einheit.id) ? (
-                                          <Loader2 className="h-3 w-3 animate-spin" />
-                                        ) : (
-                                          <Save className="h-3 w-3" />
-                                        )}
-                                      </Button>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                                <TableRow className="border-0 hover:bg-transparent">
-                                  <TableCell colSpan={getUnitMeterTypes(immobilie).length + 3} className="py-0 px-2">
-                                    <ZaehlerHistorie einheitId={einheit.id} />
-                                  </TableCell>
-                                </TableRow>
-                              </React.Fragment>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
+                                </div>
+                              </div>
+                            ))}
+                          </>
+                        )}
+
+                        <div className="mt-2">
+                          <ZaehlerHistorie immobilieId={immobilie.id} label="Hausanschluss-Historie" />
+                        </div>
+                      </div>
+
+                      {/* ── Einheiten-Tabelle ─────────────────────────────────── */}
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="text-xs">
+                              <TableHead className="w-[80px] py-2">Einheit</TableHead>
+                              <TableHead className="w-[120px] py-2 hidden sm:table-cell">Mieter</TableHead>
+                              {getUnitMeterTypes(immobilie).map(type => (
+                                <TableHead key={type} className="py-2 text-center min-w-[100px]">
+                                  <div className="flex items-center justify-center gap-1">
+                                    {getMeterIcon(type)}
+                                    <span>{getMeterLabel(type)}</span>
+                                  </div>
+                                </TableHead>
+                              ))}
+                              <TableHead className="w-[70px] py-2"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {immobilie.einheiten?.map((einheit: any) => {
+                              const tenantName = einheit.vertrag?.mietvertrag_mieter?.[0]?.mieter
+                                ? `${einheit.vertrag.mietvertrag_mieter[0].mieter.vorname} ${einheit.vertrag.mietvertrag_mieter[0].mieter.nachname?.[0] || ''}.`
+                                : '-';
+                              const isEditingUnit = editingUnitId === einheit.id;
+
+                              return (
+                                <React.Fragment key={einheit.id}>
+                                  <TableRow className={`text-xs${isEditingUnit ? ' bg-muted/20' : ''}`}>
+                                    <TableCell className="py-1.5 font-medium">
+                                      <div>
+                                        <span>{einheit.zaehler}</span>
+                                        {einheit.etage && <span className="text-muted-foreground ml-1">({einheit.etage})</span>}
+                                      </div>
+                                    </TableCell>
+                                    <TableCell className="py-1.5 text-muted-foreground hidden sm:table-cell truncate max-w-[120px]">
+                                      {tenantName}
+                                    </TableCell>
+
+                                    {getUnitMeterTypes(immobilie).map((type) => {
+                                      const currentZaehler = einheit[`${type}_zaehler`] as string | null;
+                                      const currentStand   = einheit[`${type}_stand_aktuell`] as number | null;
+                                      const standDatum     = einheit[`${type}_stand_datum`] as string | null;
+
+                                      return (
+                                        <TableCell key={type} className="py-1.5">
+                                          {isEditingUnit ? (
+                                            <div className="flex flex-col gap-0.5">
+                                              <Input
+                                                placeholder="Nr."
+                                                value={unitDraft[`${type}_zaehler`] ?? ''}
+                                                onChange={(e) => setUnitDraft(prev => ({ ...prev, [`${type}_zaehler`]: e.target.value }))}
+                                                className={`h-6 text-xs px-1.5${matchesSearch(currentZaehler) ? ' ring-2 ring-red-500' : ''}`}
+                                              />
+                                              <Input
+                                                type="number" step="0.01" placeholder="Stand"
+                                                value={unitDraft[`${type}_stand`] ?? ''}
+                                                onChange={(e) => setUnitDraft(prev => ({ ...prev, [`${type}_stand`]: e.target.value }))}
+                                                className="h-6 text-xs px-1.5"
+                                              />
+                                              <Input
+                                                type="date"
+                                                value={unitDraft[`${type}_datum`] ?? ''}
+                                                onChange={(e) => setUnitDraft(prev => ({ ...prev, [`${type}_datum`]: e.target.value }))}
+                                                className="h-6 text-xs px-1.5"
+                                              />
+                                            </div>
+                                          ) : (
+                                            <div className="text-xs leading-tight">
+                                              <div className={`text-[10px] font-mono text-muted-foreground${matchesSearch(currentZaehler) ? ' text-red-600 font-bold' : ''}`}>
+                                                {currentZaehler || <span className="italic">—</span>}
+                                              </div>
+                                              <div className="font-medium tabular-nums">
+                                                {currentStand != null ? currentStand.toLocaleString('de-DE') : <span className="text-muted-foreground">—</span>}
+                                              </div>
+                                              {standDatum && (
+                                                <div className="text-[10px] text-muted-foreground">{formatStandDatum(standDatum)}</div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </TableCell>
+                                      );
+                                    })}
+
+                                    <TableCell className="py-1.5">
+                                      {isEditingUnit ? (
+                                        <div className="flex flex-col gap-1">
+                                          <Button
+                                            size="sm"
+                                            onClick={() => saveUnitDraft(einheit)}
+                                            disabled={savingUnit}
+                                            className="h-6 px-2 text-xs bg-green-600 hover:bg-green-700"
+                                          >
+                                            {savingUnit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={cancelEditUnit}
+                                            className="h-6 w-6 p-0"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => startEditUnit(einheit)}
+                                          className="h-6 w-6 p-0 opacity-40 hover:opacity-100"
+                                          title="Zählerstände bearbeiten"
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </TableCell>
+                                  </TableRow>
+
+                                  <TableRow className="border-0 hover:bg-transparent">
+                                    <TableCell colSpan={getUnitMeterTypes(immobilie).length + 3} className="py-0 px-2">
+                                      <ZaehlerHistorie einheitId={einheit.id} />
+                                    </TableCell>
+                                  </TableRow>
+                                </React.Fragment>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      {immobilie.einheiten?.length === 0 && (
+                        <p className="text-muted-foreground text-center py-4 text-sm">Keine Einheiten vorhanden</p>
+                      )}
                     </div>
-                    {immobilie.einheiten?.length === 0 && (
-                      <p className="text-muted-foreground text-center py-4 text-sm">
-                        Keine Einheiten vorhanden
-                      </p>
-                    )}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          ))}
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            );
+          })}
         </div>
 
         {filteredImmobilien?.length === 0 && (
@@ -914,10 +790,10 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
             <div className="glass-card p-8 max-w-sm mx-auto rounded-2xl">
               <Gauge className="h-12 w-12 text-gray-300 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                {searchTerm ? "Keine Treffer" : "Keine Immobilien"}
+                {searchTerm ? 'Keine Treffer' : 'Keine Immobilien'}
               </h3>
               <p className="text-gray-500 text-sm">
-                {searchTerm ? "Versuchen Sie einen anderen Suchbegriff." : "Es sind noch keine Immobilien verfügbar."}
+                {searchTerm ? 'Versuchen Sie einen anderen Suchbegriff.' : 'Es sind noch keine Immobilien verfügbar.'}
               </p>
             </div>
           </div>
