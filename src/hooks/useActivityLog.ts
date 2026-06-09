@@ -30,24 +30,16 @@ export const useActivityLog = () => {
       if (!user?.id) return;
 
       // Fire-and-forget: Fehler nie zum User propagieren
-      supabase
-        .from("activity_logs")
-        .insert({
+      void (async () => {
+        await supabase.from("activity_logs").insert({
           user_id: user.id,
           user_email: user.email ?? null,
           action,
           entity_type: entityType ?? null,
           entity_id: entityId ?? null,
           details: details ?? null,
-        })
-        .then(({ error }) => {
-          if (error) {
-            // Logging darf User-Actions nie blockieren — still fail
-          }
-        })
-        .catch(() => {
-          // Unhandled rejection safety-net
         });
+      })();
     },
     [user]
   );

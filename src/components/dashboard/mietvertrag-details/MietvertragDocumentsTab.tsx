@@ -13,6 +13,9 @@ import { Label } from "@/components/ui/label";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useQueryClient } from "@tanstack/react-query";
 import { DocumentDragDropZone } from "../DocumentDragDropZone";
+import type { Database } from "@/integrations/supabase/types";
+
+type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
 
 interface MietvertragDocumentsTabProps {
   dokumente: any[];
@@ -54,7 +57,7 @@ export function MietvertragDocumentsTab({
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTitel, setUploadTitel] = useState("");
-  const [uploadKategorie, setUploadKategorie] = useState("Sonstiges");
+  const [uploadKategorie, setUploadKategorie] = useState<DokumentKategorie>("Sonstiges");
   
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);

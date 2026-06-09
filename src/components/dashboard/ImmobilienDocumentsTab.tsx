@@ -12,6 +12,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useQueryClient } from "@tanstack/react-query";
+import type { Database } from "@/integrations/supabase/types";
+
+type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
 import { DocumentDragDropZone } from "./DocumentDragDropZone";
 
 interface ImmobilienDocumentsTabProps {
@@ -38,7 +41,7 @@ export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDoc
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTitel, setUploadTitel] = useState("");
-  const [uploadKategorie, setUploadKategorie] = useState("Sonstiges");
+  const [uploadKategorie, setUploadKategorie] = useState<DokumentKategorie>("Sonstiges");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<string | null>(null);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);

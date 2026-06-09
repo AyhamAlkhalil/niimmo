@@ -108,7 +108,7 @@ export function NebenkostenStep3Abrechnung({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('immobilien')
-        .select('id, adresse, plz, ort, name')
+        .select('id, adresse, name')
         .eq('id', immobilieId)
         .single();
       if (error) throw error;
@@ -422,7 +422,7 @@ export function NebenkostenStep3Abrechnung({
   }, [mietvertraege, einheiten, kostenpositionen, kostenProKategorie, bezugsgroessen]);
 
   const immobilieAdresse = immobilie
-    ? `${immobilie.adresse || ''}, ${immobilie.plz || ''} ${immobilie.ort || ''}`.trim().replace(/^,\s*/, '')
+    ? (immobilie.adresse || '').trim()
     : '';
 
   const mieterAbrechnungen = abrechnungen.filter(a => !a.isLeerstand);
@@ -444,7 +444,8 @@ export function NebenkostenStep3Abrechnung({
     if (versandt) payload.versandt_am = new Date().toISOString();
     const { error } = await supabase
       .from('nebenkosten_abrechnungen')
-      .upsert(payload, { onConflict: 'mietvertrag_id,abrechnungsjahr' });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .upsert(payload as any, { onConflict: 'mietvertrag_id,abrechnungsjahr' });
     if (error) throw error;
   }
 
@@ -489,7 +490,8 @@ export function NebenkostenStep3Abrechnung({
     }
 
     if (inserts.length > 0) {
-      const { error } = await supabase.from('kostenposition_anteile').insert(inserts);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await supabase.from('kostenposition_anteile').insert(inserts as any);
       if (error) throw error;
     }
   }

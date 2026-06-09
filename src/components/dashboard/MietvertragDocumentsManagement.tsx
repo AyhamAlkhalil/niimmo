@@ -13,6 +13,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { PdfPreviewModal } from "./PdfPreviewModal";
 import { useQueryClient } from "@tanstack/react-query";
+import type { Database } from "@/integrations/supabase/types";
+
+type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
 
 interface MietvertragDocumentsManagementProps {
   mietvertragId: string;
@@ -47,7 +50,7 @@ export const MietvertragDocumentsManagement = ({
   // Upload form state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTitel, setUploadTitel] = useState("");
-  const [uploadKategorie, setUploadKategorie] = useState("Sonstiges");
+  const [uploadKategorie, setUploadKategorie] = useState<DokumentKategorie>("Sonstiges");
 
   const handlePreview = (dokument: any) => {
     setPreviewDokument(dokument);

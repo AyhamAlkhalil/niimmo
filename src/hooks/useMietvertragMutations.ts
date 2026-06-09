@@ -471,10 +471,10 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       if (mieter) {
         for (const m of mieter) {
           const mieterUpdates: Partial<Mieter> = {};
-          if (editedValues[`mieter_${m.id}_vorname`] !== undefined) mieterUpdates.vorname = editedValues[`mieter_${m.id}_vorname`];
-          if (editedValues[`mieter_${m.id}_nachname`] !== undefined) mieterUpdates.nachname = editedValues[`mieter_${m.id}_nachname`];
-          if (editedValues[`mieter_${m.id}_hauptmail`] !== undefined) mieterUpdates.hauptmail = editedValues[`mieter_${m.id}_hauptmail`];
-          if (editedValues[`mieter_${m.id}_telnr`] !== undefined) mieterUpdates.telnr = editedValues[`mieter_${m.id}_telnr`];
+          if (editedValues[`mieter_${m.id}_vorname`] !== undefined) mieterUpdates.vorname = editedValues[`mieter_${m.id}_vorname`] as string;
+          if (editedValues[`mieter_${m.id}_nachname`] !== undefined) mieterUpdates.nachname = editedValues[`mieter_${m.id}_nachname`] as string;
+          if (editedValues[`mieter_${m.id}_hauptmail`] !== undefined) mieterUpdates.hauptmail = editedValues[`mieter_${m.id}_hauptmail`] as string;
+          if (editedValues[`mieter_${m.id}_telnr`] !== undefined) mieterUpdates.telnr = editedValues[`mieter_${m.id}_telnr`] as string;
           if (Object.keys(mieterUpdates).length > 0) {
             const { error } = await supabase.from('mieter').update(mieterUpdates).eq('id', m.id);
             if (error) throw error;

@@ -106,6 +106,7 @@ interface AIAssignmentStats {
     mietkaution: number;
     ruecklastschrift: number;
     nichtmiete: number;
+    betriebskostenabrechnung: number;
   };
   durchschnittliche_konfidenz: number;
 }
@@ -469,7 +470,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       // ISO "yyyy-MM-dd" direkt aufsplitten — kein Date-Objekt nötig
       const [year, monthNum] = zahlung.buchungsdatum.split('-');
       const monthKey = `${year}-${monthNum}`;
-      const monthLabel = format(new Date(year, parseInt(monthNum, 10) - 1, 1), 'MMMM', { locale: de });
+      const monthLabel = format(new Date(parseInt(year, 10), parseInt(monthNum, 10) - 1, 1), 'MMMM', { locale: de });
       
       if (!yearGroups[year]) {
         yearGroups[year] = { months: [] };
