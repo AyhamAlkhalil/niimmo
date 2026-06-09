@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,6 +94,8 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
   const [verteilerschluessel, setVerteilerschluessel] = useState<VerteilerschluesselArt>('qm');
   const [animations, setAnimations] = useState<VerteilungAnimation[]>([]);
   const [verteilteZahlungen, setVerteilteZahlungen] = useState<Set<string>>(new Set());
+  // Per-Zahlung Verteilerschlüssel-Override (pre-filled aus nebenkostenart)
+  const [zahlungSchluessel, setZahlungSchluessel] = useState<Map<string, VerteilerschluesselArt>>(new Map());
 
   // Fetch Einheiten
   const { data: einheiten, isLoading: einheitenLoading } = useQuery({
@@ -126,19 +128,42 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
     },
   });
 
-  // Fetch bereits verteilte Kostenpositionen
+  // Fetch bereits verteilte Kostenpositionen + Schlüssel aus nebenkostenart
   const { data: kostenpositionen } = useQuery({
     queryKey: ['kostenpositionen-verteiler', immobilieId, selectedYear],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('kostenpositionen')
-        .select('zahlung_id')
+        .select('zahlung_id, nebenkostenarten(verteilerschluessel_art)')
         .eq('immobilie_id', immobilieId)
         .not('zahlung_id', 'is', null);
       if (error) throw error;
-      return new Set((data || []).map(k => k.zahlung_id));
+      const verteiltSet = new Set<string>();
+      const schluesselMap = new Map<string, VerteilerschluesselArt>();
+      (data || []).forEach((k: any) => {
+        if (k.zahlung_id) {
+          verteiltSet.add(k.zahlung_id);
+          const art = k.nebenkostenarten?.verteilerschluessel_art as VerteilerschluesselArt | undefined;
+          if (art && ['qm', 'personen', 'gleich'].includes(art)) {
+            schluesselMap.set(k.zahlung_id, art);
+          }
+        }
+      });
+      return { verteilt: verteiltSet, schluessel: schluesselMap };
     },
   });
+
+  // Schlüssel aus kostenpositionen in State übernehmen (nur wenn noch kein Override)
+  useEffect(() => {
+    if (!kostenpositionen?.schluessel) return;
+    setZahlungSchluessel(prev => {
+      const merged = new Map(prev);
+      kostenpositionen.schluessel.forEach((v: VerteilerschluesselArt, k: string) => {
+        if (!merged.has(k)) merged.set(k, v);
+      });
+      return merged;
+    });
+  }, [kostenpositionen]);
 
   // Berechne Bezugsgrößen
   const bezugsgroessen = useMemo(() => {
@@ -196,15 +221,41 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
     return grouped;
   }, [zahlungen]);
 
+  // Berechne Anteile für einen spezifischen Schlüssel
+  const berechneAnteile = useCallback((schluessel: VerteilerschluesselArt) => {
+    if (!einheiten) return new Map<string, number>();
+    const anteile = new Map<string, number>();
+    einheiten.forEach(einheit => {
+      let anteil = 0;
+      switch (schluessel) {
+        case 'qm':
+          anteil = bezugsgroessen.qm > 0 ? (einheit.qm || 0) / bezugsgroessen.qm : 0;
+          break;
+        case 'personen':
+          anteil = bezugsgroessen.personen > 0 ? (einheit.anzahl_personen || 1) / bezugsgroessen.personen : 0;
+          break;
+        case 'gleich':
+          anteil = bezugsgroessen.einheiten > 0 ? 1 / bezugsgroessen.einheiten : 0;
+          break;
+      }
+      anteile.set(einheit.id, anteil);
+    });
+    return anteile;
+  }, [einheiten, bezugsgroessen]);
+
   // Trigger Verteilungs-Animation
   const handleVerteilen = useCallback(async (zahlung: Zahlung) => {
     if (!einheiten || verteilteZahlungen.has(zahlung.id)) return;
 
+    // Per-Zahlung-Schlüssel oder globaler Default
+    const schluessel = zahlungSchluessel.get(zahlung.id) || verteilerschluessel;
+    const anteileMap = berechneAnteile(schluessel);
+
     // Berechne Anteile für Animation
     const anteile = einheiten.map(einheit => ({
       einheitId: einheit.id,
-      anteil: einheitenAnteile.get(einheit.id) || 0,
-      betrag: Math.abs(zahlung.betrag) * (einheitenAnteile.get(einheit.id) || 0),
+      anteil: anteileMap.get(einheit.id) || 0,
+      betrag: Math.abs(zahlung.betrag) * (anteileMap.get(einheit.id) || 0),
     }));
 
     // Starte Animation
@@ -253,14 +304,14 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
 
     // Animation beenden
     setAnimations(prev => prev.filter(a => a.zahlungId !== zahlung.id));
-  }, [einheiten, einheitenAnteile, immobilieId, verteilteZahlungen, toast, queryClient]);
+  }, [einheiten, berechneAnteile, zahlungSchluessel, verteilerschluessel, immobilieId, verteilteZahlungen, toast, queryClient]);
 
   // Alle unverteilten auf einmal verteilen
   const handleAlleVerteilen = useCallback(async () => {
     if (!zahlungen) return;
     
     const unverteilt = zahlungen.filter(z => 
-      !verteilteZahlungen.has(z.id) && !kostenpositionen?.has(z.id)
+      !verteilteZahlungen.has(z.id) && !kostenpositionen?.verteilt.has(z.id)
     );
 
     for (const zahlung of unverteilt) {
@@ -271,7 +322,7 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
 
   const isLoading = einheitenLoading || zahlungenLoading;
   const unverteilteAnzahl = zahlungen?.filter(z => 
-    !verteilteZahlungen.has(z.id) && !kostenpositionen?.has(z.id)
+    !verteilteZahlungen.has(z.id) && !kostenpositionen?.verteilt.has(z.id)
   ).length || 0;
 
   if (isLoading) {
@@ -377,7 +428,7 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
                         </h3>
                         <div className="space-y-2">
                           {monatZahlungen.map(zahlung => {
-                            const isVerteilt = verteilteZahlungen.has(zahlung.id) || kostenpositionen?.has(zahlung.id);
+                            const isVerteilt = verteilteZahlungen.has(zahlung.id) || kostenpositionen?.verteilt.has(zahlung.id);
                             const animation = animations.find(a => a.zahlungId === zahlung.id);
                             
                             return (
@@ -398,7 +449,7 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
 
                                 <div className="flex items-start justify-between gap-3 relative z-10">
                                   <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
+                                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                                       <span className="text-xs text-muted-foreground">
                                         {format(new Date(zahlung.buchungsdatum), 'dd.MM.yyyy', { locale: de })}
                                       </span>
@@ -417,8 +468,66 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
                                         {zahlung.verwendungszweck}
                                       </p>
                                     )}
+
+                                    {/* Per-Zahlung Verteilerschlüssel */}
+                                    {!isVerteilt && (
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <span className="text-xs text-muted-foreground">Schlüssel:</span>
+                                        <Select
+                                          value={zahlungSchluessel.get(zahlung.id) || verteilerschluessel}
+                                          onValueChange={(v) =>
+                                            setZahlungSchluessel(prev => new Map(prev).set(zahlung.id, v as VerteilerschluesselArt))
+                                          }
+                                        >
+                                          <SelectTrigger className="h-7 w-[160px] text-xs px-2 py-0">
+                                            {(() => {
+                                              const sk = zahlungSchluessel.get(zahlung.id) || verteilerschluessel;
+                                              const Ico = VERTEILERSCHLUESSEL_CONFIG[sk].icon;
+                                              return (
+                                                <span className="flex items-center gap-1.5">
+                                                  <Ico className="h-3 w-3 shrink-0" />
+                                                  {VERTEILERSCHLUESSEL_CONFIG[sk].label}
+                                                </span>
+                                              );
+                                            })()}
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {Object.entries(VERTEILERSCHLUESSEL_CONFIG).map(([key, config]) => {
+                                              const Ico = config.icon;
+                                              return (
+                                                <SelectItem key={key} value={key}>
+                                                  <span className="flex items-center gap-2 text-xs">
+                                                    <Ico className="h-3.5 w-3.5" />
+                                                    {config.label}
+                                                  </span>
+                                                </SelectItem>
+                                              );
+                                            })}
+                                          </SelectContent>
+                                        </Select>
+                                        {kostenpositionen?.schluessel.has(zahlung.id) && (
+                                          <Badge variant="outline" className="text-xs border-green-300 text-green-700 px-1.5 py-0 h-5">
+                                            Vorschlag
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    )}
+                                    {isVerteilt && kostenpositionen?.schluessel.has(zahlung.id) && (
+                                      <div className="mt-1 flex items-center gap-1.5">
+                                        {(() => {
+                                          const sk = kostenpositionen.schluessel.get(zahlung.id)!;
+                                          const Ico = VERTEILERSCHLUESSEL_CONFIG[sk].icon;
+                                          return (
+                                            <Badge variant="outline" className="text-xs gap-1 h-5">
+                                              <Ico className="h-3 w-3" />
+                                              {VERTEILERSCHLUESSEL_CONFIG[sk].label}
+                                            </Badge>
+                                          );
+                                        })()}
+                                      </div>
+                                    )}
                                   </div>
-                                  
+
                                   <div className="flex items-center gap-3 shrink-0">
                                     <span className={cn(
                                       "font-bold",
@@ -426,7 +535,7 @@ export function NebenkostenZahlungenVerteiler({ immobilieId }: NebenkostenZahlun
                                     )}>
                                       {zahlung.betrag.toFixed(2)} €
                                     </span>
-                                    
+
                                     {!isVerteilt && !animation?.isAnimating && (
                                       <Button
                                         size="sm"
