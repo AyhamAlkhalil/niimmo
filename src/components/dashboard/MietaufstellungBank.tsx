@@ -244,26 +244,53 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           <h1 className="text-xl font-bold">Mietaufstellung der Nimo Wohnungsbaugesellschaft MBH</h1>
           <p className="text-xs">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
         </div>
-        <div className="print-summary gap-6 mb-4 text-xs border border-gray-400 rounded p-3">
+        <div className="print-summary gap-4 mb-4 text-xs border border-gray-400 rounded p-3">
+          <div className="border border-gray-300 rounded px-2 py-1 min-w-[90px]">
+            <div className="font-semibold text-center text-[10px] text-gray-500 mb-0.5">p.m.</div>
+            <div className="flex justify-between gap-2"><span>IST:</span> <b>{fmtEuro(grandTotals.ist)}</b></div>
+            <div className="flex justify-between gap-2 border-t border-gray-200 mt-0.5 pt-0.5"><span>SOLL:</span> <b>{fmtEuro(grandTotals.soll)}</b></div>
+          </div>
+          <div className="border border-gray-300 rounded px-2 py-1 min-w-[100px]">
+            <div className="font-semibold text-center text-[10px] text-gray-500 mb-0.5">p.a.</div>
+            <div className="flex justify-between gap-2"><span>IST:</span> <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
+            <div className="flex justify-between gap-2 border-t border-gray-200 mt-0.5 pt-0.5"><span>SOLL:</span> <b>{fmtEuro(grandTotals.soll * 12)}</b></div>
+          </div>
+          <div><span>Annuität p.m.:</span> <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
+          <div><span>Leerstand:</span>     <b>{grandTotals.vacantCount} Einh.</b></div>
           <div><span>Überschuss p.m.:</span> <b>{fmtEuro(grandTotals.ist - grandTotals.annuitaet)}</b></div>
           <div><span>Überschuss p.a.:</span> <b>{fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)}</b></div>
-          <div><span>IST p.m.:</span>         <b>{fmtEuro(grandTotals.ist)}</b></div>
-          <div><span>IST p.a.:</span>         <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
-          <div><span>SOLL p.m.:</span>        <b>{fmtEuro(grandTotals.soll)}</b></div>
-          <div><span>SOLL p.a.:</span>        <b>{fmtEuro(grandTotals.soll * 12)}</b></div>
-          <div><span>Annuität p.m.:</span>    <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
-          <div><span>Leerstand:</span>        <b>{grandTotals.vacantCount} Einh.</b></div>
         </div>
 
         {/* Kennzahlen-Karten */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-4 no-print">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4 no-print">
+          {/* p.m. — IST über SOLL */}
+          <div className="glass-card rounded-xl p-3">
+            <div className="text-xs text-gray-500 mb-1.5 text-center font-medium">p.m.</div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wide">IST</span>
+              <span className="font-bold text-sm font-mono">{fmtEuro(grandTotals.ist)}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-gray-100 mt-1 pt-1">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wide">SOLL</span>
+              <span className="font-semibold text-sm font-mono text-gray-500">{fmtEuro(grandTotals.soll)}</span>
+            </div>
+          </div>
+          {/* p.a. — IST über SOLL */}
+          <div className="glass-card rounded-xl p-3">
+            <div className="text-xs text-gray-500 mb-1.5 text-center font-medium">p.a.</div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wide">IST</span>
+              <span className="font-bold text-sm font-mono">{fmtEuro(grandTotals.ist * 12)}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-gray-100 mt-1 pt-1">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wide">SOLL</span>
+              <span className="font-semibold text-sm font-mono text-gray-500">{fmtEuro(grandTotals.soll * 12)}</span>
+            </div>
+          </div>
+          {/* weitere Karten */}
           {[
             { label: "Überschuss p.m.", value: fmtEuro(grandTotals.ist - grandTotals.annuitaet), negative: (grandTotals.ist - grandTotals.annuitaet) < 0 },
             { label: "Überschuss p.a.", value: fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12), negative: (grandTotals.ist - grandTotals.annuitaet) < 0 },
-            { label: "IST p.m.", value: fmtEuro(grandTotals.ist) },
-            { label: "IST p.a.", value: fmtEuro(grandTotals.ist * 12) },
-            { label: "SOLL p.m.", value: fmtEuro(grandTotals.soll) },
-            { label: "SOLL p.a.", value: fmtEuro(grandTotals.soll * 12) },
             { label: "Annuität p.m.", value: fmtEuro(grandTotals.annuitaet) },
             { label: "Leerstand", value: `${grandTotals.vacantCount} Einh.` },
           ].map(({ label, value, negative }) => (
@@ -289,10 +316,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">BKV</th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">Gesamt</th>
                 <th className="px-1.5 py-1.5 text-left font-semibold whitespace-nowrap">Laufzeit</th>
-                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">IST p.m.</th>
-                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">IST p.a.</th>
-                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">SOLL p.m.</th>
-                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">SOLL p.a.</th>
+                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">
+                  <div>p.m.</div>
+                  <div className="text-[8px] font-normal text-gray-400">IST / SOLL</div>
+                </th>
+                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">
+                  <div>p.a.</div>
+                  <div className="text-[8px] font-normal text-gray-400">IST / SOLL</div>
+                </th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">Diff.</th>
               </tr>
             </thead>
@@ -350,10 +381,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                         </span>
                       </td>
 
-                      <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immIst)}</td>
-                      <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immIst * 12)}</td>
-                      <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immSoll)}</td>
-                      <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immSoll * 12)}</td>
+                      <td className="px-1.5 py-1.5 text-right tabular-nums">
+                        <div className="font-semibold text-gray-700">{fmtEuro(immIst)}</div>
+                        <div className="text-[10px] text-gray-500 border-t border-gray-200 mt-0.5 pt-0.5">{fmtEuro(immSoll)}</div>
+                      </td>
+                      <td className="px-1.5 py-1.5 text-right tabular-nums">
+                        <div className="font-semibold text-gray-700">{fmtEuro(immIst * 12)}</div>
+                        <div className="text-[10px] text-gray-500 border-t border-gray-200 mt-0.5 pt-0.5">{fmtEuro(immSoll * 12)}</div>
+                      </td>
                       <td className="px-1.5 py-1.5" />
                     </tr>
                   );
@@ -418,61 +453,73 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
                         <td className="px-1.5 py-1 text-gray-400 text-[10px] whitespace-nowrap">{laufzeit}</td>
 
-                        <td className="px-1.5 py-1 text-right tabular-nums text-gray-600">
-                          {unit.isVacant ? "—" : fmtEuro(istPm)}
-                        </td>
-                        <td className="px-1.5 py-1 text-right tabular-nums text-gray-600">
-                          {unit.isVacant ? "—" : fmtEuro(istPm * 12)}
-                        </td>
-
-                        {/* SOLL p.m. — editierbar */}
+                        {/* p.m. — IST über SOLL (SOLL editierbar) */}
                         <td className="px-1 py-1">
-                          {isEditing ? (
-                            <div className="flex items-center gap-0.5 justify-end">
-                              <Input
-                                className="h-6 w-[4.5rem] text-[11px] text-right py-0 px-1"
-                                value={editing[unit.einheitId]}
-                                onChange={(e) => setEditing((prev) => ({ ...prev, [unit.einheitId]: e.target.value }))}
-                                onBlur={() => handleSave(unit.einheitId, editing[unit.einheitId])}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleSave(unit.einheitId, editing[unit.einheitId]);
-                                  if (e.key === "Escape") setEditing((prev) => { const n = { ...prev }; delete n[unit.einheitId]; return n; });
-                                }}
-                                autoFocus
-                              />
-                              <button
-                                className="text-green-600 shrink-0"
-                                onMouseDown={(e) => { e.preventDefault(); handleSave(unit.einheitId, editing[unit.einheitId]); }}
-                              >
-                                <Check className="h-3 w-3" />
-                              </button>
-                            </div>
+                          {unit.isVacant ? (
+                            <div className="text-right text-gray-300">—</div>
                           ) : (
-                            <button
-                              className="text-right w-full rounded px-1 py-0.5 group flex items-center justify-end gap-0.5 hover:bg-gray-100"
-                              onClick={() =>
-                                setEditing((prev) => ({
-                                  ...prev,
-                                  [unit.einheitId]: String(unit.sollMiete ?? (unit.isVacant ? "" : istPm)),
-                                }))
-                              }
-                              title="Klicken zum Bearbeiten"
-                            >
-                              <span className={cn(
-                                "tabular-nums",
-                                unit.sollMiete == null && !unit.isVacant && "text-gray-400 italic",
-                                unit.sollMiete == null && unit.isVacant && "text-gray-300 italic",
-                                unit.sollMiete != null && "text-gray-700",
-                              )}>
-                                {sollPm != null ? fmtEuro(sollPm) : "—"}
-                              </span>
-                              <Pencil className="h-2.5 w-2.5 opacity-0 group-hover:opacity-30 shrink-0 no-print" />
-                            </button>
+                            <>
+                              <div className="text-right tabular-nums text-gray-600 text-[11px]">{fmtEuro(istPm)}</div>
+                              <div className="border-t border-gray-100 mt-0.5 pt-0.5">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-0.5 justify-end">
+                                    <Input
+                                      className="h-5 w-[4rem] text-[10px] text-right py-0 px-1"
+                                      value={editing[unit.einheitId]}
+                                      onChange={(e) => setEditing((prev) => ({ ...prev, [unit.einheitId]: e.target.value }))}
+                                      onBlur={() => handleSave(unit.einheitId, editing[unit.einheitId])}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleSave(unit.einheitId, editing[unit.einheitId]);
+                                        if (e.key === "Escape") setEditing((prev) => { const n = { ...prev }; delete n[unit.einheitId]; return n; });
+                                      }}
+                                      autoFocus
+                                    />
+                                    <button
+                                      className="text-green-600 shrink-0"
+                                      onMouseDown={(e) => { e.preventDefault(); handleSave(unit.einheitId, editing[unit.einheitId]); }}
+                                    >
+                                      <Check className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    className="text-right w-full rounded px-0.5 group flex items-center justify-end gap-0.5 hover:bg-gray-100"
+                                    onClick={() =>
+                                      setEditing((prev) => ({
+                                        ...prev,
+                                        [unit.einheitId]: String(unit.sollMiete ?? (unit.isVacant ? "" : istPm)),
+                                      }))
+                                    }
+                                    title="SOLL klicken zum Bearbeiten"
+                                  >
+                                    <span className={cn(
+                                      "tabular-nums text-[10px]",
+                                      unit.sollMiete == null && !unit.isVacant && "text-gray-400 italic",
+                                      unit.sollMiete == null && unit.isVacant && "text-gray-300 italic",
+                                      unit.sollMiete != null && "text-gray-500",
+                                    )}>
+                                      {sollPm != null ? fmtEuro(sollPm) : "—"}
+                                    </span>
+                                    <Pencil className="h-2 w-2 opacity-0 group-hover:opacity-30 shrink-0 no-print" />
+                                  </button>
+                                )}
+                              </div>
+                            </>
                           )}
                         </td>
 
-                        <td className="px-1.5 py-1 text-right tabular-nums text-gray-600">
-                          {sollPm != null ? fmtEuro(sollPm * 12) : "—"}
+                        {/* p.a. — IST über SOLL */}
+                        <td className="px-1.5 py-1 text-right tabular-nums">
+                          {unit.isVacant ? (
+                            <div className="text-gray-300">—</div>
+                          ) : (
+                            <>
+                              <div className="text-gray-600 text-[11px]">{fmtEuro(istPm * 12)}</div>
+                              <div className="text-[10px] text-gray-500 border-t border-gray-100 mt-0.5 pt-0.5">
+                                {sollPm != null ? fmtEuro(sollPm * 12) : "—"}
+                              </div>
+                            </>
+                          )}
                         </td>
 
                         <td className={cn(
@@ -515,10 +562,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                     {fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)} p.a.
                   </span>
                 </td>
-                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
-                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist * 12)}</td>
-                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.soll)}</td>
-                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.soll * 12)}</td>
+                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">
+                  <div>{fmtEuro(grandTotals.ist)}</div>
+                  <div className="text-[10px] font-normal text-gray-400 border-t border-gray-600 mt-0.5 pt-0.5">{fmtEuro(grandTotals.soll)}</div>
+                </td>
+                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">
+                  <div>{fmtEuro(grandTotals.ist * 12)}</div>
+                  <div className="text-[10px] font-normal text-gray-400 border-t border-gray-600 mt-0.5 pt-0.5">{fmtEuro(grandTotals.soll * 12)}</div>
+                </td>
                 <td className={cn(
                   "px-1.5 py-1.5 text-right tabular-nums font-bold",
                   (grandTotals.ist - grandTotals.soll) > 0 && "text-amber-300",
