@@ -1160,6 +1160,50 @@ export type Database = {
         }
         Relationships: []
       }
+      nebenkosten_abrechnungen: {
+        Row: {
+          abrechnungsjahr: number
+          aktualisiert_am: string | null
+          erstellt_am: string | null
+          id: string
+          kosten_gesamt: number
+          mietvertrag_id: string
+          saldo: number
+          versandt_am: string | null
+          vorauszahlungen: number
+        }
+        Insert: {
+          abrechnungsjahr: number
+          aktualisiert_am?: string | null
+          erstellt_am?: string | null
+          id?: string
+          kosten_gesamt: number
+          mietvertrag_id: string
+          saldo: number
+          versandt_am?: string | null
+          vorauszahlungen: number
+        }
+        Update: {
+          abrechnungsjahr?: number
+          aktualisiert_am?: string | null
+          erstellt_am?: string | null
+          id?: string
+          kosten_gesamt?: number
+          mietvertrag_id?: string
+          saldo?: number
+          versandt_am?: string | null
+          vorauszahlungen?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nebenkosten_abrechnungen_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nebenkosten_anteile: {
         Row: {
           aktualisiert_am: string | null
