@@ -65,6 +65,7 @@ interface MieterAbrechnung {
   anzahlPersonen: number;
   nutzungVon: Date;
   nutzungBis: Date;
+  belegteTage: number;
   anzahlMonate: number;
   monatlicheVorauszahlung: number;
   vorauszahlungenGesamt: number;
@@ -72,6 +73,7 @@ interface MieterAbrechnung {
   kostenAnteilGesamt: number;
   saldo: number;
   zeitanteilFaktor: number;
+  isLeerstand?: boolean;
 }
 
 const ALL_KATEGORIEN = [...BETRKV_KATEGORIEN, ...NICHT_UMLAGEFAEHIGE_KATEGORIEN];
@@ -249,11 +251,33 @@ export function NebenkostenStep3Abrechnung({
     }
   }
 
-  // Abrechnungen pro Mieter berechnen
+  // Abrechnungen pro Mieter berechnen (inkl. Leerstand-Zeiträume)
   const abrechnungen: MieterAbrechnung[] = useMemo(() => {
     if (!mietvertraege || !einheiten || !kostenpositionen) return [];
 
-    return mietvertraege.map(mv => {
+    const ergebnisse: MieterAbrechnung[] = [];
+
+    function buildKostenDetails(qm: number, anzahlPersonen: number, zeitanteilFaktor: number) {
+      const kostenDetails: NebenkostenKostenDetail[] = [];
+      let kostenAnteilGesamt = 0;
+      kostenProKategorie.forEach((entry) => {
+        const basisAnteil = berechneAnteil({ qm, anzahl_personen: anzahlPersonen }, entry.schluessel);
+        const effektiverAnteil = basisAnteil * zeitanteilFaktor;
+        const anteilBetrag = entry.total * effektiverAnteil;
+        kostenAnteilGesamt += anteilBetrag;
+        kostenDetails.push({
+          kategorieName: entry.name,
+          gesamtKosten: entry.total,
+          verteilerschluessel: entry.schluessel,
+          anteilProzent: effektiverAnteil * 100,
+          anteilBetrag,
+        });
+      });
+      return { kostenDetails: kostenDetails.filter(d => d.anteilBetrag > 0.01), kostenAnteilGesamt };
+    }
+
+    // 1. Mietvertrags-Abrechnungen
+    mietvertraege.forEach(mv => {
       const einheit = einheiten.find(e => e.id === mv.einheit_id);
       const mieterData = (mv.mietvertrag_mieter as any[])?.[0]?.mieter;
       const qm = einheit?.qm || 0;
@@ -268,36 +292,17 @@ export function NebenkostenStep3Abrechnung({
       const zeitanteilFaktor = belegteTage / gesamtTage;
 
       const monatlicheVorauszahlung = mv.betriebskosten || 0;
-      // Tagesbasiert – konsistent mit der Kostenverteilung (kein Math.max-Clamp)
       const vorauszahlungenGesamt = monatlicheVorauszahlung * 12 * zeitanteilFaktor;
       const anzahlMonate = parseFloat((12 * zeitanteilFaktor).toFixed(2));
 
-      // Kostenanteile pro Kategorie
-      const kostenDetails: NebenkostenKostenDetail[] = [];
-      let kostenAnteilGesamt = 0;
-
-      kostenProKategorie.forEach((entry, kategorieId) => {
-        const basisAnteil = berechneAnteil({ qm, anzahl_personen: anzahlPersonen }, entry.schluessel);
-        const effektiverAnteil = basisAnteil * zeitanteilFaktor;
-        const anteilBetrag = entry.total * effektiverAnteil;
-        kostenAnteilGesamt += anteilBetrag;
-
-        kostenDetails.push({
-          kategorieName: entry.name,
-          gesamtKosten: entry.total,
-          verteilerschluessel: entry.schluessel,
-          anteilProzent: effektiverAnteil * 100,
-          anteilBetrag,
-        });
-      });
-
+      const { kostenDetails, kostenAnteilGesamt } = buildKostenDetails(qm, anzahlPersonen, zeitanteilFaktor);
       const saldo = kostenAnteilGesamt - vorauszahlungenGesamt;
 
       const einheitName = einheit?.zaehler
         ? `Einheit ${einheit.zaehler}`
         : `Einheit ${(einheit?.id || '').slice(-4)}`;
 
-      return {
+      ergebnisse.push({
         mietvertragId: mv.id,
         mieterName: mieterData
           ? `${mieterData.vorname} ${mieterData.nachname || ''}`.trim()
@@ -309,23 +314,120 @@ export function NebenkostenStep3Abrechnung({
         anzahlPersonen,
         nutzungVon: overlapStart,
         nutzungBis: overlapEnde,
+        belegteTage,
         anzahlMonate,
         monatlicheVorauszahlung,
         vorauszahlungenGesamt,
-        kostenDetails: kostenDetails.filter(d => d.anteilBetrag > 0.01),
+        kostenDetails,
         kostenAnteilGesamt,
         saldo,
         zeitanteilFaktor,
-      } as MieterAbrechnung;
+        isLeerstand: false,
+      });
     });
+
+    // 2. Leerstand-Einträge: Zeiträume ohne Mietvertrag je Einheit
+    einheiten.forEach(einheit => {
+      const einheitVertraege = mietvertraege
+        .filter(mv => mv.einheit_id === einheit.id)
+        .sort((a, b) => {
+          const startA = a.start_datum ? parseISO(a.start_datum) : abrStart;
+          const startB = b.start_datum ? parseISO(b.start_datum) : abrStart;
+          return startA.getTime() - startB.getTime();
+        });
+
+      const einheitName = einheit.zaehler
+        ? `Einheit ${einheit.zaehler}`
+        : `Einheit ${(einheit.id || '').slice(-4)}`;
+
+      const qm = einheit.qm || 0;
+      const anzahlPersonen = einheit.anzahl_personen || 1;
+
+      // Berechne Zeiträume ohne Mietvertrag innerhalb des Abrechnungsjahres
+      let checkDate = new Date(abrStart);
+
+      for (const mv of einheitVertraege) {
+        const mvStart = mv.start_datum ? parseISO(mv.start_datum) : abrStart;
+        const mvEnde = mv.ende_datum ? parseISO(mv.ende_datum) : abrEnde;
+        const overlapStart = mvStart > abrStart ? mvStart : abrStart;
+        const overlapEnde = mvEnde < abrEnde ? mvEnde : abrEnde;
+
+        if (overlapStart > checkDate) {
+          // Lücke vor diesem Vertrag
+          const leerEnde = new Date(overlapStart);
+          leerEnde.setDate(leerEnde.getDate() - 1);
+          const leerTage = Math.max(0, differenceInDays(leerEnde, checkDate) + 1);
+          if (leerTage > 0) {
+            const leerFaktor = leerTage / gesamtTage;
+            const { kostenDetails, kostenAnteilGesamt } = buildKostenDetails(qm, anzahlPersonen, leerFaktor);
+            ergebnisse.push({
+              mietvertragId: `leerstand_${einheit.id}_${checkDate.getTime()}`,
+              mieterName: 'Leerstand',
+              mieterEmail: null,
+              einheitId: einheit.id,
+              einheitName,
+              qm,
+              anzahlPersonen,
+              nutzungVon: new Date(checkDate),
+              nutzungBis: leerEnde,
+              belegteTage: leerTage,
+              anzahlMonate: parseFloat((12 * leerFaktor).toFixed(2)),
+              monatlicheVorauszahlung: 0,
+              vorauszahlungenGesamt: 0,
+              kostenDetails,
+              kostenAnteilGesamt,
+              saldo: kostenAnteilGesamt,
+              zeitanteilFaktor: leerFaktor,
+              isLeerstand: true,
+            });
+          }
+        }
+
+        const nextTag = new Date(overlapEnde);
+        nextTag.setDate(nextTag.getDate() + 1);
+        if (nextTag > checkDate) checkDate = nextTag;
+      }
+
+      // Leerstand nach dem letzten Vertrag
+      if (checkDate <= abrEnde) {
+        const leerTage = Math.max(0, differenceInDays(abrEnde, checkDate) + 1);
+        if (leerTage > 0) {
+          const leerFaktor = leerTage / gesamtTage;
+          const { kostenDetails, kostenAnteilGesamt } = buildKostenDetails(qm, anzahlPersonen, leerFaktor);
+          ergebnisse.push({
+            mietvertragId: `leerstand_${einheit.id}_${checkDate.getTime()}`,
+            mieterName: 'Leerstand',
+            mieterEmail: null,
+            einheitId: einheit.id,
+            einheitName,
+            qm,
+            anzahlPersonen,
+            nutzungVon: new Date(checkDate),
+            nutzungBis: new Date(abrEnde),
+            belegteTage: leerTage,
+            anzahlMonate: parseFloat((12 * leerFaktor).toFixed(2)),
+            monatlicheVorauszahlung: 0,
+            vorauszahlungenGesamt: 0,
+            kostenDetails,
+            kostenAnteilGesamt,
+            saldo: kostenAnteilGesamt,
+            zeitanteilFaktor: leerFaktor,
+            isLeerstand: true,
+          });
+        }
+      }
+    });
+
+    return ergebnisse;
   }, [mietvertraege, einheiten, kostenpositionen, kostenProKategorie, bezugsgroessen]);
 
   const immobilieAdresse = immobilie
     ? `${immobilie.adresse || ''}, ${immobilie.plz || ''} ${immobilie.ort || ''}`.trim().replace(/^,\s*/, '')
     : '';
 
-  const gesamtNachzahlungen = abrechnungen.filter(a => a.saldo > 0).reduce((s, a) => s + a.saldo, 0);
-  const gesamtGuthaben = abrechnungen.filter(a => a.saldo < 0).reduce((s, a) => s + Math.abs(a.saldo), 0);
+  const mieterAbrechnungen = abrechnungen.filter(a => !a.isLeerstand);
+  const gesamtNachzahlungen = mieterAbrechnungen.filter(a => a.saldo > 0).reduce((s, a) => s + a.saldo, 0);
+  const gesamtGuthaben = mieterAbrechnungen.filter(a => a.saldo < 0).reduce((s, a) => s + Math.abs(a.saldo), 0);
 
   function getVersandInfo(mietvertragId: string) {
     return versandStatus?.find(v => v.mietvertrag_id === mietvertragId) ?? null;
@@ -512,7 +614,7 @@ export function NebenkostenStep3Abrechnung({
   // Nachzahlungs-Forderungen anlegen
   const createForderungenMutation = useMutation({
     mutationFn: async () => {
-      const nachzahlungen = abrechnungen.filter(a => a.saldo > 0.01);
+      const nachzahlungen = abrechnungen.filter(a => !a.isLeerstand && a.saldo > 0.01);
       if (nachzahlungen.length === 0) return;
 
       const inserts = nachzahlungen.map(a => ({
@@ -540,6 +642,8 @@ export function NebenkostenStep3Abrechnung({
   });
 
   const isLoading = einheitenLoading || vertraegeLoading || kostenLoading;
+  const nachzahlungAbrechnungen = mieterAbrechnungen.filter(a => a.saldo > 0.01);
+  const guthabenAbrechnungen = mieterAbrechnungen.filter(a => a.saldo <= 0);
 
   if (isLoading) {
     return (
@@ -563,13 +667,10 @@ export function NebenkostenStep3Abrechnung({
     );
   }
 
-  const nachzahlungAbrechnungen = abrechnungen.filter(a => a.saldo > 0.01);
-  const guthabenAbrechnungen = abrechnungen.filter(a => a.saldo <= 0);
-
   return (
     <div className="space-y-6">
       {/* Warnung: fehlende BK-Vorauszahlung im Mietvertrag */}
-      {abrechnungen.some(a => a.monatlicheVorauszahlung === 0) && (
+      {mieterAbrechnungen.some(a => a.monatlicheVorauszahlung === 0) && (
         <Card className="border-amber-300 bg-amber-50">
           <CardContent className="py-3 flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
@@ -578,7 +679,7 @@ export function NebenkostenStep3Abrechnung({
               <p className="text-xs text-amber-700 mt-1">
                 Kein BK-Betrag im Mietvertrag hinterlegt — Vorauszahlung wird als 0 € gerechnet:{' '}
                 <span className="font-medium">
-                  {abrechnungen.filter(a => a.monatlicheVorauszahlung === 0).map(a => a.mieterName).join(', ')}
+                  {mieterAbrechnungen.filter(a => a.monatlicheVorauszahlung === 0).map(a => a.mieterName).join(', ')}
                 </span>
               </p>
             </div>
@@ -596,7 +697,14 @@ export function NebenkostenStep3Abrechnung({
               </div>
               <div>
                 <p className="text-xs text-slate-600 font-medium">Mietverträge</p>
-                <p className="text-xl font-bold text-slate-800">{abrechnungen.length}</p>
+                <p className="text-xl font-bold text-slate-800">
+                  {mieterAbrechnungen.length}
+                  {abrechnungen.filter(a => a.isLeerstand).length > 0 && (
+                    <span className="text-sm font-normal text-slate-500 ml-1">
+                      + {abrechnungen.filter(a => a.isLeerstand).length} Leerstand
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -698,7 +806,7 @@ export function NebenkostenStep3Abrechnung({
               ) : (
                 abrechnungen.map(abrechnung => {
                   const isExpanded = expandedCards.has(abrechnung.mietvertragId);
-                  const isNachzahlung = abrechnung.saldo > 0.01;
+                  const isNachzahlung = !abrechnung.isLeerstand && abrechnung.saldo > 0.01;
                   const isPdfLoading = loadingPdf.has(abrechnung.mietvertragId);
                   const isEmailLoading = loadingEmail.has(abrechnung.mietvertragId);
 
@@ -717,7 +825,9 @@ export function NebenkostenStep3Abrechnung({
                     >
                       <div className={cn(
                         "border-2 rounded-xl transition-all",
-                        isNachzahlung
+                        abrechnung.isLeerstand
+                          ? "border-slate-200 bg-slate-50/50"
+                          : isNachzahlung
                           ? "border-red-200 bg-red-50/30"
                           : "border-green-200 bg-green-50/30"
                       )}>
@@ -732,9 +842,9 @@ export function NebenkostenStep3Abrechnung({
                               )}
                               <div className={cn(
                                 "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
-                                isNachzahlung ? "bg-red-100" : "bg-green-100"
+                                abrechnung.isLeerstand ? "bg-slate-100" : isNachzahlung ? "bg-red-100" : "bg-green-100"
                               )}>
-                                <Home className={cn("h-4 w-4", isNachzahlung ? "text-red-600" : "text-green-600")} />
+                                <Home className={cn("h-4 w-4", abrechnung.isLeerstand ? "text-slate-500" : isNachzahlung ? "text-red-600" : "text-green-600")} />
                               </div>
                               <div>
                                 <p className="font-semibold">{abrechnung.mieterName}</p>
@@ -749,7 +859,7 @@ export function NebenkostenStep3Abrechnung({
                                   </span>
                                   {abrechnung.zeitanteilFaktor < 0.99 && (
                                     <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                      {(abrechnung.zeitanteilFaktor * 100).toFixed(0)}% Jahr
+                                      {abrechnung.belegteTage} Tage
                                     </Badge>
                                   )}
                                   {!abrechnung.mieterEmail && (
@@ -762,14 +872,20 @@ export function NebenkostenStep3Abrechnung({
                             </div>
 
                             <div className="flex items-center gap-3 ml-10 sm:ml-0">
-                              <Badge
-                                variant={isNachzahlung ? "destructive" : "default"}
-                                className={cn("text-sm px-3 py-1", !isNachzahlung && "bg-green-600")}
-                              >
-                                {isNachzahlung ? '+' : ''}{abrechnung.saldo.toFixed(2)} €
-                                {' '}
-                                {isNachzahlung ? 'Nachzahlung' : 'Guthaben'}
-                              </Badge>
+                              {abrechnung.isLeerstand ? (
+                                <Badge variant="outline" className="text-sm px-3 py-1 border-slate-400 text-slate-600">
+                                  {abrechnung.saldo.toFixed(2)} € Eigentümeranteil
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant={isNachzahlung ? "destructive" : "default"}
+                                  className={cn("text-sm px-3 py-1", !isNachzahlung && "bg-green-600")}
+                                >
+                                  {isNachzahlung ? '+' : ''}{abrechnung.saldo.toFixed(2)} €
+                                  {' '}
+                                  {isNachzahlung ? 'Nachzahlung' : 'Guthaben'}
+                                </Badge>
+                              )}
                             </div>
                           </div>
                         </CollapsibleTrigger>
@@ -801,93 +917,95 @@ export function NebenkostenStep3Abrechnung({
                               </div>
                               <div className={cn(
                                 "flex items-center justify-between text-base font-bold pt-2 border-t",
-                                isNachzahlung ? "text-red-700" : "text-green-700"
+                                abrechnung.isLeerstand ? "text-slate-600" : isNachzahlung ? "text-red-700" : "text-green-700"
                               )}>
-                                <span>{isNachzahlung ? 'Nachzahlung' : 'Guthaben'}</span>
+                                <span>{abrechnung.isLeerstand ? 'Eigentümeranteil (Leerstand)' : isNachzahlung ? 'Nachzahlung' : 'Guthaben'}</span>
                                 <span>{isNachzahlung ? '+' : ''}{abrechnung.saldo.toFixed(2)} €</span>
                               </div>
                             </div>
 
-                            {/* Aktions-Buttons */}
-                            <div className="flex flex-wrap gap-2 pt-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                onClick={() => handleDownloadPdf(abrechnung)}
-                                disabled={isPdfLoading}
-                              >
-                                {isPdfLoading ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Download className="h-4 w-4" />
-                                )}
-                                PDF herunterladen
-                              </Button>
-
-                              {(() => {
-                                const versandInfo = getVersandInfo(abrechnung.mietvertragId);
-                                const bereitsVersendet = !!versandInfo?.versandt_am;
-                                return (
-                                  <div className="flex flex-col gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className={cn(
-                                        "gap-2",
-                                        bereitsVersendet && "border-blue-300 text-blue-700 hover:bg-blue-50"
-                                      )}
-                                      onClick={() => handleSendEmail(abrechnung)}
-                                      disabled={isEmailLoading || !abrechnung.mieterEmail}
-                                      title={!abrechnung.mieterEmail ? 'Keine E-Mail-Adresse hinterlegt' : undefined}
-                                    >
-                                      {isEmailLoading ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : bereitsVersendet ? (
-                                        <CheckCircle2 className="h-4 w-4" />
-                                      ) : (
-                                        <Mail className="h-4 w-4" />
-                                      )}
-                                      {bereitsVersendet ? 'Erneut senden' : 'Per E-Mail senden'}
-                                      {abrechnung.mieterEmail && (
-                                        <span className="text-xs text-muted-foreground ml-1">({abrechnung.mieterEmail})</span>
-                                      )}
-                                    </Button>
-                                    {bereitsVersendet && versandInfo?.versandt_am && (
-                                      <p className="text-xs text-blue-600 flex items-center gap-1 ml-1">
-                                        <CheckCircle2 className="h-3 w-3 shrink-0" />
-                                        Versendet am {format(parseISO(versandInfo.versandt_am), 'dd.MM.yyyy, HH:mm', { locale: de })} Uhr
-                                      </p>
-                                    )}
-                                  </div>
-                                );
-                              })()}
-
-                              {isNachzahlung && (
+                            {/* Aktions-Buttons — nicht bei Leerstand */}
+                            {!abrechnung.isLeerstand && (
+                              <div className="flex flex-wrap gap-2 pt-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
-                                  onClick={async () => {
-                                    const { error } = await supabase.from('mietforderungen').insert({
-                                      mietvertrag_id: abrechnung.mietvertragId,
-                                      sollmonat: `${selectedYear}-12-01`,
-                                      sollbetrag: Math.round(abrechnung.saldo * 100) / 100,
-                                      ist_faellig: true,
-                                    });
-                                    if (error) {
-                                      toast({ title: "Fehler", description: error.message, variant: "destructive" });
-                                    } else {
-                                      toast({ title: "Forderung angelegt", description: `Nachzahlung von ${abrechnung.saldo.toFixed(2)} € erstellt.` });
-                                      queryClient.invalidateQueries({ queryKey: ['mietforderungen'] });
-                                    }
-                                  }}
+                                  className="gap-2"
+                                  onClick={() => handleDownloadPdf(abrechnung)}
+                                  disabled={isPdfLoading}
                                 >
-                                  <Receipt className="h-4 w-4" />
-                                  Als Forderung anlegen
+                                  {isPdfLoading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Download className="h-4 w-4" />
+                                  )}
+                                  PDF herunterladen
                                 </Button>
-                              )}
-                            </div>
+
+                                {(() => {
+                                  const versandInfo = getVersandInfo(abrechnung.mietvertragId);
+                                  const bereitsVersendet = !!versandInfo?.versandt_am;
+                                  return (
+                                    <div className="flex flex-col gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className={cn(
+                                          "gap-2",
+                                          bereitsVersendet && "border-blue-300 text-blue-700 hover:bg-blue-50"
+                                        )}
+                                        onClick={() => handleSendEmail(abrechnung)}
+                                        disabled={isEmailLoading || !abrechnung.mieterEmail}
+                                        title={!abrechnung.mieterEmail ? 'Keine E-Mail-Adresse hinterlegt' : undefined}
+                                      >
+                                        {isEmailLoading ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : bereitsVersendet ? (
+                                          <CheckCircle2 className="h-4 w-4" />
+                                        ) : (
+                                          <Mail className="h-4 w-4" />
+                                        )}
+                                        {bereitsVersendet ? 'Erneut senden' : 'Per E-Mail senden'}
+                                        {abrechnung.mieterEmail && (
+                                          <span className="text-xs text-muted-foreground ml-1">({abrechnung.mieterEmail})</span>
+                                        )}
+                                      </Button>
+                                      {bereitsVersendet && versandInfo?.versandt_am && (
+                                        <p className="text-xs text-blue-600 flex items-center gap-1 ml-1">
+                                          <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                          Versendet am {format(parseISO(versandInfo.versandt_am), 'dd.MM.yyyy, HH:mm', { locale: de })} Uhr
+                                        </p>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+
+                                {isNachzahlung && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                    onClick={async () => {
+                                      const { error } = await supabase.from('mietforderungen').insert({
+                                        mietvertrag_id: abrechnung.mietvertragId,
+                                        sollmonat: `${selectedYear}-12-01`,
+                                        sollbetrag: Math.round(abrechnung.saldo * 100) / 100,
+                                        ist_faellig: true,
+                                      });
+                                      if (error) {
+                                        toast({ title: "Fehler", description: error.message, variant: "destructive" });
+                                      } else {
+                                        toast({ title: "Forderung angelegt", description: `Nachzahlung von ${abrechnung.saldo.toFixed(2)} € erstellt.` });
+                                        queryClient.invalidateQueries({ queryKey: ['mietforderungen'] });
+                                      }
+                                    }}
+                                  >
+                                    <Receipt className="h-4 w-4" />
+                                    Als Forderung anlegen
+                                  </Button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </CollapsibleContent>
                       </div>

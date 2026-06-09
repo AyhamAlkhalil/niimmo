@@ -189,7 +189,11 @@ export function NebenkostenStep1Zuordnung({ immobilieId, selectedYear }: Nebenko
 
   // Zahlungen nach Jahr filtern und unzugeordnete/teilzugeordnete finden
   const unassignedZahlungen = useMemo(() => {
-    const yearPayments = zahlungen?.filter((z) => new Date(z.buchungsdatum).getFullYear() === selectedYear) || [];
+    // Vorjahr UND aktuelles Jahr anzeigen, da Betriebskosten häufig jahresübergreifend anfallen
+    const yearPayments = zahlungen?.filter((z) => {
+      const year = new Date(z.buchungsdatum).getFullYear();
+      return year === selectedYear || year === selectedYear - 1;
+    }) || [];
     
     return yearPayments.filter((z) => {
       // Find all kostenpositionen for this zahlung
@@ -331,7 +335,7 @@ export function NebenkostenStep1Zuordnung({ immobilieId, selectedYear }: Nebenko
           <CardTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Euro className="h-5 w-5 text-primary" />
-              <span>Zahlungen {selectedYear}</span>
+              <span>Zahlungen {selectedYear - 1}/{selectedYear}</span>
             </div>
             <Badge variant="secondary" className="text-base px-3 py-1">
               {unassignedZahlungen.length} offen
