@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -21,12 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Plus,
   Trash2,
@@ -38,7 +31,7 @@ import {
   AlertCircle,
   Check,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -50,8 +43,8 @@ interface SplitLine {
   id: string; // temp client id
   kategorieId: string;
   betrag: string;
-  zeitraumVon: Date | undefined;
-  zeitraumBis: Date | undefined;
+  zeitraumVon: string; // "yyyy-MM-dd"
+  zeitraumBis: string; // "yyyy-MM-dd"
   bezeichnung: string;
   existingPositionId?: string; // if editing an existing kostenposition
 }
@@ -104,14 +97,15 @@ export function NebenkostenSplitDialog({
     enabled: !!zahlung?.id,
   });
 
+  const defaultVon = `${selectedYear}-01-01`;
+  const defaultBis = `${selectedYear}-12-31`;
+
   // Initialize lines from existing positions or empty
   useEffect(() => {
     if (!open || !zahlung) return;
 
     if (existingPositionen && existingPositionen.length > 0) {
-      // Map existing positions to lines
       const existingLines: SplitLine[] = existingPositionen.map((pos) => {
-        // Find matching kategorie
         const art = nebenkostenarten?.find((n) => n.id === pos.nebenkostenart_id);
         let kategorieId = "";
         if (art) {
@@ -120,20 +114,18 @@ export function NebenkostenSplitDialog({
           );
           if (found) kategorieId = found.id;
         }
-
         return {
           id: crypto.randomUUID(),
           kategorieId,
           betrag: pos.gesamtbetrag.toString(),
-          zeitraumVon: pos.zeitraum_von ? new Date(pos.zeitraum_von) : undefined,
-          zeitraumBis: pos.zeitraum_bis ? new Date(pos.zeitraum_bis) : undefined,
+          zeitraumVon: pos.zeitraum_von ?? defaultVon,
+          zeitraumBis: pos.zeitraum_bis ?? defaultBis,
           bezeichnung: pos.bezeichnung || "",
           existingPositionId: pos.id,
         };
       });
       setLines(existingLines);
     } else {
-      // Start with one empty line
       setLines([createEmptyLine()]);
     }
   }, [open, zahlung?.id, existingPositionen, nebenkostenarten]);
@@ -143,8 +135,8 @@ export function NebenkostenSplitDialog({
       id: crypto.randomUUID(),
       kategorieId: "",
       betrag: "",
-      zeitraumVon: undefined,
-      zeitraumBis: undefined,
+      zeitraumVon: defaultVon,
+      zeitraumBis: defaultBis,
       bezeichnung: "",
     };
   }
@@ -193,7 +185,6 @@ export function NebenkostenSplitDialog({
   const canSave = useMemo(() => {
     if (lines.length === 0) return false;
     if (isOverBudget) return false;
-
     return lines.every((line) => {
       const betrag = parseFloat(line.betrag);
       return (
@@ -256,8 +247,8 @@ export function NebenkostenSplitDialog({
           zahlung_id: zahlung.id,
           nebenkostenart_id: nebenkostenartId,
           gesamtbetrag: parseFloat(line.betrag),
-          zeitraum_von: format(line.zeitraumVon!, "yyyy-MM-dd"),
-          zeitraum_bis: format(line.zeitraumBis!, "yyyy-MM-dd"),
+          zeitraum_von: line.zeitraumVon,
+          zeitraum_bis: line.zeitraumBis,
           bezeichnung: line.bezeichnung || kategorie.name,
           ist_umlagefaehig: kategorie.umlagefaehig,
           quelle: "zahlung",
@@ -299,100 +290,118 @@ export function NebenkostenSplitDialog({
 
   if (!zahlung) return null;
 
+  const SCHLUESSEL_LABELS: Record<string, string> = {
+    qm: 'nach m²',
+    personen: 'nach Personen',
+    gleich: 'gleichmäßig',
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px] max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[680px] max-h-[92vh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pt-5 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Euro className="h-5 w-5 text-primary" />
             Zahlung aufteilen
           </DialogTitle>
         </DialogHeader>
 
-        {/* Zahlungsinfo */}
-        <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold text-base">
-              {zahlung.empfaengername || "Unbekannter Empfänger"}
-            </p>
-            <Badge variant="outline" className="text-base font-bold px-3 py-1">
-              {zahlungBetrag.toFixed(2)} €
-            </Badge>
-          </div>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <CalendarIcon className="h-3.5 w-3.5" />
-              {format(new Date(zahlung.buchungsdatum), "dd. MMMM yyyy", { locale: de })}
-            </span>
-            {zahlung.iban && (
+        {/* Zahlungsinfo + Progress — fixiert oben */}
+        <div className="px-6 pb-3 space-y-3 shrink-0 border-b">
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="font-semibold text-sm">
+                {zahlung.empfaengername || "Unbekannter Empfänger"}
+              </p>
+              <Badge variant="outline" className="font-bold px-2.5 py-0.5">
+                {zahlungBetrag.toFixed(2)} €
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
               <span className="flex items-center gap-1">
-                <CreditCard className="h-3.5 w-3.5" />
-                {zahlung.iban}
+                <CalendarIcon className="h-3 w-3" />
+                {format(new Date(zahlung.buchungsdatum), "dd. MMMM yyyy", { locale: de })}
               </span>
-            )}
-          </div>
-          {zahlung.verwendungszweck && (
-            <p className="text-xs text-muted-foreground flex items-start gap-1">
-              <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              {zahlung.verwendungszweck}
-            </p>
-          )}
-        </div>
-
-        {/* Progress bar */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Verteilt</span>
-            <div className="flex items-center gap-3">
-              <span className={cn("font-bold", isOverBudget ? "text-destructive" : "text-foreground")}>
-                {assignedTotal.toFixed(2)} €
-              </span>
-              <span className="text-muted-foreground">/</span>
-              <span className="font-medium">{zahlungBetrag.toFixed(2)} €</span>
-              {restBetrag > 0.01 && !isOverBudget && (
-                <Badge variant="secondary" className="text-xs">
-                  Rest: {restBetrag.toFixed(2)} €
-                </Badge>
+              {zahlung.iban && (
+                <span className="flex items-center gap-1">
+                  <CreditCard className="h-3 w-3" />
+                  {zahlung.iban}
+                </span>
               )}
             </div>
+            {zahlung.verwendungszweck && (
+              <p className="text-xs text-muted-foreground flex items-start gap-1 line-clamp-2">
+                <FileText className="h-3 w-3 mt-0.5 shrink-0" />
+                {zahlung.verwendungszweck}
+              </p>
+            )}
           </div>
-          <Progress
-            value={progressPercent}
-            className={cn("h-2", isOverBudget && "[&>div]:bg-destructive")}
-          />
-          {isOverBudget && (
-            <p className="text-xs text-destructive flex items-center gap-1">
-              <AlertCircle className="h-3.5 w-3.5" />
-              Summe übersteigt den Zahlungsbetrag – bitte korrigieren.
-            </p>
-          )}
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Verteilt</span>
+              <div className="flex items-center gap-2">
+                <span className={cn("font-bold", isOverBudget ? "text-destructive" : "")}>
+                  {assignedTotal.toFixed(2)} €
+                </span>
+                <span className="text-muted-foreground">/ {zahlungBetrag.toFixed(2)} €</span>
+                {restBetrag > 0.01 && !isOverBudget && (
+                  <Badge variant="secondary" className="text-xs">
+                    Rest: {restBetrag.toFixed(2)} €
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <Progress value={progressPercent} className={cn("h-1.5", isOverBudget && "[&>div]:bg-destructive")} />
+            {isOverBudget && (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Summe übersteigt den Zahlungsbetrag – bitte korrigieren.
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* Split lines */}
-        <ScrollArea className="flex-1 max-h-[400px]">
-          <div className="space-y-4 pr-2">
-            {lines.map((line, index) => (
-              <div
-                key={line.id}
-                className="rounded-lg border p-4 space-y-3 bg-card"
-              >
+        {/* Scrollbarer Bereich für die Positionen */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-0">
+          {lines.map((line, index) => {
+            const selectedKat = ALL_KATEGORIEN.find(k => k.id === line.kategorieId);
+            return (
+              <div key={line.id} className="rounded-lg border p-4 space-y-3 bg-card">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-muted-foreground">
                     Position {index + 1}
                   </span>
-                  {lines.length > 1 && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 text-destructive hover:text-destructive"
-                      onClick={() => removeLine(line.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {selectedKat && (
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-xs gap-1",
+                          selectedKat.umlagefaehig
+                            ? "border-green-300 text-green-700"
+                            : "border-amber-300 text-amber-700"
+                        )}
+                      >
+                        {selectedKat.betrkvNummer ?? (selectedKat.umlagefaehig ? "§2" : "—")}
+                        {" · "}
+                        {SCHLUESSEL_LABELS[selectedKat.schluessel] ?? selectedKat.schluessel}
+                      </Badge>
+                    )}
+                    {lines.length > 1 && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => removeLine(line.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Row 1: Kategorie + Betrag */}
+                {/* Kategorie + Betrag */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Nebenkostenart</Label>
@@ -403,30 +412,27 @@ export function NebenkostenSplitDialog({
                       <SelectTrigger className="h-9 text-sm">
                         <SelectValue placeholder="Kategorie wählen..." />
                       </SelectTrigger>
-                      <SelectContent className="bg-background border shadow-lg z-50 max-h-[300px]">
-                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
-                          Umlagefähig
-                        </div>
+                      <SelectContent className="bg-background border shadow-lg z-[200] max-h-[260px]">
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Umlagefähig (BetrKV §2)</div>
                         {BETRKV_KATEGORIEN.map((kat) => {
                           const Icon = kat.icon;
                           return (
                             <SelectItem key={kat.id} value={kat.id}>
                               <div className="flex items-center gap-2">
-                                <Icon className="h-3.5 w-3.5 text-green-600" />
+                                <Icon className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                                <span className="text-xs text-muted-foreground mr-1">{kat.betrkvNummer}</span>
                                 {kat.name}
                               </div>
                             </SelectItem>
                           );
                         })}
-                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t mt-1 pt-1">
-                          Nicht umlagefähig
-                        </div>
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t mt-1 pt-1">Nicht umlagefähig</div>
                         {NICHT_UMLAGEFAEHIGE_KATEGORIEN.map((kat) => {
                           const Icon = kat.icon;
                           return (
                             <SelectItem key={kat.id} value={kat.id}>
                               <div className="flex items-center gap-2">
-                                <Icon className="h-3.5 w-3.5 text-amber-600" />
+                                <Icon className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                                 {kat.name}
                               </div>
                             </SelectItem>
@@ -447,14 +453,12 @@ export function NebenkostenSplitDialog({
                         placeholder="0.00"
                         className="h-9 text-sm pr-7"
                       />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        €
-                      </span>
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">€</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Row 2: Bezeichnung */}
+                {/* Bezeichnung */}
                 <div className="space-y-1">
                   <Label className="text-xs">Bezeichnung</Label>
                   <Input
@@ -465,86 +469,46 @@ export function NebenkostenSplitDialog({
                   />
                 </div>
 
-                {/* Row 3: Zeitraum */}
+                {/* Zeitraum — native date inputs statt Popover */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs">Von</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full h-9 justify-start text-left text-sm font-normal",
-                            !line.zeitraumVon && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                          {line.zeitraumVon
-                            ? format(line.zeitraumVon, "dd.MM.yyyy", { locale: de })
-                            : "Datum"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 z-50" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={line.zeitraumVon}
-                          onSelect={(d) => updateLine(line.id, "zeitraumVon", d)}
-                          initialFocus
-                          locale={de}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <Input
+                      type="date"
+                      value={line.zeitraumVon}
+                      onChange={(e) => updateLine(line.id, "zeitraumVon", e.target.value)}
+                      className="h-9 text-sm"
+                    />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-xs">Bis</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full h-9 justify-start text-left text-sm font-normal",
-                            !line.zeitraumBis && "text-muted-foreground"
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-                          {line.zeitraumBis
-                            ? format(line.zeitraumBis, "dd.MM.yyyy", { locale: de })
-                            : "Datum"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 z-50" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={line.zeitraumBis}
-                          onSelect={(d) => updateLine(line.id, "zeitraumBis", d)}
-                          initialFocus
-                          locale={de}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <Input
+                      type="date"
+                      value={line.zeitraumBis}
+                      onChange={(e) => updateLine(line.id, "zeitraumBis", e.target.value)}
+                      className="h-9 text-sm"
+                    />
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        </ScrollArea>
+            );
+          })}
 
-        {/* Add line button */}
-        <Button
-          variant="outline"
-          onClick={addLine}
-          className="w-full gap-2 border-dashed"
-        >
-          <Plus className="h-4 w-4" />
-          Weitere Position hinzufügen
-          {restBetrag > 0.01 && !isOverBudget && (
-            <span className="text-muted-foreground text-xs ml-1">
-              (Rest: {restBetrag.toFixed(2)} €)
-            </span>
-          )}
-        </Button>
+          {/* Position hinzufügen */}
+          <Button
+            variant="outline"
+            onClick={addLine}
+            className="w-full gap-2 border-dashed"
+          >
+            <Plus className="h-4 w-4" />
+            Weitere Position hinzufügen
+            {restBetrag > 0.01 && !isOverBudget && (
+              <span className="text-muted-foreground text-xs ml-1">(Rest: {restBetrag.toFixed(2)} €)</span>
+            )}
+          </Button>
+        </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen
           </Button>
@@ -554,9 +518,7 @@ export function NebenkostenSplitDialog({
             ) : (
               <Check className="h-4 w-4" />
             )}
-            {lines.length > 1
-              ? `${lines.length} Positionen speichern`
-              : "Position speichern"}
+            {lines.length > 1 ? `${lines.length} Positionen speichern` : "Position speichern"}
           </Button>
         </DialogFooter>
       </DialogContent>
