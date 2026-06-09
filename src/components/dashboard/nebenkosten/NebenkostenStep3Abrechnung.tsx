@@ -494,28 +494,89 @@ export function NebenkostenStep3Abrechnung({
     }
   }
 
+  // Gemeinsame Hilfsfunktion: PDF-Daten für eine Mieter-Abrechnung zusammenstellen
+  function buildPdfData(abrechnung: MieterAbrechnung): NebenkostenAbrechnungPdfData {
+    // Gesamt-Personentage über alle belegten Zeiträume (Mieter × Tage)
+    const gesamtPersonentage = mieterAbrechnungen.reduce(
+      (s, a) => s + a.belegteTage * a.anzahlPersonen, 0
+    );
+
+    // Seite-2-Tabelle: alle 17 BetrKV-Positionen (auch mit 0 €)
+    const immobilieKosten = BETRKV_KATEGORIEN.map(kat => {
+      const entry = kostenProKategorie.get(kat.id);
+      const betragGesamt = entry?.total || 0;
+      const schluessel = entry?.schluessel || kat.schluessel;
+      let einheitenLabel = '';
+      if (schluessel === 'qm') einheitenLabel = `${bezugsgroessen.qm.toFixed(0)} m²`;
+      else if (schluessel === 'personen') einheitenLabel = `${gesamtPersonentage}`;
+      else einheitenLabel = `${bezugsgroessen.anzahl}`;
+      return {
+        betrkvNummer: kat.betrkvNummer,
+        name: kat.pdfName,
+        verteilerschluessel: schluessel,
+        betragGesamt,
+        einheitenLabel,
+      };
+    });
+
+    // Seite-3-Kostendetails: mit BetrKV-Nummer + Bezugsgrößen anreichern
+    const enrichedKostenDetails = abrechnung.kostenDetails.map(detail => {
+      const kat = BETRKV_KATEGORIEN.find(
+        k => k.name.toLowerCase() === detail.kategorieName.toLowerCase() ||
+             k.pdfName.toLowerCase() === detail.kategorieName.toLowerCase()
+      );
+      let einheitenGesamt: number;
+      let ihreEinheiten: number;
+      if (detail.verteilerschluessel === 'qm') {
+        einheitenGesamt = bezugsgroessen.qm;
+        ihreEinheiten = abrechnung.qm;
+      } else if (detail.verteilerschluessel === 'personen') {
+        einheitenGesamt = bezugsgroessen.personen;
+        ihreEinheiten = abrechnung.anzahlPersonen;
+      } else {
+        einheitenGesamt = bezugsgroessen.anzahl;
+        ihreEinheiten = 1;
+      }
+      return {
+        ...detail,
+        betrkvNummer: kat?.betrkvNummer,
+        einheitenGesamt,
+        ihreEinheiten,
+        nutzungsdauerProzent: abrechnung.zeitanteilFaktor * 100,
+      };
+    });
+
+    return {
+      immobilieAdresse,
+      gesamtFlaeche: bezugsgroessen.qm,
+      gesamtPersonenzahl: bezugsgroessen.personen,
+      anzahlWohneinheiten: bezugsgroessen.anzahl,
+      gesamtPersonentage,
+      immobilieKosten,
+      immobilieGesamtkosten: Array.from(kostenProKategorie.values()).reduce((s, v) => s + v.total, 0),
+      einheitBezeichnung: abrechnung.einheitName,
+      qm: abrechnung.qm,
+      anzahlPersonen: abrechnung.anzahlPersonen,
+      personentageEinheit: abrechnung.anzahlPersonen * abrechnung.belegteTage,
+      mieterName: abrechnung.mieterName,
+      abrechnungsjahr: selectedYear,
+      nutzungVon: format(abrechnung.nutzungVon, 'dd.MM.yyyy', { locale: de }),
+      nutzungBis: format(abrechnung.nutzungBis, 'dd.MM.yyyy', { locale: de }),
+      kostenDetails: enrichedKostenDetails,
+      monatlicheVorauszahlung: abrechnung.monatlicheVorauszahlung,
+      anzahlMonate: abrechnung.anzahlMonate,
+      vorauszahlungenGesamt: abrechnung.vorauszahlungenGesamt,
+      kostenAnteilGesamt: abrechnung.kostenAnteilGesamt,
+      saldo: abrechnung.saldo,
+      abrechnungsDatum: format(new Date(), 'dd.MM.yyyy', { locale: de }),
+    };
+  }
+
   // PDF generieren und herunterladen
   async function handleDownloadPdf(abrechnung: MieterAbrechnung) {
     setLoadingPdf(prev => new Set([...prev, abrechnung.mietvertragId]));
     try {
-      const pdfData: NebenkostenAbrechnungPdfData = {
-        immobilieAdresse,
-        einheitBezeichnung: abrechnung.einheitName,
-        qm: abrechnung.qm,
-        anzahlPersonen: abrechnung.anzahlPersonen,
-        mieterName: abrechnung.mieterName,
-        abrechnungsjahr: selectedYear,
-        nutzungVon: format(abrechnung.nutzungVon, 'dd.MM.yyyy', { locale: de }),
-        nutzungBis: format(abrechnung.nutzungBis, 'dd.MM.yyyy', { locale: de }),
-        kostenDetails: abrechnung.kostenDetails,
-        monatlicheVorauszahlung: abrechnung.monatlicheVorauszahlung,
-        anzahlMonate: abrechnung.anzahlMonate,
-        vorauszahlungenGesamt: abrechnung.vorauszahlungenGesamt,
-        kostenAnteilGesamt: abrechnung.kostenAnteilGesamt,
-        saldo: abrechnung.saldo,
-        abrechnungsDatum: format(new Date(), 'dd.MM.yyyy', { locale: de }),
-      };
-
+      const pdfData = buildPdfData(abrechnung);
       const blob = await generateNebenkostenAbrechnungPdf(pdfData);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -559,24 +620,7 @@ export function NebenkostenStep3Abrechnung({
 
     setLoadingEmail(prev => new Set([...prev, abrechnung.mietvertragId]));
     try {
-      const pdfData: NebenkostenAbrechnungPdfData = {
-        immobilieAdresse,
-        einheitBezeichnung: abrechnung.einheitName,
-        qm: abrechnung.qm,
-        anzahlPersonen: abrechnung.anzahlPersonen,
-        mieterName: abrechnung.mieterName,
-        abrechnungsjahr: selectedYear,
-        nutzungVon: format(abrechnung.nutzungVon, 'dd.MM.yyyy', { locale: de }),
-        nutzungBis: format(abrechnung.nutzungBis, 'dd.MM.yyyy', { locale: de }),
-        kostenDetails: abrechnung.kostenDetails,
-        monatlicheVorauszahlung: abrechnung.monatlicheVorauszahlung,
-        anzahlMonate: abrechnung.anzahlMonate,
-        vorauszahlungenGesamt: abrechnung.vorauszahlungenGesamt,
-        kostenAnteilGesamt: abrechnung.kostenAnteilGesamt,
-        saldo: abrechnung.saldo,
-        abrechnungsDatum: format(new Date(), 'dd.MM.yyyy', { locale: de }),
-      };
-
+      const pdfData = buildPdfData(abrechnung);
       const pdfBase64 = await pdfToBase64(pdfData);
 
       const { data, error } = await supabase.functions.invoke('send-nebenkostenabrechnung', {
