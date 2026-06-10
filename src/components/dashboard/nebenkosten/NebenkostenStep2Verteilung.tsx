@@ -499,7 +499,14 @@ export function NebenkostenStep2Verteilung({ immobilieId, selectedYear }: Nebenk
                                 )} />
                               </div>
                               <div className="min-w-0">
-                                <p className="font-semibold text-sm sm:text-base truncate">{kategorie.name}</p>
+                                <p className="font-semibold text-sm sm:text-base flex items-center gap-1.5 flex-wrap">
+                                  {'betrkvNummer' in kategorie && (
+                                    <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
+                                      {(kategorie as any).betrkvNummer}
+                                    </span>
+                                  )}
+                                  <span className="truncate">{kategorie.name}</span>
+                                </p>
                                 <p className="text-xs sm:text-sm text-muted-foreground">
                                   {positionen.length} Position(en)
                                 </p>

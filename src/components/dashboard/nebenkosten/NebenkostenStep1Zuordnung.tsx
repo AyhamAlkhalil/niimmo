@@ -592,7 +592,12 @@ export function NebenkostenStep1Zuordnung({ immobilieId, selectedYear }: Nebenko
                                 <Icon className="h-4 w-4 text-green-600" />
                               </div>
                               <div>
-                                <p className="font-medium text-sm">{kategorie.name}</p>
+                                <p className="font-medium text-sm flex items-center gap-1.5">
+                                  <span className="text-xs font-mono text-green-700 bg-green-100 px-1 rounded shrink-0">
+                                    {kategorie.betrkvNummer}
+                                  </span>
+                                  {kategorie.name}
+                                </p>
                                 <p className="text-xs text-muted-foreground">{kategorie.beschreibung}</p>
                               </div>
                             </div>
