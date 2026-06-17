@@ -21,7 +21,7 @@ const KATEGORIEN = [
   { value: "Mietkaution", label: "Mietkaution", color: "bg-purple-100 text-purple-800 border-purple-200" },
   { value: "Rücklastschrift", label: "Rücklastschrift", color: "bg-red-100 text-red-800 border-red-200" },
   { value: "Ignorieren", label: "Ignorieren", color: "bg-orange-100 text-orange-800 border-orange-200" },
-  { value: "Betriebskostenabrechnung", label: "Betriebskostenabrechnung", color: "bg-amber-100 text-amber-800 border-amber-200" },
+  { value: "Betriebskostenabrechnung", label: "BKA (Mieter)", color: "bg-amber-100 text-amber-800 border-amber-200" },
 ];
 
 export function PaymentKategorieEditor({ 

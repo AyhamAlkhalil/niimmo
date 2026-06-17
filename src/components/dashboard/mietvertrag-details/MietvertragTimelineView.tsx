@@ -38,6 +38,8 @@ interface MietvertragTimelineViewProps {
   formatBetrag: (betrag: number) => string;
 }
 
+const KATEGORIE_LABEL: Record<string, string> = { Betriebskostenabrechnung: "BKA (Mieter)" };
+
 export function MietvertragTimelineView({
   forderungen,
   zahlungen,
@@ -507,7 +509,7 @@ export function MietvertragTimelineView({
                 <SelectContent>
                   <SelectItem value="Miete">Miete</SelectItem>
                   <SelectItem value="Mietkaution">Mietkaution</SelectItem>
-                  <SelectItem value="Betriebskostenabrechnung">Betriebskostenabrechnung</SelectItem>
+                  <SelectItem value="Betriebskostenabrechnung">BKA (Mieter)</SelectItem>
                   <SelectItem value="Rücklastschrift">Rücklastschrift</SelectItem>
                   <SelectItem value="Ignorieren">Ignorieren</SelectItem>
                 </SelectContent>
@@ -525,7 +527,7 @@ export function MietvertragTimelineView({
                 variant={isIgnored ? 'secondary' : 'outline'} 
                 className={`text-[10px] sm:text-xs ${isIgnored ? 'bg-gray-100 text-gray-400' : ''}`}
               >
-                {zahlung.kategorie || 'Sonstige'}
+                {KATEGORIE_LABEL[zahlung.kategorie] ?? zahlung.kategorie ?? 'Sonstige'}
               </Badge>
               <Button
                 onClick={() => handleEditPaymentField(zahlung.id, 'kategorie', zahlung.kategorie || '')}

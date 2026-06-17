@@ -183,6 +183,7 @@ export function PaymentAssignmentResultsModal({
   const [categoryCorrections, setCategoryCorrections] = useState<Record<number, string>>({});
 
   const KATEGORIE_OPTIONS = ["Miete", "Nichtmiete", "Mietkaution", "Rücklastschrift", "Nebenkosten", "Ignorieren", "Betriebskostenabrechnung"] as const;
+  const KATEGORIE_LABEL: Record<string, string> = { Betriebskostenabrechnung: "BKA (Mieter)" };
   
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => {
     // Default: select all Miete results with mietvertrag_id
@@ -561,7 +562,7 @@ export function PaymentAssignmentResultsModal({
                           </SelectTrigger>
                           <SelectContent>
                             {KATEGORIE_OPTIONS.map(kat => (
-                              <SelectItem key={kat} value={kat} className="text-xs">{kat}</SelectItem>
+                              <SelectItem key={kat} value={kat} className="text-xs">{KATEGORIE_LABEL[kat] ?? kat}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
