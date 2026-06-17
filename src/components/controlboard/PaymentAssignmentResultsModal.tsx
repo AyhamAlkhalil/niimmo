@@ -376,7 +376,7 @@ export function PaymentAssignmentResultsModal({
       Ignorieren: "bg-gray-100 text-gray-500 border-gray-200",
       Betriebskostenabrechnung: "bg-amber-100 text-amber-800 border-amber-200",
     };
-    return <Badge className={colors[kategorie] || "bg-gray-100"}>{kategorie}</Badge>;
+    return <Badge className={colors[kategorie] || "bg-gray-100"}>{KATEGORIE_LABEL[kategorie] ?? kategorie}</Badge>;
   };
 
   const getCurrentContractId = (idx: number, result: ProcessedPayment) => {
