@@ -216,6 +216,12 @@ export default {
 						'0%': { transform: 'scale(0) translateY(-20px)', opacity: '0' },
 						'50%': { transform: 'scale(1.2) translateY(-10px)', opacity: '0.8' },
 						'100%': { transform: 'scale(1) translateY(0)', opacity: '1' }
+					},
+					'pulse-once': {
+						'0%': { boxShadow: '0 0 0 0 rgba(239, 68, 68, 0.7)' },
+						'30%': { boxShadow: '0 0 0 8px rgba(239, 68, 68, 0.3)' },
+						'60%': { boxShadow: '0 0 0 4px rgba(239, 68, 68, 0.5)' },
+						'100%': { boxShadow: '0 0 0 0 rgba(239, 68, 68, 0)' }
 					}
 				},
 				animation: {
@@ -236,6 +242,7 @@ export default {
 					'search-highlight': 'search-highlight 2s ease-in-out 2',
 					'contract-found': 'contract-found 1s ease-in-out 3',
 					'bounce-in': 'bounce-in 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)',
+					'pulse-once': 'pulse-once 2s ease-out 1',
 				},
 				backgroundSize: {
 					'300%': '300%',

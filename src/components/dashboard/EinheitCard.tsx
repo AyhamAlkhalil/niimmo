@@ -59,6 +59,7 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
   const [autoOpenContract, setAutoOpenContract] = useState(false);
   const [showContractHighlight, setShowContractHighlight] = useState(false);
   const [currentVertragId, setCurrentVertragId] = useState<string | null>(null);
+  const [wasRecentlyActive, setWasRecentlyActive] = useState(false);
   const { toast } = useToast();
 
   // Check for linked contracts (same tenants with multiple units)
@@ -146,7 +147,11 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
     return (
       <EinheitHistorieView
         einheitId={einheit.id}
-        onBack={() => setShowHistorie(false)}
+        onBack={() => {
+          setShowHistorie(false);
+          setWasRecentlyActive(true);
+          setTimeout(() => setWasRecentlyActive(false), 4000);
+        }}
         einheit={einheit}
         immobilie={immobilie}
       />
@@ -155,8 +160,12 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
 
   return (
     <>
-      <Card 
-        className={`transition-all hover:shadow-lg cursor-pointer border-l-4 ${getStatusColor()}`}
+      <Card
+        className={`transition-all hover:shadow-lg cursor-pointer border-l-4 ${getStatusColor()} ${
+          wasRecentlyActive
+            ? 'ring-2 ring-red-500 ring-offset-2 shadow-lg shadow-red-200/60 animate-pulse-once'
+            : ''
+        }`}
         onClick={handleCardClick}
       >
         <CardHeader className="pb-3">

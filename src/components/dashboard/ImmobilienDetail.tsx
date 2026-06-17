@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { EinheitCard } from "./EinheitCard";
-import { ArrowLeft, Building, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame } from "lucide-react";
+import { ArrowLeft, Building, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -44,6 +44,7 @@ export const ImmobilienDetail = ({
     [key: string]: HTMLDivElement | null;
   }>({});
   const [activeTab, setActiveTab] = useState(initialTab ?? "einheiten");
+  const [searchTerm, setSearchTerm] = useState("");
 
   // State for editable meter fields
   const [editingMeter, setEditingMeter] = useState<string | null>(null);
@@ -471,8 +472,38 @@ export const ImmobilienDetail = ({
           </TabsList>
 
           <TabsContent value="einheiten">
+            {/* Mieter-Suche */}
+            <div className="mb-4 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Mieter suchen (Name, Einheit, Etage)…"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {einheiten?.map((einheit, index) => {
+              {(() => {
+                const searchLower = searchTerm.trim().toLowerCase();
+                const filtered = searchLower
+                  ? einheiten?.filter(einheit => {
+                      if (
+                        einheit.nummer?.toLowerCase().includes(searchLower) ||
+                        einheit.etage?.toLowerCase().includes(searchLower) ||
+                        einheit.einheitentyp?.toLowerCase().includes(searchLower)
+                      ) return true;
+                      const vertraegeForEinheit = mietvertraege?.filter(v => v.einheit_id === einheit.id) || [];
+                      return vertraegeForEinheit.some(v =>
+                        (v.mieter as Array<{ vorname: string; nachname: string }> | undefined)?.some(m =>
+                          `${m.vorname} ${m.nachname}`.toLowerCase().includes(searchLower)
+                        )
+                      );
+                    })
+                  : einheiten;
+                return filtered;
+              })()?.map((einheit, index) => {
                 // Find all rental contracts for this unit
                 const vertraegeForEinheit = mietvertraege?.filter(v => v.einheit_id === einheit.id) || [];
                 
@@ -515,6 +546,30 @@ export const ImmobilienDetail = ({
                 </div>
               </div>
             )}
+            {einheiten && einheiten.length > 0 && searchTerm.trim() && (() => {
+              const searchLower = searchTerm.trim().toLowerCase();
+              const matchCount = einheiten.filter(einheit => {
+                if (
+                  einheit.nummer?.toLowerCase().includes(searchLower) ||
+                  einheit.etage?.toLowerCase().includes(searchLower) ||
+                  einheit.einheitentyp?.toLowerCase().includes(searchLower)
+                ) return true;
+                const vertraegeForEinheit = mietvertraege?.filter(v => v.einheit_id === einheit.id) || [];
+                return vertraegeForEinheit.some(v =>
+                  (v.mieter as Array<{ vorname: string; nachname: string }> | undefined)?.some(m =>
+                    `${m.vorname} ${m.nachname}`.toLowerCase().includes(searchLower)
+                  )
+                );
+              }).length;
+              return matchCount === 0 ? (
+                <div className="text-center py-12">
+                  <div className="glass-card p-8 max-w-md mx-auto rounded-2xl">
+                    <Search className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-gray-500">Kein Mieter für „{searchTerm}" gefunden</p>
+                  </div>
+                </div>
+              ) : null;
+            })()}
           </TabsContent>
 
           <TabsContent value="dokumente">
