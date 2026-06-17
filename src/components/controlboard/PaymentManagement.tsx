@@ -1009,8 +1009,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           <TabsContent value="alle">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               {/* Left: Zahlungsliste */}
-              <Card className="h-[calc(100vh-280px)] min-h-[400px] overflow-hidden">
-                <CardHeader className="pb-3">
+              <Card className="flex flex-col h-[calc(100vh-280px)] min-h-[400px] overflow-hidden">
+                <CardHeader className="pb-3 shrink-0">
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1121,11 +1121,11 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                     )}
                   </div>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-0 flex-1 overflow-hidden">
                   {allPaymentsLoading ? (
                     <div className="text-center py-12"><p className="text-muted-foreground">Lade Zahlungen...</p></div>
                   ) : paymentsByYearMonth && paymentsByYearMonth.length > 0 ? (
-                    <ScrollArea className={filtersCollapsed ? "h-[calc(100vh-295px)]" : "h-[calc(100vh-400px)]"}>
+                    <ScrollArea className="h-full">
                       <div className="p-4 space-y-4">
                         {paymentsByYearMonth.map((yearGroup) => (
                           <div key={yearGroup.year} className="space-y-2">
@@ -1239,16 +1239,16 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
               </Card>
 
               {/* Right: Details */}
-              <Card className="h-[calc(100vh-280px)] overflow-hidden">
-                <CardHeader className="pb-3">
+              <Card className="flex flex-col h-[calc(100vh-280px)] overflow-hidden">
+                <CardHeader className="pb-3 shrink-0">
                   <CardTitle className="flex items-center gap-2">
                     <Building2 className="h-5 w-5 text-blue-600" />
                     Details & Zuordnung
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex-1 overflow-hidden">
                   {selectedZahlung ? (
-                    <ScrollArea className="h-[calc(100vh-400px)]">
+                    <ScrollArea className="h-full">
                       <div className="space-y-6">
                         <div>
                           <h3 className="font-semibold text-gray-900 mb-3">Zahlungsdetails</h3>

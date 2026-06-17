@@ -368,8 +368,8 @@ export const ZahlungenUebersicht = ({ onBack }: ZahlungenUebersichtProps = {}) =
         {/* Split Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: Zahlungsliste */}
-          <Card className="h-[calc(100vh-200px)]">
-            <CardHeader className={cn("pb-3", !filtersExpanded && "pb-2")}>
+          <Card className="flex flex-col h-[calc(100vh-200px)]">
+            <CardHeader className={cn("pb-3 shrink-0", !filtersExpanded && "pb-2")}>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -383,8 +383,8 @@ export const ZahlungenUebersicht = ({ onBack }: ZahlungenUebersichtProps = {}) =
                         className="ml-auto shrink-0 h-7 gap-1.5 text-xs"
                         onClick={() => setFiltersExpanded(v => !v)}
                       >
-                        {filtersExpanded ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
-                        {filtersExpanded ? "Maximieren" : "Wiederherstellen"}
+                        {filtersExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                        {filtersExpanded ? "Filter ausblenden" : "Filter einblenden"}
                       </Button>
                     </CardTitle>
                     <p className="text-sm text-gray-600">
@@ -408,19 +408,19 @@ export const ZahlungenUebersicht = ({ onBack }: ZahlungenUebersichtProps = {}) =
                       </Select>
                     </div>
                     <Button
-                      variant={filtersExpanded ? "outline" : "default"}
+                      variant="outline"
                       size="sm"
                       className="h-8 gap-1.5 shrink-0"
                       onClick={() => setFiltersExpanded(!filtersExpanded)}
                     >
                       {filtersExpanded ? (
                         <>
-                          <Maximize2 className="h-3.5 w-3.5" />
-                          <span className="text-xs">Maximieren</span>
+                          <Minimize2 className="h-3.5 w-3.5" />
+                          <span className="text-xs">Ausblenden</span>
                         </>
                       ) : (
                         <>
-                          <Minimize2 className="h-3.5 w-3.5" />
+                          <Maximize2 className="h-3.5 w-3.5" />
                           <span className="text-xs">Filter</span>
                         </>
                       )}
@@ -562,13 +562,13 @@ export const ZahlungenUebersicht = ({ onBack }: ZahlungenUebersichtProps = {}) =
                 )}
               </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="p-0 flex-1 overflow-hidden">
               {isLoading ? (
                 <div className="text-center py-12">
                   <p className="text-muted-foreground">Lade Zahlungen...</p>
                 </div>
               ) : paymentsByYearMonth && paymentsByYearMonth.length > 0 ? (
-                <ScrollArea className={filtersExpanded ? "h-[calc(100vh-520px)]" : "h-[calc(100vh-320px)]"}>
+                <ScrollArea className="h-full">
                   <div className="p-4 space-y-4">
                     {paymentsByYearMonth.map((yearGroup) => (
                       <div key={yearGroup.year} className="space-y-2">
@@ -706,16 +706,16 @@ export const ZahlungenUebersicht = ({ onBack }: ZahlungenUebersichtProps = {}) =
           </Card>
 
           {/* Right: Details und Zuordnung */}
-          <Card className="h-[calc(100vh-200px)]">
-            <CardHeader className="pb-3">
+          <Card className="flex flex-col h-[calc(100vh-200px)]">
+            <CardHeader className="pb-3 shrink-0">
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-blue-600" />
                 Zuordnung & Details
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 overflow-hidden">
               {selectedZahlung ? (
-                <ScrollArea className="h-[calc(100vh-320px)]">
+                <ScrollArea className="h-full">
                   <div className="space-y-6">
                     {/* Zahlungsdetails */}
                     <div>
