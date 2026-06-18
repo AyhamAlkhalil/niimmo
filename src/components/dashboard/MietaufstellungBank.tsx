@@ -241,7 +241,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
         {/* Print-only Titel + Kennzahlen */}
         <div className="print-title mb-3">
-          <h1 className="text-xl font-bold">Mietaufstellung der Nimo Wohnungsbaugesellschaft MBH</h1>
+          <h1 className="text-xl font-bold">Mietaufstellung der NiImmo Wohnungsbaugesellschaft mbH</h1>
           <p className="text-xs">Stand: {format(new Date(), "dd.MM.yyyy")}</p>
         </div>
         <div className="print-summary gap-4 mb-4 text-xs border border-gray-400 rounded p-3">
