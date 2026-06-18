@@ -799,6 +799,7 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     contract: ContractInfo;
     matchedName: string;
     isExact: boolean; // exact substring vs fuzzy
+    exactMatchCount: number; // how many name parts matched exactly (higher = better)
     hasAddressMatch: boolean;
   }
   
@@ -806,36 +807,39 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
   
   for (const contract of contracts) {
     if (!contract.mieterNamen || contract.mieterNamen.length === 0) continue;
-    
+
+    // Count ALL matching name parts instead of breaking at the first hit.
+    // A contract where BOTH "michael" AND "piper" match scores higher than one
+    // where only "michael" matches (e.g. Michael Rittweger sharing a first name).
+    let exactMatchCount = 0;
+    let fuzzyMatchCount = 0;
     let bestNameMatch: { name: string; isExact: boolean } | null = null;
-    
+
+    const words = verwendungszweck.split(/[\s\/,.\-;:]+/).filter(w => w.length >= 4);
+
     for (const name of contract.mieterNamen) {
-      // Only match surnames (≥4 chars) to avoid false positives with short first names
+      // Only match names ≥4 chars to avoid false positives with short first names
       if (name.length < 4) continue;
-      
+
       // 1. Exact substring match
       if (verwendungszweck.includes(name)) {
-        bestNameMatch = { name, isExact: true };
-        break; // Exact match found, no need to check further
+        exactMatchCount++;
+        if (!bestNameMatch) bestNameMatch = { name, isExact: true };
+        continue;
       }
-      
-      // 2. Fuzzy match — check each word in verwendungszweck against this name
-      // This catches "Hickes" ↔ "Hickey", "Vaduva" ↔ "Waduva" etc.
-      const words = verwendungszweck.split(/[\s\/,.\-;:]+/).filter(w => w.length >= 4);
+
+      // 2. Fuzzy match — catches "Hickes" ↔ "Hickey", "Vaduva" ↔ "Waduva" etc.
       for (const word of words) {
-        // Word must be similar length (±2 chars)
         if (Math.abs(word.length - name.length) > 2) continue;
-        
         const distance = levenshteinDistance(word, name);
-        // Allow max distance 1 for names ≥4 chars, ensuring quality match
         if (distance <= 1 && distance > 0) {
-          if (!bestNameMatch || !bestNameMatch.isExact) {
-            bestNameMatch = { name, isExact: false };
-          }
+          fuzzyMatchCount++;
+          if (!bestNameMatch) bestNameMatch = { name, isExact: false };
+          break;
         }
       }
     }
-    
+
     if (!bestNameMatch) continue;
     
     // Check for address match as tiebreaker
@@ -858,6 +862,7 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
       contract,
       matchedName: bestNameMatch.name,
       isExact: bestNameMatch.isExact,
+      exactMatchCount,
       hasAddressMatch,
     });
   }
@@ -870,8 +875,10 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
   if (matches.length === 1) {
     bestMatch = matches[0];
   } else {
-    // Multiple matches — prioritize: exact+address > exact > fuzzy+address > fuzzy
+    // Multiple matches — prioritize: exactMatchCount (most name parts) > address > exact > fuzzy
     matches.sort((a, b) => {
+      // Most name parts matched wins (e.g. "michael" + "piper" beats "michael" only)
+      if (b.exactMatchCount !== a.exactMatchCount) return b.exactMatchCount - a.exactMatchCount;
       const scoreA = (a.isExact ? 2 : 0) + (a.hasAddressMatch ? 1 : 0);
       const scoreB = (b.isExact ? 2 : 0) + (b.hasAddressMatch ? 1 : 0);
       if (scoreB !== scoreA) return scoreB - scoreA;
@@ -880,16 +887,17 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
       return (statusPriority[a.contract.status] ?? 99) - (statusPriority[b.contract.status] ?? 99);
     });
     bestMatch = matches[0];
-    console.log(`BG-Match: ${matches.length} Kandidaten, gewählt: ${bestMatch.contract.mieter} (exact=${bestMatch.isExact}, address=${bestMatch.hasAddressMatch})`);
+    console.log(`BG-Match: ${matches.length} Kandidaten, gewählt: ${bestMatch.contract.mieter} (exactCount=${bestMatch.exactMatchCount}, address=${bestMatch.hasAddressMatch})`);
   }
-  
+
   // Also filter by date if possible
   const dateValidMatches = matches.filter(m => isPaymentInContractPeriod(payment.buchungsdatum, m.contract));
   if (dateValidMatches.length === 1) {
     bestMatch = dateValidMatches[0];
   } else if (dateValidMatches.length > 1) {
-    // Re-sort date-valid matches
+    // Re-sort date-valid matches with same priority
     dateValidMatches.sort((a, b) => {
+      if (b.exactMatchCount !== a.exactMatchCount) return b.exactMatchCount - a.exactMatchCount;
       const scoreA = (a.isExact ? 2 : 0) + (a.hasAddressMatch ? 1 : 0);
       const scoreB = (b.isExact ? 2 : 0) + (b.hasAddressMatch ? 1 : 0);
       if (scoreB !== scoreA) return scoreB - scoreA;
