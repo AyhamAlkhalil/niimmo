@@ -26,6 +26,7 @@ interface Periode {
 
 export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: EinheitHistorieViewProps) => {
   const [selectedVertragId, setSelectedVertragId] = useState<string | null>(null);
+  const [lastClosedVertragId, setLastClosedVertragId] = useState<string | null>(null);
 
   const { data: alleMietvertraege, isLoading: vertraegeLoading } = useQuery({
     queryKey: ['alle-mietvertrag-einheit-historie', einheitId],
@@ -191,7 +192,12 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
     <div className="bg-gray-50 min-h-fit p-6">
       <MietvertragDetailsModal
         isOpen={!!selectedVertragId}
-        onClose={() => setSelectedVertragId(null)}
+        onClose={() => {
+          const closedId = selectedVertragId;
+          setSelectedVertragId(null);
+          setLastClosedVertragId(closedId);
+          setTimeout(() => setLastClosedVertragId(null), 4000);
+        }}
         vertragId={selectedVertragId || ''}
         einheit={einheit}
         immobilie={immobilie}
@@ -238,11 +244,20 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
             </Card>
           ) : (
             <div className="space-y-3">
-              {timeline.map((periode, index) => (
-                <Card 
-                  key={index} 
-                  className={`${periode.type === 'leerstand' ? 'border-red-200 bg-red-50' : 
-                    periode.isAktuell ? 'border-green-500 bg-green-50 shadow-lg' : 'border-gray-200'}`}
+              {timeline.map((periode, index) => {
+                const isHighlighted = periode.type === 'vertrag' && periode.vertrag?.id === lastClosedVertragId;
+                return (
+                <Card
+                  key={index}
+                  className={`transition-all duration-300 ${
+                    isHighlighted
+                      ? 'border-red-500 ring-2 ring-red-500 ring-offset-2 shadow-lg shadow-red-200/60 animate-pulse-once'
+                      : periode.type === 'leerstand'
+                        ? 'border-red-200 bg-red-50'
+                        : periode.isAktuell
+                          ? 'border-green-500 bg-green-50 shadow-lg'
+                          : 'border-gray-200'
+                  }`}
                 >
                   {periode.type === 'vertrag' ? (
                     <div 
@@ -344,7 +359,8 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
                     </>
                   )}
                 </Card>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
