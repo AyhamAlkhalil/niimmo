@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { ArrowLeft, Upload, Search, FileText, Calendar, Bot, Euro, Building2, Home, User, Edit2, X, AlertTriangle, ChevronDown, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,7 +205,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   });
 
   // Fetch ALL payments - lightweight, no joins (for the "Alle Zahlungen" tab)
-  const { data: allPayments, isLoading: allPaymentsLoading } = useQuery({
+  const { data: allPayments, isLoading: allPaymentsLoading, isError: allPaymentsError } = useQuery({
     queryKey: ['zahlungen-overview'],
     queryFn: async () => {
       let allData: any[] = [];
@@ -228,7 +228,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
         if (error) throw error;
         if (!data || data.length === 0) break;
-        allData = [...allData, ...data];
+        allData.push(...data);
         if (data.length < pageSize) break;
         from += pageSize;
       }
@@ -268,12 +268,14 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   // Server-side search for tenant/property names (not available in lazy-loaded local data)
   const [serverSearchIds, setServerSearchIds] = useState<Set<string> | null>(null);
   const [isServerSearching, setIsServerSearching] = useState(false);
+  const searchSeqRef = useRef(0);
 
   const performServerSearch = useCallback(async (term: string) => {
     if (!term || term.length < 2) {
       setServerSearchIds(null);
       return;
     }
+    const seq = ++searchSeqRef.current;
     setIsServerSearching(true);
     try {
       // Search by tenant name via mietvertrag_mieter join
@@ -282,14 +284,14 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         .select('id, vorname, nachname')
         .or(`vorname.ilike.%${term}%,nachname.ilike.%${term}%`);
 
-      let contractPaymentIds = new Set<string>();
+      const contractPaymentIds = new Set<string>();
       if (mieterMatches && mieterMatches.length > 0) {
         const mieterIds = mieterMatches.map(m => m.id);
         const { data: mmLinks } = await supabase
           .from('mietvertrag_mieter')
           .select('mietvertrag_id')
           .in('mieter_id', mieterIds);
-        
+
         if (mmLinks && mmLinks.length > 0) {
           const contractIds = mmLinks.map(l => l.mietvertrag_id);
           const { data: zahlungen } = await supabase
@@ -315,11 +317,13 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         zahlungen?.forEach(z => contractPaymentIds.add(z.id));
       }
 
+      // Veraltete Antwort verwerfen (Race Condition)
+      if (seq !== searchSeqRef.current) return;
       setServerSearchIds(contractPaymentIds);
     } catch (err) {
-      setServerSearchIds(null);
+      if (seq === searchSeqRef.current) setServerSearchIds(null);
     } finally {
-      setIsServerSearching(false);
+      if (seq === searchSeqRef.current) setIsServerSearching(false);
     }
   }, []);
 
@@ -375,7 +379,9 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             zahlung.verwendungszweck?.toLowerCase().includes(search) ||
             zahlung.empfaengername?.toLowerCase().includes(search) ||
             zahlung.iban?.toLowerCase().includes(search) ||
-            zahlung.kategorie?.toLowerCase().includes(search)
+            zahlung.kategorie?.toLowerCase().includes(search) ||
+            zahlung.immobilie_name?.toLowerCase().includes(search) ||
+            zahlung.immobilie_adresse?.toLowerCase().includes(search)
           );
           const betragMatch = zahlung.betrag?.toString().includes(search);
           const dateMatch = zahlung.buchungsdatum_formatted.includes(search);
@@ -409,30 +415,31 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       if (showOnlyNichtZugeordnet && (zahlung.mietvertrag_id || zahlung.immobilie_id)) return false;
 
       if (!dateRange.from && !dateRange.to) return true;
-      
-      const zahlungDate = new Date(zahlung.buchungsdatum);
-      zahlungDate.setHours(0, 0, 0, 0);
-      
+
+      // ISO "yyyy-MM-dd" lokal konstruieren (new Date("yyyy-MM-dd") parst als UTC → Timezone-Bug)
+      const [zy, zm, zd] = zahlung.buchungsdatum.split('-').map(Number);
+      const zahlungTime = new Date(zy, zm - 1, zd).getTime();
+
       if (dateRange.from && dateRange.to) {
-        const from = new Date(dateRange.from);
-        from.setHours(0, 0, 0, 0);
-        const to = new Date(dateRange.to);
-        to.setHours(23, 59, 59, 999);
-        return zahlungDate >= from && zahlungDate <= to;
+        const df = dateRange.from;
+        const dt = dateRange.to;
+        const fromTime = new Date(df.getFullYear(), df.getMonth(), df.getDate()).getTime();
+        const toTime = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 23, 59, 59, 999).getTime();
+        return zahlungTime >= fromTime && zahlungTime <= toTime;
       }
-      
+
       if (dateRange.from) {
-        const from = new Date(dateRange.from);
-        from.setHours(0, 0, 0, 0);
-        return zahlungDate >= from;
+        const df = dateRange.from;
+        const fromTime = new Date(df.getFullYear(), df.getMonth(), df.getDate()).getTime();
+        return zahlungTime >= fromTime;
       }
-      
+
       if (dateRange.to) {
-        const to = new Date(dateRange.to);
-        to.setHours(23, 59, 59, 999);
-        return zahlungDate <= to;
+        const dt = dateRange.to;
+        const toTime = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 23, 59, 59, 999).getTime();
+        return zahlungTime <= toTime;
       }
-      
+
       return true;
     });
   }, [allPayments, allPaymentsSearchTerm, selectedKategorie, showOnlyZugeordnet, showOnlyNichtZugeordnet, dateRange, serverSearchIds]);
@@ -515,18 +522,24 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     });
   };
 
-  // Alle Monate beim ersten Laden einklappen
+  // Alle Monate beim ersten Laden einklappen (nur einmalig)
+  const collapsedInitializedRef = useRef(false);
   const allMonthKeysString = useMemo(
     () => paymentsByYearMonth.flatMap(y => y.months.map(m => m.monthKey)).join(','),
     [paymentsByYearMonth]
   );
   useEffect(() => {
-    if (allMonthKeysString && collapsedMonths.size === 0) {
+    if (!collapsedInitializedRef.current && allMonthKeysString) {
+      collapsedInitializedRef.current = true;
       setCollapsedMonths(new Set(allMonthKeysString.split(',').filter(Boolean)));
     }
   }, [allMonthKeysString]);
 
-  const selectedZahlung = sortedAllPayments?.find(z => z.id === selectedZahlungId);
+  const allPaymentsById = useMemo(
+    () => new Map(allPayments?.map(z => [z.id, z])),
+    [allPayments]
+  );
+  const selectedZahlung = selectedZahlungId ? allPaymentsById.get(selectedZahlungId) : undefined;
 
   const formatBetrag = useCallback((betrag: number) => EUR_FORMATTER.format(betrag), []);
 
@@ -1111,8 +1124,14 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                               />
                             </PopoverContent>
                           </Popover>
-                          {(dateRange.from || selectedKategorie) && (
-                            <Button variant="ghost" size="sm" onClick={() => { setDateRange({ from: undefined, to: undefined }); setSelectedKategorie(null); }}>
+                          {(dateRange.from || selectedKategorie || showOnlyZugeordnet || showOnlyNichtZugeordnet || allPaymentsSearchTerm) && (
+                            <Button variant="ghost" size="sm" title="Alle Filter zurücksetzen" onClick={() => {
+                              setDateRange({ from: undefined, to: undefined });
+                              setSelectedKategorie(null);
+                              setShowOnlyZugeordnet(false);
+                              setShowOnlyNichtZugeordnet(false);
+                              setAllPaymentsSearchTerm('');
+                            }}>
                               <X className="h-3 w-3" />
                             </Button>
                           )}
@@ -1124,6 +1143,12 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                 <CardContent className="p-0 flex-1 overflow-hidden">
                   {allPaymentsLoading ? (
                     <div className="text-center py-12"><p className="text-muted-foreground">Lade Zahlungen...</p></div>
+                  ) : allPaymentsError ? (
+                    <div className="text-center py-12">
+                      <AlertTriangle className="h-10 w-10 text-destructive/40 mx-auto mb-3" />
+                      <p className="text-destructive font-medium">Zahlungen konnten nicht geladen werden</p>
+                      <p className="text-sm text-muted-foreground mt-1">Bitte Seite neu laden oder Verbindung prüfen.</p>
+                    </div>
                   ) : paymentsByYearMonth && paymentsByYearMonth.length > 0 ? (
                     <ScrollArea className="h-full">
                       <div className="p-4 space-y-4">
