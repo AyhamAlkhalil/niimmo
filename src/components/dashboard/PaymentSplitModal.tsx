@@ -303,7 +303,10 @@ export function PaymentSplitModal({
   };
 
   const resetSplits = () => {
-    setSplits(buildInitialSplits(payment, editMode, existingSplitPayments));
+    const fresh = buildInitialSplits(payment, editMode, existingSplitPayments);
+    // Neue IDs erzwingen → React remountet alle Split-Cards vollständig
+    // (Radix Select würde bei gleichem Key seinen internen State behalten)
+    setSplits(fresh.map((s, i) => ({ ...s, id: `reset-${Date.now()}-${i}` })));
   };
 
   if (!payment || !payment.id) {
@@ -379,7 +382,7 @@ export function PaymentSplitModal({
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Teilzahlungen ({splits.length})</h3>
               <div className="flex gap-2">
-                {editMode && (
+                {editMode && existingSplitPayments.length > 1 && (
                   <Button onClick={resetSplits} variant="outline" size="sm">
                     Zurücksetzen
                   </Button>
