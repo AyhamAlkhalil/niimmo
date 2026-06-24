@@ -238,7 +238,9 @@ export function PaymentSplitModal({
           betrag: parseFloat(split.betrag.toFixed(2)),
           verwendungszweck: cleanVz ? `${cleanVz} | ${splitMarker}` : splitMarker,
           iban: payment?.iban || originalPaymentData.iban,
-          zugeordneter_monat: split.zugeordneter_monat || payment?.zugeordneter_monat || originalPaymentData.zugeordneter_monat,
+          zugeordneter_monat: split.zugeordneter_monat
+            || (payment?.zugeordneter_monat || originalPaymentData.zugeordneter_monat || '').slice(0, 7)
+            || null,
           import_datum:
             payment?.import_datum ||
             originalPaymentData.import_datum ||
@@ -361,14 +363,23 @@ export function PaymentSplitModal({
             </div>
           </div>
 
+          {/* Warning: incomplete split group in edit mode */}
+          {editMode && existingSplitPayments.length <= 1 && (
+            <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              Es wurde nur {existingSplitPayments.length === 0 ? "keine" : "eine"} Teilzahlung dieser Gruppe gefunden. Eine weitere Teilzahlung fehlt möglicherweise oder wurde gelöscht. Bitte prüfen Sie die Zahlungsdaten.
+            </div>
+          )}
+
           {/* Split Configuration */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Teilzahlungen ({splits.length})</h3>
               <div className="flex gap-2">
-                <Button onClick={resetSplits} variant="outline" size="sm">
-                  Zurücksetzen
-                </Button>
+                {editMode && (
+                  <Button onClick={resetSplits} variant="outline" size="sm">
+                    Zurücksetzen
+                  </Button>
+                )}
                 <Button onClick={addSplit} size="sm" disabled={splits.length >= 20}>
                   <Plus className="h-4 w-4 mr-1" />
                   Weitere Teilung

@@ -1291,7 +1291,12 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                             {selectedZahlung.zugeordneter_monat && (
                               <div className="flex justify-between">
                                 <span className="text-sm text-gray-600">Monat:</span>
-                                <span className="text-sm font-medium">{selectedZahlung.zugeordneter_monat}</span>
+                                <span className="text-sm font-medium">{(() => {
+                                  const raw = (selectedZahlung.zugeordneter_monat || '').slice(0, 7);
+                                  if (!raw || raw.length < 7) return selectedZahlung.zugeordneter_monat;
+                                  const [y, m] = raw.split('-');
+                                  return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('de-DE', { year: 'numeric', month: 'long' });
+                                })()}</span>
                               </div>
                             )}
                             {selectedZahlung.kategorie && (
