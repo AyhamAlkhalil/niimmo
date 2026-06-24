@@ -2220,10 +2220,10 @@ export type Database = {
         | "Kündigung"
         | "Übergabeprotokoll"
         | "Sonstiges"
-        | "Mietkaution"
         | "Mieterunterlagen"
         | "Schriftverkehr"
         | "Versicherungen"
+        | "Betriebskostenabrechnung"
       mieterrolle: "Hauptmieter" | "Zweitmieter" | "Drittmieter"
       mietstatus: "aktiv" | "gekuendigt" | "beendet"
       objekttyp: "Wohnhaus" | "Gewerbe" | "Mischnutzung"
@@ -2377,10 +2377,10 @@ export const Constants = {
         "Kündigung",
         "Übergabeprotokoll",
         "Sonstiges",
-        "Mietkaution",
         "Mieterunterlagen",
         "Schriftverkehr",
         "Versicherungen",
+        "Betriebskostenabrechnung",
       ],
       mieterrolle: ["Hauptmieter", "Zweitmieter", "Drittmieter"],
       mietstatus: ["aktiv", "gekuendigt", "beendet"],

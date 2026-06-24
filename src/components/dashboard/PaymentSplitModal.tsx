@@ -238,9 +238,7 @@ export function PaymentSplitModal({
           betrag: parseFloat(split.betrag.toFixed(2)),
           verwendungszweck: cleanVz ? `${cleanVz} | ${splitMarker}` : splitMarker,
           iban: payment?.iban || originalPaymentData.iban,
-          zugeordneter_monat: split.zugeordneter_monat
-            ? `${split.zugeordneter_monat}-01`
-            : payment?.zugeordneter_monat || originalPaymentData.zugeordneter_monat,
+          zugeordneter_monat: split.zugeordneter_monat || payment?.zugeordneter_monat || originalPaymentData.zugeordneter_monat,
           import_datum:
             payment?.import_datum ||
             originalPaymentData.import_datum ||

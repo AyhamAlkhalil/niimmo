@@ -199,7 +199,8 @@ export function MietvertragTimelineView({
     if (field === 'mietvertrag') {
       setEditPaymentValue(zahlung?.mietvertrag_id || '');
     } else if (field === 'monat') {
-      const monthValue = zahlung?.zugeordneter_monat || zahlung?.buchungsdatum?.slice(0, 7) || '';
+      // Normalize to "YYYY-MM" — stored values may have "-DD" suffix from old split bug
+      const monthValue = (zahlung?.zugeordneter_monat || zahlung?.buchungsdatum || '').slice(0, 7);
       setEditPaymentValue(monthValue);
     } else {
       setEditPaymentValue(currentValue || '');
@@ -292,8 +293,8 @@ export function MietvertragTimelineView({
   // Add ALL months with Forderungen
   if (forderungen) {
     forderungen.forEach(forderung => {
-      // sollmonat ist DATE ('YYYY-MM-DD'), normalisieren auf 'YYYY-MM' für Map-Key-Konsistenz
       const month = forderung.sollmonat?.slice(0, 7);
+      if (!month) return;
       if (!monthlyData.has(month)) {
         monthlyData.set(month, { forderungen: [], zahlungen: [] });
       }
@@ -303,7 +304,8 @@ export function MietvertragTimelineView({
 
   // Add ALL payments and create months for them if they don't exist
   zahlungen.forEach(zahlung => {
-    const assignedMonth = zahlung.zugeordneter_monat || zahlung.buchungsdatum?.slice(0, 7);
+    // Normalize zugeordneter_monat to "YYYY-MM" (may be stored as "YYYY-MM-DD" from split bug)
+    const assignedMonth = (zahlung.zugeordneter_monat || zahlung.buchungsdatum || '').slice(0, 7) || null;
 
     if (assignedMonth) {
       if (!monthlyData.has(assignedMonth)) {
@@ -487,13 +489,20 @@ export function MietvertragTimelineView({
 
         {/* Date */}
         <p className="text-xs sm:text-sm text-muted-foreground mb-1">
-          {formatDatum(zahlung.buchungsdatum)}
+          {zahlung.buchungsdatum ? formatDatum(zahlung.buchungsdatum) : '—'}
         </p>
 
+        {/* Empfänger / Auftraggeber */}
+        {zahlung.empfaengername && (
+          <p className="text-[10px] sm:text-xs text-muted-foreground mb-1">
+            <span className="font-medium">Von/An:</span> {zahlung.empfaengername}
+          </p>
+        )}
+
         {/* Verwendungszweck */}
-        {zahlung.verwendungszweck && (
+        {zahlung.verwendungszweck && !zahlung.verwendungszweck.startsWith('SPLIT_GROUP_') && (
           <p className="text-[10px] sm:text-xs text-muted-foreground mb-2 line-clamp-2">
-            {zahlung.verwendungszweck}
+            {zahlung.verwendungszweck.split(' | SPLIT_GROUP_')[0]}
           </p>
         )}
 
@@ -608,10 +617,16 @@ export function MietvertragTimelineView({
           ) : (
             <div className="flex items-center gap-1">
               <Badge variant="secondary" className="text-[10px] sm:text-xs">
-                {zahlung.zugeordneter_monat || zahlung.buchungsdatum?.slice(0, 7) || 'Unzugeordnet'}
+                {(() => {
+                  const raw = (zahlung.zugeordneter_monat || zahlung.buchungsdatum || '').slice(0, 7);
+                  if (!raw) return 'Unzugeordnet';
+                  const [y, m] = raw.split('-');
+                  return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('de-DE', { year: 'numeric', month: 'long' });
+                })()}
               </Badge>
               {(() => {
-                const zahlungsJahr = new Date(zahlung.buchungsdatum).getFullYear();
+                const buchDatum = zahlung.buchungsdatum;
+                const zahlungsJahr = buchDatum ? new Date(buchDatum).getFullYear() : 0;
                 const hatForderungen = (forderungen || []).length > 0;
                 const canEditMonth = zahlungsJahr >= 2025 && hatForderungen;
                 return canEditMonth ? (
@@ -790,7 +805,9 @@ export function MietvertragTimelineView({
         <div className="hidden md:block absolute left-1/2 top-0 w-0.5 bg-gradient-to-b from-primary/60 via-primary/40 to-primary/20 h-full transform -translate-x-0.5 z-0" />
 
         {sortedMonths.map((month) => {
+          if (!month || month === 'undefined') return null;
           const data = monthlyData.get(month);
+          if (!data) return null;
           const monthDate = new Date(month + '-01');
           const forderungenData = data.forderungen;
           const zahlungenData = data.zahlungen.filter((zahlung: any) => {

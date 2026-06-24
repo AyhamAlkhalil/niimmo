@@ -29,12 +29,13 @@ type SortDirection = 'asc' | 'desc';
 
 const DOCUMENT_CATEGORIES = [
   'Mietvertrag',
-  'Kündigung', 
+  'Kündigung',
   'Übergabeprotokoll',
-  'Sonstiges',
-  'Mietkaution',
+  'Betriebskostenabrechnung',
   'Mieterunterlagen',
-  'Schriftverkehr'
+  'Schriftverkehr',
+  'Versicherungen',
+  'Sonstiges',
 ];
 
 export function MietvertragDocumentsTab({
