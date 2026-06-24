@@ -276,7 +276,7 @@ export const TerminationDialog = ({
         kategorie: 'Kündigung',
         dateityp: 'application/pdf',
         mietvertrag_id: vertragId,
-        hochgeladen_am: new Date().toISOString(),
+        hochgeladen_am: new Date(kuendigungsdatum + 'T12:00:00').toISOString(),
       });
 
       try {
@@ -347,7 +347,7 @@ export const TerminationDialog = ({
         dateityp: selectedFile.type,
         groesse_bytes: selectedFile.size,
         erstellt_von: 'Upload',
-        hochgeladen_am: new Date().toISOString()
+        hochgeladen_am: new Date(uploadKuendigungsdatum + 'T12:00:00').toISOString()
       });
 
       clearInterval(progressInterval);

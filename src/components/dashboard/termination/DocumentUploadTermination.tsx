@@ -151,7 +151,7 @@ export const DocumentUploadTermination = ({
           dateityp: selectedFile.type,
           groesse_bytes: selectedFile.size,
           erstellt_von: 'Upload',
-          hochgeladen_am: new Date().toISOString()
+          hochgeladen_am: new Date(kuendigungsdatum + 'T12:00:00').toISOString()
         });
 
       if (docError) {

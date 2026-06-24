@@ -63,7 +63,7 @@ export const ManualTerminationForm = ({
           kategorie: 'Kündigung',
           titel: `Kündigung - Manuelle Eingabe (${new Date(kuendigungsdatum + 'T12:00:00').toLocaleDateString('de-DE')})`,
           erstellt_von: 'Manuell',
-          hochgeladen_am: new Date().toISOString()
+          hochgeladen_am: new Date(kuendigungsdatum + 'T12:00:00').toISOString()
         });
 
       if (docError) {
