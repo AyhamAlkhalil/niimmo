@@ -61,7 +61,7 @@ export const ManualTerminationForm = ({
         .insert({
           mietvertrag_id: vertragId,
           kategorie: 'Kündigung',
-          titel: `Kündigung - Manuelle Eingabe (${new Date(kuendigungsdatum).toLocaleDateString('de-DE')})`,
+          titel: `Kündigung - Manuelle Eingabe (${new Date(kuendigungsdatum + 'T12:00:00').toLocaleDateString('de-DE')})`,
           erstellt_von: 'Manuell',
           hochgeladen_am: new Date().toISOString()
         });

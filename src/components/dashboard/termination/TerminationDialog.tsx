@@ -269,12 +269,14 @@ export const TerminationDialog = ({
 
       if (updateError) throw new Error('Vertragsaktualisierung fehlgeschlagen: ' + updateError.message);
 
+      const kuendigungsdatumFormatted = new Date(kuendigungsdatum + 'T12:00:00').toLocaleDateString('de-DE');
       await supabase.from('dokumente').insert({
-        titel: `Kündigungsschreiben ${new Date().toLocaleDateString('de-DE')}`,
+        titel: `Kündigungsschreiben ${kuendigungsdatumFormatted}`,
         pfad: filePath,
         kategorie: 'Kündigung',
         dateityp: 'application/pdf',
         mietvertrag_id: vertragId,
+        hochgeladen_am: new Date().toISOString(),
       });
 
       try {
