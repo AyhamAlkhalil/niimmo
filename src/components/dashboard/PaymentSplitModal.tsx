@@ -129,13 +129,17 @@ export function PaymentSplitModal({
     0.02;
 
   // Combine passed months with the payment's own month, deduplicated, sorted desc
+  // Filter to valid YYYY-MM format only to prevent "Invalid Date" display issues
   const monthOptions = Array.from(
     new Set([
       ...availableMonths,
       (payment?.zugeordneter_monat || payment?.buchungsdatum || "").slice(0, 7),
+      ...(existingSplitPayments || []).map(p =>
+        (p.zugeordneter_monat || p.buchungsdatum || "").slice(0, 7)
+      ),
     ])
   )
-    .filter(Boolean)
+    .filter(m => /^\d{4}-\d{2}$/.test(m))
     .sort()
     .reverse();
 

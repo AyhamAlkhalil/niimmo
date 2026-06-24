@@ -315,8 +315,10 @@ export function MietvertragTimelineView({
     }
   });
 
-  // Sort months chronologically (newest first)
-  const allSortedMonths = Array.from(monthlyData.keys()).sort().reverse();
+  // Sort months chronologically (newest first); filter to valid YYYY-MM keys only
+  const allSortedMonths = Array.from(monthlyData.keys())
+    .filter(month => /^\d{4}-\d{2}$/.test(month))
+    .sort().reverse();
   
   // Extract available years for navigation
   const availableYears = useMemo(() => {
@@ -590,13 +592,16 @@ export function MietvertragTimelineView({
                     (forderungen || []).forEach(forderung => {
                       if (forderung.sollmonat) availableMonths.add(forderung.sollmonat.slice(0, 7));
                     });
+                    // Aktuellen Monat der Zahlung immer einschließen (auch wenn > 6 Monate alt)
+                    const currentMonth = (zahlung.zugeordneter_monat || zahlung.buchungsdatum || '').slice(0, 7);
+                    if (currentMonth) availableMonths.add(currentMonth);
                     const now = new Date();
                     for (let i = -6; i <= 12; i++) {
                       const date = new Date(now.getFullYear(), now.getMonth() + i, 1);
                       const monthStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                       availableMonths.add(monthStr);
                     }
-                    return Array.from(availableMonths).sort().map(month => {
+                    return Array.from(availableMonths).filter(m => /^\d{4}-\d{2}$/.test(m)).sort().map(month => {
                       const [year, monthNum] = month.split('-');
                       const monthName = new Date(parseInt(year), parseInt(monthNum) - 1).toLocaleDateString('de-DE', { 
                         year: 'numeric', 
