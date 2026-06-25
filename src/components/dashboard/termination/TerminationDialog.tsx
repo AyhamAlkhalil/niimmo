@@ -314,7 +314,10 @@ export const TerminationDialog = ({
   };
 
   const handleUploadTermination = async () => {
-    if (!uploadKuendigungsdatum || !selectedFile) return;
+    if (!uploadKuendigungsdatum || !selectedFile) {
+      toast({ title: "Fehler", description: "Bitte Kündigungsdatum und Dokument angeben.", variant: "destructive" });
+      return;
+    }
 
     setIsUploading(true);
     setUploadProgress(0);

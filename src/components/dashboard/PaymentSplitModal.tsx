@@ -337,14 +337,22 @@ export function PaymentSplitModal({
         import_datum: originalData?.import_datum || ref.import_datum,
       };
 
-      const { error: insertError } = await supabase.from("zahlungen").insert(restoredPayment);
+      const { data: insertedRow, error: insertError } = await supabase
+        .from("zahlungen")
+        .insert(restoredPayment)
+        .select("id")
+        .single();
       if (insertError) throw new Error(`Fehler beim Wiederherstellen: ${insertError.message}`);
 
       const { error: deleteError } = await supabase
         .from("zahlungen")
         .delete()
         .in("id", existingSplitPayments.map((p) => p.id));
-      if (deleteError) throw new Error(`Fehler beim Löschen der Teilzahlungen: ${deleteError.message}`);
+      if (deleteError) {
+        // Kompensierender Rollback: neu eingefügte Zahlung wieder löschen
+        await supabase.from("zahlungen").delete().eq("id", insertedRow.id);
+        throw new Error(`Fehler beim Löschen der Teilzahlungen: ${deleteError.message}`);
+      }
 
       toast({
         title: "Aufteilung aufgehoben",
@@ -450,7 +458,7 @@ export function PaymentSplitModal({
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">Teilzahlungen ({splits.length})</h3>
               <div className="flex gap-2">
-                {editMode && existingSplitPayments.length > 1 && (
+                {(editMode ? existingSplitPayments.length > 1 : splits.length > 1) && (
                   <Button onClick={resetSplits} variant="outline" size="sm">
                     Zurücksetzen
                   </Button>
