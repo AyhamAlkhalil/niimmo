@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, Plus, ArrowRightLeft, Pencil } from "lucide-react";
+import { Trash2, Plus, ArrowRightLeft, Pencil, Undo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -309,6 +309,67 @@ export function PaymentSplitModal({
     setSplits(fresh.map((s, i) => ({ ...s, id: `reset-${Date.now()}-${i}` })));
   };
 
+  const handleUndoSplit = async () => {
+    if (!editMode || existingSplitPayments.length === 0) return;
+
+    setIsLoading(true);
+    try {
+      // Originaldaten aus dem SPLIT_GROUP-Marker extrahieren
+      const meta = extractSplitMeta(existingSplitPayments[0]);
+      const originalData = meta.originalData;
+      const totalAmount = parseFloat(
+        existingSplitPayments.reduce((sum, p) => sum + Number(p.betrag), 0).toFixed(2)
+      );
+      const ref = existingSplitPayments[0];
+
+      const restoredPayment = {
+        buchungsdatum: originalData?.buchungsdatum || ref.buchungsdatum,
+        mietvertrag_id: originalData?.mietvertrag_id || ref.mietvertrag_id,
+        empfaengername: originalData?.empfaengername || ref.empfaengername,
+        kategorie: (originalData?.kategorie || ref.kategorie) as any,
+        betrag: totalAmount,
+        verwendungszweck:
+          originalData?.verwendungszweck ||
+          extractCleanVerwendungszweck(ref.verwendungszweck || ""),
+        iban: originalData?.iban || ref.iban,
+        zugeordneter_monat:
+          (originalData?.zugeordneter_monat || ref.zugeordneter_monat || ref.buchungsdatum || "").slice(0, 7) || null,
+        import_datum: originalData?.import_datum || ref.import_datum,
+      };
+
+      const { error: insertError } = await supabase.from("zahlungen").insert(restoredPayment);
+      if (insertError) throw new Error(`Fehler beim Wiederherstellen: ${insertError.message}`);
+
+      const { error: deleteError } = await supabase
+        .from("zahlungen")
+        .delete()
+        .in("id", existingSplitPayments.map((p) => p.id));
+      if (deleteError) throw new Error(`Fehler beim Löschen der Teilzahlungen: ${deleteError.message}`);
+
+      toast({
+        title: "Aufteilung aufgehoben",
+        description: `${existingSplitPayments.length} Teilzahlungen wurden zu einer Zahlung von ${formatBetrag(totalAmount)} zusammengeführt.`,
+      });
+
+      await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["zahlungen-detail", vertragId] }),
+        queryClient.invalidateQueries({ queryKey: ["mietvertrag-details", vertragId] }),
+        queryClient.invalidateQueries({ queryKey: ["mietforderungen", vertragId] }),
+        queryClient.invalidateQueries({ queryKey: ["zahlungen"] }),
+      ]);
+
+      onClose();
+    } catch (error: any) {
+      toast({
+        title: "Fehler",
+        description: error.message || "Unbekannter Fehler.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (!payment || !payment.id) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
@@ -372,8 +433,15 @@ export function PaymentSplitModal({
 
           {/* Warning: incomplete split group in edit mode */}
           {editMode && existingSplitPayments.length <= 1 && (
-            <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              Es wurde nur {existingSplitPayments.length === 0 ? "keine" : "eine"} Teilzahlung dieser Gruppe gefunden. Eine weitere Teilzahlung fehlt möglicherweise oder wurde gelöscht. Bitte prüfen Sie die Zahlungsdaten.
+            <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+              <p>
+                {existingSplitPayments.length === 0
+                  ? "Keine Teilzahlungen dieser Gruppe gefunden."
+                  : "Nur eine Teilzahlung dieser Gruppe gefunden – eine weitere fehlt oder wurde gelöscht."}
+              </p>
+              <p className="text-xs">
+                Mit „Aufteilung aufheben" können alle gefundenen Teilbeträge ({formatBetrag(originalAmount)}) wieder zu einer einzigen Zahlung zusammengeführt werden.
+              </p>
             </div>
           )}
 
@@ -486,21 +554,35 @@ export function PaymentSplitModal({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end space-x-2 pt-4 border-t">
-            <Button onClick={onClose} variant="outline">
-              Abbrechen
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={!isBalanced || splits.length <= 1 || isLoading}
-              className="min-w-[140px]"
-            >
-              {isLoading
-                ? "Wird gespeichert..."
-                : editMode
-                ? "Änderungen speichern"
-                : "Zahlung aufteilen"}
-            </Button>
+          <div className="flex flex-wrap justify-between gap-2 pt-4 border-t">
+            {/* Aufteilung aufheben – nur im Edit-Modus */}
+            {editMode && existingSplitPayments.length > 0 && (
+              <Button
+                onClick={handleUndoSplit}
+                variant="outline"
+                disabled={isLoading}
+                className="border-red-200 text-red-700 hover:bg-red-50 hover:border-red-300"
+              >
+                <Undo2 className="h-4 w-4 mr-2" />
+                Aufteilung aufheben
+              </Button>
+            )}
+            <div className="flex gap-2 ml-auto">
+              <Button onClick={onClose} variant="outline">
+                Abbrechen
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={!isBalanced || splits.length <= 1 || isLoading}
+                className="min-w-[140px]"
+              >
+                {isLoading
+                  ? "Wird gespeichert..."
+                  : editMode
+                  ? "Änderungen speichern"
+                  : "Zahlung aufteilen"}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>
