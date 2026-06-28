@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Upload, Search, FileText, Calendar, Bot, Euro, Building2, Home, User, Edit2, X, AlertTriangle, ChevronDown, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
+import { ArrowLeft, Upload, Search, FileText, Calendar, Bot, Euro, Building2, Home, User, Edit2, X, AlertTriangle, ChevronDown, ChevronRight, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -166,6 +166,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   const [allPaymentsSearchTerm, setAllPaymentsSearchTerm] = useState("");
   const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -534,6 +535,13 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       setCollapsedMonths(new Set(allMonthKeysString.split(',').filter(Boolean)));
     }
   }, [allMonthKeysString]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setIsFullscreen(false); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isFullscreen]);
 
   const allPaymentsById = useMemo(
     () => new Map(allPayments?.map(z => [z.id, z])),
@@ -1020,9 +1028,23 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
           {/* Tab 2: Alle Zahlungen */}
           <TabsContent value="alle">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className={cn(isFullscreen && "fixed inset-0 z-[100] bg-background flex flex-col")}>
+              {isFullscreen && (
+                <div className="flex items-center justify-between px-6 py-3 border-b bg-white shrink-0 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <Euro className="h-5 w-5 text-green-600" />
+                    <span className="font-semibold text-lg">Alle Zahlungen</span>
+                    {allPayments && <Badge variant="secondary">{allPayments.length}</Badge>}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setIsFullscreen(false)} className="gap-1.5">
+                    <Minimize2 className="h-4 w-4" />
+                    Verkleinern
+                  </Button>
+                </div>
+              )}
+              <div className={cn("grid grid-cols-1 xl:grid-cols-2 gap-6", isFullscreen && "flex-1 p-4 overflow-hidden")}>
               {/* Left: Zahlungsliste */}
-              <Card className="flex flex-col h-[calc(100vh-280px)] min-h-[400px] overflow-hidden">
+              <Card className={cn("flex flex-col overflow-hidden", isFullscreen ? "h-full" : "h-[calc(100vh-280px)] min-h-[400px]")}>
                 <CardHeader className="pb-3 shrink-0">
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
@@ -1050,13 +1072,22 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                           </SelectContent>
                         </Select>
                         <Button
-                          variant="outline"
+                          variant={filtersCollapsed ? "secondary" : "ghost"}
                           size="icon"
-                          className="shrink-0 h-9 w-9"
+                          className="shrink-0 h-8 w-8"
                           onClick={() => setFiltersCollapsed(v => !v)}
                           title={filtersCollapsed ? "Filter einblenden" : "Filter ausblenden"}
                         >
-                          {filtersCollapsed ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
+                          <SlidersHorizontal className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="shrink-0 h-9 w-9"
+                          onClick={() => setIsFullscreen(v => !v)}
+                          title={isFullscreen ? "Vollansicht beenden" : "Vollansicht öffnen"}
+                        >
+                          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                         </Button>
                       </div>
                     </div>
@@ -1264,7 +1295,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
               </Card>
 
               {/* Right: Details */}
-              <Card className="flex flex-col h-[calc(100vh-280px)] overflow-hidden">
+              <Card className={cn("flex flex-col overflow-hidden", isFullscreen ? "h-full" : "h-[calc(100vh-280px)]")}>
                 <CardHeader className="pb-3 shrink-0">
                   <CardTitle className="flex items-center gap-2">
                     <Building2 className="h-5 w-5 text-blue-600" />
@@ -1399,6 +1430,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                   )}
                 </CardContent>
               </Card>
+              </div>
             </div>
           </TabsContent>
 
