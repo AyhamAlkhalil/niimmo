@@ -1310,7 +1310,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                           <h3 className="font-semibold text-gray-900 mb-3">Zahlungsdetails</h3>
                           <div className="space-y-3 bg-gray-50 rounded-lg p-4">
                             <div className="flex justify-between">
-                              <span className="text-sm text-gray-600">Datum:</span>
+                              <span className="text-sm text-gray-600">Buchungsdatum:</span>
                               <span className="text-sm font-medium">{formatDatum(selectedZahlung.buchungsdatum)}</span>
                             </div>
                             <div className="flex justify-between">
