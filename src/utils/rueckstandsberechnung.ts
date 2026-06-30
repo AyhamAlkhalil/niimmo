@@ -71,12 +71,13 @@ export const calculateMietvertragRueckstand = (
 
   // Filtere Zahlungen nach Kategorie (ohne Zeitraum-Filter)
   // Bug-Fix: kategorie === null (unkategorisierte Zahlungen) werden NICHT mehr als Miete gezählt
+  // BKA-Zahlungseingänge (Kategorie 'Betriebskostenabrechnung') werden als Ausgleich gewertet
   const relevanteZahlungen = zahlungen.filter(z => {
     if (!z.buchungsdatum) return false;
-    
-    // Nur explizit kategorisierte Zahlungen einbeziehen
-    return z.kategorie === 'Miete' || 
-           z.kategorie === 'Rücklastschrift';
+
+    return z.kategorie === 'Miete' ||
+           z.kategorie === 'Rücklastschrift' ||
+           z.kategorie === 'Betriebskostenabrechnung';
   });
 
   // Wende Vorauszahlungs-Intelligenz an (jetzt basierend auf DB-Feld zugeordneter_monat)

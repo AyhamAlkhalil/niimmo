@@ -10,9 +10,10 @@ import { calculateMietvertragRueckstand } from "@/utils/rueckstandsberechnung";
 import { MietvertragTimelineView } from "./MietvertragTimelineView";
 import { LinkedContractsTimeline } from "./LinkedContractsTimeline";
 import { useLinkedContracts } from "@/hooks/useLinkedContracts";
+import { CreateBkaModal } from "@/components/dashboard/CreateBkaModal";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { Plus, TrendingDown, TrendingUp, AlertCircle, CheckCircle, Link2, Building2, Settings } from "lucide-react";
+import { Plus, TrendingDown, TrendingUp, AlertCircle, CheckCircle, Link2, Building2, Settings, Receipt } from "lucide-react";
 
 interface MietvertragPaymentsSectionProps {
   vertrag: any;
@@ -48,6 +49,7 @@ export function MietvertragPaymentsSection({
   const [lastschriftPopoverOpen, setLastschriftPopoverOpen] = useState(false);
   const [lastschriftEnabled, setLastschriftEnabled] = useState(vertrag?.lastschrift || false);
   const [isSaving, setIsSaving] = useState(false);
+  const [bkaModalOpen, setBkaModalOpen] = useState(false);
 
   // Check for linked contracts (same tenant, different units)
   const { linkedContracts, hasLinkedContracts } = useLinkedContracts(vertragId, mieterIds);
@@ -333,6 +335,15 @@ export function MietvertragPaymentsSection({
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setBkaModalOpen(true)}
+                className="modern-button-ghost hover:bg-blue-50 hover:border-blue-300 text-blue-700"
+              >
+                <Receipt className="h-4 w-4 mr-2" />
+                BKA eintragen
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={onCreateForderung}
                 className="modern-button-ghost hover:bg-primary/5 hover:border-primary/20"
               >
@@ -354,6 +365,12 @@ export function MietvertragPaymentsSection({
           />
         </CardContent>
       </Card>
+
+      <CreateBkaModal
+        isOpen={bkaModalOpen}
+        onClose={() => setBkaModalOpen(false)}
+        mietvertragId={vertragId}
+      />
     </>
   );
 }
