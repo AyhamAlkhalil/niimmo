@@ -150,7 +150,7 @@ export const useRueckstaende = () => {
         loadAllPages<any>((from, to) =>
           supabase
             .from('mietforderungen')
-            .select('id, mietvertrag_id, sollmonat, sollbetrag, ist_faellig, faelligkeitsdatum, faellig_seit')
+            .select('id, mietvertrag_id, sollmonat, sollbetrag, ist_faellig, faelligkeitsdatum, faellig_seit, typ')
             .range(from, to)
         ),
         loadAllPages<any>((from, to) =>

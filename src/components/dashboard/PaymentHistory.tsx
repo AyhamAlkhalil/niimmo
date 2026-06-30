@@ -83,6 +83,22 @@ export const PaymentHistory = ({ mietvertragId, currentMahnstufe = 0 }: PaymentH
     const sollMonat = forderung.sollmonat?.slice(0, 7); // z.B. "2025-10"
     const fälligkeitsDatum = new Date(sollMonat + '-08'); // 8. des Monats
     
+    const isBkaForderung = forderung.typ === 'BKA';
+    const abrechnungsjahr = sollMonat?.slice(0, 4); // z.B. "2024"
+
+    // BKA-Forderungen: Matching gegen BKA-Zahlungseingänge im selben Abrechnungsjahr
+    if (isBkaForderung) {
+      const matchingBka = zahlungen.find(z => {
+        if (z.kategorie !== 'Betriebskostenabrechnung') return false;
+        const zahlungsJahr = (z.zugeordneter_monat || z.buchungsdatum)?.slice(0, 4);
+        return zahlungsJahr === abrechnungsjahr;
+      });
+      if (matchingBka) {
+        return { paid: true, paymentDate: matchingBka.buchungsdatum, isLate: false };
+      }
+      return { paid: false, paymentDate: null, isLate: fälligkeitsDatum < new Date() };
+    }
+
     // Primär: Match über zugeordneter_monat (zuverlässigste Methode)
     const matchingZahlung = zahlungen.find(z => {
       if (z.zugeordneter_monat === sollMonat && z.kategorie === 'Miete') {
@@ -100,7 +116,7 @@ export const PaymentHistory = ({ mietvertragId, currentMahnstufe = 0 }: PaymentH
       toleranzStart.setDate(toleranzStart.getDate() - 14);
       const toleranzEnde = new Date(fälligkeitsDatum);
       toleranzEnde.setDate(toleranzEnde.getDate() + 14);
-      return zahlungsDatum >= toleranzStart && 
+      return zahlungsDatum >= toleranzStart &&
              zahlungsDatum <= toleranzEnde &&
              Math.abs(z.betrag - forderung.sollbetrag) <= 50;
     }) : null;

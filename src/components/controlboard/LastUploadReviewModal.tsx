@@ -166,7 +166,7 @@ export function LastUploadReviewModal({ open, onOpenChange, upload }: LastUpload
                   {payments.map((payment) => (
                     <TableRow
                       key={payment.id}
-                      className={!payment.mietvertrag_id && !payment.immobilie_id && payment.kategorie === 'Miete' ? "bg-amber-50/50" : ""}
+                      className={!payment.mietvertrag_id && !payment.immobilie_id && (payment.kategorie === 'Miete' || payment.kategorie === 'Betriebskostenabrechnung') ? "bg-amber-50/50" : ""}
                     >
                       <TableCell className="py-2">
                         {payment.mietvertrag_id || payment.immobilie_id ? (

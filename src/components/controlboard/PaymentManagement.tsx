@@ -197,7 +197,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         .from('zahlungen')
         .select('*')
         .is('mietvertrag_id', null)
-        .in('kategorie', ['Miete', 'Mietkaution', 'Rücklastschrift'])
+        .in('kategorie', ['Miete', 'Mietkaution', 'Rücklastschrift', 'Betriebskostenabrechnung'])
         .order('buchungsdatum', { ascending: false });
 
       if (error) throw error;

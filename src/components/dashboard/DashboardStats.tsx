@@ -67,13 +67,14 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
       const { data: zahlungen, error } = await supabase
         .from('zahlungen')
         .select('betrag')
-        .in('kategorie', ['Miete', 'Rücklastschrift'])
+        .in('kategorie', ['Miete', 'Rücklastschrift', 'Betriebskostenabrechnung'])
         .eq('zugeordneter_monat', aktuellerMonat)
         .not('mietvertrag_id', 'is', null);
       if (error) {
         return 0;
       }
-      // Rücklastschriften haben negativen betrag → reduzieren die Erfasste Miete automatisch
+      // Rücklastschriften haben negativen betrag → reduzieren automatisch
+      // BKA-Zahlungseingänge (Nachzahlungen) werden als Einnahme gezählt
       return zahlungen?.reduce((sum, zahlung) => sum + (zahlung.betrag || 0), 0) || 0;
     }
   });
