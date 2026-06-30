@@ -952,6 +952,7 @@ export type Database = {
           mietvertrag_id: string | null
           sollbetrag: number | null
           sollmonat: string
+          typ: string | null
         }
         Insert: {
           erzeugt_am?: string | null
@@ -962,6 +963,7 @@ export type Database = {
           mietvertrag_id?: string | null
           sollbetrag?: number | null
           sollmonat: string
+          typ?: string | null
         }
         Update: {
           erzeugt_am?: string | null
@@ -972,6 +974,7 @@ export type Database = {
           mietvertrag_id?: string | null
           sollbetrag?: number | null
           sollmonat?: string
+          typ?: string | null
         }
         Relationships: [
           {

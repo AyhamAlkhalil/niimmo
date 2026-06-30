@@ -81,14 +81,19 @@ export function MietvertragPaymentsSection({
   );
   
   const { gesamtForderungen, gesamtZahlungen, rueckstand } = rueckstandsBerechnung;
-  
-  // Alle Forderungen zählen sofort als Rückstand - keine Fälligkeitsprüfung
+
   const alleForderungenAbStart = (forderungen || []).filter(f => f.sollmonat);
-  
-  // Alle Forderungen gelten sofort - "fällig" = alle, "nicht fällig" = keine
   const faelligeForderungen = alleForderungenAbStart;
   const nichtFaelligeForderungen: any[] = [];
-  
+
+  // BKA-Einträge separat aufschlüsseln
+  const bkaForderungen = alleForderungenAbStart.filter(f => f.typ === 'BKA');
+  const bkaNachzahlungen = bkaForderungen.filter(f => Number(f.sollbetrag) > 0);
+  const bkaGuthaben = bkaForderungen.filter(f => Number(f.sollbetrag) < 0);
+  const bkaNachzahlungBetrag = bkaNachzahlungen.reduce((s, f) => s + Number(f.sollbetrag), 0);
+  const bkaGuthabenBetrag = Math.abs(bkaGuthaben.reduce((s, f) => s + Number(f.sollbetrag), 0));
+
+  // Fällige Forderungen = alle (Miete + BKA Nachzahlungen); BKA-Guthaben mindern den Betrag
   const faelligeForderungenBetrag = faelligeForderungen.reduce((sum, f) => sum + (Number(f.sollbetrag) || 0), 0);
   const nichtFaelligeForderungenBetrag = 0;
 
@@ -172,6 +177,29 @@ export function MietvertragPaymentsSection({
               </div>
             </div>
           </div>
+
+          {/* BKA-Hinweis wenn BKA-Einträge vorhanden */}
+          {bkaForderungen.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-muted flex flex-wrap gap-3">
+              {bkaNachzahlungen.length > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                  <span className="font-semibold">BKA-Nachzahlung</span>
+                  <span>{bkaNachzahlungen.length}×</span>
+                  <span className="font-bold">{formatBetrag(bkaNachzahlungBetrag)}</span>
+                </div>
+              )}
+              {bkaGuthaben.length > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+                  <span className="font-semibold">BKA-Guthaben</span>
+                  <span>{bkaGuthaben.length}×</span>
+                  <span className="font-bold">−{formatBetrag(bkaGuthabenBetrag)}</span>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground self-center">
+                BKA-Salden sind bereits im Rückstand eingerechnet.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

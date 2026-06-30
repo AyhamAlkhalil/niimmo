@@ -657,27 +657,35 @@ export function NebenkostenStep3Abrechnung({
     }
   }
 
-  // Nachzahlungs-Forderungen anlegen
+  // BKA-Salden als Forderungen/Guthaben anlegen (positiv = Nachzahlung, negativ = Guthaben)
   const createForderungenMutation = useMutation({
     mutationFn: async () => {
-      const nachzahlungen = abrechnungen.filter(a => !a.isLeerstand && a.saldo > 0.01);
-      if (nachzahlungen.length === 0) return;
+      const relevante = mieterAbrechnungen.filter(a => Math.abs(a.saldo) > 0.01);
+      if (relevante.length === 0) return { nachzahlungen: 0, guthaben: 0 };
 
-      const inserts = nachzahlungen.map(a => ({
+      const inserts = relevante.map(a => ({
         mietvertrag_id: a.mietvertragId,
         sollmonat: `${selectedYear}-12-01`,
         sollbetrag: Math.round(a.saldo * 100) / 100,
-        ist_faellig: true,
+        ist_faellig: a.saldo > 0,
+        typ: 'BKA',
       }));
 
       const { error } = await supabase.from('mietforderungen').insert(inserts);
       if (error) throw error;
-      return nachzahlungen.length;
+      return {
+        nachzahlungen: relevante.filter(a => a.saldo > 0).length,
+        guthaben: relevante.filter(a => a.saldo < 0).length,
+      };
     },
-    onSuccess: (count) => {
+    onSuccess: (result) => {
+      if (!result) return;
+      const parts: string[] = [];
+      if (result.nachzahlungen > 0) parts.push(`${result.nachzahlungen} Nachzahlung(en)`);
+      if (result.guthaben > 0) parts.push(`${result.guthaben} Guthaben`);
       toast({
-        title: "Forderungen angelegt",
-        description: `${count} Nachzahlungs-Forderung(en) wurden erstellt.`,
+        title: "BKA-Positionen eingetragen",
+        description: `${parts.join(' und ')} wurden in die Forderungsübersicht übernommen.`,
       });
       queryClient.invalidateQueries({ queryKey: ['mietforderungen'] });
       setForderungenDialogOpen(false);
@@ -689,7 +697,7 @@ export function NebenkostenStep3Abrechnung({
 
   const isLoading = einheitenLoading || vertraegeLoading || kostenLoading;
   const nachzahlungAbrechnungen = mieterAbrechnungen.filter(a => a.saldo > 0.01);
-  const guthabenAbrechnungen = mieterAbrechnungen.filter(a => a.saldo <= 0);
+  const guthabenAbrechnungen = mieterAbrechnungen.filter(a => a.saldo < -0.01);
 
   if (isLoading) {
     return (
@@ -805,25 +813,37 @@ export function NebenkostenStep3Abrechnung({
         </Card>
       </div>
 
-      {/* Aktions-Bar */}
-      {nachzahlungAbrechnungen.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
+      {/* Aktions-Bar: Nachzahlungen und/oder Guthaben */}
+      {(nachzahlungAbrechnungen.length > 0 || guthabenAbrechnungen.length > 0) && (
+        <Card className="border-blue-200 bg-blue-50">
           <CardContent className="py-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
-                <p className="text-sm font-medium text-amber-800">
-                  {nachzahlungAbrechnungen.length} Mieter haben Nachzahlungen (gesamt {gesamtNachzahlungen.toFixed(2)} €)
-                </p>
+              <div className="space-y-1">
+                {nachzahlungAbrechnungen.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+                    <p className="text-sm font-medium text-amber-800">
+                      {nachzahlungAbrechnungen.length} Nachzahlung(en): {gesamtNachzahlungen.toFixed(2)} €
+                    </p>
+                  </div>
+                )}
+                {guthabenAbrechnungen.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                    <p className="text-sm font-medium text-green-800">
+                      {guthabenAbrechnungen.length} Guthaben: {gesamtGuthaben.toFixed(2)} €
+                    </p>
+                  </div>
+                )}
               </div>
               <Button
                 variant="outline"
                 size="sm"
-                className="border-amber-400 text-amber-800 hover:bg-amber-100 gap-2 shrink-0"
+                className="border-blue-400 text-blue-800 hover:bg-blue-100 gap-2 shrink-0"
                 onClick={() => setForderungenDialogOpen(true)}
               >
                 <Receipt className="h-4 w-4" />
-                Alle als Forderungen anlegen
+                Alle BKA-Salden eintragen
               </Button>
             </div>
           </CardContent>
@@ -1064,15 +1084,27 @@ export function NebenkostenStep3Abrechnung({
         </CardContent>
       </Card>
 
-      {/* Alle-Forderungen-Dialog */}
+      {/* BKA-Salden eintragen Dialog */}
       <AlertDialog open={forderungenDialogOpen} onOpenChange={setForderungenDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Alle Nachzahlungen als Forderungen anlegen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Es werden {nachzahlungAbrechnungen.length} Forderung(en) mit einem Gesamtbetrag von{' '}
-              {gesamtNachzahlungen.toFixed(2)} € in der Mieterforderungsliste angelegt.
-              Die Fälligkeitsdaten werden automatisch gesetzt.
+            <AlertDialogTitle>BKA-Salden in Forderungsübersicht eintragen?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {nachzahlungAbrechnungen.length > 0 && (
+                  <p>
+                    <span className="font-medium text-amber-700">{nachzahlungAbrechnungen.length} Nachzahlung(en)</span>{' '}
+                    über insgesamt {gesamtNachzahlungen.toFixed(2)} € werden als Forderung eingetragen.
+                  </p>
+                )}
+                {guthabenAbrechnungen.length > 0 && (
+                  <p>
+                    <span className="font-medium text-green-700">{guthabenAbrechnungen.length} Guthaben</span>{' '}
+                    über insgesamt {gesamtGuthaben.toFixed(2)} € werden als Guthaben eingetragen (negativer Betrag).
+                  </p>
+                )}
+                <p>Alle Einträge werden mit Typ „BKA" und Fälligkeitsdatum 01.{selectedYear}-12 gespeichert.</p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1082,7 +1114,7 @@ export function NebenkostenStep3Abrechnung({
               disabled={createForderungenMutation.isPending}
             >
               {createForderungenMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Forderungen anlegen
+              Eintragen
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
