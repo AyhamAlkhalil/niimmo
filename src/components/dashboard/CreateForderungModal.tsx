@@ -42,72 +42,55 @@ export const CreateForderungModal = ({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
-
-  // Gemeinsam
   const [typ, setTyp] = useState<"Miete" | "BKA">("Miete");
-  const [betrag, setBetrag] = useState("");
-
-  // Miete-spezifisch
   const [sollmonat, setSollmonat] = useState("");
-
-  // BKA-spezifisch
-  const [bkaArt, setBkaArt] = useState<"nachzahlung" | "guthaben">("nachzahlung");
-  const [bkaJahr, setBkaJahr] = useState(String(new Date().getFullYear() - 1));
+  const [sollbetrag, setSollbetrag] = useState("");
 
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: currentYear - 2023 }, (_, i) => String(currentYear - i));
-  const monatYears = Array.from({ length: currentYear + 2 - 2025 }, (_, i) => String(2025 + i));
-
+  const years = Array.from({ length: currentYear + 2 - 2025 }, (_, i) => String(2025 + i));
   const totalRent = currentKaltmiete + currentBetriebskosten;
 
   const handleClose = () => {
     setTyp("Miete");
-    setBetrag("");
     setSollmonat("");
-    setBkaArt("nachzahlung");
-    setBkaJahr(String(currentYear - 1));
+    setSollbetrag("");
     onClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const betragNum = parseFloat(betrag.replace(",", "."));
-    if (isNaN(betragNum) || betragNum <= 0) {
-      toast({ title: "Fehler", description: "Bitte einen gültigen Betrag eingeben.", variant: "destructive" });
+    if (!sollmonat) {
+      toast({ title: "Fehler", description: "Bitte einen Monat wählen.", variant: "destructive" });
       return;
     }
 
-    if (typ === "Miete" && !sollmonat) {
-      toast({ title: "Fehler", description: "Bitte einen Monat wählen.", variant: "destructive" });
+    const betrag = parseFloat(sollbetrag.replace(",", "."));
+    if (isNaN(betrag) || betrag === 0) {
+      toast({ title: "Fehler", description: "Bitte einen gültigen Betrag eingeben.", variant: "destructive" });
       return;
     }
 
     setIsLoading(true);
     try {
-      const sollbetrag = typ === "BKA" && bkaArt === "guthaben" ? -betragNum : betragNum;
-      const sollmonatValue = typ === "BKA" ? `${bkaJahr}-12-01` : sollmonat;
-
       const { error } = await supabase.from("mietforderungen").insert({
         mietvertrag_id: mietvertragId,
-        sollmonat: sollmonatValue,
-        sollbetrag: Math.round(sollbetrag * 100) / 100,
-        ist_faellig: typ === "BKA" ? bkaArt === "nachzahlung" : true,
+        sollmonat,
+        sollbetrag: Math.round(betrag * 100) / 100,
         typ,
       });
 
       if (error) throw error;
 
-      const beschreibung =
-        typ === "BKA"
-          ? `BKA ${bkaArt === "guthaben" ? "Guthaben" : "Nachzahlung"} ${bkaJahr}: ${betragNum.toFixed(2)} €`
-          : `Forderung ${sollmonat.slice(0, 7)}: ${betragNum.toFixed(2)} €`;
+      toast({
+        title: "Forderung erstellt",
+        description: `${typ === "BKA" ? "BKA-Forderung" : "Forderung"} über ${Math.abs(betrag).toFixed(2)} € wurde eingetragen.`,
+      });
 
-      toast({ title: "Erfolgreich erstellt", description: beschreibung });
       handleClose();
       await queryClient.invalidateQueries({ queryKey: ["mietforderungen", mietvertragId] });
     } catch {
-      toast({ title: "Fehler", description: "Eintrag konnte nicht gespeichert werden.", variant: "destructive" });
+      toast({ title: "Fehler", description: "Forderung konnte nicht erstellt werden.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -115,137 +98,79 @@ export const CreateForderungModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[440px]">
+      <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle>Forderung erstellen</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Typ-Toggle */}
-          <div className="grid grid-cols-2 gap-2 p-1 bg-muted rounded-lg">
+          {/* Typ */}
+          <div className="grid grid-cols-2 gap-1 p-1 bg-muted rounded-lg">
             <button
               type="button"
               onClick={() => setTyp("Miete")}
-              className={`py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
+              className={`py-1.5 rounded-md text-sm font-medium transition-all ${
                 typ === "Miete"
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Mietzahlung
+              Miete
             </button>
             <button
               type="button"
               onClick={() => setTyp("BKA")}
-              className={`py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
+              className={`py-1.5 rounded-md text-sm font-medium transition-all ${
                 typ === "BKA"
                   ? "bg-background shadow-sm text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              BKA-Abrechnung
+              BKA
             </button>
           </div>
 
-          {/* Miete: Monat-Picker */}
-          {typ === "Miete" && (
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Monat
-              </Label>
-              <Select value={sollmonat} onValueChange={setSollmonat}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Monat wählen" />
-                </SelectTrigger>
-                <SelectContent>
-                  {monatYears.map((year) =>
-                    MONTHS.map((month) => {
-                      const val = `${year}-${month.value}-01`;
-                      return (
-                        <SelectItem key={val} value={val}>
-                          {month.label} {year}
-                        </SelectItem>
-                      );
-                    })
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {/* BKA: Jahr + Art */}
-          {typ === "BKA" && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Abrechnungsjahr</Label>
-                <div className="flex gap-2 flex-wrap">
-                  {years.map((j) => (
-                    <button
-                      key={j}
-                      type="button"
-                      onClick={() => setBkaJahr(j)}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
-                        bkaJahr === j
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-input bg-background text-muted-foreground hover:border-primary/50"
-                      }`}
-                    >
-                      {j}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Art</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setBkaArt("nachzahlung")}
-                    className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${
-                      bkaArt === "nachzahlung"
-                        ? "border-amber-400 bg-amber-50 text-amber-800"
-                        : "border-input bg-background text-muted-foreground hover:border-amber-300"
-                    }`}
-                  >
-                    Nachzahlung
-                    <span className="block text-[10px] font-normal opacity-60">Mieter zahlt nach</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setBkaArt("guthaben")}
-                    className={`py-2 px-3 rounded-lg text-sm font-medium border transition-all ${
-                      bkaArt === "guthaben"
-                        ? "border-green-400 bg-green-50 text-green-800"
-                        : "border-input bg-background text-muted-foreground hover:border-green-300"
-                    }`}
-                  >
-                    Guthaben
-                    <span className="block text-[10px] font-normal opacity-60">Mieter bekommt zurück</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Monat */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-2">
+              <Calendar className="h-4 w-4" />
+              Monat
+            </Label>
+            <Select value={sollmonat} onValueChange={setSollmonat}>
+              <SelectTrigger>
+                <SelectValue placeholder="Monat wählen" />
+              </SelectTrigger>
+              <SelectContent>
+                {years.map((year) =>
+                  MONTHS.map((month) => {
+                    const val = `${year}-${month.value}-01`;
+                    return (
+                      <SelectItem key={val} value={val}>
+                        {month.label} {year}
+                      </SelectItem>
+                    );
+                  })
+                )}
+              </SelectContent>
+            </Select>
+          </div>
 
           {/* Betrag */}
           <div className="space-y-1.5">
-            <Label htmlFor="betrag" className="flex items-center gap-2">
+            <Label htmlFor="sollbetrag" className="flex items-center gap-2">
               <Euro className="h-4 w-4" />
               Betrag
-              {typ === "BKA" && bkaArt === "guthaben" && (
-                <span className="text-xs font-normal text-green-600">(wird als Guthaben abgezogen)</span>
+              {typ === "BKA" && (
+                <span className="text-xs font-normal text-muted-foreground">(negativ = Guthaben)</span>
               )}
             </Label>
             <div className="relative">
               <Input
-                id="betrag"
+                id="sollbetrag"
                 type="number"
                 step="0.01"
-                min="0.01"
-                value={betrag}
-                onChange={(e) => setBetrag(e.target.value)}
+                value={sollbetrag}
+                onChange={(e) => setSollbetrag(e.target.value)}
                 placeholder="0,00"
                 className="text-right pr-10"
               />
@@ -256,7 +181,7 @@ export const CreateForderungModal = ({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setBetrag(String(totalRent))}
+                onClick={() => setSollbetrag(String(totalRent))}
                 className="w-full text-xs"
               >
                 Aktuelle Miete übernehmen ({totalRent.toLocaleString()} €)

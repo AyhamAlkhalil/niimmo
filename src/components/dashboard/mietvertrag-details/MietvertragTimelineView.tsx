@@ -359,28 +359,25 @@ export function MietvertragTimelineView({
 
   // Render a Forderung Card
   const renderForderungCard = (forderung: any, index: number, total: number) => {
-    const isBkaGuthaben = forderung.typ === 'BKA' && Number(forderung.sollbetrag) < 0;
     const isBka = forderung.typ === 'BKA';
+    const isGuthaben = isBka && Number(forderung.sollbetrag) < 0;
 
-    const cardClass = isBkaGuthaben
+    const cardClass = isGuthaben
       ? "group relative bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800/50 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200"
       : "group relative bg-gradient-to-br from-rose-50 to-red-50 dark:from-rose-950/30 dark:to-red-950/30 border border-rose-200 dark:border-rose-800/50 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200";
-    const iconBg = isBkaGuthaben ? "bg-green-100 dark:bg-green-900/50" : "bg-rose-100 dark:bg-rose-900/50";
-    const iconColor = isBkaGuthaben ? "text-green-600 dark:text-green-400" : "text-rose-600 dark:text-rose-400";
-    const labelColor = isBkaGuthaben ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300";
-    const amountColor = isBkaGuthaben ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300";
-    const amountHover = isBkaGuthaben ? "hover:bg-green-100/50 dark:hover:bg-green-900/30" : "hover:bg-rose-100/50 dark:hover:bg-rose-900/30";
-    const deleteColor = isBkaGuthaben ? "text-green-500 hover:text-green-700 hover:bg-green-100" : "text-rose-500 hover:text-rose-700 hover:bg-rose-100";
-    const saveBtn = isBkaGuthaben ? "bg-green-600 hover:bg-green-700" : "bg-rose-600 hover:bg-rose-700";
-    const label = isBkaGuthaben
-      ? `BKA-Guthaben${total > 1 ? ` ${index + 1}/${total}` : ''}`
-      : isBka
-        ? `BKA-Nachzahlung${total > 1 ? ` ${index + 1}/${total}` : ''}`
-        : `Forderung${total > 1 ? ` ${index + 1}/${total}` : ''}`;
+    const iconBg = isGuthaben ? "bg-green-100 dark:bg-green-900/50" : "bg-rose-100 dark:bg-rose-900/50";
+    const iconColor = isGuthaben ? "text-green-600 dark:text-green-400" : "text-rose-600 dark:text-rose-400";
+    const labelColor = isGuthaben ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300";
+    const amountColor = isGuthaben ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300";
+    const amountHover = isGuthaben ? "hover:bg-green-100/50 dark:hover:bg-green-900/30" : "hover:bg-rose-100/50 dark:hover:bg-rose-900/30";
+    const deleteColor = isGuthaben ? "text-green-500 hover:text-green-700 hover:bg-green-100" : "text-rose-500 hover:text-rose-700 hover:bg-rose-100";
+    const label = isGuthaben
+      ? `Guthaben${total > 1 ? ` ${index + 1}/${total}` : ''}`
+      : `Forderung${total > 1 ? ` ${index + 1}/${total}` : ''}`;
 
     return (
       <div key={forderung.id} className={cardClass}>
-        {/* Delete button */}
+        {/* Delete */}
         <Button
           onClick={() => handleDeleteForderung(forderung.id)}
           variant="ghost"
@@ -398,11 +395,13 @@ export function MietvertragTimelineView({
           </div>
           <span className={`text-xs sm:text-sm font-medium ${labelColor}`}>{label}</span>
           {isBka && (
-            <span className="ml-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">BKA</span>
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+              BKA
+            </span>
           )}
         </div>
 
-        {/* Amount */}
+        {/* Betrag */}
         {editingForderung?.forderungId === forderung.id && editingForderung?.field === 'betrag' ? (
           <div className="flex items-center gap-2">
             <Input
@@ -412,7 +411,7 @@ export function MietvertragTimelineView({
               className="w-24 h-8 text-center text-sm"
               step="0.01"
             />
-            <Button onClick={() => handleSaveForderung(editForderungValue)} size="sm" className={`h-7 w-7 p-0 ${saveBtn}`}>
+            <Button onClick={() => handleSaveForderung(editForderungValue)} size="sm" className="h-7 w-7 p-0 bg-rose-600 hover:bg-rose-700">
               <Check className="h-3 w-3" />
             </Button>
             <Button onClick={handleCancelForderungEdit} size="sm" variant="outline" className="h-7 w-7 p-0">
@@ -424,7 +423,9 @@ export function MietvertragTimelineView({
             className={`text-lg sm:text-xl font-bold ${amountColor} cursor-pointer ${amountHover} px-2 py-1 rounded-lg inline-block transition-colors`}
             onClick={() => handleEditForderung(forderung.id, 'betrag', forderung.sollbetrag.toString())}
           >
-            {isBkaGuthaben ? `−${formatBetrag(Math.abs(Number(forderung.sollbetrag)))}` : formatBetrag(Number(forderung.sollbetrag))}
+            {isGuthaben
+              ? `−${formatBetrag(Math.abs(Number(forderung.sollbetrag)))}`
+              : formatBetrag(Number(forderung.sollbetrag))}
           </p>
         )}
       </div>
