@@ -144,6 +144,12 @@ interface SonderfallRegel {
   aktiv: boolean;
 }
 
+interface NameMatchCandidate {
+  contract: ContractInfo;
+  matchedNames: string[];
+  matchedParts: number;
+}
+
 // ============= FUZZY MATCHING (Levenshtein Distance) =============
 
 function levenshteinDistance(a: string, b: string): number {
@@ -348,28 +354,30 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
   }
 
   return contracts.map((c: any) => {
-    const mieterNames: string[] = [];
+    const mieterNamesSet = new Set<string>();
     const mieterDisplay: string[] = [];
-    
+
     c.mietvertrag_mieter?.forEach((mm: any) => {
       const vorname = mm.mieter?.vorname || "";
       const nachname = mm.mieter?.nachname || "";
       const fullName = `${vorname} ${nachname}`.trim();
       if (fullName) {
         mieterDisplay.push(fullName);
-        // Add individual parts for fuzzy matching
-        if (vorname) mieterNames.push(vorname.toLowerCase());
-        if (nachname) mieterNames.push(nachname.toLowerCase());
+        // Add individual parts for fuzzy matching — deduped, damit z.B. zwei
+        // Mitmieter mit demselben Nachnamen die matchedParts-Zählung beim
+        // Namen-Match nicht künstlich aufblähen (ein Nachname zählt nur einmal).
+        if (vorname) mieterNamesSet.add(vorname.toLowerCase());
+        if (nachname) mieterNamesSet.add(nachname.toLowerCase());
       }
     });
-    
+
     const immobilie = c.einheiten?.immobilien;
     const gesamtmiete = (c.kaltmiete || 0) + (c.betriebskosten || 0);
-    
+
     return {
       id: c.id,
       mieter: mieterDisplay.join(", ") || "Unbekannt",
-      mieterNamen: mieterNames,
+      mieterNamen: Array.from(mieterNamesSet),
       gesamtmiete,
       kaution: c.kaution_betrag,
       iban: c.bankkonto_mieter,
@@ -588,6 +596,51 @@ function isBetriebskostenabrechnung(verwendungszweck: string): boolean {
          vz.includes("erstattung nebenkosten");
 }
 
+// Rücklastschrift-Texte enthalten kaum je den Mieternamen, aber fast immer das
+// zurückgebuchte Mieterkonto eingebettet, z.B.:
+// "... ORG.BETR.: 1.550,00 EUR IBAN: DE30269513110091833327 BIC: NOLADE21GFW"
+// Das ist bei mehreren Einheiten derselben Adresse (z.B. Reihenhäuser 18a-18e
+// unter einer gemeinsamen `immobilien.adresse`) der einzige zuverlässige Anker —
+// Adresse und Betrag allein reichen dort nicht, um die Einheit sicher zu bestimmen.
+function extractLabeledIbans(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const regex = /IBAN:\s*([A-Z]{2}\d{2}[A-Z0-9]{10,30})/g;
+  const ibans: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    ibans.push(match[1].replace(/\s+/g, ""));
+  }
+  return ibans;
+}
+
+function matchRuecklastschriftByVerwendungszweckIban(
+  payment: Payment,
+  contracts: ContractInfo[]
+): ProcessedPayment | null {
+  const embeddedIbans = extractLabeledIbans(payment.verwendungszweck);
+  if (embeddedIbans.length === 0) return null;
+
+  const matchingContracts = contracts.filter(c =>
+    (c.iban && embeddedIbans.includes(c.iban)) ||
+    (c.weitere_iban && c.weitere_iban.split(",").map(i => i.trim()).some(i => embeddedIbans.includes(i)))
+  );
+  if (matchingContracts.length === 0) return null;
+
+  const bestContract = selectBestContractByDate(payment, matchingContracts);
+  if (!bestContract) return null;
+
+  console.log(`Rücklastschrift: Mieter-IBAN im Verwendungszweck gefunden ("${embeddedIbans.join(", ")}") → ${bestContract.mieter}`);
+
+  return {
+    ...payment,
+    mietvertrag_id: bestContract.id,
+    kategorie: "Rücklastschrift",
+    zuordnungsgrund: `Rücklastschrift: Mieter-IBAN im Verwendungszweck-Text für ${bestContract.mieter}`,
+    confidence: 95,
+    selected: true
+  };
+}
+
 function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonderfallRegeln?: SonderfallRegel[]): ProcessedPayment | null {
   const verwendungszweck = payment.verwendungszweck?.toLowerCase() || "";
   const empfaenger = payment.empfaengername?.toLowerCase() || "";
@@ -677,46 +730,80 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
   }
   
   // 3. STRICT Name-Match (tenant name in verwendungszweck or empfänger)
-  // Be more lenient - 4+ char names can match
+  // Collect ALL candidate contracts first — don't return on the first hit.
+  // Mehrere Mieter teilen sich oft einen Vornamen (z.B. "Michael Piper" vs.
+  // "Michael Rittweger"). Wer zuerst in `contracts` steht und nur den
+  // Vornamen matcht, hätte sonst gewonnen, bevor der eigentlich richtige
+  // Vertrag (Vor- UND Nachname treffen) überhaupt geprüft wird.
+  const nameMatchCandidates: NameMatchCandidate[] = [];
+
   for (const contract of contracts) {
     const mieterNamen = contract.mieterNamen;
-    
+
     // Skip if no names available
     if (!mieterNamen || mieterNamen.length === 0) continue;
-    
+
     // For each name, require EXACT substring match (no fuzzy for names)
     let matchedParts = 0;
     const matchedNames: string[] = [];
-    
+
     for (const name of mieterNamen) {
       // Require minimum 4 characters for name matching
       if (name.length < 4) continue;
-      
+
       // EXACT substring match only - no fuzzy matching for names
       if (verwendungszweck.includes(name) || empfaenger.includes(name)) {
         matchedParts++;
         matchedNames.push(name);
-        console.log(`Name-Match found: "${name}" in payment for ${contract.mieter}`);
       }
     }
-    
+
     // Require at least 2 name parts matched (e.g., first AND last name)
     // OR one distinctive name (6+ chars) that's unlikely to be coincidental
     // Lowered from 7 to 6 chars for names like "Razgeen"
     if (matchedParts >= 2 || (matchedParts === 1 && matchedNames[0]?.length >= 6)) {
+      console.log(`Name-Match Kandidat: "${matchedNames.join(', ')}" (${matchedParts} Teile) für ${contract.mieter}`);
+      nameMatchCandidates.push({ contract, matchedNames, matchedParts });
+    }
+  }
+
+  if (nameMatchCandidates.length > 0) {
+    const topScore = Math.max(...nameMatchCandidates.map(c => c.matchedParts));
+    const topCandidates = nameMatchCandidates.filter(c => c.matchedParts === topScore);
+
+    // Ambiguous: mehrere Mieter mit demselben (schwachen) Treffer — z.B. zwei
+    // Mieter heißen "Michael" und im Text steht nur der Vorname. Hier nicht
+    // raten, sondern an Orts-/Betrags-Match bzw. KI/manuelle Prüfung übergeben.
+    const ambiguousSingleNameTie = topScore === 1 && topCandidates.length > 1;
+
+    if (ambiguousSingleNameTie) {
+      console.log(`Name-Match: ${topCandidates.length} Mieter teilen sich Namensteil "${topCandidates[0].matchedNames[0]}" — zu unsicher für Auto-Zuordnung`);
+    } else {
+      // Seltene Restfälle (z.B. zwei Verträge mit identischem Vor- UND
+      // Nachnamen) genauso auflösen wie IBAN-Mehrfachtreffer: über Datum/Betrag/Status.
+      let winner: NameMatchCandidate;
+      if (topCandidates.length === 1) {
+        winner = topCandidates[0];
+      } else {
+        const bestId = selectBestContractByDate(payment, topCandidates.map(t => t.contract))?.id;
+        winner = topCandidates.find(c => c.contract.id === bestId) ?? topCandidates[0];
+      }
+
+      const { contract, matchedNames, matchedParts } = winner;
       const kautionInText = verwendungszweck.includes("kaution") ||
                             verwendungszweck.includes("depot") ||
                             verwendungszweck.includes("sicherheitsleistung") ||
                             verwendungszweck.includes("mietkaution");
       const kautionBetragMatch = contract.kaution ? Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ : false;
       const isKaution = kautionInText && contract.kaution && kautionBetragMatch;
-      console.log(`Name-Match result for ${contract.mieter}: betrag=${payment.betrag}, kaution=${contract.kaution}, kautionInText=${kautionInText}, kautionBetragMatch=${kautionBetragMatch}, isKaution=${isKaution}`);
       const nameKategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
+      const multiInfo = topCandidates.length > 1 ? ` (1 von ${topCandidates.length} gleichwertigen Treffern, nach Datum/Betrag ausgewählt)` : '';
+      console.log(`Name-Match gewählt: ${contract.mieter} (matchedParts=${matchedParts}, Kandidaten gesamt=${nameMatchCandidates.length})`);
       return {
         ...payment,
         mietvertrag_id: contract.id,
         kategorie: nameKategorie,
-        zuordnungsgrund: `Namen-Match: "${matchedNames.join(', ')}" für ${contract.mieter}`,
+        zuordnungsgrund: `Namen-Match: "${matchedNames.join(', ')}" für ${contract.mieter}${multiInfo}`,
         confidence: matchedParts >= 2 ? 90 : 80,
         selected: true
       };
@@ -740,7 +827,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
         return {
           ...payment,
           mietvertrag_id: contract.id,
-          kategorie: "Miete",
+          kategorie: bka ? "Betriebskostenabrechnung" : "Miete",
           zuordnungsgrund: `Orts-Match: "${keyword}" für ${contract.mieter}`,
           confidence: 75,
           selected: true
@@ -748,13 +835,13 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
       }
     }
   }
-  
+
   // 5. Amount-Match with tolerance (LAST RESORT - only if unique match and NO other indicators)
   // This should be the weakest signal!
-  const amountMatches = contracts.filter(c => 
+  const amountMatches = contracts.filter(c =>
     Math.abs(c.gesamtmiete - payment.betrag) <= BETRAG_TOLERANZ && payment.betrag > 0
   );
-  
+
   if (amountMatches.length === 1) {
     const contract = amountMatches[0];
     const kautionImText = verwendungszweck.includes("kaution") ||
@@ -768,7 +855,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
     return {
       ...payment,
       mietvertrag_id: contract.id,
-      kategorie: isKaution ? "Mietkaution" : "Miete",
+      kategorie: isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete",
       zuordnungsgrund: `⚠️ NUR Betrags-Match (±${BETRAG_TOLERANZ}€): ${contract.gesamtmiete}€ - BITTE PRÜFEN!`,
       confidence: 40, // Lowered from 60 to 40!
       selected: false, // NOT auto-selected!
@@ -1341,15 +1428,20 @@ serve(async (req) => {
         // Statt hartem Block → an KI weiterleiten mit Nichtmiete-Hinweis
         needsAI.push({ payment, type: "nichtmiete_verdacht" });
       } else if (paymentType === "retoure") {
-        const ruleMatch = matchPaymentByRules(payment, contracts, sonderfallRegeln);
-        if (ruleMatch) {
-          results.push({
-            ...ruleMatch,
-            kategorie: "Rücklastschrift",
-            zuordnungsgrund: `Rücklastschrift: ${ruleMatch.zuordnungsgrund}`
-          });
+        const ibanTextMatch = matchRuecklastschriftByVerwendungszweckIban(payment, contracts);
+        if (ibanTextMatch) {
+          results.push(ibanTextMatch);
         } else {
-          needsAI.push({ payment, type: "retoure" });
+          const ruleMatch = matchPaymentByRules(payment, contracts, sonderfallRegeln);
+          if (ruleMatch) {
+            results.push({
+              ...ruleMatch,
+              kategorie: "Rücklastschrift",
+              zuordnungsgrund: `Rücklastschrift: ${ruleMatch.zuordnungsgrund}`
+            });
+          } else {
+            needsAI.push({ payment, type: "retoure" });
+          }
         }
       } else if (paymentType === "bg_zahlung") {
         // BG-Zahlung: Erst regelbasiertes Namens-Matching, dann KI als Fallback
