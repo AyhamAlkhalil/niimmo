@@ -602,42 +602,93 @@ function isBetriebskostenabrechnung(verwendungszweck: string): boolean {
 // Das ist bei mehreren Einheiten derselben Adresse (z.B. Reihenhäuser 18a-18e
 // unter einer gemeinsamen `immobilien.adresse`) der einzige zuverlässige Anker —
 // Adresse und Betrag allein reichen dort nicht, um die Einheit sicher zu bestimmen.
+
+// Bekannte IBAN-Gesamtlängen (Länge = Ländercode + Prüfziffer + BBAN). Erlaubt,
+// eine IBAN aus Fließtext exakt abzuschneiden — auch wenn sie mit Leerzeichen
+// gruppiert ist ("DE30 2695 ...") oder ohne Trenner direkt an ein folgendes
+// Label anschließt ("...8333327BIC:..."), statt Leerzeichen zu übersehen oder
+// das nachfolgende Label mit in die IBAN zu ziehen.
+const IBAN_LAENGEN: Record<string, number> = {
+  DE: 22, AT: 20, CH: 21, NL: 18, BE: 16, FR: 27, LU: 20,
+  IT: 27, ES: 24, PL: 28, DK: 18, GB: 22, PT: 25, FI: 18, SE: 24, NO: 15,
+  // Restliche SEPA-/EU-Länder (ISO 13616) — vervollständigt, damit die
+  // Längen-Trunkierung nicht nur für die häufigsten Länder greift.
+  IE: 22, CZ: 24, SK: 24, HR: 21, BG: 22, RO: 24, GR: 27, CY: 28, MT: 31,
+  EE: 20, LT: 20, LV: 21, SI: 19, HU: 28, IS: 26, LI: 21, GI: 23, AD: 24,
+  MC: 27, SM: 27,
+};
+
 function extractLabeledIbans(text: string | null | undefined): string[] {
   if (!text) return [];
-  const regex = /IBAN:\s*([A-Z]{2}\d{2}[A-Z0-9]{10,30})/g;
   const ibans: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    ibans.push(match[1].replace(/\s+/g, ""));
+  // Label case-insensitiv, optional durch Doppelpunkt/Bindestrich getrennt
+  const labelRegex = /iban\s*[:\-]?\s*/gi;
+  let labelMatch: RegExpExecArray | null;
+
+  while ((labelMatch = labelRegex.exec(text)) !== null) {
+    const start = labelMatch.index + labelMatch[0].length;
+    // Grosszügiges Fenster: IBANs sind max. 34 Zeichen, mit Gruppen-Leerzeichen
+    // (je 4 Zeichen) bis zu ~45 Zeichen lang im Rohtext
+    const window = text.slice(start, start + 45);
+    const rawMatch = window.match(/^(?:[A-Za-z0-9]\s?)+/);
+    if (!rawMatch) continue;
+
+    const stripped = rawMatch[0].replace(/\s+/g, "").toUpperCase();
+    const countryMatch = stripped.match(/^([A-Z]{2})\d{2}[A-Z0-9]+/);
+    if (!countryMatch) continue;
+
+    const knownLength = IBAN_LAENGEN[countryMatch[1]];
+    const iban = stripped.slice(0, knownLength ?? 34);
+
+    // Grundplausibilität: Ländercode + 2 Prüfziffern + mind. 11 weitere Zeichen
+    if (/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) {
+      ibans.push(iban);
+    }
   }
-  return ibans;
+
+  return [...new Set(ibans)];
 }
 
 function matchRuecklastschriftByVerwendungszweckIban(
   payment: Payment,
   contracts: ContractInfo[]
 ): ProcessedPayment | null {
-  const embeddedIbans = extractLabeledIbans(payment.verwendungszweck);
+  // BG-IBAN ausschließen — mehrere Verträge teilen sich die staatliche
+  // Jobcenter/Bürgergeld-IBAN, ein Match darauf sagt nichts über den
+  // konkreten Mieter aus (gleiche Ausnahme wie beim IBAN-Match in
+  // matchPaymentByRules).
+  const embeddedIbans = extractLabeledIbans(payment.verwendungszweck).filter(i => i !== BG_ZAHLUNG_IBAN);
   if (embeddedIbans.length === 0) return null;
 
   const matchingContracts = contracts.filter(c =>
-    (c.iban && embeddedIbans.includes(c.iban)) ||
-    (c.weitere_iban && c.weitere_iban.split(",").map(i => i.trim()).some(i => embeddedIbans.includes(i)))
+    (c.iban && c.iban !== BG_ZAHLUNG_IBAN && embeddedIbans.includes(c.iban)) ||
+    (c.weitere_iban && c.weitere_iban.split(",").map(i => i.trim()).filter(i => i !== BG_ZAHLUNG_IBAN).some(i => embeddedIbans.includes(i)))
   );
   if (matchingContracts.length === 0) return null;
 
   const bestContract = selectBestContractByDate(payment, matchingContracts);
   if (!bestContract) return null;
 
-  console.log(`Rücklastschrift: Mieter-IBAN im Verwendungszweck gefunden ("${embeddedIbans.join(", ")}") → ${bestContract.mieter}`);
+  // Mehrdeutig, wenn mehrere Verträge auf die IBAN gepasst haben und erst per
+  // Datum/Betrag/Status disambiguiert werden mussten — ein aus Fließtext
+  // extrahierter Wert ist ein schwächeres Signal als ein strukturiertes
+  // IBAN-Feld, daher hier NICHT automatisch mit hoher Konfidenz übernehmen.
+  const wasAmbiguous = matchingContracts.length > 1;
+  const matchedIban = embeddedIbans.find(i =>
+    i === bestContract.iban ||
+    (bestContract.weitere_iban && bestContract.weitere_iban.split(",").map(x => x.trim()).includes(i))
+  ) ?? embeddedIbans[0];
+  const multiInfo = wasAmbiguous ? ` (1 von ${matchingContracts.length} IBAN-Treffern, nach Datum/Betrag ausgewählt — bitte prüfen)` : '';
+
+  console.log(`Rücklastschrift: Mieter-IBAN "${matchedIban}" im Verwendungszweck gefunden → ${bestContract.mieter}${wasAmbiguous ? ` [mehrdeutig, ${matchingContracts.length} Kandidaten]` : ''}`);
 
   return {
     ...payment,
     mietvertrag_id: bestContract.id,
     kategorie: "Rücklastschrift",
-    zuordnungsgrund: `Rücklastschrift: Mieter-IBAN im Verwendungszweck-Text für ${bestContract.mieter}`,
-    confidence: 95,
-    selected: true
+    zuordnungsgrund: `Rücklastschrift: Mieter-IBAN "${matchedIban}" im Verwendungszweck-Text für ${bestContract.mieter}${multiInfo}`,
+    confidence: wasAmbiguous ? 70 : 95,
+    selected: !wasAmbiguous
   };
 }
 
