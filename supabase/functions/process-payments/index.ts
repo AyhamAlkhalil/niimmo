@@ -848,21 +848,33 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
       const kautionBetragMatch = contract.kaution ? Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ : false;
       const isKaution = kautionInText && contract.kaution && kautionBetragMatch;
       const nameKategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
-      const multiInfo = topCandidates.length > 1 ? ` (1 von ${topCandidates.length} gleichwertigen Treffern, nach Datum/Betrag ausgewählt)` : '';
-      console.log(`Name-Match gewählt: ${contract.mieter} (matchedParts=${matchedParts}, Kandidaten gesamt=${nameMatchCandidates.length})`);
+      // Auch ein Treffer mit vollem Namen (Vor- UND Nachname) kann mehrdeutig sein,
+      // wenn er nur per Datum/Betrag/Status von einem gleichwertigen Kandidaten
+      // unterschieden wurde (z.B. zwei Verträge mit identischem Namen) — dann
+      // NICHT mit voller Konfidenz automatisch übernehmen, sondern zur Prüfung markieren.
+      const wasTieBroken = topCandidates.length > 1;
+      const multiInfo = wasTieBroken ? ` (1 von ${topCandidates.length} gleichwertigen Treffern, nach Datum/Betrag ausgewählt — bitte prüfen)` : '';
+      console.log(`Name-Match gewählt: ${contract.mieter} (matchedParts=${matchedParts}, Kandidaten gesamt=${nameMatchCandidates.length}${wasTieBroken ? ', mehrdeutig' : ''})`);
       return {
         ...payment,
         mietvertrag_id: contract.id,
         kategorie: nameKategorie,
         zuordnungsgrund: `Namen-Match: "${matchedNames.join(', ')}" für ${contract.mieter}${multiInfo}`,
-        confidence: matchedParts >= 2 ? 90 : 80,
-        selected: true
+        confidence: wasTieBroken ? 70 : (matchedParts >= 2 ? 90 : 80),
+        selected: !wasTieBroken
       };
     }
   }
   
   // 4. Location/Street-Match (property address keywords in verwendungszweck)
-  // Dynamisch aus Immobilien-Daten extrahiert statt hardcoded
+  // Dynamisch aus Immobilien-Daten extrahiert statt hardcoded.
+  // Sammelt ALLE Verträge mit passendem Orts-Keyword statt beim ersten Treffer
+  // zurückzugeben — bei Mehrfamilienhäusern (mehrere Einheiten unter derselben
+  // `immobilien.adresse`, z.B. Reihenhäuser 18a-18e) erzeugen alle Einheiten
+  // dasselbe Orts-Keyword, der Ortsname allein sagt nichts über die Einheit aus.
+  const locationMatchedContracts: ContractInfo[] = [];
+  let matchedLocationKeyword = "";
+
   for (const contract of contracts) {
     const immobilie = contract.immobilie.toLowerCase();
     // Extrahiere relevante Wörter aus Immobilien-Name und Adresse (mind. 4 Zeichen, keine Zahlen)
@@ -874,17 +886,44 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
 
     for (const keyword of locationWords) {
       if (verwendungszweck.includes(keyword)) {
-        console.log(`Location-Match found: "${keyword}" for ${contract.mieter} at ${contract.immobilie}`);
-        return {
-          ...payment,
-          mietvertrag_id: contract.id,
-          kategorie: bka ? "Betriebskostenabrechnung" : "Miete",
-          zuordnungsgrund: `Orts-Match: "${keyword}" für ${contract.mieter}`,
-          confidence: 75,
-          selected: true
-        };
+        locationMatchedContracts.push(contract);
+        matchedLocationKeyword = keyword;
+        break;
       }
     }
+  }
+
+  if (locationMatchedContracts.length === 1) {
+    const contract = locationMatchedContracts[0];
+    console.log(`Location-Match found: "${matchedLocationKeyword}" for ${contract.mieter} at ${contract.immobilie}`);
+    return {
+      ...payment,
+      mietvertrag_id: contract.id,
+      kategorie: bka ? "Betriebskostenabrechnung" : "Miete",
+      zuordnungsgrund: `Orts-Match: "${matchedLocationKeyword}" für ${contract.mieter}`,
+      confidence: 75,
+      selected: true
+    };
+  } else if (locationMatchedContracts.length > 1) {
+    // Mehrere Einheiten an derselben Adresse — nur zuordnen, wenn der Betrag
+    // eindeutig zu genau einer Einheit passt. Sonst nicht raten (weiter zu
+    // Amount-Match/KI statt array-order-first zu wählen).
+    const amountNarrowed = locationMatchedContracts.filter(c =>
+      Math.abs(c.gesamtmiete - payment.betrag) <= BETRAG_TOLERANZ && payment.betrag > 0
+    );
+    if (amountNarrowed.length === 1) {
+      const contract = amountNarrowed[0];
+      console.log(`Location-Match: "${matchedLocationKeyword}" mehrdeutig (${locationMatchedContracts.length} Einheiten), per Betrag auf ${contract.mieter} eingegrenzt`);
+      return {
+        ...payment,
+        mietvertrag_id: contract.id,
+        kategorie: bka ? "Betriebskostenabrechnung" : "Miete",
+        zuordnungsgrund: `Orts-Match: "${matchedLocationKeyword}" + Betrags-Match für ${contract.mieter} (1 von ${locationMatchedContracts.length} Einheiten an dieser Adresse)`,
+        confidence: 70,
+        selected: true
+      };
+    }
+    console.log(`Location-Match: "${matchedLocationKeyword}" mehrdeutig (${locationMatchedContracts.length} Einheiten), auch Betrag nicht eindeutig — zu unsicher für Auto-Zuordnung`);
   }
 
   // 5. Amount-Match with tolerance (LAST RESORT - only if unique match and NO other indicators)
@@ -1044,7 +1083,26 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     });
     bestMatch = dateValidMatches[0];
   }
-  
+
+  // Ambiguous-Tie-Schutz: mehrere BG-Mieter teilen sich denselben schwachen
+  // (nur 1 Namensteil) Treffer, ohne dass Adresse oder Status unterscheidet —
+  // analog zum Namens-Match-Fix hier nicht raten, sondern an den
+  // KI-Fallback übergeben statt automatisch zuzuordnen.
+  const bgStatusPriority: Record<string, number> = { "aktiv": 0, "gekuendigt": 1, "beendet": 2 };
+  const bestScore = (bestMatch.isExact ? 2 : 0) + (bestMatch.hasAddressMatch ? 1 : 0);
+  const finalPool = dateValidMatches.length > 0 ? dateValidMatches : matches;
+  const tiedWithBest = finalPool.filter(m =>
+    m.contract.id !== bestMatch.contract.id &&
+    m.exactMatchCount === bestMatch.exactMatchCount &&
+    ((m.isExact ? 2 : 0) + (m.hasAddressMatch ? 1 : 0)) === bestScore &&
+    (bgStatusPriority[m.contract.status] ?? 99) === (bgStatusPriority[bestMatch.contract.status] ?? 99)
+  );
+
+  if (bestMatch.exactMatchCount === 1 && tiedWithBest.length > 0) {
+    console.log(`BG-Match: ${tiedWithBest.length + 1} Kandidaten teilen sich denselben schwachen Namensteil "${bestMatch.matchedName}" ohne Unterscheidungsmerkmal — zu unsicher für Auto-Zuordnung`);
+    return null;
+  }
+
   // Determine category: Kaution or Miete
   let kategorie = "Miete";
   const kautionInText = verwendungszweck.includes("kaution") ||
