@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { NebenkostenZuordnungTab } from "./NebenkostenZuordnungTab";
 import { LastUploadReviewModal } from "./LastUploadReviewModal";
+import { ZahlungsAnomalienBanner } from "./ZahlungsAnomalienBanner";
 
 /**
  * Robuster Betragsparser für deutsche und englische Formate:
@@ -896,6 +897,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             </p>
           </div>
         </div>
+
+        <ZahlungsAnomalienBanner />
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">

@@ -1776,6 +1776,79 @@ export type Database = {
           },
         ]
       }
+      zahlungs_anomalien: {
+        Row: {
+          begruendung: string
+          betrag: number
+          created_at: string
+          geprueft_am: string | null
+          geprueft_von: string | null
+          id: string
+          regel_typ: string
+          status: string
+          updated_at: string
+          vermuteter_mietvertrag_id: string | null
+          vermuteter_vertrag_diff: number
+          zahlung_id: string
+          zugeordneter_mietvertrag_id: string | null
+          zugeordneter_vertrag_diff: number | null
+        }
+        Insert: {
+          begruendung: string
+          betrag: number
+          created_at?: string
+          geprueft_am?: string | null
+          geprueft_von?: string | null
+          id?: string
+          regel_typ: string
+          status?: string
+          updated_at?: string
+          vermuteter_mietvertrag_id?: string | null
+          vermuteter_vertrag_diff: number
+          zahlung_id: string
+          zugeordneter_mietvertrag_id?: string | null
+          zugeordneter_vertrag_diff?: number | null
+        }
+        Update: {
+          begruendung?: string
+          betrag?: number
+          created_at?: string
+          geprueft_am?: string | null
+          geprueft_von?: string | null
+          id?: string
+          regel_typ?: string
+          status?: string
+          updated_at?: string
+          vermuteter_mietvertrag_id?: string | null
+          vermuteter_vertrag_diff?: number
+          zahlung_id?: string
+          zugeordneter_mietvertrag_id?: string | null
+          zugeordneter_vertrag_diff?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "zahlungs_anomalien_vermuteter_mietvertrag_id_fkey"
+            columns: ["vermuteter_mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zahlungs_anomalien_zahlung_id_fkey"
+            columns: ["zahlung_id"]
+            isOneToOne: true
+            referencedRelation: "zahlungen"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zahlungs_anomalien_zugeordneter_mietvertrag_id_fkey"
+            columns: ["zugeordneter_mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       aktuelle_marktdaten: {
@@ -1810,6 +1883,14 @@ export type Database = {
           grund: string
           mietvertrag_id: string
           neue_mahnstufe: number
+        }[]
+      }
+      check_zahlungs_anomalien: {
+        Args: { p_tage_zurueck?: number }
+        Returns: {
+          action: string
+          regel_typ: string
+          zahlung_id: string
         }[]
       }
       generate_monthly_mietforderungen: {
