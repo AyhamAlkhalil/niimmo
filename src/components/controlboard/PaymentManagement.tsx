@@ -544,6 +544,39 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     return () => document.removeEventListener("keydown", handler);
   }, [isFullscreen]);
 
+  // Springt vom Zahlungs-Anomalien-Banner zur betroffenen Zahlung im "Alle Zahlungen"-Tab:
+  // Tab wechseln, blockierende Filter zurücksetzen, Monat aufklappen und Karte highlighten/scrollen.
+  const handleNavigateToZahlung = useCallback((zahlungId: string, buchungsdatum: string | null) => {
+    setActiveTab('alle');
+    setAllPaymentsSearchTerm('');
+    setSelectedKategorie(null);
+    setShowOnlyZugeordnet(false);
+    setShowOnlyNichtZugeordnet(false);
+    setDateRange({ from: undefined, to: undefined });
+
+    if (buchungsdatum) {
+      const [year, monthNum] = buchungsdatum.split('-');
+      const monthKey = `${year}-${monthNum}`;
+      setCollapsedMonths(prev => {
+        if (!prev.has(monthKey)) return prev;
+        const next = new Set(prev);
+        next.delete(monthKey);
+        return next;
+      });
+    }
+
+    setSelectedZahlungId(zahlungId);
+
+    // Erst nach dem nächsten Render (Tab-Wechsel + Monat aufgeklappt) scrollen.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-zahlung-id="${zahlungId}"]`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }, []);
+
   const allPaymentsById = useMemo(
     () => new Map(allPayments?.map(z => [z.id, z])),
     [allPayments]
@@ -898,7 +931,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           </div>
         </div>
 
-        <ZahlungsAnomalienBanner />
+        <ZahlungsAnomalienBanner onNavigateToZahlung={handleNavigateToZahlung} />
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -1232,6 +1265,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                                           return (
                                           <Card
                                             key={zahlung.id}
+                                            data-zahlung-id={zahlung.id}
                                             className={cn(
                                               "cursor-pointer transition-all hover:shadow-md",
                                               selectedZahlungId === zahlung.id

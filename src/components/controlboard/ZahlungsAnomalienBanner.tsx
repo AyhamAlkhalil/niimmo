@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -10,13 +10,18 @@ import { useZahlungsAnomalien, useUpdateZahlungsAnomalieStatus } from "@/hooks/u
 
 const EUR_FORMATTER = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 
+interface ZahlungsAnomalienBannerProps {
+  /** Wird aufgerufen, wenn der Nutzer von einem Finding zur betroffenen Zahlung im Controlboard springen möchte. */
+  onNavigateToZahlung?: (zahlungId: string, buchungsdatum: string | null) => void;
+}
+
 /**
  * Zeigt vom Cron-Job `check_zahlungs_anomalien()` erkannte Verdachtsfälle:
  * Zahlungen, die vermutlich dem falschen Mietvertrag desselben Mieters
  * zugeordnet wurden. Nur für Admins sichtbar, rein additiv (keine
  * Änderung an der eigentlichen Zuordnungslogik).
  */
-export function ZahlungsAnomalienBanner() {
+export function ZahlungsAnomalienBanner({ onNavigateToZahlung }: ZahlungsAnomalienBannerProps) {
   const { isAdmin } = useUserRole();
   const { anomalien, count, isLoading } = useZahlungsAnomalien();
   const updateStatus = useUpdateZahlungsAnomalieStatus();
@@ -47,6 +52,8 @@ export function ZahlungsAnomalienBanner() {
           </div>
           <AlertDescription className="text-orange-800/80">
             Diese Zahlungen wurden möglicherweise dem falschen Vertrag desselben Mieters zugeordnet.
+            Wird täglich neu geprüft — behobene Fälle verschwinden automatisch. "Als geprüft"/"Ignorieren"
+            blendet den Fall nur für heute aus, nicht dauerhaft.
           </AlertDescription>
           <CollapsibleContent>
             <div className="space-y-3 mt-3">
@@ -83,6 +90,16 @@ export function ZahlungsAnomalienBanner() {
                       <p className="text-xs text-muted-foreground italic">{anomalie.begruendung}</p>
                     </div>
                     <div className="flex sm:flex-col gap-2 shrink-0">
+                      {onNavigateToZahlung && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onNavigateToZahlung(anomalie.zahlungId, anomalie.buchungsdatum)}
+                        >
+                          <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+                          Zur Zahlung springen
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
