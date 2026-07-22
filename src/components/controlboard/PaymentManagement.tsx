@@ -563,6 +563,11 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         next.delete(monthKey);
         return next;
       });
+    } else {
+      // Datum unbekannt (Zahlung nicht mehr auffindbar/verwaist) — alle
+      // Monate aufklappen statt gar keinen, sonst bleibt die Karte in
+      // einem zugeklappten Monat versteckt und der Sprung wirkt wirkungslos.
+      setCollapsedMonths(new Set());
     }
 
     setSelectedZahlungId(zahlungId);
@@ -570,12 +575,19 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     // Erst nach dem nächsten Render (Tab-Wechsel + Monat aufgeklappt) scrollen.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        document
-          .querySelector(`[data-zahlung-id="${zahlungId}"]`)
-          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const el = document.querySelector(`[data-zahlung-id="${zahlungId}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          toast({
+            title: "Zahlung nicht gefunden",
+            description: "Diese Zahlung ist in der aktuellen Liste nicht (mehr) auffindbar.",
+            variant: "destructive",
+          });
+        }
       });
     });
-  }, []);
+  }, [toast]);
 
   const allPaymentsById = useMemo(
     () => new Map(allPayments?.map(z => [z.id, z])),
