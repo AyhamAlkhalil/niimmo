@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronRight, ArrowRight } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, ArrowRight } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -27,8 +27,22 @@ export function ZahlungsAnomalienBanner({ onNavigateToZahlung }: ZahlungsAnomali
   const updateStatus = useUpdateZahlungsAnomalieStatus();
   const [isOpen, setIsOpen] = useState(true);
 
-  if (!isAdmin || isLoading || count === 0) {
+  if (!isAdmin || isLoading) {
     return null;
+  }
+
+  if (count === 0) {
+    return (
+      <Alert className="mb-6 border-green-300 bg-green-50/80 py-2.5">
+        <CheckCircle2 className="h-4 w-4 text-green-600" />
+        <AlertTitle className="text-green-900 text-sm font-medium mb-0">
+          Keine Zahlungs-Zuordnungs-Auffälligkeiten
+        </AlertTitle>
+        <AlertDescription className="text-green-800/80 text-xs">
+          Wird täglich automatisch geprüft (verbundene Mietverträge, Betrags-Abgleich).
+        </AlertDescription>
+      </Alert>
+    );
   }
 
   return (
