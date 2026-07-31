@@ -58,6 +58,16 @@ export const UebergabeContractList = ({
 }: UebergabeContractListProps) => {
   const today = new Date();
 
+  // Das tatsächliche Auszugsdatum ist das spätere von Kündigungs- und Ende-Datum:
+  // Verträge können ein früheres ende_datum tragen, obwohl bis zum kuendigungsdatum gewohnt wird.
+  const getAuszugsDatum = (contract: ContractWithDetails): Date | null => {
+    const dates = [contract.kuendigungsdatum, contract.ende_datum]
+      .filter((d): d is string => !!d)
+      .map(d => new Date(d));
+    if (dates.length === 0) return null;
+    return dates.reduce((a, b) => (a > b ? a : b));
+  };
+
   const getPriority = (contract: ContractWithDetails): { priority: number; label?: string } => {
     if (uebergabeType === "einzug") {
       if (contract.start_datum && contract.status === "aktiv") {
@@ -71,12 +81,22 @@ export const UebergabeContractList = ({
       }
       return { priority: 10 };
     } else {
-      if (contract.kuendigungsdatum) {
-        const daysUntil = differenceInDays(new Date(contract.kuendigungsdatum), today);
-        if (daysUntil >= 0 && daysUntil <= 7) {
+      const auszugsDatum = getAuszugsDatum(contract);
+      if (auszugsDatum) {
+        const daysUntil = differenceInDays(auszugsDatum, today);
+        // Übergaben finden oft erst einige Tage nach dem Auszugsdatum statt —
+        // deshalb bleibt der Vertrag auch rückwirkend 30 Tage lang ein Vorschlag.
+        if (daysUntil === 0) {
+          return { priority: 1, label: "heute" };
+        }
+        if (daysUntil > 0 && daysUntil <= 7) {
           return { priority: 1, label: `in ${daysUntil} Tag${daysUntil !== 1 ? 'en' : ''}` };
         }
-        if (daysUntil >= 0 && daysUntil <= 30) {
+        if (daysUntil < 0 && daysUntil >= -30) {
+          const daysAgo = Math.abs(daysUntil);
+          return { priority: 1, label: `vor ${daysAgo} Tag${daysAgo !== 1 ? 'en' : ''} ausgezogen` };
+        }
+        if (daysUntil > 7 && daysUntil <= 30) {
           return { priority: 2, label: "diesen Monat" };
         }
       }
@@ -88,8 +108,9 @@ export const UebergabeContractList = ({
   };
 
   const groupedContracts = useMemo(() => {
-    // Only show aktiv and gekuendigt contracts
-    let filtered = contracts.filter(c => c.status === "aktiv" || c.status === "gekuendigt");
+    // Alle Verträge sind auffindbar — auch beendete. Ein Vertrag gilt oft schon als
+    // 'beendet', während die Übergabe noch aussteht; ihn auszublenden machte sie unmöglich.
+    let filtered = contracts;
 
     // Apply search
     if (searchQuery.trim()) {
@@ -172,10 +193,15 @@ export const UebergabeContractList = ({
               className={cn(
                 "text-xs",
                 mainContract.status === "aktiv" && "border-green-300 bg-green-50 text-green-700",
-                mainContract.status === "gekuendigt" && "border-orange-300 bg-orange-50 text-orange-700"
+                mainContract.status === "gekuendigt" && "border-orange-300 bg-orange-50 text-orange-700",
+                mainContract.status === "beendet" && "border-gray-300 bg-gray-100 text-gray-600"
               )}
             >
-              {mainContract.status === "aktiv" ? "Aktiv" : "Gekündigt"}
+              {mainContract.status === "aktiv"
+                ? "Aktiv"
+                : mainContract.status === "gekuendigt"
+                  ? "Gekündigt"
+                  : "Beendet"}
             </Badge>
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <Calendar className="h-3 w-3" />
@@ -245,7 +271,7 @@ export const UebergabeContractList = ({
           <p className="text-gray-500 text-sm">
             {searchQuery
               ? "Versuchen Sie einen anderen Suchbegriff."
-              : "Es gibt aktuell keine aktiven oder gekündigten Mietverträge."}
+              : "Es sind keine Mietverträge vorhanden."}
           </p>
         </div>
       )}

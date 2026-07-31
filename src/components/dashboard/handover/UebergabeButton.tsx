@@ -43,24 +43,27 @@ export const UebergabeButton = ({
 
   // Check if the button should be enabled
   const isGekuendigt = vertrag?.status === "gekuendigt";
-  
+
+  // Beendete Verträge: Die Übergabe steht häufig noch aus, wenn der Vertrag
+  // formal schon beendet ist — der Button muss deshalb erreichbar bleiben.
+  const isBeendet = vertrag?.status === "beendet";
+
   // Check if contract is active but expires within 3 months
   const isExpiringWithin3Months = () => {
     if (!vertrag || vertrag.status !== "aktiv") return false;
     if (!vertrag.kuendigungsdatum) return false;
-    
+
     const kuendigungDate = new Date(vertrag.kuendigungsdatum);
     const today = new Date();
     const threeMonthsFromNow = new Date();
     threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-    
+
     return kuendigungDate <= threeMonthsFromNow && kuendigungDate >= today;
   };
 
-  const canShowUebergabe = isGekuendigt || isExpiringWithin3Months();
+  const canShowUebergabe = isGekuendigt || isBeendet || isExpiringWithin3Months();
 
-  // If no contract or contract is already ended, don't show the button
-  if (!vertrag || vertrag.status === "beendet") {
+  if (!vertrag) {
     return null;
   }
 
