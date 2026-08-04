@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -572,10 +573,10 @@ export function MahnungErstellungModal({
                           </div>
                           <div className="w-24">
                             <Label className="text-xs">Betrag (€)</Label>
-                            <Input 
-                              type="number" step="0.01"
-                              value={detail.betrag} 
-                              onChange={(e) => updateVerzugszinsenDetail(i, 'betrag', parseFloat(e.target.value) || 0)}
+                            <DecimalInput
+                              step="0.01"
+                              value={detail.betrag}
+                              onValueChange={(wert) => updateVerzugszinsenDetail(i, 'betrag', wert ?? 0)}
                               className="mt-1 h-8 text-xs"
                             />
                           </div>

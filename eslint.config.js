@@ -25,7 +25,10 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-unused-vars": "off",
       "@typescript-eslint/no-explicit-any": "warn",
-      "no-console": ["warn", { allow: [] }],
+      // Die allow-Liste braucht mindestens einen Eintrag, sonst verweigert
+      // ESLint den Start ("Value [] should NOT have fewer than 1 items").
+      // Ohne Optionen gilt die Regel für alle console-Methoden.
+      "no-console": "warn",
     },
   }
 );

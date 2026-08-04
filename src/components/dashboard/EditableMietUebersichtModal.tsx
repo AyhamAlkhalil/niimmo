@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { sortPropertiesByName, getCurrentContract } from "@/utils/contractUtils";
@@ -445,7 +446,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
           ) : type === "personen" ? (
             <Input type="number" step="1" min="1" value={(displayValue as number) ?? ""} onChange={(e) => setEditing({ ...editing!, value: e.target.value ? parseInt(e.target.value) : null })} className="h-7 text-xs w-14 border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
           ) : type === "number" || type === "qm" ? (
-            <Input type="number" step="0.01" value={displayValue as number} onChange={(e) => setEditing({ ...editing!, value: parseFloat(e.target.value) || 0 })} className="h-7 text-xs w-20 border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
+            <DecimalInput step="0.01" value={displayValue as number} onValueChange={(wert) => setEditing({ ...editing!, value: wert ?? 0 })} className="h-7 text-xs w-20 border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
           ) : type === "date" ? (
             <Input type="date" value={(displayValue as string)?.slice(0, 10) || ""} onChange={(e) => setEditing({ ...editing!, value: e.target.value })} className="h-7 text-xs w-[120px] border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
           ) : (

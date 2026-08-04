@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
@@ -490,11 +491,10 @@ export function PaymentSplitModal({
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs">Betrag</Label>
-                      <Input
-                        type="number"
+                      <DecimalInput
                         step="0.01"
                         value={split.betrag}
-                        onChange={(e) => updateSplit(split.id, "betrag", parseFloat(e.target.value) || 0)}
+                        onValueChange={(wert) => updateSplit(split.id, "betrag", wert ?? 0)}
                         className="text-right h-8 text-sm"
                       />
                     </div>
