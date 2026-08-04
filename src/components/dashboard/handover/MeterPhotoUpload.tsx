@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Camera, X, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -24,6 +24,17 @@ export const MeterPhotoUpload = ({
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const inputId = `meter-photo-${contractId}-${meterType}`;
+
+  // Wird das Formular während eines Uploads zurückgesetzt, wird diese Instanz
+  // ersetzt. Der laufende Upload darf dann nicht mehr in den Dialog
+  // zurückschreiben — sonst hinge dort ein Foto, das hier niemand mehr sieht.
+  const istEingehaengt = useRef(true);
+  useEffect(() => {
+    istEingehaengt.current = true;
+    return () => {
+      istEingehaengt.current = false;
+    };
+  }, []);
 
   const meterLabels: Record<string, string> = {
     strom: "Strom",
@@ -73,6 +84,8 @@ export const MeterPhotoUpload = ({
         if (uploadError) throw uploadError;
         newPaths.push(filePath);
       }
+
+      if (!istEingehaengt.current) return;
 
       const updatedPhotos = [...photos, ...newPaths];
       setPhotos(updatedPhotos);

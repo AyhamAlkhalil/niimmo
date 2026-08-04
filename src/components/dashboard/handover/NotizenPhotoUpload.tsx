@@ -1,4 +1,4 @@
- import { useState, useEffect } from "react";
+ import { useState, useEffect, useRef } from "react";
  import { Camera, X, Loader2 } from "lucide-react";
  import { supabase } from "@/integrations/supabase/client";
  import { useToast } from "@/hooks/use-toast";
@@ -21,6 +21,17 @@
    const [photos, setPhotos] = useState<string[]>(existingPhotos);
    const { toast } = useToast();
    const inputId = `notizen-photo-${contractId}`;
+
+  // Wird das Formular während eines Uploads zurückgesetzt, wird diese Instanz
+  // ersetzt. Der laufende Upload darf dann nicht mehr in den Dialog
+  // zurückschreiben — sonst hinge dort ein Foto, das hier niemand mehr sieht.
+  const istEingehaengt = useRef(true);
+  useEffect(() => {
+    istEingehaengt.current = true;
+    return () => {
+      istEingehaengt.current = false;
+    };
+  }, []);
  
    const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
      const files = e.target.files;
@@ -47,10 +58,12 @@
          newPhotos.push(filePath);
        }
  
+       if (!istEingehaengt.current) return;
+
        const updatedPhotos = [...photos, ...newPhotos];
        setPhotos(updatedPhotos);
        onPhotosChange(updatedPhotos);
- 
+
        toast({
          title: "Fotos hochgeladen",
          description: `${files.length} Foto(s) wurden gespeichert.`,

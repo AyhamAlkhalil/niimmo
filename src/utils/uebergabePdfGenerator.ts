@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import type { PdfImage } from './pdfImageUtils';
 
 export interface UebergabePdfData {
   isEinzug: boolean;
@@ -26,16 +27,18 @@ export interface UebergabePdfData {
       wasser: string;
       warmwasser: string;
     };
-    // base64 DataURLs der Zählerfotos, gruppiert nach Zählertyp
+    // Zählerfotos, gruppiert nach Zählertyp
     zaehlerfotos?: {
-      strom?: string[];
-      gas?: string[];
-      wasser?: string[];
-      warmwasser?: string[];
+      strom?: PdfImage[];
+      gas?: PdfImage[];
+      wasser?: PdfImage[];
+      warmwasser?: PdfImage[];
     };
   }>;
-  
+
   protokollNotizen: string;
+  /** Fotos zum Wohnungszustand aus dem Notizen-Bereich */
+  notizenFotos?: PdfImage[];
   vermieterSignature: string | null;
   mieterSignature: string | null;
 }
@@ -214,7 +217,10 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
   }
 
   // ============ NOTIZEN ============
-  if (data.protokollNotizen && data.protokollNotizen.trim()) {
+  const hatNotizText = Boolean(data.protokollNotizen && data.protokollNotizen.trim());
+  const notizenFotos = data.notizenFotos ?? [];
+
+  if (hatNotizText || notizenFotos.length > 0) {
     y = checkPageBreak(y, 25);
     y += 2;
     doc.setFontSize(11);
@@ -222,13 +228,27 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
     doc.text('Bemerkungen / Zustand', marginLeft, y);
     y += 7;
 
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    const lines = doc.splitTextToSize(data.protokollNotizen, contentWidth);
-    for (const line of lines) {
-      y = checkPageBreak(y, 5);
-      doc.text(line, marginLeft, y);
-      y += 5;
+    if (hatNotizText) {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const lines = doc.splitTextToSize(data.protokollNotizen, contentWidth);
+      for (const line of lines) {
+        y = checkPageBreak(y, 5);
+        doc.text(line, marginLeft, y);
+        y += 5;
+      }
+    }
+
+    if (notizenFotos.length > 0) {
+      y = addPhotoGrid(
+        doc,
+        notizenFotos.map((image) => ({ image })),
+        'Fotos zum Zustand',
+        marginLeft,
+        contentWidth,
+        y,
+        checkPageBreak
+      );
     }
   }
 
@@ -289,7 +309,7 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
 
 function addZaehlerfotos(
   doc: jsPDF,
-  zaehlerfotos: { strom?: string[]; gas?: string[]; wasser?: string[]; warmwasser?: string[] },
+  zaehlerfotos: { strom?: PdfImage[]; gas?: PdfImage[]; wasser?: PdfImage[]; warmwasser?: PdfImage[] },
   marginLeft: number,
   contentWidth: number,
   y: number,
@@ -303,32 +323,50 @@ function addZaehlerfotos(
   ];
 
   // Alle vorhandenen Fotos mit Label sammeln
-  const allPhotos: Array<{ label: string; base64: string }> = [];
+  const allPhotos: Array<{ label: string; image: PdfImage }> = [];
   for (const { key, label } of meterTypen) {
-    for (const base64 of zaehlerfotos[key] ?? []) {
-      if (base64) allPhotos.push({ label, base64 });
+    for (const image of zaehlerfotos[key] ?? []) {
+      if (image?.dataUrl) allPhotos.push({ label, image });
     }
   }
-  if (allPhotos.length === 0) return y;
 
-  // Abschnittstitel
-  y = checkPageBreak(y, 20);
+  return addPhotoGrid(doc, allPhotos, 'Zählerfotos', marginLeft, contentWidth, y, checkPageBreak);
+}
+
+/**
+ * Bildgitter mit zwei Spalten. Die Fotos werden seitenverhältnistreu in ihre
+ * Zelle eingepasst (contain) statt auf ein festes Querformat gestreckt —
+ * sonst erscheinen Hochkantaufnahmen im PDF verzerrt bzw. gekippt.
+ */
+function addPhotoGrid(
+  doc: jsPDF,
+  photos: Array<{ label?: string; image: PdfImage }>,
+  title: string,
+  marginLeft: number,
+  contentWidth: number,
+  y: number,
+  checkPageBreak: (y: number, space?: number) => number
+): number {
+  if (photos.length === 0) return y;
+
+  const cols = 2;
+  const gap = 4;
+  const cellW = (contentWidth - gap * (cols - 1)) / cols; // ~78 mm
+  const cellH = 62;                                       // hoch genug, dass Zählerstände lesbar bleiben
+  const labelH = 5;
+  const rowH = cellH + labelH + gap;
+
+  // Abschnittstitel zusammen mit der ersten Bildzeile umbrechen, damit die
+  // Überschrift nicht allein am Seitenende stehen bleibt
+  y = checkPageBreak(y, rowH + 15);
   y += 3;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(0, 0, 0);
-  doc.text('Zählerfotos', marginLeft, y);
+  doc.text(title, marginLeft, y);
   y += 7;
 
-  // Bildgitter: 3 Spalten
-  const cols = 3;
-  const gap = 3;
-  const imgW = (contentWidth - gap * (cols - 1)) / cols; // ~51 mm
-  const imgH = Math.round(imgW * 0.75);                  // 4:3 → ~38 mm
-  const labelH = 5;
-  const rowH = imgH + labelH + gap;
-
-  for (let i = 0; i < allPhotos.length; i++) {
+  for (let i = 0; i < photos.length; i++) {
     const col = i % cols;
 
     // Neue Zeile → Seitenumbruch prüfen
@@ -336,31 +374,42 @@ function addZaehlerfotos(
       y = checkPageBreak(y, rowH + 5);
     }
 
-    const x = marginLeft + col * (imgW + gap);
-    const { label, base64 } = allPhotos[i];
-    const fmt = base64.includes('image/png') ? 'PNG' : 'JPEG';
+    const x = marginLeft + col * (cellW + gap);
+    const { label, image } = photos[i];
+
+    // Seitenverhältnistreu in die Zelle einpassen und zentrieren
+    const ratio = image.width > 0 && image.height > 0 ? image.width / image.height : 4 / 3;
+    let drawW = cellW;
+    let drawH = cellW / ratio;
+    if (drawH > cellH) {
+      drawH = cellH;
+      drawW = cellH * ratio;
+    }
+    const drawX = x + (cellW - drawW) / 2;
+    const drawY = y + (cellH - drawH) / 2;
 
     try {
-      doc.addImage(base64, fmt, x, y, imgW, imgH);
+      doc.addImage(image.dataUrl, 'JPEG', drawX, drawY, drawW, drawH);
     } catch {
       // Platzhalter-Box wenn Bild nicht eingebettet werden kann
       doc.setDrawColor(200, 200, 200);
       doc.setFillColor(245, 245, 245);
-      doc.rect(x, y, imgW, imgH, 'FD');
+      doc.rect(x, y, cellW, cellH, 'FD');
       doc.setFontSize(7);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(150, 150, 150);
-      doc.text('Foto', x + imgW / 2, y + imgH / 2, { align: 'center' });
+      doc.text('Foto konnte nicht eingebettet werden', x + cellW / 2, y + cellH / 2, { align: 'center' });
     }
 
-    // Zählertyp-Label unter dem Bild
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 100, 100);
-    doc.text(label, x + imgW / 2, y + imgH + 3.5, { align: 'center' });
+    if (label) {
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text(label, x + cellW / 2, y + cellH + 3.5, { align: 'center' });
+    }
 
     // Nach letztem Bild einer Zeile: Y weiterrücken
-    if (col === cols - 1 || i === allPhotos.length - 1) {
+    if (col === cols - 1 || i === photos.length - 1) {
       y += rowH;
     }
   }

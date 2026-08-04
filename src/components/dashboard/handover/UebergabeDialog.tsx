@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save } from "lucide-react";
+import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +22,18 @@ import { NotizenPhotoUpload } from "./NotizenPhotoUpload";
 import { UebergabeEmailDialog } from "./UebergabeEmailDialog";
 import { VersorgerBenachrichtigungDialog } from "./VersorgerBenachrichtigungDialog";
 import { generateUebergabePdf, type UebergabePdfData } from "@/utils/uebergabePdfGenerator";
+import { blobToPdfImage, type PdfImage } from "@/utils/pdfImageUtils";
+import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe } from "@/utils/zaehlerstandUtils";
+
+const METER_TYPEN = ["strom", "gas", "wasser", "warmwasser"] as const;
+type MeterTyp = (typeof METER_TYPEN)[number];
+
+const METER_LABELS: Record<MeterTyp, string> = {
+  strom: "Strom",
+  gas: "Gas",
+  wasser: "Kaltwasser",
+  warmwasser: "Warmwasser",
+};
 
 interface ContractInfo {
   id: string;
@@ -120,6 +132,19 @@ export const UebergabeDialog = ({
 
   // Notes photos
   const [notizenPhotos, setNotizenPhotos] = useState<string[]>([]);
+
+  // Die Upload-Komponenten halten ihre Fotoliste in eigenem State, der nur beim
+  // Mount aus existingPhotos übernommen wird. Ohne Remount würden sie nach
+  // "Formular zurücksetzen" weiterhin Fotos anzeigen, die der Dialog nicht mehr
+  // kennt — und die damit auch nicht mehr ins Protokoll wandern.
+  const [formResetKey, setFormResetKey] = useState(0);
+
+  // Anzahl Fotos, die beim letzten PDF-Aufbau nicht eingebettet werden konnten
+  const [nichtEingebetteteFotos, setNichtEingebetteteFotos] = useState(0);
+
+  // Entwertet das Ergebnis eines Vorschaulaufs, der von einem neueren Lauf
+  // oder einem Reset überholt wurde
+  const previewLaufRef = React.useRef(0);
   
   // Preview state
   const [showPreview, setShowPreview] = useState(false);
@@ -207,7 +232,7 @@ export const UebergabeDialog = ({
   const updateZaehlerstand = (contractId: string, field: string, value: string) => {
     setZaehlerstaendePerContract(prev => ({
       ...prev,
-      [contractId]: { ...prev[contractId], [field]: value }
+      [contractId]: { ...prev[contractId], [field]: sanitizeZaehlerstand(value) }
     }));
   };
 
@@ -241,46 +266,72 @@ export const UebergabeDialog = ({
     setPdfBlob(null);
     setSavedPdfPath(null);
     setIsSaved(false);
+    setFormResetKey((k) => k + 1);
+    setNichtEingebetteteFotos(0);
+    // Laufende Vorschau entwerten, damit sie die zurückgesetzten Daten nicht
+    // nachträglich wieder einblendet
+    previewLaufRef.current += 1;
+    setIsGeneratingPreview(false);
+  };
+
+  /**
+   * Lädt Storage-Fotos und bereitet sie für die PDF-Einbettung auf
+   * (EXIF-Orientierung anwenden, herunterrechnen).
+   *
+   * Fehlgeschlagene Fotos werden gezählt und vom Aufrufer sichtbar gemacht —
+   * ein Foto darf nicht unbemerkt aus dem Protokoll fallen, nur weil eine
+   * Signed URL abgelaufen ist oder die Datei nicht dekodiert werden konnte.
+   * Es wird in kleinen Gruppen geladen, damit das Dekodieren mehrerer
+   * hochauflösender Handyfotos den Speicher mobiler WebViews nicht sprengt.
+   */
+  const loadPdfImages = async (
+    paths: string[]
+  ): Promise<{ images: PdfImage[]; fehlgeschlagen: number }> => {
+    if (paths.length === 0) return { images: [], fehlgeschlagen: 0 };
+
+    const images: PdfImage[] = [];
+    let fehlgeschlagen = 0;
+    const BATCH = 3;
+
+    for (let i = 0; i < paths.length; i += BATCH) {
+      const batch = await Promise.all(
+        paths.slice(i, i + BATCH).map(async (path) => {
+          try {
+            const { data } = await supabase.storage
+              .from("dokumente")
+              .createSignedUrl(path, 300);
+            if (!data?.signedUrl) return null;
+            const resp = await fetch(data.signedUrl);
+            if (!resp.ok) return null;
+            return await blobToPdfImage(await resp.blob());
+          } catch {
+            return null;
+          }
+        })
+      );
+      for (const img of batch) {
+        if (img) images.push(img);
+        else fehlgeschlagen++;
+      }
+    }
+
+    return { images, fehlgeschlagen };
   };
 
   const buildPdfData = async (): Promise<UebergabePdfData | null> => {
     if (!uebergabeDatum) return null;
 
-    // Zählerfotos als base64 für PDF-Einbettung laden
-    const meterTypen = ["strom", "gas", "wasser", "warmwasser"] as const;
+    let fotoFehler = 0;
 
     const einheitenWithPhotos = await Promise.all(
       contracts.map(async (c) => {
         const photos = meterPhotosPerContract[c.id] ?? {};
-        const zaehlerfotos: Record<string, string[]> = {};
+        const zaehlerfotos: Partial<Record<MeterTyp, PdfImage[]>> = {};
 
-        for (const typ of meterTypen) {
-          const paths = photos[typ] ?? [];
-          if (paths.length === 0) continue;
-
-          const base64s = await Promise.all(
-            paths.map(async (path) => {
-              try {
-                const { data } = await supabase.storage
-                  .from("dokumente")
-                  .createSignedUrl(path, 300);
-                if (!data?.signedUrl) return null;
-                const resp = await fetch(data.signedUrl);
-                const blob = await resp.blob();
-                return await new Promise<string | null>((resolve) => {
-                  const reader = new FileReader();
-                  reader.onloadend = () => resolve(reader.result as string);
-                  reader.onerror = () => resolve(null);
-                  reader.readAsDataURL(blob);
-                });
-              } catch {
-                return null;
-              }
-            })
-          );
-
-          const valid = base64s.filter(Boolean) as string[];
-          if (valid.length > 0) zaehlerfotos[typ] = valid;
+        for (const typ of METER_TYPEN) {
+          const { images, fehlgeschlagen } = await loadPdfImages(photos[typ] ?? []);
+          fotoFehler += fehlgeschlagen;
+          if (images.length > 0) zaehlerfotos[typ] = images;
         }
 
         return {
@@ -289,12 +340,16 @@ export const UebergabeDialog = ({
           etage: c.einheit.etage || "",
           qm: null,
           zaehlerstaende: zaehlerstaendePerContract[c.id] || { strom: "", gas: "", wasser: "", warmwasser: "" },
-          zaehlerfotos: Object.keys(zaehlerfotos).length > 0
-            ? zaehlerfotos as UebergabePdfData["einheiten"][number]["zaehlerfotos"]
-            : undefined,
+          zaehlerfotos: Object.keys(zaehlerfotos).length > 0 ? zaehlerfotos : undefined,
         };
       })
     );
+
+    const notizen = await loadPdfImages(notizenPhotos);
+    fotoFehler += notizen.fehlgeschlagen;
+    const notizenFotos = notizen.images;
+
+    setNichtEingebetteteFotos(fotoFehler);
 
     return {
       isEinzug,
@@ -310,20 +365,34 @@ export const UebergabeDialog = ({
       },
       einheiten: einheitenWithPhotos,
       protokollNotizen,
+      notizenFotos,
       vermieterSignature,
       mieterSignature,
     };
   };
 
   const handleGeneratePreview = async () => {
-    const pdfData = await buildPdfData();
-    if (!pdfData) {
+    if (!uebergabeDatum) {
       toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
       return;
     }
+
+    // Vor dem Laden setzen: das Aufbereiten der Fotos dauert, und solange darf
+    // das Formular nicht zurückgesetzt oder ein zweiter Lauf gestartet werden.
     setIsGeneratingPreview(true);
+    const laufNummer = previewLaufRef.current + 1;
+    previewLaufRef.current = laufNummer;
+
     try {
+      const pdfData = await buildPdfData();
+      if (!pdfData) return;
+
       const blob = await generateUebergabePdf(pdfData);
+
+      // Ein zwischenzeitlich gestarteter Lauf oder ein Reset macht dieses
+      // Ergebnis ungültig — sonst zeigt die Vorschau verworfene Daten.
+      if (previewLaufRef.current !== laufNummer) return;
+
       setPdfBlob(blob);
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
@@ -331,7 +400,7 @@ export const UebergabeDialog = ({
     } catch (error) {
       toast({ title: "Fehler", description: "PDF-Vorschau konnte nicht erstellt werden.", variant: "destructive" });
     } finally {
-      setIsGeneratingPreview(false);
+      if (previewLaufRef.current === laufNummer) setIsGeneratingPreview(false);
     }
   };
 
@@ -361,23 +430,30 @@ export const UebergabeDialog = ({
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
+      // supabase-js wirft bei Query-Fehlern nicht — ohne diese Prüfungen würde
+      // ein fehlgeschlagenes Update (RLS, Netzwerk) mit "Protokoll gespeichert"
+      // quittiert und der eben erfasste Zählerstand wäre still verloren.
       for (const contract of contracts) {
         const zaehlerstaende = zaehlerstaendePerContract[contract.id] || { strom: "", gas: "", wasser: "", warmwasser: "" };
-        if (isEinzug) {
-          await supabase.from("mietvertrag").update({
-            strom_einzug: zaehlerstaende.strom ? parseFloat(zaehlerstaende.strom) : null,
-            gas_einzug: zaehlerstaende.gas ? parseFloat(zaehlerstaende.gas) : null,
-            kaltwasser_einzug: zaehlerstaende.wasser ? parseFloat(zaehlerstaende.wasser) : null,
-            warmwasser_einzug: zaehlerstaende.warmwasser ? parseFloat(zaehlerstaende.warmwasser) : null,
-          }).eq("id", contract.id);
-        } else {
-          await supabase.from("mietvertrag").update({
-            strom_auszug: zaehlerstaende.strom ? parseFloat(zaehlerstaende.strom) : null,
-            gas_auszug: zaehlerstaende.gas ? parseFloat(zaehlerstaende.gas) : null,
-            kaltwasser_auszug: zaehlerstaende.wasser ? parseFloat(zaehlerstaende.wasser) : null,
-            warmwasser_auszug: zaehlerstaende.warmwasser ? parseFloat(zaehlerstaende.warmwasser) : null,
-          }).eq("id", contract.id);
-        }
+        const staende = isEinzug
+          ? {
+              strom_einzug: parseZaehlerstand(zaehlerstaende.strom),
+              gas_einzug: parseZaehlerstand(zaehlerstaende.gas),
+              kaltwasser_einzug: parseZaehlerstand(zaehlerstaende.wasser),
+              warmwasser_einzug: parseZaehlerstand(zaehlerstaende.warmwasser),
+            }
+          : {
+              strom_auszug: parseZaehlerstand(zaehlerstaende.strom),
+              gas_auszug: parseZaehlerstand(zaehlerstaende.gas),
+              kaltwasser_auszug: parseZaehlerstand(zaehlerstaende.wasser),
+              warmwasser_auszug: parseZaehlerstand(zaehlerstaende.warmwasser),
+            };
+
+        const { error: vertragError } = await supabase
+          .from("mietvertrag")
+          .update(staende)
+          .eq("id", contract.id);
+        if (vertragError) throw vertragError;
       }
 
       // Zählerstände in zaehlerstand_historie eintragen
@@ -395,34 +471,35 @@ export const UebergabeDialog = ({
             { typ: "warmwasser", wert: z.warmwasser },
           ] as const
         )
-          .filter(({ wert }) => wert !== "" && !isNaN(parseFloat(wert)))
-          .map(({ typ, wert }) => ({
+          .map(({ typ, wert }) => ({ typ, stand: parseZaehlerstand(wert) }))
+          .filter((eintrag): eintrag is { typ: typeof eintrag.typ; stand: number } => eintrag.stand !== null)
+          .map(({ typ, stand }) => ({
             einheit_id: einheitId,
             immobilie_id: immobilieId,
             zaehler_typ: typ,
-            stand: parseFloat(wert),
+            stand,
             datum: historieDatum,
             quelle: historieQuelle,
             erstellt_von: user?.id ?? null,
           }));
       });
       if (historieEintraege.length > 0) {
-        await supabase.from("zaehlerstand_historie").insert(historieEintraege);
+        const { error: historieError } = await supabase
+          .from("zaehlerstand_historie")
+          .insert(historieEintraege);
+        if (historieError) throw historieError;
       }
 
       // Zählerfotos als Einträge in der dokumente-Tabelle speichern
-      const meterTypen = ["strom", "gas", "wasser", "warmwasser"] as const;
-      const meterLabels: Record<string, string> = {
-        strom: "Strom", gas: "Gas", wasser: "Kaltwasser", warmwasser: "Warmwasser",
-      };
       const uebergabeTypLabel = isEinzug ? "Einzug" : "Auszug";
+      const datumLabel = format(uebergabeDatum!, "dd.MM.yyyy", { locale: de });
       const dokumenteInserts = contracts.flatMap((contract) => {
         const photos = meterPhotosPerContract[contract.id] ?? {};
-        return meterTypen.flatMap((typ) => {
+        return METER_TYPEN.flatMap((typ) => {
           const paths = photos[typ] ?? [];
           return paths.map((pfad) => ({
             pfad,
-            titel: `Zähler ${meterLabels[typ]} (${uebergabeTypLabel}) – ${format(uebergabeDatum!, "dd.MM.yyyy", { locale: de })}`,
+            titel: `Zähler ${METER_LABELS[typ]} (${uebergabeTypLabel}) – ${datumLabel}`,
             kategorie: "Übergabeprotokoll" as const,
             dateityp: null,
             groesse_bytes: null,
@@ -434,6 +511,26 @@ export const UebergabeDialog = ({
           }));
         });
       });
+
+      // Zustandsfotos aus dem Notizen-Bereich ebenfalls registrieren — sie lagen
+      // bisher nur im Storage und waren dadurch in der App unauffindbar.
+      dokumenteInserts.push(
+        ...notizenPhotos.flatMap((pfad) =>
+          contracts.map((contract) => ({
+            pfad,
+            titel: `Zustandsfoto (${uebergabeTypLabel}) – ${datumLabel}`,
+            kategorie: "Übergabeprotokoll" as const,
+            dateityp: null,
+            groesse_bytes: null,
+            mietvertrag_id: contract.id,
+            immobilie_id: null,
+            erstellt_von: user?.id ?? null,
+            hochgeladen_am: new Date().toISOString(),
+            geloescht: false,
+          }))
+        )
+      );
+
       if (dokumenteInserts.length > 0) {
         const { error: dokError } = await supabase.from("dokumente").insert(dokumenteInserts);
         if (dokError) throw dokError;
@@ -441,31 +538,41 @@ export const UebergabeDialog = ({
 
       // PDF-Protokoll in Storage hochladen und als Dokument speichern
       // → unabhängig davon, ob E-Mail versendet wird
-      let pdfSavedPath: string | null = null;
-      if (pdfBlob) {
+      //
+      // Das PDF wird hier neu erzeugt statt die letzte Vorschau zu verwenden:
+      // wer nach dem Erstellen der Vorschau noch einen Zählerstand korrigiert
+      // und dann speichert, bekäme sonst ein archiviertes und versendetes
+      // Protokoll, das nicht zu den gespeicherten Daten passt.
+      const pdfData = await buildPdfData();
+      const aktuellesPdf = pdfData ? await generateUebergabePdf(pdfData) : null;
+
+      if (aktuellesPdf) {
+        setPdfBlob(aktuellesPdf);
+        if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(URL.createObjectURL(aktuellesPdf));
+
         const fileName = getPdfFileName();
         const filePath = `uebergabeprotokolle/${contracts[0].id}/${fileName}`;
         const { error: pdfUploadError } = await supabase.storage
           .from("dokumente")
-          .upload(filePath, pdfBlob, { contentType: "application/pdf", upsert: true });
-        if (!pdfUploadError) {
-          const pdfDokInserts = contracts.map((contract) => ({
-            pfad: filePath,
-            titel: `Übergabeprotokoll (${uebergabeTypLabel}) – ${format(uebergabeDatum!, "dd.MM.yyyy", { locale: de })}`,
-            kategorie: "Übergabeprotokoll" as const,
-            dateityp: "application/pdf",
-            groesse_bytes: pdfBlob.size,
-            mietvertrag_id: contract.id,
-            immobilie_id: null,
-            erstellt_von: user?.id ?? null,
-            hochgeladen_am: new Date().toISOString(),
-            geloescht: false,
-          }));
-          const { error: pdfDokError } = await supabase.from("dokumente").insert(pdfDokInserts);
-          if (pdfDokError) throw pdfDokError;
-          pdfSavedPath = filePath;
-          setSavedPdfPath(filePath);
-        }
+          .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: true });
+        if (pdfUploadError) throw pdfUploadError;
+
+        const pdfDokInserts = contracts.map((contract) => ({
+          pfad: filePath,
+          titel: `Übergabeprotokoll (${uebergabeTypLabel}) – ${datumLabel}`,
+          kategorie: "Übergabeprotokoll" as const,
+          dateityp: "application/pdf",
+          groesse_bytes: aktuellesPdf.size,
+          mietvertrag_id: contract.id,
+          immobilie_id: null,
+          erstellt_von: user?.id ?? null,
+          hochgeladen_am: new Date().toISOString(),
+          geloescht: false,
+        }));
+        const { error: pdfDokError } = await supabase.from("dokumente").insert(pdfDokInserts);
+        if (pdfDokError) throw pdfDokError;
+        setSavedPdfPath(filePath);
       }
 
       setIsSaved(true);
@@ -493,6 +600,36 @@ export const UebergabeDialog = ({
   const updateMieterEmail = (mieterId: string, email: string) => {
     setMieterEmails((prev) => ({ ...prev, [mieterId]: email }));
   };
+
+  // Sicherheitsnetz: Zählerfoto hochgeladen, aber kein Zählerstand erfasst.
+  // Genau diese Kombination hat schon einmal zu einem Protokoll ohne
+  // Wasserstände geführt, ohne dass es beim Ausfüllen auffiel.
+  const fehlendeZaehlerstaende = contracts.flatMap((contract) =>
+    METER_TYPEN.filter((typ) => {
+      const hatFoto = (meterPhotosPerContract[contract.id]?.[typ]?.length ?? 0) > 0;
+      const hatWert = parseZaehlerstand(zaehlerstaendePerContract[contract.id]?.[typ] ?? "") !== null;
+      return hatFoto && !hatWert;
+    }).map((typ) => ({
+      key: `${contract.id}-${typ}`,
+      label: METER_LABELS[typ],
+      einheit: contracts.length > 1 ? contract.einheit.immobilie.name : null,
+    }))
+  );
+
+  // Eingaben, die sich nicht eindeutig als Zahl lesen lassen (z.B. "12,34,5").
+  // Sie werden markiert statt beim Speichern still zu null zu werden.
+  const ungueltigeZaehlerstaende = contracts.flatMap((contract) =>
+    METER_TYPEN.filter(
+      (typ) => !istGueltigeZaehlerstandEingabe(zaehlerstaendePerContract[contract.id]?.[typ])
+    ).map((typ) => ({
+      key: `${contract.id}-${typ}`,
+      label: METER_LABELS[typ],
+      einheit: contracts.length > 1 ? contract.einheit.immobilie.name : null,
+    }))
+  );
+
+  const istZaehlerstandUngueltig = (contractId: string, typ: MeterTyp): boolean =>
+    !istGueltigeZaehlerstandEingabe(zaehlerstaendePerContract[contractId]?.[typ]);
 
   // ============ FORM CONTENT ============
   const formContent = (
@@ -576,23 +713,23 @@ export const UebergabeDialog = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Strom (kWh)</Label>
-              <Input type="number" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.strom || ""} onChange={(e) => updateZaehlerstand(contract.id, "strom", e.target.value)} className="h-10" />
-              <MeterPhotoUpload contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} />
+              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.strom || ""} onChange={(e) => updateZaehlerstand(contract.id, "strom", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "strom") && "border-destructive focus-visible:ring-destructive")} />
+              <MeterPhotoUpload key={`strom-${formResetKey}`} contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Gas (m³)</Label>
-              <Input type="number" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.gas || ""} onChange={(e) => updateZaehlerstand(contract.id, "gas", e.target.value)} className="h-10" />
-              <MeterPhotoUpload contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} />
+              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.gas || ""} onChange={(e) => updateZaehlerstand(contract.id, "gas", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "gas") && "border-destructive focus-visible:ring-destructive")} />
+              <MeterPhotoUpload key={`gas-${formResetKey}`} contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Kaltwasser (m³)</Label>
-              <Input type="number" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.wasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "wasser", e.target.value)} className="h-10" />
-              <MeterPhotoUpload contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} />
+              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.wasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "wasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "wasser") && "border-destructive focus-visible:ring-destructive")} />
+              <MeterPhotoUpload key={`wasser-${formResetKey}`} contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Warmwasser (m³)</Label>
-              <Input type="number" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.warmwasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "warmwasser", e.target.value)} className="h-10" />
-              <MeterPhotoUpload contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} />
+              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.warmwasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "warmwasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "warmwasser") && "border-destructive focus-visible:ring-destructive")} />
+              <MeterPhotoUpload key={`warmwasser-${formResetKey}`} contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} />
             </div>
           </div>
         </div>
@@ -604,10 +741,10 @@ export const UebergabeDialog = ({
           <ClipboardList className="h-4 w-4" />
           Übergabeprotokoll Notizen
         </Label>
-        {!isEinzug && contracts.length > 0 && (
+        {contracts.length > 0 && (
           <div className="mb-3">
             <Label className="text-xs text-muted-foreground mb-2 block">Fotos (z.B. Mängel, Zustand)</Label>
-            <NotizenPhotoUpload contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} />
+            <NotizenPhotoUpload key={formResetKey} contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} />
           </div>
         )}
         <Textarea placeholder="Zustand der Wohnung, Mängel, Besonderheiten..." value={protokollNotizen} onChange={(e) => setProtokollNotizen(e.target.value)} className="min-h-[100px] resize-none" />
@@ -686,11 +823,55 @@ export const UebergabeDialog = ({
         </div>
       </div>
 
+      {/* Fehler: Eingabe nicht als Zahl lesbar */}
+      {ungueltigeZaehlerstaende.length > 0 && (
+        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Zählerstand nicht lesbar</p>
+            <p className="text-xs mt-0.5">
+              {ungueltigeZaehlerstaende.map((f) => (f.einheit ? `${f.label} (${f.einheit})` : f.label)).join(", ")}{" "}
+              enthält mehrere Trennzeichen. Bitte als Zahl mit höchstens einem Komma eintragen, z.B. 128,456.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Fehler: Foto konnte nicht ins PDF übernommen werden */}
+      {nichtEingebetteteFotos > 0 && (
+        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">
+              {nichtEingebetteteFotos === 1 ? "1 Foto fehlt im Protokoll" : `${nichtEingebetteteFotos} Fotos fehlen im Protokoll`}
+            </p>
+            <p className="text-xs mt-0.5">
+              Konnte nicht geladen werden. Bitte Vorschau erneut erstellen und vor dem Speichern prüfen,
+              ob alle Fotos enthalten sind.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Warnung: Foto da, Zählerstand fehlt */}
+      {!isSaved && fehlendeZaehlerstaende.length > 0 && (
+        <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-lg p-3 text-amber-900 text-sm">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Zählerstand fehlt</p>
+            <p className="text-xs mt-0.5">
+              Für {fehlendeZaehlerstaende.map((f) => (f.einheit ? `${f.label} (${f.einheit})` : f.label)).join(", ")}{" "}
+              wurde ein Foto hochgeladen, aber kein Zählerstand eingetragen. Diese Werte fehlen sonst im Protokoll.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="flex flex-col gap-3 pt-4 border-t">
         {!isSaved ? (
           <>
-            <Button onClick={handleGeneratePreview} className="w-full h-12 sm:h-10" disabled={isGeneratingPreview || isSubmitting}>
+            <Button onClick={handleGeneratePreview} className="w-full h-12 sm:h-10" disabled={isGeneratingPreview || isSubmitting || ungueltigeZaehlerstaende.length > 0}>
               {isGeneratingPreview ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Vorschau wird erstellt...</>
               ) : showPreview ? (
@@ -706,7 +887,7 @@ export const UebergabeDialog = ({
                   <FileDown className="mr-2 h-4 w-4" />
                   Download
                 </Button>
-                <Button onClick={handleSubmit} disabled={isSubmitting} className="flex-1 h-10">
+                <Button onClick={handleSubmit} disabled={isSubmitting || ungueltigeZaehlerstaende.length > 0} className="flex-1 h-10">
                   {isSubmitting ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird gespeichert...</>
                   ) : (
