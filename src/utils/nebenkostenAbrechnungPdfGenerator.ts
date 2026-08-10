@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { COMPANY } from '@/config/company';
 
 export interface NebenkostenKostenDetail {
   betrkvNummer?: string;
@@ -7,7 +8,6 @@ export interface NebenkostenKostenDetail {
   verteilerschluessel: string;
   anteilProzent: number;
   anteilBetrag: number;
-  // Neu: für Seite-3-Tabelle
   einheitenGesamt?: number;
   ihreEinheiten?: number;
   nutzungsdauerProzent?: number;
@@ -24,9 +24,14 @@ export interface NebenkostenImmobilieKostenRow {
 export interface NebenkostenAbrechnungPdfData {
   immobilieAdresse: string;
 
+  // Seite 1 – Anschreiben
+  /** Alle Vertragspartner, zusammengefasst. */
+  empfaengerName: string;
+  /** Zustelladresse: Nachsendeadresse nach Auszug, sonst Objektadresse. */
+  empfaengerAdresse: string[];
+
   // Seite 2 – Gesamtaufstellung Immobilie
   gesamtFlaeche: number;
-  gesamtPersonenzahl: number;
   anzahlWohneinheiten: number;
   gesamtPersonentage: number;
   immobilieKosten: NebenkostenImmobilieKostenRow[];
@@ -39,6 +44,8 @@ export interface NebenkostenAbrechnungPdfData {
   personentageEinheit: number;
   mieterName: string;
   abrechnungsjahr: number;
+  abrechnungszeitraumVon: string;
+  abrechnungszeitraumBis: string;
   nutzungVon: string;
   nutzungBis: string;
   kostenDetails: NebenkostenKostenDetail[];
@@ -99,16 +106,10 @@ export async function generateNebenkostenAbrechnungPdf(
   const MR = 15;
   const CW = PW - ML - MR;
 
-  // ── Seite 1: Anschreiben ──────────────────────────────────────────────────
-
   await seite1(doc, data, logo, PW, ML, MR, CW);
 
-  // ── Seite 2: Gesamtaufstellung Immobilie ──────────────────────────────────
-
   doc.addPage();
-  seite2(doc, data, logo, PW, ML, MR, CW);
-
-  // ── Seite 3: Einzelmieter-Abrechnung ──────────────────────────────────────
+  seite2(doc, data, PW, ML, MR, CW);
 
   doc.addPage();
   seite3(doc, data, logo, PW, ML, MR, CW);
@@ -129,18 +130,15 @@ async function seite1(
 ) {
   const FOOTER_Y = 272;
 
-  // Logo zentriert
   if (logo) {
     doc.addImage(logo, 'PNG', PW / 2 - 22, 8, 44, 14);
   }
 
-  // "— Gruppe —" unter Logo
   doc.setFontSize(8);
   doc.setTextColor(...GRAY);
   doc.setFont('helvetica', 'normal');
   doc.text('— Gruppe —', PW / 2, 25, { align: 'center' });
 
-  // Orangene Trennlinie
   doc.setDrawColor(...ORANGE);
   doc.setLineWidth(0.6);
   doc.line(ML, 28, PW - MR, 28);
@@ -150,27 +148,26 @@ async function seite1(
   // Absender-Zeile (klein, unterstrichen)
   doc.setFontSize(7);
   doc.setTextColor(...GRAY);
-  doc.text('NiImmo Wohnungsbaugesellschaft mbH, Egerstorffstraße 11, 33119 Sehnde', ML, y);
+  doc.text(COMPANY.anschriftEinzeilig, ML, y);
   doc.setDrawColor(...GRAY);
   doc.setLineWidth(0.2);
   doc.line(ML, y + 1, ML + 120, y + 1);
 
   y += 9;
 
-  // Empfänger-Block (links) + Kontakt-Block (rechts)
-  const adressParts = data.immobilieAdresse.split(', ');
-  const strasse = adressParts[0] || data.immobilieAdresse;
-  const plzOrt = adressParts.slice(1).join(', ') || '';
-
+  // Empfängerblock: Name aller Vertragspartner + Zustelladresse
   doc.setFontSize(10);
   doc.setTextColor(...DARK);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.mieterName, ML, y);
-  y += 5;
+  const nameZeilen = doc.splitTextToSize(data.empfaengerName, 100);
+  doc.text(nameZeilen, ML, y);
+  y += nameZeilen.length * 5;
+
   doc.setFont('helvetica', 'normal');
-  doc.text(strasse, ML, y);
-  y += 5;
-  doc.text(plzOrt, ML, y);
+  data.empfaengerAdresse.forEach(zeile => {
+    doc.text(zeile, ML, y);
+    y += 5;
+  });
 
   // Kontakt-Box rechts
   const kontaktX = 130;
@@ -180,27 +177,25 @@ async function seite1(
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
-  doc.text('Denis Baris Mikyas', kontaktX, 43);
+  doc.text(COMPANY.ansprechpartner.name, kontaktX, 43);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...GRAY);
-  doc.text('☎  05138 - 600 72 72', kontaktX, 49);
-  doc.text('✆  05138 - 600 72 79', kontaktX, 54);
-  doc.text('Egerstorffstraße 11, 33119 Sehnde', kontaktX, 59);
-  doc.text('mikyas@niimmo.de', kontaktX, 64);
+  doc.text(`Tel.  ${COMPANY.ansprechpartner.telefon}`, kontaktX, 49);
+  doc.text(`Fax  ${COMPANY.ansprechpartner.fax}`, kontaktX, 54);
+  doc.text(`${COMPANY.strasse}, ${COMPANY.plzOrt}`, kontaktX, 59);
+  doc.text(COMPANY.ansprechpartner.email, kontaktX, 64);
 
-  y = 75;
+  y = Math.max(y, 72) + 3;
 
-  // Datum rechts
   doc.setFontSize(9.5);
   doc.setTextColor(...DARK);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Sehnde, ${data.abrechnungsDatum}`, PW - MR, y, { align: 'right' });
+  doc.text(`${COMPANY.ort}, ${data.abrechnungsDatum}`, PW - MR, y, { align: 'right' });
 
   y += 12;
 
   // Betreff
-  const immStrasse = adressParts[0] || data.immobilieAdresse;
   doc.setFontSize(10.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
@@ -210,77 +205,75 @@ async function seite1(
 
   y += 10;
 
-  // Anrede
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text('Sehr geehrte Damen und Herren,', ML, y);
 
   y += 8;
 
-  // Absatz 1
   const p1 = doc.splitTextToSize(
     `anliegend erhalten Sie die Betriebskostenabrechnung für das Kalenderjahr ${data.abrechnungsjahr}. ` +
-    `Der Abrechnungszeitraum umfasst den Zeitraum vom 1. Januar bis 31. Dezember ${data.abrechnungsjahr}.`,
+    `Der Abrechnungszeitraum umfasst den Zeitraum vom ${data.abrechnungszeitraumVon} bis ${data.abrechnungszeitraumBis}. ` +
+    `Ihr persönlicher Nutzungszeitraum lag vom ${data.nutzungVon} bis ${data.nutzungBis}.`,
     CW
   );
   doc.text(p1, ML, y);
   y += p1.length * 5.5 + 5;
 
-  // Absatz 2
+  const isNachzahlung = data.saldo > 0.01;
+  const isGuthaben = data.saldo < -0.01;
   const deadline = `30. März ${data.abrechnungsjahr + 1}`;
-  const p2 = doc.splitTextToSize(
+
+  let p2Text =
     'Die Abrechnung wurde nach bestem Wissen und Gewissen sowie auf Grundlage der uns vorliegenden ' +
-    'Unterlagen erstellt. Ein sich ergebendes Guthaben wird Ihnen umgehend überwiesen. Sollte sich ' +
-    `eine Nachzahlung ergeben, bitten wir um Ausgleich des ausgewiesenen Betrags bis spätestens ` +
-    `${deadline} auf das bekannte Mietkonto.`,
-    CW
-  );
+    'Unterlagen erstellt. ';
+  if (isGuthaben) {
+    p2Text += 'Das ausgewiesene Guthaben wird Ihnen umgehend überwiesen.';
+  } else if (isNachzahlung) {
+    p2Text +=
+      `Wir bitten um Ausgleich des ausgewiesenen Nachzahlungsbetrags bis spätestens ${deadline} ` +
+      'auf das bekannte Mietkonto.';
+  } else {
+    p2Text += 'Vorauszahlungen und Kosten gleichen sich aus, es ergibt sich kein Saldo.';
+  }
+
+  const p2 = doc.splitTextToSize(p2Text, CW);
   doc.text(p2, ML, y);
   y += p2.length * 5.5 + 5;
 
-  // Absatz 3
   const p3 = doc.splitTextToSize(
     'Für Rückfragen zur Abrechnung oder zu den einzelnen Positionen stehen wir Ihnen ' +
-    'selbstverständlich gerne zur Verfügung.',
+    'selbstverständlich gerne zur Verfügung. Die zugrunde liegenden Belege können Sie nach ' +
+    'Terminvereinbarung in unseren Geschäftsräumen einsehen.',
     CW
   );
   doc.text(p3, ML, y);
   y += p3.length * 5.5 + 12;
 
-  // Gruß
   doc.text('Mit freundlichem Gruß', ML, y);
-  y += 18; // Platz für Unterschrift
+  y += 18;
 
-  // Unterschrift-Bereich
   doc.setDrawColor(180, 180, 180);
   doc.setLineWidth(0.3);
   doc.line(ML, y, ML + 55, y);
   y += 4;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('Denis Mikyas', ML, y);
+  doc.text(COMPANY.ansprechpartner.unterschrift, ML, y);
   y += 4;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(...GRAY);
-  doc.text('Geschäftsführer', ML, y);
+  doc.text(COMPANY.ansprechpartner.funktion, ML, y);
 
-  // Orangene Linie über Footer
   doc.setDrawColor(...ORANGE);
   doc.setLineWidth(0.6);
   doc.line(ML, FOOTER_Y - 4, PW - MR, FOOTER_Y - 4);
 
-  // Footer
   doc.setFontSize(6.5);
   doc.setTextColor(...GRAY);
   doc.setFont('helvetica', 'normal');
-  const footerLinks = [
-    'Vertretungsberechtigte Geschäftsführer: Ayhan Yeyrek, Denis Mikyas',
-    'Registrierung: HRB 208151 | Amtsgericht Hildesheim',
-    'Gewerberlaubnis nach § 34c GewO | IHK Hannover',
-    `Steuer-Nr.: 16/204/50864`,
-  ];
-  footerLinks.forEach((line, i) => {
+  COMPANY.rechtliches.forEach((line, i) => {
     doc.text(line, ML, FOOTER_Y + i * 4);
   });
   doc.setFont('helvetica', 'bold');
@@ -295,7 +288,6 @@ async function seite1(
 function seite2(
   doc: jsPDF,
   data: NebenkostenAbrechnungPdfData,
-  logo: string | null,
   PW: number,
   ML: number,
   MR: number,
@@ -303,7 +295,6 @@ function seite2(
 ) {
   let y = 15;
 
-  // Titel
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
@@ -317,12 +308,9 @@ function seite2(
 
   y += 10;
 
-  // Meta-Tabelle (2-spaltig)
   const metaRows: [string, string][] = [
-    ['Abrechnungszeitraum', `01.01.${data.abrechnungsjahr}  –  31.12.${data.abrechnungsjahr}`],
-    ['Nutzungszeitraum', `01.01.${data.abrechnungsjahr}  –  31.12.${data.abrechnungsjahr}`],
+    ['Abrechnungszeitraum', `${data.abrechnungszeitraumVon}  –  ${data.abrechnungszeitraumBis}`],
     ['Gesamt-Fläche', `${data.gesamtFlaeche.toFixed(0)} m²`],
-    ['Gesamt-Personenzahl pro Jahr', `${data.gesamtPersonenzahl} Personen`],
     ['Gesamtanzahl d. Wohneinheiten', `${data.anzahlWohneinheiten}`],
     ['Gesamt-Personentage', `${data.gesamtPersonentage}`],
   ];
@@ -339,7 +327,6 @@ function seite2(
 
   y += 8;
 
-  // Tabellen-Header (orange Hintergrund)
   const colX = [ML, ML + 100, ML + 134, ML + 158];
   const headerH = 7;
   doc.setFillColor(...ORANGE);
@@ -355,7 +342,6 @@ function seite2(
 
   y += 5;
 
-  // Kostenzeilen
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
 
@@ -368,8 +354,7 @@ function seite2(
     shade = !shade;
 
     doc.setTextColor(...DARK);
-    const nameText = `${row.betrkvNummer}  ${row.name}`;
-    doc.text(nameText, colX[0] + 2, y, { maxWidth: 96 });
+    doc.text(`${row.betrkvNummer}  ${row.name}`, colX[0] + 2, y, { maxWidth: 96 });
 
     doc.setTextColor(...GRAY);
     doc.text(SCHLUESSEL_LABEL[row.verteilerschluessel] || row.verteilerschluessel, colX[1] + 2, y);
@@ -383,7 +368,6 @@ function seite2(
     y += 6;
   });
 
-  // Summenzeile
   doc.setDrawColor(...ORANGE);
   doc.setLineWidth(0.5);
   doc.line(ML, y, PW - MR, y);
@@ -393,6 +377,17 @@ function seite2(
   doc.setTextColor(...DARK);
   doc.text('Gesamtkosten', ML + 2, y);
   doc.text(formatEur(data.immobilieGesamtkosten), colX[2] + 27, y, { align: 'right' });
+
+  y += 8;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(...GRAY);
+  const hinweis = doc.splitTextToSize(
+    'Jahresübergreifende Rechnungen (z. B. Heizperioden) sind zeitanteilig mit dem auf diesen ' +
+    'Abrechnungszeitraum entfallenden Anteil berücksichtigt.',
+    CW
+  );
+  doc.text(hinweis, ML, y);
 }
 
 // ─── Seite 3: Einzelmieter ───────────────────────────────────────────────────
@@ -408,7 +403,6 @@ function seite3(
 ) {
   let y = 15;
 
-  // Titel links + Logo rechts
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
@@ -426,19 +420,17 @@ function seite3(
 
   y += 8;
 
-  // Meta-Block (links: Einheit/Mieter | rechts: Gesamt-Immobilie)
   const metaL: [string, string][] = [
     ['Wohneinheit', data.einheitBezeichnung],
-    ['Nutz', data.mieterName],
+    ['Nutzer', data.mieterName],
     ['Nutzerzahl', `${data.anzahlPersonen} Person(en)`],
     ['Personentage', `${data.personentageEinheit}`],
     ['Wohnfläche', `${data.qm.toFixed(0)} m²`],
     ['Nutzungszeitraum', `${data.nutzungVon}  –  ${data.nutzungBis}`],
   ];
   const metaR: [string, string][] = [
-    ['Abrechnungszeitraum', `01.01.${data.abrechnungsjahr}  –  31.12.${data.abrechnungsjahr}`],
+    ['Abrechnungszeitraum', `${data.abrechnungszeitraumVon}  –  ${data.abrechnungszeitraumBis}`],
     ['Gesamt-Fläche', `${data.gesamtFlaeche.toFixed(0)} m²`],
-    ['Gesamt-Personenzahl', `${data.gesamtPersonenzahl} Personen`],
     ['Gesamtanzahl WE', `${data.anzahlWohneinheiten}`],
     ['Gesamt-Personentage', `${data.gesamtPersonentage}`],
   ];
@@ -453,7 +445,7 @@ function seite3(
     doc.text(label, ML, y);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...DARK);
-    doc.text(value, ML + 30, y);
+    doc.text(value, ML + 30, y, { maxWidth: halfCW - 32 });
     y += 4.5;
   });
 
@@ -471,10 +463,8 @@ function seite3(
 
   y = Math.max(y, yr) + 6;
 
-  // ── Kostentabelle (7 Spalten) ──────────────────────────────────────────────
-  // Spaltenbreiten: Kostenart | Verteil | Betrag | Einh.ges. | Preis/E | % Nutz | Kosten
-  const cW = [58, 19, 22, 19, 17, 14, 21]; // Summe = 170 = CW (PW=210, ML=15, MR=25)
-  // x-Positionen
+  // Kostentabelle: Kostenart | Verteil. | Betrag | Einh.ges. | Preis/E | Ihre Einh. | Kosten
+  const cW = [58, 19, 22, 19, 17, 14, 21];
   const cx: number[] = [];
   let acc = ML;
   cW.forEach(w => { cx.push(acc); acc += w; });
@@ -491,7 +481,7 @@ function seite3(
   doc.text('Betrag ges.', cx[2] + cW[2], y, { align: 'right' });
   doc.text('Einh. ges.', cx[3] + cW[3], y, { align: 'right' });
   doc.text('Preis/E.', cx[4] + cW[4], y, { align: 'right' });
-  doc.text('% Nutz.', cx[5] + cW[5], y, { align: 'right' });
+  doc.text('Ihre Einh.', cx[5] + cW[5], y, { align: 'right' });
   doc.text('Ihre Kosten', cx[6] + cW[6], y, { align: 'right' });
 
   y += 5;
@@ -509,19 +499,8 @@ function seite3(
 
     const einh = row.einheitenGesamt ?? 0;
     const ihreE = row.ihreEinheiten ?? 0;
-    const nutz = row.nutzungsdauerProzent ?? 100;
     const preisProE = einh > 0 ? row.gesamtKosten / einh : 0;
-
-    const schluessel = row.verteilerschluessel;
-    let einheitenLabel = '';
-    if (schluessel === 'qm') einheitenLabel = `${einh.toFixed(0)} m²`;
-    else if (schluessel === 'personen') einheitenLabel = `${einh.toFixed(0)}`;
-    else einheitenLabel = `${einh.toFixed(0)}`;
-
-    let ihreLabel = '';
-    if (schluessel === 'qm') ihreLabel = `${ihreE.toFixed(0)} m²`;
-    else if (schluessel === 'personen') ihreLabel = `${ihreE.toFixed(0)}`;
-    else ihreLabel = `${ihreE.toFixed(0)}`;
+    const einheitSuffix = row.verteilerschluessel === 'qm' ? ' m²' : '';
 
     doc.setTextColor(...DARK);
     const nameText = row.betrkvNummer
@@ -530,13 +509,21 @@ function seite3(
     doc.text(nameText, cx[0] + 1, y, { maxWidth: cW[0] - 2 });
 
     doc.setTextColor(...GRAY);
-    doc.text(SCHLUESSEL_LABEL[schluessel] || schluessel, cx[1] + 1, y, { maxWidth: cW[1] - 1 });
+    doc.text(
+      SCHLUESSEL_LABEL[row.verteilerschluessel] || row.verteilerschluessel,
+      cx[1] + 1, y, { maxWidth: cW[1] - 1 }
+    );
 
     doc.setTextColor(...DARK);
     doc.text(row.gesamtKosten > 0 ? formatEur(row.gesamtKosten) : '–', cx[2] + cW[2], y, { align: 'right' });
-    doc.text(einh > 0 ? einheitenLabel : '–', cx[3] + cW[3], y, { align: 'right' });
-    doc.text(preisProE > 0 ? preisProE.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '–', cx[4] + cW[4], y, { align: 'right' });
-    doc.text(ihreE > 0 ? ihreLabel : '–', cx[5] + cW[5], y, { align: 'right' });
+    doc.text(einh > 0 ? `${einh.toFixed(0)}${einheitSuffix}` : '–', cx[3] + cW[3], y, { align: 'right' });
+    doc.text(
+      preisProE > 0
+        ? preisProE.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '–',
+      cx[4] + cW[4], y, { align: 'right' }
+    );
+    doc.text(ihreE > 0 ? `${ihreE.toFixed(0)}${einheitSuffix}` : '–', cx[5] + cW[5], y, { align: 'right' });
     doc.setFont('helvetica', 'bold');
     doc.text(row.anteilBetrag > 0.01 ? formatEur(row.anteilBetrag) : '–', cx[6] + cW[6], y, { align: 'right' });
     doc.setFont('helvetica', 'normal');
@@ -544,28 +531,36 @@ function seite3(
     y += 5.5;
   });
 
-  // Summenzeile
   doc.setDrawColor(...ORANGE);
   doc.setLineWidth(0.5);
   doc.line(ML, y, PW - MR, y);
   y += 5;
 
-  // Vorauszahlung
+  // Summe der Kosten
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...GRAY);
-  doc.text('VORAUSZAHLUNGSBETRAG', ML + 2, y);
+  doc.text('IHRE KOSTEN GESAMT', ML + 2, y);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...DARK);
+  doc.text(formatEur(data.kostenAnteilGesamt), cx[6] + cW[6], y, { align: 'right' });
+
+  y += 6;
+
+  // Vorauszahlung
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...GRAY);
+  doc.text('VORAUSZAHLUNGEN LAUT MIETVERTRAG', ML + 2, y);
   doc.text(
     `${data.anzahlMonate.toFixed(1)} Mon. × ${data.monatlicheVorauszahlung.toFixed(2)} €`,
     cx[5] + cW[5], y, { align: 'right' }
   );
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
-  doc.text(formatEur(data.vorauszahlungenGesamt), cx[6] + cW[6], y, { align: 'right' });
+  doc.text(`– ${formatEur(data.vorauszahlungenGesamt)}`, cx[6] + cW[6], y, { align: 'right' });
 
   y += 6;
 
-  // Doppellinie
   doc.setLineWidth(0.4);
   doc.setDrawColor(...DARK);
   doc.line(ML, y, PW - MR, y);
@@ -573,13 +568,20 @@ function seite3(
   y += 7;
 
   // Saldo
-  const isNachzahlung = data.saldo > 0;
+  const isNachzahlung = data.saldo > 0.01;
+  const isGuthaben = data.saldo < -0.01;
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(isNachzahlung ? 180 : 20, isNachzahlung ? 30 : 130, isNachzahlung ? 30 : 60);
-  doc.text(isNachzahlung ? 'Nachzahlung' : 'Guthaben', ML + 2, y);
+  if (isNachzahlung) doc.setTextColor(180, 30, 30);
+  else if (isGuthaben) doc.setTextColor(20, 130, 60);
+  else doc.setTextColor(...DARK);
+
+  const saldoLabel = isNachzahlung ? 'Nachzahlung' : isGuthaben ? 'Guthaben' : 'Ausgeglichen';
+  doc.text(saldoLabel, ML + 2, y);
   doc.text(
-    `${isNachzahlung ? '+' : ''}${formatEur(Math.abs(data.saldo))}`,
+    Math.abs(data.saldo) < 0.01
+      ? '0,00 €'
+      : `${isNachzahlung ? '+' : ''}${formatEur(Math.abs(data.saldo))}`,
     cx[6] + cW[6], y, { align: 'right' }
   );
 
@@ -590,9 +592,10 @@ function seite3(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...GRAY);
   const fn = doc.splitTextToSize(
-    'gemäß § 2 Nr. 4 Betriebskostenverordnung, Verteilung nach Personenzahl (§ 9 HeizkostenV). ' +
-    'Gemäß § 556 BGB haben Sie das Recht, die Belege einzusehen. Einwendungen sind innerhalb von ' +
-    '12 Monaten nach Zugang geltend zu machen (§ 556 Abs. 3 BGB).',
+    'Umlage nach § 2 Betriebskostenverordnung. Der Verteilerschlüssel ist je Kostenart in der ' +
+    'Spalte „Verteil." ausgewiesen; bei unterjährigem Nutzungswechsel erfolgt die Umlage ' +
+    'zeitanteilig. Gemäß § 556 BGB haben Sie das Recht, die Belege einzusehen. Einwendungen sind ' +
+    'innerhalb von 12 Monaten nach Zugang dieser Abrechnung geltend zu machen (§ 556 Abs. 3 BGB).',
     CW
   );
   doc.text(fn, ML, y);

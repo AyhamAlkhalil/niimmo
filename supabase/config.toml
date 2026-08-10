@@ -45,5 +45,9 @@ verify_jwt = false
 [functions.send-uebergabe-email]
 verify_jwt = false
 
+# Prüft Login und Admin-Rolle selbst (siehe index.ts).
+[functions.send-nebenkostenabrechnung]
+verify_jwt = false
+
 [functions.agent-api]
 verify_jwt = false

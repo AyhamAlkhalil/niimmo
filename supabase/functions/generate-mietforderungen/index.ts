@@ -119,12 +119,16 @@ Deno.serve(async (req) => {
         // Round to 2 decimal places
         sollbetrag = Math.round(sollbetrag * 100) / 100;
 
-        // Check if Mietforderung already exists
+        // Check if Mietforderung already exists.
+        // Der typ-Filter ist zwingend: eine BKA-Position im selben Sollmonat würde
+        // sonst als Mietforderung behandelt und mit der Sollmiete überschrieben —
+        // bzw. maybeSingle() würde bei zwei Zeilen den Vertrag komplett überspringen.
         const { data: existingForderung, error: checkError } = await supabase
           .from('mietforderungen')
           .select('id, sollbetrag')
           .eq('mietvertrag_id', contract.id)
           .eq('sollmonat', currentMonth)
+          .or('typ.is.null,typ.eq.Miete')
           .maybeSingle();
 
         if (checkError) {
@@ -141,6 +145,7 @@ Deno.serve(async (req) => {
               mietvertrag_id: contract.id,
               sollmonat: currentMonth,
               sollbetrag: sollbetrag,
+              typ: 'Miete',
             });
 
           if (insertError) {

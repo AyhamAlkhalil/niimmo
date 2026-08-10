@@ -1,5 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -31,30 +30,51 @@ import {
   AlertCircle,
   Check,
 } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { BETRKV_KATEGORIEN, NICHT_UMLAGEFAEHIGE_KATEGORIEN } from "./nebenkostenKategorien";
-
-const ALL_KATEGORIEN = [...BETRKV_KATEGORIEN, ...NICHT_UMLAGEFAEHIGE_KATEGORIEN];
+import {
+  BETRKV_KATEGORIEN,
+  NICHT_UMLAGEFAEHIGE_KATEGORIEN,
+  findeKategorieNachId,
+  findeKategorieNachName,
+} from "./nebenkostenKategorien";
+import {
+  useNebenkostenarten,
+  useInvalidateNebenkosten,
+  findeOderErstelleNebenkostenart,
+  type KostenpositionMitArt,
+} from "@/hooks/useNebenkostenDaten";
 
 interface SplitLine {
-  id: string; // temp client id
+  id: string;
   kategorieId: string;
   betrag: string;
-  zeitraumVon: string; // "yyyy-MM-dd"
-  zeitraumBis: string; // "yyyy-MM-dd"
+  zeitraumVon: string;
+  zeitraumBis: string;
   bezeichnung: string;
-  existingPositionId?: string; // if editing an existing kostenposition
+  existingPositionId?: string;
 }
 
 interface NebenkostenSplitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  zahlung: any | null;
+  /** null = manuelle Kostenposition ohne zugeordnete Bankbewegung. */
+  zahlung: {
+    id: string;
+    betrag: number;
+    buchungsdatum: string;
+    empfaengername: string | null;
+    verwendungszweck: string | null;
+    iban: string | null;
+  } | null;
   immobilieId: string;
   selectedYear: number;
+  /** Bereits vorhandene Positionen dieser Zahlung. */
+  bestehendePositionen?: KostenpositionMitArt[];
+  /** Kategorie, die beim Öffnen vorausgewählt wird (z. B. aus dem KI-Vorschlag). */
+  vorschlagKategorieId?: string;
 }
 
 export function NebenkostenSplitDialog({
@@ -63,118 +83,102 @@ export function NebenkostenSplitDialog({
   zahlung,
   immobilieId,
   selectedYear,
+  bestehendePositionen,
+  vorschlagKategorieId,
 }: NebenkostenSplitDialogProps) {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidateNebenkosten(immobilieId);
+  const { data: nebenkostenarten } = useNebenkostenarten(immobilieId);
   const [lines, setLines] = useState<SplitLine[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch nebenkostenarten for this property
-  const { data: nebenkostenarten } = useQuery({
-    queryKey: ["nebenkostenarten-betrkv", immobilieId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("nebenkostenarten")
-        .select("*")
-        .eq("immobilie_id", immobilieId);
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
-  // Fetch existing kostenpositionen for this zahlung
-  const { data: existingPositionen } = useQuery({
-    queryKey: ["kostenpositionen-for-zahlung", zahlung?.id],
-    queryFn: async () => {
-      if (!zahlung?.id) return [];
-      const { data, error } = await supabase
-        .from("kostenpositionen")
-        .select("*")
-        .eq("zahlung_id", zahlung.id);
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !!zahlung?.id,
-  });
-
+  const istManuell = zahlung === null;
   const defaultVon = `${selectedYear}-01-01`;
   const defaultBis = `${selectedYear}-12-31`;
 
-  // Initialize lines from existing positions or empty
-  useEffect(() => {
-    if (!open || !zahlung) return;
+  const createEmptyLine = useCallback(
+    (kategorieId = ""): SplitLine => ({
+      id: crypto.randomUUID(),
+      kategorieId,
+      betrag: "",
+      zeitraumVon: defaultVon,
+      zeitraumBis: defaultBis,
+      bezeichnung: kategorieId ? findeKategorieNachId(kategorieId)?.name ?? "" : "",
+    }),
+    [defaultVon, defaultBis]
+  );
 
-    if (existingPositionen && existingPositionen.length > 0) {
-      const existingLines: SplitLine[] = existingPositionen.map((pos) => {
-        const art = nebenkostenarten?.find((n) => n.id === pos.nebenkostenart_id);
-        let kategorieId = "";
-        if (art) {
-          const found = ALL_KATEGORIEN.find(
-            (k) => art.name.toLowerCase().replace(/[^a-zäöü]/g, "") === k.name.toLowerCase().replace(/[^a-zäöü]/g, "")
-          );
-          if (found) kategorieId = found.id;
-        }
-        return {
+  // Nur beim Öffnen befüllen. Ohne diese Sperre würde jeder Hintergrund-Refetch
+  // von React Query (z. B. beim Fensterwechsel) die Eingaben zurücksetzen.
+  const [initialisiertFuer, setInitialisiertFuer] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      if (initialisiertFuer !== null) setInitialisiertFuer(null);
+      return;
+    }
+
+    const schluessel = zahlung?.id ?? "manuell";
+    if (initialisiertFuer === schluessel) return;
+
+    if (bestehendePositionen && bestehendePositionen.length > 0) {
+      setLines(
+        bestehendePositionen.map((pos) => ({
           id: crypto.randomUUID(),
-          kategorieId,
+          kategorieId: findeKategorieNachName(pos.nebenkostenart?.name)?.id ?? "",
           betrag: pos.gesamtbetrag.toString(),
           zeitraumVon: pos.zeitraum_von ?? defaultVon,
           zeitraumBis: pos.zeitraum_bis ?? defaultBis,
           bezeichnung: pos.bezeichnung || "",
           existingPositionId: pos.id,
-        };
-      });
-      setLines(existingLines);
+        }))
+      );
     } else {
-      setLines([createEmptyLine()]);
+      setLines([createEmptyLine(vorschlagKategorieId ?? "")]);
     }
-  }, [open, zahlung?.id, existingPositionen, nebenkostenarten]);
-
-  function createEmptyLine(): SplitLine {
-    return {
-      id: crypto.randomUUID(),
-      kategorieId: "",
-      betrag: "",
-      zeitraumVon: defaultVon,
-      zeitraumBis: defaultBis,
-      bezeichnung: "",
-    };
-  }
+    setInitialisiertFuer(schluessel);
+  }, [
+    open,
+    zahlung?.id,
+    initialisiertFuer,
+    bestehendePositionen,
+    vorschlagKategorieId,
+    createEmptyLine,
+    defaultVon,
+    defaultBis,
+  ]);
 
   const zahlungBetrag = Math.abs(zahlung?.betrag || 0);
 
-  const assignedTotal = useMemo(() => {
-    return lines.reduce((sum, line) => {
-      const val = parseFloat(line.betrag);
-      return sum + (isNaN(val) ? 0 : val);
-    }, 0);
-  }, [lines]);
+  const assignedTotal = useMemo(
+    () =>
+      lines.reduce((sum, line) => {
+        const val = parseFloat(line.betrag);
+        return sum + (isNaN(val) ? 0 : val);
+      }, 0),
+    [lines]
+  );
 
   const restBetrag = zahlungBetrag - assignedTotal;
   const progressPercent = zahlungBetrag > 0 ? Math.min((assignedTotal / zahlungBetrag) * 100, 100) : 0;
-  const isOverBudget = assignedTotal > zahlungBetrag + 0.01; // small epsilon for floating point
+  // Bei manuellen Positionen gibt es keinen Zahlungsbetrag, der begrenzt.
+  const isOverBudget = !istManuell && assignedTotal > zahlungBetrag + 0.01;
 
   const addLine = () => {
     const newLine = createEmptyLine();
-    // Pre-fill rest amount
-    if (restBetrag > 0.01) {
-      newLine.betrag = restBetrag.toFixed(2);
-    }
+    if (!istManuell && restBetrag > 0.01) newLine.betrag = restBetrag.toFixed(2);
     setLines((prev) => [...prev, newLine]);
   };
 
-  const removeLine = (lineId: string) => {
-    setLines((prev) => prev.filter((l) => l.id !== lineId));
-  };
+  const removeLine = (lineId: string) => setLines((prev) => prev.filter((l) => l.id !== lineId));
 
-  const updateLine = (lineId: string, field: keyof SplitLine, value: any) => {
+  const updateLine = (lineId: string, field: keyof SplitLine, value: string) => {
     setLines((prev) =>
       prev.map((l) => {
         if (l.id !== lineId) return l;
         const updated = { ...l, [field]: value };
-        // Auto-fill bezeichnung from kategorie if empty
         if (field === "kategorieId" && !l.bezeichnung) {
-          const kat = ALL_KATEGORIEN.find((k) => k.id === value);
+          const kat = findeKategorieNachId(value);
           if (kat) updated.bezeichnung = kat.name;
         }
         return updated;
@@ -183,8 +187,7 @@ export function NebenkostenSplitDialog({
   };
 
   const canSave = useMemo(() => {
-    if (lines.length === 0) return false;
-    if (isOverBudget) return false;
+    if (lines.length === 0 || isOverBudget) return false;
     return lines.every((line) => {
       const betrag = parseFloat(line.betrag);
       return (
@@ -199,59 +202,43 @@ export function NebenkostenSplitDialog({
   }, [lines, isOverBudget]);
 
   const handleSave = async () => {
-    if (!zahlung || !canSave) return;
+    if (!canSave) return;
     setIsSaving(true);
 
     try {
-      // Delete existing positions for this zahlung that are no longer in the lines
-      const existingIds = lines
-        .map((l) => l.existingPositionId)
-        .filter(Boolean);
-      
-      const toDelete = existingPositionen?.filter(
-        (p) => !existingIds.includes(p.id)
-      ) || [];
+      const behaltenIds = lines.map((l) => l.existingPositionId).filter(Boolean) as string[];
+      const zuLoeschen = (bestehendePositionen || []).filter(
+        (p) => !behaltenIds.includes(p.id)
+      );
 
-      for (const pos of toDelete) {
-        await supabase.from("kostenpositionen").delete().eq("id", pos.id);
+      if (zuLoeschen.length > 0) {
+        const { error } = await supabase
+          .from("kostenpositionen")
+          .delete()
+          .in("id", zuLoeschen.map((p) => p.id));
+        if (error) throw error;
       }
 
-      // Upsert each line
       for (const line of lines) {
-        const kategorie = ALL_KATEGORIEN.find((k) => k.id === line.kategorieId);
+        const kategorie = findeKategorieNachId(line.kategorieId);
         if (!kategorie) continue;
 
-        // Find or create nebenkostenart
-        let nebenkostenartId = nebenkostenarten?.find(
-          (n) => n.name.toLowerCase().replace(/[^a-zäöü]/g, "") === kategorie.name.toLowerCase().replace(/[^a-zäöü]/g, "")
-        )?.id;
-
-        if (!nebenkostenartId) {
-          const { data: newArt, error: artError } = await supabase
-            .from("nebenkostenarten")
-            .insert({
-              immobilie_id: immobilieId,
-              name: kategorie.name,
-              ist_umlagefaehig: kategorie.umlagefaehig,
-              verteilerschluessel_art: kategorie.schluessel,
-            })
-            .select()
-            .single();
-
-          if (artError) throw artError;
-          nebenkostenartId = newArt.id;
-        }
+        const nebenkostenartId = await findeOderErstelleNebenkostenart(
+          immobilieId,
+          line.kategorieId,
+          nebenkostenarten
+        );
 
         const positionData = {
           immobilie_id: immobilieId,
-          zahlung_id: zahlung.id,
+          zahlung_id: zahlung?.id ?? null,
           nebenkostenart_id: nebenkostenartId,
           gesamtbetrag: parseFloat(line.betrag),
           zeitraum_von: line.zeitraumVon,
           zeitraum_bis: line.zeitraumBis,
           bezeichnung: line.bezeichnung || kategorie.name,
           ist_umlagefaehig: kategorie.umlagefaehig,
-          quelle: "zahlung",
+          quelle: istManuell ? "manuell" : "zahlung",
         };
 
         if (line.existingPositionId) {
@@ -261,39 +248,30 @@ export function NebenkostenSplitDialog({
             .eq("id", line.existingPositionId);
           if (error) throw error;
         } else {
-          const { error } = await supabase
-            .from("kostenpositionen")
-            .insert(positionData);
+          const { error } = await supabase.from("kostenpositionen").insert(positionData);
           if (error) throw error;
         }
       }
 
       toast({
         title: "✓ Gespeichert",
-        description: `${lines.length} Kostenposition${lines.length > 1 ? "en" : ""} für diese Zahlung angelegt.`,
+        description: `${lines.length} Kostenposition${lines.length > 1 ? "en" : ""} gespeichert.`,
       });
 
-      queryClient.invalidateQueries({ queryKey: ["kostenpositionen-betrkv", immobilieId, selectedYear] });
-      queryClient.invalidateQueries({ queryKey: ["kostenpositionen-for-zahlung", zahlung.id] });
-      queryClient.invalidateQueries({ queryKey: ["nebenkostenarten-betrkv", immobilieId] });
+      invalidate();
       onOpenChange(false);
-    } catch (error: any) {
-      toast({
-        title: "Fehler",
-        description: error.message,
-        variant: "destructive",
-      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unbekannter Fehler";
+      toast({ title: "Fehler", description: message, variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!zahlung) return null;
-
   const SCHLUESSEL_LABELS: Record<string, string> = {
-    qm: 'nach m²',
-    personen: 'nach Personen',
-    gleich: 'gleichmäßig',
+    qm: "nach m²",
+    personen: "nach Personentagen",
+    gleich: "gleichmäßig",
   };
 
   return (
@@ -302,70 +280,86 @@ export function NebenkostenSplitDialog({
         <DialogHeader className="px-6 pt-5 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Euro className="h-5 w-5 text-primary" />
-            Zahlung aufteilen
+            {istManuell ? "Kostenposition manuell anlegen" : "Zahlung aufteilen"}
           </DialogTitle>
         </DialogHeader>
 
-        {/* Zahlungsinfo + Progress — fixiert oben */}
         <div className="px-6 pb-3 space-y-3 shrink-0 border-b">
-          <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="font-semibold text-sm">
-                {zahlung.empfaengername || "Unbekannter Empfänger"}
-              </p>
-              <Badge variant="outline" className="font-bold px-2.5 py-0.5">
-                {zahlungBetrag.toFixed(2)} €
-              </Badge>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1">
-                <CalendarIcon className="h-3 w-3" />
-                {format(new Date(zahlung.buchungsdatum), "dd. MMMM yyyy", { locale: de })}
-              </span>
-              {zahlung.iban && (
-                <span className="flex items-center gap-1">
-                  <CreditCard className="h-3 w-3" />
-                  {zahlung.iban}
-                </span>
-              )}
-            </div>
-            {zahlung.verwendungszweck && (
-              <p className="text-xs text-muted-foreground flex items-start gap-1 line-clamp-2">
-                <FileText className="h-3 w-3 mt-0.5 shrink-0" />
-                {zahlung.verwendungszweck}
-              </p>
-            )}
-          </div>
+          {istManuell ? (
+            <p className="text-sm text-muted-foreground">
+              Für Kosten ohne passende Bankbewegung — etwa bar bezahlte Rechnungen oder Beträge, die
+              über ein anderes Konto liefen. Der Zeitraum bestimmt, in welches Abrechnungsjahr die
+              Kosten fallen.
+            </p>
+          ) : (
+            zahlung && (
+              <>
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-sm">
+                      {zahlung.empfaengername || "Unbekannter Empfänger"}
+                    </p>
+                    <Badge variant="outline" className="font-bold px-2.5 py-0.5">
+                      {zahlungBetrag.toFixed(2)} €
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <CalendarIcon className="h-3 w-3" />
+                      {format(new Date(zahlung.buchungsdatum), "dd. MMMM yyyy", { locale: de })}
+                    </span>
+                    {zahlung.iban && (
+                      <span className="flex items-center gap-1">
+                        <CreditCard className="h-3 w-3" />
+                        {zahlung.iban}
+                      </span>
+                    )}
+                  </div>
+                  {zahlung.verwendungszweck && (
+                    <p className="text-xs text-muted-foreground flex items-start gap-1 line-clamp-2">
+                      <FileText className="h-3 w-3 mt-0.5 shrink-0" />
+                      {zahlung.verwendungszweck}
+                    </p>
+                  )}
+                </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Verteilt</span>
-              <div className="flex items-center gap-2">
-                <span className={cn("font-bold", isOverBudget ? "text-destructive" : "")}>
-                  {assignedTotal.toFixed(2)} €
-                </span>
-                <span className="text-muted-foreground">/ {zahlungBetrag.toFixed(2)} €</span>
-                {restBetrag > 0.01 && !isOverBudget && (
-                  <Badge variant="secondary" className="text-xs">
-                    Rest: {restBetrag.toFixed(2)} €
-                  </Badge>
-                )}
-              </div>
-            </div>
-            <Progress value={progressPercent} className={cn("h-1.5", isOverBudget && "[&>div]:bg-destructive")} />
-            {isOverBudget && (
-              <p className="text-xs text-destructive flex items-center gap-1">
-                <AlertCircle className="h-3.5 w-3.5" />
-                Summe übersteigt den Zahlungsbetrag – bitte korrigieren.
-              </p>
-            )}
-          </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Verteilt</span>
+                    <div className="flex items-center gap-2">
+                      <span className={cn("font-bold", isOverBudget && "text-destructive")}>
+                        {assignedTotal.toFixed(2)} €
+                      </span>
+                      <span className="text-muted-foreground">/ {zahlungBetrag.toFixed(2)} €</span>
+                      {restBetrag > 0.01 && !isOverBudget && (
+                        <Badge variant="secondary" className="text-xs">
+                          Rest: {restBetrag.toFixed(2)} €
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <Progress
+                    value={progressPercent}
+                    className={cn("h-1.5", isOverBudget && "[&>div]:bg-destructive")}
+                  />
+                  {isOverBudget && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      Summe übersteigt den Zahlungsbetrag – bitte korrigieren.
+                    </p>
+                  )}
+                </div>
+              </>
+            )
+          )}
         </div>
 
-        {/* Scrollbarer Bereich für die Positionen */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-0">
           {lines.map((line, index) => {
-            const selectedKat = ALL_KATEGORIEN.find(k => k.id === line.kategorieId);
+            const selectedKat = findeKategorieNachId(line.kategorieId);
+            const zeitraumUeberJahr =
+              line.zeitraumVon < defaultVon || line.zeitraumBis > defaultBis;
+
             return (
               <div key={line.id} className="rounded-lg border p-4 space-y-3 bg-card">
                 <div className="flex items-center justify-between">
@@ -401,7 +395,6 @@ export function NebenkostenSplitDialog({
                   </div>
                 </div>
 
-                {/* Kategorie + Betrag */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Nebenkostenart</Label>
@@ -413,20 +406,26 @@ export function NebenkostenSplitDialog({
                         <SelectValue placeholder="Kategorie wählen..." />
                       </SelectTrigger>
                       <SelectContent className="bg-background border shadow-lg z-[200] max-h-[260px]">
-                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">Umlagefähig (BetrKV §2)</div>
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">
+                          Umlagefähig (BetrKV §2)
+                        </div>
                         {BETRKV_KATEGORIEN.map((kat) => {
                           const Icon = kat.icon;
                           return (
                             <SelectItem key={kat.id} value={kat.id}>
                               <div className="flex items-center gap-2">
                                 <Icon className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                                <span className="text-xs text-muted-foreground mr-1">{kat.betrkvNummer}</span>
+                                <span className="text-xs text-muted-foreground mr-1">
+                                  {kat.betrkvNummer}
+                                </span>
                                 {kat.name}
                               </div>
                             </SelectItem>
                           );
                         })}
-                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t mt-1 pt-1">Nicht umlagefähig</div>
+                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground border-t mt-1 pt-1">
+                          Nicht umlagefähig
+                        </div>
                         {NICHT_UMLAGEFAEHIGE_KATEGORIEN.map((kat) => {
                           const Icon = kat.icon;
                           return (
@@ -453,12 +452,13 @@ export function NebenkostenSplitDialog({
                         placeholder="0.00"
                         className="h-9 text-sm pr-7"
                       />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">€</span>
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        €
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Bezeichnung */}
                 <div className="space-y-1">
                   <Label className="text-xs">Bezeichnung</Label>
                   <Input
@@ -469,10 +469,9 @@ export function NebenkostenSplitDialog({
                   />
                 </div>
 
-                {/* Zeitraum — native date inputs statt Popover */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">Von</Label>
+                    <Label className="text-xs">Zeitraum von</Label>
                     <Input
                       type="date"
                       value={line.zeitraumVon}
@@ -481,7 +480,7 @@ export function NebenkostenSplitDialog({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Bis</Label>
+                    <Label className="text-xs">Zeitraum bis</Label>
                     <Input
                       type="date"
                       value={line.zeitraumBis}
@@ -490,20 +489,25 @@ export function NebenkostenSplitDialog({
                     />
                   </div>
                 </div>
+
+                {zeitraumUeberJahr && (
+                  <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 flex items-start gap-1.5">
+                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    Zeitraum reicht über {selectedYear} hinaus — der Betrag wird zeitanteilig auf die
+                    berührten Abrechnungsjahre verteilt.
+                  </p>
+                )}
               </div>
             );
           })}
 
-          {/* Position hinzufügen */}
-          <Button
-            variant="outline"
-            onClick={addLine}
-            className="w-full gap-2 border-dashed"
-          >
+          <Button variant="outline" onClick={addLine} className="w-full gap-2 border-dashed">
             <Plus className="h-4 w-4" />
             Weitere Position hinzufügen
-            {restBetrag > 0.01 && !isOverBudget && (
-              <span className="text-muted-foreground text-xs ml-1">(Rest: {restBetrag.toFixed(2)} €)</span>
+            {!istManuell && restBetrag > 0.01 && !isOverBudget && (
+              <span className="text-muted-foreground text-xs ml-1">
+                (Rest: {restBetrag.toFixed(2)} €)
+              </span>
             )}
           </Button>
         </div>
@@ -513,11 +517,7 @@ export function NebenkostenSplitDialog({
             Abbrechen
           </Button>
           <Button onClick={handleSave} disabled={!canSave || isSaving} className="gap-2">
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Check className="h-4 w-4" />
-            )}
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
             {lines.length > 1 ? `${lines.length} Positionen speichern` : "Position speichern"}
           </Button>
         </DialogFooter>

@@ -34,12 +34,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Download,
-  Send,
   Receipt,
   Calculator,
-  Zap,
 } from "lucide-react";
-import { format, parseISO, differenceInDays } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -48,7 +46,25 @@ import {
   type NebenkostenAbrechnungPdfData,
   type NebenkostenKostenDetail,
 } from "@/utils/nebenkostenAbrechnungPdfGenerator";
-import { BETRKV_KATEGORIEN, NICHT_UMLAGEFAEHIGE_KATEGORIEN } from "./nebenkostenKategorien";
+import {
+  BETRKV_KATEGORIEN,
+  findeKategorieNachName,
+  type NebenkostenKategorie,
+} from "./nebenkostenKategorien";
+import {
+  berechneAnteil,
+  berechneBezugsgroessen,
+  berechneVorauszahlungen,
+  bezugsgroesseFuerSchluessel,
+  ermittlePerioden,
+  istAbrechnungsfristAbgelaufen,
+  kostenAnteilImZeitraum,
+  tageInZeitraum,
+  type Bezugsgroessen,
+  type Nutzungsperiode,
+  type VerteilerSchluessel,
+} from "@/utils/nebenkostenBerechnung";
+import { useKostenpositionen, positionenImZeitraum } from "@/hooks/useNebenkostenDaten";
 
 interface NebenkostenStep3AbrechnungProps {
   immobilieId: string;
@@ -56,33 +72,37 @@ interface NebenkostenStep3AbrechnungProps {
 }
 
 interface MieterAbrechnung {
-  mietvertragId: string;
-  mieterName: string;
-  mieterEmail: string | null;
-  einheitId: string;
+  /** Stabile Zeilen-ID, auch für Leerstandszeilen. */
+  id: string;
+  mietvertragId: string | null;
+  mieterNamen: string[];
+  mieterEmails: string[];
+  empfaengerAdresse: string[];
   einheitName: string;
-  qm: number;
-  anzahlPersonen: number;
-  nutzungVon: Date;
-  nutzungBis: Date;
-  belegteTage: number;
+  periode: Nutzungsperiode;
   anzahlMonate: number;
   monatlicheVorauszahlung: number;
   vorauszahlungenGesamt: number;
   kostenDetails: NebenkostenKostenDetail[];
   kostenAnteilGesamt: number;
   saldo: number;
-  zeitanteilFaktor: number;
-  isLeerstand?: boolean;
+  isLeerstand: boolean;
 }
 
-const ALL_KATEGORIEN = [...BETRKV_KATEGORIEN, ...NICHT_UMLAGEFAEHIGE_KATEGORIEN];
+interface KategorieKosten {
+  kategorieId: string;
+  name: string;
+  betrkvNummer?: string;
+  pdfName: string;
+  schluessel: VerteilerSchluessel;
+  /** Bereits auf den Abrechnungszeitraum heruntergerechnet. */
+  total: number;
+}
 
-function findKategorieByArtName(artName: string) {
-  const normalized = artName.toLowerCase().replace(/[^a-zäöü]/g, '');
-  return ALL_KATEGORIEN.find(
-    k => k.name.toLowerCase().replace(/[^a-zäöü]/g, '') === normalized
-  );
+function mieterNamenText(namen: string[]): string {
+  if (namen.length === 0) return "Unbekannter Mieter";
+  if (namen.length === 1) return namen[0];
+  return `${namen.slice(0, -1).join(", ")} und ${namen[namen.length - 1]}`;
 }
 
 export function NebenkostenStep3Abrechnung({
@@ -100,535 +120,506 @@ export function NebenkostenStep3Abrechnung({
   const yearEnd = `${selectedYear}-12-31`;
   const abrStart = parseISO(yearStart);
   const abrEnde = parseISO(yearEnd);
-  const gesamtTage = differenceInDays(abrEnde, abrStart) + 1;
+  const gesamtTage = tageInZeitraum(abrStart, abrEnde);
 
-  // Immobilie (für Adresse im PDF)
   const { data: immobilie } = useQuery({
-    queryKey: ['immobilie-abrechnung', immobilieId],
+    queryKey: ["immobilie-abrechnung", immobilieId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('immobilien')
-        .select('id, adresse, name')
-        .eq('id', immobilieId)
+        .from("immobilien")
+        .select("id, adresse, name")
+        .eq("id", immobilieId)
         .single();
       if (error) throw error;
       return data;
     },
   });
 
-  // Einheiten
   const { data: einheiten, isLoading: einheitenLoading } = useQuery({
-    queryKey: ['einheiten-step3', immobilieId],
+    queryKey: ["einheiten-step3", immobilieId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('einheiten')
-        .select('id, zaehler, qm, anzahl_personen, einheitentyp')
-        .eq('immobilie_id', immobilieId);
+        .from("einheiten")
+        .select("id, zaehler, qm, anzahl_personen, einheitentyp")
+        .eq("immobilie_id", immobilieId);
       if (error) throw error;
       return data || [];
     },
   });
 
-  // Mietverträge mit Mietern (inkl. E-Mail)
+  // Alle Verträge, die den Abrechnungszeitraum berühren — inkl. kuendigungsdatum,
+  // vertraglicher Personenzahl und Nachsendeadresse.
   const { data: mietvertraege, isLoading: vertraegeLoading } = useQuery({
-    queryKey: ['mietvertraege-step3', immobilieId, selectedYear],
+    queryKey: ["mietvertraege-step3", immobilieId, selectedYear],
     queryFn: async () => {
-      const einheitIds = einheiten?.map(e => e.id) || [];
+      const einheitIds = einheiten?.map((e) => e.id) || [];
       if (einheitIds.length === 0) return [];
 
       const { data, error } = await supabase
-        .from('mietvertrag')
+        .from("mietvertrag")
         .select(`
           id,
           einheit_id,
           betriebskosten,
           start_datum,
           ende_datum,
+          kuendigungsdatum,
+          anzahl_personen,
+          neue_anschrift,
           status,
           mietvertrag_mieter(
             mieter:mieter_id(id, vorname, nachname, hauptmail)
           )
         `)
-        .in('einheit_id', einheitIds);
+        .in("einheit_id", einheitIds);
 
       if (error) throw error;
-
-      return (data || []).filter(mv => {
-        const start = mv.start_datum ? parseISO(mv.start_datum) : new Date(0);
-        const ende = mv.ende_datum ? parseISO(mv.ende_datum) : new Date(9999, 11, 31);
-        return start <= abrEnde && ende >= abrStart;
-      });
+      return data || [];
     },
     enabled: !!einheiten && einheiten.length > 0,
   });
 
-  // Kostenpositionen (nur umlagefähige, mit Nebenkostenart)
-  const { data: kostenpositionen, isLoading: kostenLoading } = useQuery({
-    queryKey: ['kostenpositionen-step3', immobilieId, selectedYear],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('kostenpositionen')
-        .select('*, nebenkostenart:nebenkostenart_id(id, name, verteilerschluessel_art)')
-        .eq('immobilie_id', immobilieId)
-        .gte('zeitraum_von', yearStart)
-        .lte('zeitraum_bis', yearEnd)
-        .eq('ist_umlagefaehig', true);
-      if (error) throw error;
-      return data || [];
-    },
-  });
+  const { data: alleKostenpositionen, isLoading: kostenLoading } =
+    useKostenpositionen(immobilieId);
 
-  // Versand-Status je Mietvertrag/Jahr — für Doppelversand-Schutz
+  // Positionen, die den Abrechnungszeitraum ÜBERLAPPEN. Der frühere Filter
+  // (Zeitraum vollständig innerhalb des Jahres) ließ jahresübergreifende
+  // Abrechnungen wie Heizperioden komplett unter den Tisch fallen.
+  const kostenpositionen = useMemo(
+    () =>
+      positionenImZeitraum(alleKostenpositionen, abrStart, abrEnde).filter(
+        (kp) => kp.ist_umlagefaehig
+      ),
+    [alleKostenpositionen, abrStart, abrEnde]
+  );
+
   const { data: versandStatus } = useQuery({
-    queryKey: ['nebenkosten-abrechnungen-status', immobilieId, selectedYear],
+    queryKey: ["nebenkosten-abrechnungen-status", immobilieId, selectedYear],
     queryFn: async () => {
-      const mietvertragIds = mietvertraege?.map(mv => mv.id) || [];
+      const mietvertragIds = mietvertraege?.map((mv) => mv.id) || [];
       if (mietvertragIds.length === 0) return [];
       const { data, error } = await supabase
-        .from('nebenkosten_abrechnungen')
-        .select('*')
-        .in('mietvertrag_id', mietvertragIds)
-        .eq('abrechnungsjahr', selectedYear);
+        .from("nebenkosten_abrechnungen")
+        .select("*")
+        .in("mietvertrag_id", mietvertragIds)
+        .eq("abrechnungsjahr", selectedYear);
       if (error) throw error;
       return data || [];
     },
     enabled: !!mietvertraege && mietvertraege.length > 0,
   });
 
-  // Bezugsgrößen über alle Einheiten
-  const bezugsgroessen = useMemo(() => {
-    if (!einheiten) return { qm: 0, personen: 0, anzahl: 0 };
-    return {
-      qm: einheiten.reduce((s, e) => s + (e.qm || 0), 0),
-      personen: einheiten.reduce((s, e) => s + (e.anzahl_personen || 1), 0),
-      anzahl: einheiten.length,
-    };
-  }, [einheiten]);
+  const immobilieAdresse = (immobilie?.adresse || "").trim();
 
-  // Kosten pro Kategorie-ID → { total, schluessel }
+  // ── Nutzungsperioden je Einheit (Verträge + Leerstand) ─────────────────────
+  const { perioden, ueberschneidungen } = useMemo(() => {
+    if (!einheiten || !mietvertraege) {
+      return { perioden: [], ueberschneidungen: [] as { vertragA: string; vertragB: string }[] };
+    }
+
+    const alle: {
+      periode: Nutzungsperiode;
+      mietvertragId: string | null;
+      einheitId: string;
+    }[] = [];
+    const konflikte: { vertragA: string; vertragB: string }[] = [];
+
+    einheiten.forEach((einheit) => {
+      const vertraege = mietvertraege.filter((mv) => mv.einheit_id === einheit.id);
+      const ergebnis = ermittlePerioden(einheit, vertraege, abrStart, abrEnde);
+
+      ergebnis.vertragsPerioden.forEach((p) =>
+        alle.push({ periode: p, mietvertragId: p.mietvertragId, einheitId: einheit.id })
+      );
+      ergebnis.leerstandsPerioden.forEach((p) =>
+        alle.push({ periode: p, mietvertragId: null, einheitId: einheit.id })
+      );
+      konflikte.push(...ergebnis.ueberschneidungen);
+    });
+
+    return { perioden: alle, ueberschneidungen: konflikte };
+  }, [einheiten, mietvertraege, abrStart, abrEnde]);
+
+  const bezugsgroessen: Bezugsgroessen = useMemo(
+    () =>
+      berechneBezugsgroessen(
+        einheiten || [],
+        perioden.map((p) => p.periode),
+        gesamtTage
+      ),
+    [einheiten, perioden, gesamtTage]
+  );
+
+  // ── Kosten je BetrKV-Kategorie, anteilig auf den Abrechnungszeitraum ───────
   const kostenProKategorie = useMemo(() => {
-    const map = new Map<string, { total: number; schluessel: string; name: string }>();
-    kostenpositionen?.forEach(kp => {
-      const art = (kp as any).nebenkostenart;
-      let kategorieId = 'sonstige_betriebskosten';
-      let schluessel = 'qm';
-      let name = 'Sonstige Betriebskosten';
+    const map = new Map<string, KategorieKosten>();
 
-      if (art) {
-        const kat = findKategorieByArtName(art.name);
-        if (kat) {
-          kategorieId = kat.id;
-          schluessel = art.verteilerschluessel_art || kat.schluessel;
-          name = kat.name;
-        } else {
-          name = art.name;
-          schluessel = art.verteilerschluessel_art || 'qm';
-          kategorieId = `custom_${art.id}`;
-        }
-      }
+    kostenpositionen.forEach((kp) => {
+      const art = kp.nebenkostenart;
+      const kategorie: NebenkostenKategorie | undefined = findeKategorieNachName(art?.name);
 
-      const existing = map.get(kategorieId);
-      if (existing) {
-        existing.total += kp.gesamtbetrag;
+      const kategorieId = kategorie?.id ?? (art ? `custom_${art.id}` : "sonstige_betriebskosten");
+      const name = kategorie?.name ?? art?.name ?? "Sonstige Betriebskosten";
+      const schluessel = (art?.verteilerschluessel_art ||
+        kategorie?.schluessel ||
+        "qm") as VerteilerSchluessel;
+
+      const betrag = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
+      if (betrag <= 0) return;
+
+      const vorhanden = map.get(kategorieId);
+      if (vorhanden) {
+        vorhanden.total += betrag;
       } else {
-        map.set(kategorieId, { total: kp.gesamtbetrag, schluessel, name });
+        map.set(kategorieId, {
+          kategorieId,
+          name,
+          betrkvNummer: kategorie?.betrkvNummer,
+          pdfName: kategorie?.pdfName ?? name,
+          schluessel,
+          total: betrag,
+        });
       }
     });
+
     return map;
-  }, [kostenpositionen]);
+  }, [kostenpositionen, abrStart, abrEnde]);
 
-  // Anteil berechnen basierend auf Schlüssel
-  function berechneAnteil(einheit: { qm: number | null; anzahl_personen: number | null }, schluessel: string): number {
-    switch (schluessel) {
-      case 'qm':
-        return bezugsgroessen.qm > 0 ? (einheit.qm || 0) / bezugsgroessen.qm : 0;
-      case 'personen':
-        return bezugsgroessen.personen > 0 ? (einheit.anzahl_personen || 1) / bezugsgroessen.personen : 0;
-      case 'gleich':
-        return bezugsgroessen.anzahl > 0 ? 1 / bezugsgroessen.anzahl : 0;
-      default:
-        return bezugsgroessen.qm > 0 ? (einheit.qm || 0) / bezugsgroessen.qm : 0;
-    }
-  }
+  const gesamtkostenUmlagefaehig = useMemo(
+    () => Array.from(kostenProKategorie.values()).reduce((s, k) => s + k.total, 0),
+    [kostenProKategorie]
+  );
 
-  // Abrechnungen pro Mieter berechnen (inkl. Leerstand-Zeiträume)
+  // ── Abrechnung je Nutzungsperiode ──────────────────────────────────────────
   const abrechnungen: MieterAbrechnung[] = useMemo(() => {
-    if (!mietvertraege || !einheiten || !kostenpositionen) return [];
+    if (!einheiten || !mietvertraege) return [];
 
-    const ergebnisse: MieterAbrechnung[] = [];
+    return perioden.map(({ periode, mietvertragId, einheitId }) => {
+      const einheit = einheiten.find((e) => e.id === einheitId);
+      const vertrag = mietvertragId
+        ? mietvertraege.find((mv) => mv.id === mietvertragId)
+        : undefined;
 
-    function buildKostenDetails(qm: number, anzahlPersonen: number, zeitanteilFaktor: number) {
       const kostenDetails: NebenkostenKostenDetail[] = [];
       let kostenAnteilGesamt = 0;
-      kostenProKategorie.forEach((entry) => {
-        const basisAnteil = berechneAnteil({ qm, anzahl_personen: anzahlPersonen }, entry.schluessel);
-        const effektiverAnteil = basisAnteil * zeitanteilFaktor;
-        const anteilBetrag = entry.total * effektiverAnteil;
+
+      kostenProKategorie.forEach((kategorie) => {
+        const anteil = berechneAnteil(periode, kategorie.schluessel, bezugsgroessen);
+        const anteilBetrag = kategorie.total * anteil;
+        if (anteilBetrag <= 0.01) return;
+
         kostenAnteilGesamt += anteilBetrag;
+        const bezug = bezugsgroesseFuerSchluessel(kategorie.schluessel, periode, bezugsgroessen);
+
         kostenDetails.push({
-          kategorieName: entry.name,
-          gesamtKosten: entry.total,
-          verteilerschluessel: entry.schluessel,
-          anteilProzent: effektiverAnteil * 100,
+          betrkvNummer: kategorie.betrkvNummer,
+          kategorieName: kategorie.name,
+          gesamtKosten: kategorie.total,
+          verteilerschluessel: kategorie.schluessel,
+          anteilProzent: anteil * 100,
           anteilBetrag,
+          einheitenGesamt: bezug.gesamt,
+          ihreEinheiten: bezug.anteilig,
+          nutzungsdauerProzent:
+            bezugsgroessen.gesamtTage > 0
+              ? (periode.tage / bezugsgroessen.gesamtTage) * 100
+              : 0,
         });
       });
-      return { kostenDetails: kostenDetails.filter(d => d.anteilBetrag > 0.01), kostenAnteilGesamt };
-    }
 
-    // 1. Mietvertrags-Abrechnungen
-    mietvertraege.forEach(mv => {
-      const einheit = einheiten.find(e => e.id === mv.einheit_id);
-      const mieterData = (mv.mietvertrag_mieter as any[])?.[0]?.mieter;
-      const qm = einheit?.qm || 0;
-      const anzahlPersonen = einheit?.anzahl_personen || 1;
+      const monatlicheVorauszahlung = vertrag?.betriebskosten || 0;
+      const vorauszahlung = berechneVorauszahlungen(
+        monatlicheVorauszahlung,
+        periode.von,
+        periode.bis
+      );
 
-      const vertragStart = mv.start_datum ? parseISO(mv.start_datum) : abrStart;
-      const vertragEnde = mv.ende_datum ? parseISO(mv.ende_datum) : abrEnde;
-      const overlapStart = vertragStart > abrStart ? vertragStart : abrStart;
-      const overlapEnde = vertragEnde < abrEnde ? vertragEnde : abrEnde;
+      const mieterListe = ((vertrag?.mietvertrag_mieter as
+        | { mieter: { vorname: string | null; nachname: string | null; hauptmail: string | null } | null }[]
+        | undefined) || [])
+        .map((mm) => mm.mieter)
+        .filter((m): m is NonNullable<typeof m> => !!m);
 
-      const belegteTage = Math.max(0, differenceInDays(overlapEnde, overlapStart) + 1);
-      const zeitanteilFaktor = belegteTage / gesamtTage;
+      const mieterNamen = mieterListe
+        .map((m) => `${m.vorname || ""} ${m.nachname || ""}`.trim())
+        .filter(Boolean);
+      const mieterEmails = mieterListe
+        .map((m) => m.hauptmail)
+        .filter((mail): mail is string => !!mail && mail.includes("@"));
 
-      const monatlicheVorauszahlung = mv.betriebskosten || 0;
-      const vorauszahlungenGesamt = monatlicheVorauszahlung * 12 * zeitanteilFaktor;
-      const anzahlMonate = parseFloat((12 * zeitanteilFaktor).toFixed(2));
-
-      const { kostenDetails, kostenAnteilGesamt } = buildKostenDetails(qm, anzahlPersonen, zeitanteilFaktor);
-      const saldo = kostenAnteilGesamt - vorauszahlungenGesamt;
+      // Nach Auszug geht die Abrechnung an die Nachsendeadresse, nicht an das Objekt.
+      const empfaengerAdresse = vertrag?.neue_anschrift
+        ? vertrag.neue_anschrift.split(/[\n,]/).map((z) => z.trim()).filter(Boolean)
+        : immobilieAdresse.split(",").map((z) => z.trim()).filter(Boolean);
 
       const einheitName = einheit?.zaehler
         ? `Einheit ${einheit.zaehler}`
-        : `Einheit ${(einheit?.id || '').slice(-4)}`;
+        : `Einheit ${einheitId.slice(-4)}`;
 
-      ergebnisse.push({
-        mietvertragId: mv.id,
-        mieterName: mieterData
-          ? `${mieterData.vorname} ${mieterData.nachname || ''}`.trim()
-          : 'Unbekannter Mieter',
-        mieterEmail: mieterData?.hauptmail || null,
-        einheitId: mv.einheit_id,
+      const isLeerstand = !mietvertragId;
+
+      return {
+        id: mietvertragId ?? `leerstand_${einheitId}_${periode.von.getTime()}`,
+        mietvertragId,
+        mieterNamen: isLeerstand ? ["Leerstand"] : mieterNamen,
+        mieterEmails: isLeerstand ? [] : mieterEmails,
+        empfaengerAdresse,
         einheitName,
-        qm,
-        anzahlPersonen,
-        nutzungVon: overlapStart,
-        nutzungBis: overlapEnde,
-        belegteTage,
-        anzahlMonate,
+        periode,
+        anzahlMonate: vorauszahlung.monate,
         monatlicheVorauszahlung,
-        vorauszahlungenGesamt,
+        vorauszahlungenGesamt: vorauszahlung.betrag,
         kostenDetails,
         kostenAnteilGesamt,
-        saldo,
-        zeitanteilFaktor,
-        isLeerstand: false,
-      });
+        saldo: kostenAnteilGesamt - vorauszahlung.betrag,
+        isLeerstand,
+      };
     });
+  }, [
+    perioden,
+    einheiten,
+    mietvertraege,
+    kostenProKategorie,
+    bezugsgroessen,
+    immobilieAdresse,
+  ]);
 
-    // 2. Leerstand-Einträge: Zeiträume ohne Mietvertrag je Einheit
-    einheiten.forEach(einheit => {
-      const einheitVertraege = mietvertraege
-        .filter(mv => mv.einheit_id === einheit.id)
-        .sort((a, b) => {
-          const startA = a.start_datum ? parseISO(a.start_datum) : abrStart;
-          const startB = b.start_datum ? parseISO(b.start_datum) : abrStart;
-          return startA.getTime() - startB.getTime();
-        });
+  const mieterAbrechnungen = abrechnungen.filter((a) => !a.isLeerstand);
+  const leerstandAbrechnungen = abrechnungen.filter((a) => a.isLeerstand);
+  const nachzahlungAbrechnungen = mieterAbrechnungen.filter((a) => a.saldo > 0.01);
+  const guthabenAbrechnungen = mieterAbrechnungen.filter((a) => a.saldo < -0.01);
+  const gesamtNachzahlungen = nachzahlungAbrechnungen.reduce((s, a) => s + a.saldo, 0);
+  const gesamtGuthaben = guthabenAbrechnungen.reduce((s, a) => s + Math.abs(a.saldo), 0);
 
-      const einheitName = einheit.zaehler
-        ? `Einheit ${einheit.zaehler}`
-        : `Einheit ${(einheit.id || '').slice(-4)}`;
+  const fristAbgelaufen = istAbrechnungsfristAbgelaufen(selectedYear);
+  const ohneVorauszahlung = mieterAbrechnungen.filter((a) => a.monatlicheVorauszahlung === 0);
+  const ohneEmail = mieterAbrechnungen.filter((a) => a.mieterEmails.length === 0);
 
-      const qm = einheit.qm || 0;
-      const anzahlPersonen = einheit.anzahl_personen || 1;
-
-      // Berechne Zeiträume ohne Mietvertrag innerhalb des Abrechnungsjahres
-      let checkDate = new Date(abrStart);
-
-      for (const mv of einheitVertraege) {
-        const mvStart = mv.start_datum ? parseISO(mv.start_datum) : abrStart;
-        const mvEnde = mv.ende_datum ? parseISO(mv.ende_datum) : abrEnde;
-        const overlapStart = mvStart > abrStart ? mvStart : abrStart;
-        const overlapEnde = mvEnde < abrEnde ? mvEnde : abrEnde;
-
-        if (overlapStart > checkDate) {
-          // Lücke vor diesem Vertrag
-          const leerEnde = new Date(overlapStart);
-          leerEnde.setDate(leerEnde.getDate() - 1);
-          const leerTage = Math.max(0, differenceInDays(leerEnde, checkDate) + 1);
-          if (leerTage > 0) {
-            const leerFaktor = leerTage / gesamtTage;
-            const { kostenDetails, kostenAnteilGesamt } = buildKostenDetails(qm, anzahlPersonen, leerFaktor);
-            ergebnisse.push({
-              mietvertragId: `leerstand_${einheit.id}_${checkDate.getTime()}`,
-              mieterName: 'Leerstand',
-              mieterEmail: null,
-              einheitId: einheit.id,
-              einheitName,
-              qm,
-              anzahlPersonen,
-              nutzungVon: new Date(checkDate),
-              nutzungBis: leerEnde,
-              belegteTage: leerTage,
-              anzahlMonate: parseFloat((12 * leerFaktor).toFixed(2)),
-              monatlicheVorauszahlung: 0,
-              vorauszahlungenGesamt: 0,
-              kostenDetails,
-              kostenAnteilGesamt,
-              saldo: kostenAnteilGesamt,
-              zeitanteilFaktor: leerFaktor,
-              isLeerstand: true,
-            });
-          }
-        }
-
-        const nextTag = new Date(overlapEnde);
-        nextTag.setDate(nextTag.getDate() + 1);
-        if (nextTag > checkDate) checkDate = nextTag;
-      }
-
-      // Leerstand nach dem letzten Vertrag
-      if (checkDate <= abrEnde) {
-        const leerTage = Math.max(0, differenceInDays(abrEnde, checkDate) + 1);
-        if (leerTage > 0) {
-          const leerFaktor = leerTage / gesamtTage;
-          const { kostenDetails, kostenAnteilGesamt } = buildKostenDetails(qm, anzahlPersonen, leerFaktor);
-          ergebnisse.push({
-            mietvertragId: `leerstand_${einheit.id}_${checkDate.getTime()}`,
-            mieterName: 'Leerstand',
-            mieterEmail: null,
-            einheitId: einheit.id,
-            einheitName,
-            qm,
-            anzahlPersonen,
-            nutzungVon: new Date(checkDate),
-            nutzungBis: new Date(abrEnde),
-            belegteTage: leerTage,
-            anzahlMonate: parseFloat((12 * leerFaktor).toFixed(2)),
-            monatlicheVorauszahlung: 0,
-            vorauszahlungenGesamt: 0,
-            kostenDetails,
-            kostenAnteilGesamt,
-            saldo: kostenAnteilGesamt,
-            zeitanteilFaktor: leerFaktor,
-            isLeerstand: true,
-          });
-        }
-      }
-    });
-
-    return ergebnisse;
-  }, [mietvertraege, einheiten, kostenpositionen, kostenProKategorie, bezugsgroessen]);
-
-  const immobilieAdresse = immobilie
-    ? (immobilie.adresse || '').trim()
-    : '';
-
-  const mieterAbrechnungen = abrechnungen.filter(a => !a.isLeerstand);
-  const gesamtNachzahlungen = mieterAbrechnungen.filter(a => a.saldo > 0).reduce((s, a) => s + a.saldo, 0);
-  const gesamtGuthaben = mieterAbrechnungen.filter(a => a.saldo < 0).reduce((s, a) => s + Math.abs(a.saldo), 0);
-
-  function getVersandInfo(mietvertragId: string) {
-    return versandStatus?.find(v => v.mietvertrag_id === mietvertragId) ?? null;
+  function getVersandInfo(mietvertragId: string | null) {
+    if (!mietvertragId) return null;
+    return versandStatus?.find((v) => v.mietvertrag_id === mietvertragId) ?? null;
   }
 
-  async function saveAbrechnungRecord(abrechnung: MieterAbrechnung, versandt: boolean) {
+  // ── Persistenz ─────────────────────────────────────────────────────────────
+
+  async function saveAbrechnungRecord(
+    abrechnung: MieterAbrechnung,
+    kanal: "pdf" | "email"
+  ) {
+    if (!abrechnung.mietvertragId) return;
+
+    const { data: userData } = await supabase.auth.getUser();
     const payload: Record<string, unknown> = {
       mietvertrag_id: abrechnung.mietvertragId,
       abrechnungsjahr: selectedYear,
       saldo: Math.round(abrechnung.saldo * 100) / 100,
       vorauszahlungen: Math.round(abrechnung.vorauszahlungenGesamt * 100) / 100,
       kosten_gesamt: Math.round(abrechnung.kostenAnteilGesamt * 100) / 100,
+      erstellt_von: userData.user?.id ?? null,
     };
-    if (versandt) payload.versandt_am = new Date().toISOString();
+
+    if (kanal === "email") {
+      payload.versandt_am = new Date().toISOString();
+      payload.versandt_an = abrechnung.mieterEmails.join(", ");
+    } else {
+      payload.pdf_erstellt_am = new Date().toISOString();
+    }
+
     const { error } = await supabase
-      .from('nebenkosten_abrechnungen')
+      .from("nebenkosten_abrechnungen")
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .upsert(payload as any, { onConflict: 'mietvertrag_id,abrechnungsjahr' });
+      .upsert(payload as any, { onConflict: "mietvertrag_id,abrechnungsjahr" });
     if (error) throw error;
   }
 
+  /**
+   * Schreibt die Anteile je Kostenposition und Einheit fort. Läuft über eine RPC,
+   * damit Löschen und Neuschreiben in einer Transaktion passieren.
+   */
   async function saveKostenpositionAnteile() {
-    if (!kostenpositionen?.length || !einheiten?.length || !abrechnungen.length) return;
+    if (kostenpositionen.length === 0 || abrechnungen.length === 0) return;
 
-    const kpIds = kostenpositionen.map(kp => kp.id);
-    await supabase.from('kostenposition_anteile').delete().in('kostenposition_id', kpIds);
+    const kpIds = kostenpositionen.map((kp) => kp.id);
+    const anteile: Record<string, unknown>[] = [];
 
-    const inserts: Record<string, unknown>[] = [];
     for (const kp of kostenpositionen) {
-      const art = (kp as any).nebenkostenart;
-      let schluessel = 'qm';
-      if (art) {
-        const kat = findKategorieByArtName(art.name);
-        schluessel = art.verteilerschluessel_art || kat?.schluessel || 'qm';
-      }
+      const art = kp.nebenkostenart;
+      const kategorie = findeKategorieNachName(art?.name);
+      const schluessel = (art?.verteilerschluessel_art ||
+        kategorie?.schluessel ||
+        "qm") as VerteilerSchluessel;
+
+      const betragImZeitraum = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
+      if (betragImZeitraum <= 0) continue;
+
       for (const abr of abrechnungen) {
-        const einheit = einheiten.find(e => e.id === abr.einheitId);
-        if (!einheit) continue;
-        const basisAnteil = berechneAnteil(
-          { qm: einheit.qm, anzahl_personen: einheit.anzahl_personen },
-          schluessel
-        );
-        inserts.push({
+        const anteil = berechneAnteil(abr.periode, schluessel, bezugsgroessen);
+        if (anteil <= 0) continue;
+
+        const bezug = bezugsgroesseFuerSchluessel(schluessel, abr.periode, bezugsgroessen);
+
+        anteile.push({
           kostenposition_id: kp.id,
-          einheit_id: abr.einheitId,
-          anteil_prozent: basisAnteil * abr.zeitanteilFaktor * 100,
-          anteil_betrag: kp.gesamtbetrag * basisAnteil * abr.zeitanteilFaktor,
+          einheit_id: abr.periode.einheitId,
+          anteil_prozent: anteil * 100,
+          anteil_betrag: betragImZeitraum * anteil,
           verteilerschluessel_art: schluessel,
-          bezugsgroesse_einheit:
-            schluessel === 'qm' ? einheit.qm
-            : schluessel === 'personen' ? einheit.anzahl_personen : 1,
-          bezugsgroesse_gesamt:
-            schluessel === 'qm' ? bezugsgroessen.qm
-            : schluessel === 'personen' ? bezugsgroessen.personen : bezugsgroessen.anzahl,
-          zeitraum_von: format(abr.nutzungVon, 'yyyy-MM-dd'),
-          zeitraum_bis: format(abr.nutzungBis, 'yyyy-MM-dd'),
-          zeitanteil_faktor: abr.zeitanteilFaktor,
+          bezugsgroesse_einheit: bezug.anteilig,
+          bezugsgroesse_gesamt: bezug.gesamt,
+          zeitraum_von: format(abr.periode.von, "yyyy-MM-dd"),
+          zeitraum_bis: format(abr.periode.bis, "yyyy-MM-dd"),
+          zeitanteil_faktor:
+            bezugsgroessen.gesamtTage > 0 ? abr.periode.tage / bezugsgroessen.gesamtTage : 0,
         });
       }
     }
 
-    if (inserts.length > 0) {
+    const { error } = await supabase.rpc("replace_kostenposition_anteile", {
+      p_kostenposition_ids: kpIds,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await supabase.from('kostenposition_anteile').insert(inserts as any);
-      if (error) throw error;
+      p_anteile: anteile as any,
+    });
+    if (error) throw error;
+  }
+
+  /**
+   * Schreibt Anteile und Audit-Eintrag fort. Wird erst nach dem erfolgreichen
+   * Versand bzw. Download aufgerufen und meldet Fehler eigenständig — ein
+   * fehlgeschlagenes Protokoll darf nicht als fehlgeschlagener Versand erscheinen.
+   */
+  async function protokolliere(abrechnung: MieterAbrechnung, kanal: "pdf" | "email") {
+    try {
+      await saveKostenpositionAnteile();
+      await saveAbrechnungRecord(abrechnung, kanal);
+      queryClient.invalidateQueries({
+        queryKey: ["nebenkosten-abrechnungen-status", immobilieId, selectedYear],
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unbekannter Fehler";
+      toast({
+        title: "Protokollierung fehlgeschlagen",
+        description: `${kanal === "email" ? "Die E-Mail wurde versendet" : "Das PDF wurde erstellt"}, der Vorgang konnte aber nicht gespeichert werden: ${message}`,
+        variant: "destructive",
+      });
     }
   }
 
-  // Gemeinsame Hilfsfunktion: PDF-Daten für eine Mieter-Abrechnung zusammenstellen
+  // ── PDF ────────────────────────────────────────────────────────────────────
+
   function buildPdfData(abrechnung: MieterAbrechnung): NebenkostenAbrechnungPdfData {
-    // Gesamt-Personentage über alle belegten Zeiträume (Mieter × Tage)
-    const gesamtPersonentage = mieterAbrechnungen.reduce(
-      (s, a) => s + a.belegteTage * a.anzahlPersonen, 0
-    );
-
-    // Seite-2-Tabelle: alle 17 BetrKV-Positionen (auch mit 0 €)
-    const immobilieKosten = BETRKV_KATEGORIEN.map(kat => {
+    // Seite 2 zeigt alle 17 BetrKV-Positionen, auch die ohne Kosten.
+    const immobilieKosten = BETRKV_KATEGORIEN.map((kat) => {
       const entry = kostenProKategorie.get(kat.id);
-      const betragGesamt = entry?.total || 0;
-      const schluessel = entry?.schluessel || kat.schluessel;
-      let einheitenLabel = '';
-      if (schluessel === 'qm') einheitenLabel = `${bezugsgroessen.qm.toFixed(0)} m²`;
-      else if (schluessel === 'personen') einheitenLabel = `${gesamtPersonentage}`;
-      else einheitenLabel = `${bezugsgroessen.anzahl}`;
-      return {
-        betrkvNummer: kat.betrkvNummer,
-        name: kat.pdfName,
-        verteilerschluessel: schluessel,
-        betragGesamt,
-        einheitenLabel,
-      };
-    });
+      const schluessel = (entry?.schluessel ?? kat.schluessel) as VerteilerSchluessel;
+      const gesamtBezug = bezugsgroesseFuerSchluessel(schluessel, abrechnung.periode, bezugsgroessen)
+        .gesamt;
 
-    // Seite-3-Kostendetails: mit BetrKV-Nummer + Bezugsgrößen anreichern
-    const enrichedKostenDetails = abrechnung.kostenDetails.map(detail => {
-      const kat = BETRKV_KATEGORIEN.find(
-        k => k.name.toLowerCase() === detail.kategorieName.toLowerCase() ||
-             k.pdfName.toLowerCase() === detail.kategorieName.toLowerCase()
-      );
-      let einheitenGesamt: number;
-      let ihreEinheiten: number;
-      if (detail.verteilerschluessel === 'qm') {
-        einheitenGesamt = bezugsgroessen.qm;
-        ihreEinheiten = abrechnung.qm;
-      } else if (detail.verteilerschluessel === 'personen') {
-        einheitenGesamt = bezugsgroessen.personen;
-        ihreEinheiten = abrechnung.anzahlPersonen;
-      } else {
-        einheitenGesamt = bezugsgroessen.anzahl;
-        ihreEinheiten = 1;
-      }
+      let einheitenLabel: string;
+      if (schluessel === "qm") einheitenLabel = `${gesamtBezug.toFixed(0)} m²`;
+      else einheitenLabel = `${gesamtBezug.toFixed(0)}`;
+
       return {
-        ...detail,
-        betrkvNummer: kat?.betrkvNummer,
-        einheitenGesamt,
-        ihreEinheiten,
-        nutzungsdauerProzent: abrechnung.zeitanteilFaktor * 100,
+        betrkvNummer: kat.betrkvNummer ?? "",
+        name: kat.pdfName ?? kat.name,
+        verteilerschluessel: schluessel,
+        betragGesamt: entry?.total ?? 0,
+        einheitenLabel,
       };
     });
 
     return {
       immobilieAdresse,
+      empfaengerName: mieterNamenText(abrechnung.mieterNamen),
+      empfaengerAdresse: abrechnung.empfaengerAdresse,
       gesamtFlaeche: bezugsgroessen.qm,
-      gesamtPersonenzahl: bezugsgroessen.personen,
-      anzahlWohneinheiten: bezugsgroessen.anzahl,
-      gesamtPersonentage,
+      anzahlWohneinheiten: bezugsgroessen.einheiten,
+      gesamtPersonentage: Math.round(bezugsgroessen.personentage),
       immobilieKosten,
-      immobilieGesamtkosten: Array.from(kostenProKategorie.values()).reduce((s, v) => s + v.total, 0),
+      immobilieGesamtkosten: gesamtkostenUmlagefaehig,
       einheitBezeichnung: abrechnung.einheitName,
-      qm: abrechnung.qm,
-      anzahlPersonen: abrechnung.anzahlPersonen,
-      personentageEinheit: abrechnung.anzahlPersonen * abrechnung.belegteTage,
-      mieterName: abrechnung.mieterName,
+      qm: abrechnung.periode.qm,
+      anzahlPersonen: abrechnung.periode.personen,
+      personentageEinheit: abrechnung.periode.personen * abrechnung.periode.tage,
+      mieterName: mieterNamenText(abrechnung.mieterNamen),
       abrechnungsjahr: selectedYear,
-      nutzungVon: format(abrechnung.nutzungVon, 'dd.MM.yyyy', { locale: de }),
-      nutzungBis: format(abrechnung.nutzungBis, 'dd.MM.yyyy', { locale: de }),
-      kostenDetails: enrichedKostenDetails,
+      abrechnungszeitraumVon: format(abrStart, "dd.MM.yyyy", { locale: de }),
+      abrechnungszeitraumBis: format(abrEnde, "dd.MM.yyyy", { locale: de }),
+      nutzungVon: format(abrechnung.periode.von, "dd.MM.yyyy", { locale: de }),
+      nutzungBis: format(abrechnung.periode.bis, "dd.MM.yyyy", { locale: de }),
+      kostenDetails: abrechnung.kostenDetails,
       monatlicheVorauszahlung: abrechnung.monatlicheVorauszahlung,
       anzahlMonate: abrechnung.anzahlMonate,
       vorauszahlungenGesamt: abrechnung.vorauszahlungenGesamt,
       kostenAnteilGesamt: abrechnung.kostenAnteilGesamt,
       saldo: abrechnung.saldo,
-      abrechnungsDatum: format(new Date(), 'dd.MM.yyyy', { locale: de }),
+      abrechnungsDatum: format(new Date(), "dd.MM.yyyy", { locale: de }),
     };
   }
 
-  // PDF generieren und herunterladen
   async function handleDownloadPdf(abrechnung: MieterAbrechnung) {
-    setLoadingPdf(prev => new Set([...prev, abrechnung.mietvertragId]));
+    setLoadingPdf((prev) => new Set([...prev, abrechnung.id]));
     try {
-      const pdfData = buildPdfData(abrechnung);
-      const blob = await generateNebenkostenAbrechnungPdf(pdfData);
+      const blob = await generateNebenkostenAbrechnungPdf(buildPdfData(abrechnung));
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = `Betriebskostenabrechnung_${selectedYear}_${abrechnung.mieterName.replace(/\s+/g, '_')}.pdf`;
+      a.download = `Betriebskostenabrechnung_${selectedYear}_${mieterNamenText(
+        abrechnung.mieterNamen
+      ).replace(/\s+/g, "_")}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
 
-      toast({ title: "PDF erstellt", description: `Abrechnung für ${abrechnung.mieterName} wurde heruntergeladen.` });
-    } catch (err) {
-      toast({ title: "Fehler", description: "PDF konnte nicht erstellt werden.", variant: "destructive" });
+      toast({
+        title: "PDF erstellt",
+        description: `Abrechnung für ${mieterNamenText(abrechnung.mieterNamen)} wurde heruntergeladen.`,
+      });
+
+      // Auch der Download wird protokolliert — Mieter ohne E-Mail werden
+      // postalisch bedient und fehlten sonst komplett im Audit-Trail.
+      // Schlägt nur die Protokollierung fehl, ist das PDF trotzdem erzeugt:
+      // separat melden, damit es nicht wie ein fehlgeschlagener Download aussieht.
+      await protokolliere(abrechnung, "pdf");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unbekannter Fehler";
+      toast({ title: "PDF konnte nicht erstellt werden", description: message, variant: "destructive" });
     } finally {
-      setLoadingPdf(prev => {
+      setLoadingPdf((prev) => {
         const next = new Set(prev);
-        next.delete(abrechnung.mietvertragId);
+        next.delete(abrechnung.id);
         return next;
       });
     }
   }
 
-  // PDF als Base64 für E-Mail
   async function pdfToBase64(pdfData: NebenkostenAbrechnungPdfData): Promise<string> {
     const blob = await generateNebenkostenAbrechnungPdf(pdfData);
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        resolve(base64);
-      };
+      reader.onloadend = () => resolve((reader.result as string).split(",")[1]);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
   }
 
-  // E-Mail senden
   async function handleSendEmail(abrechnung: MieterAbrechnung) {
-    if (!abrechnung.mieterEmail) {
-      toast({ title: "Keine E-Mail", description: "Für diesen Mieter ist keine E-Mail-Adresse hinterlegt.", variant: "destructive" });
+    if (abrechnung.mieterEmails.length === 0) {
+      toast({
+        title: "Keine E-Mail",
+        description: "Für diesen Vertrag ist keine E-Mail-Adresse hinterlegt.",
+        variant: "destructive",
+      });
       return;
     }
 
-    setLoadingEmail(prev => new Set([...prev, abrechnung.mietvertragId]));
+    setLoadingEmail((prev) => new Set([...prev, abrechnung.id]));
     try {
-      const pdfData = buildPdfData(abrechnung);
-      const pdfBase64 = await pdfToBase64(pdfData);
+      const pdfBase64 = await pdfToBase64(buildPdfData(abrechnung));
 
-      const { data, error } = await supabase.functions.invoke('send-nebenkostenabrechnung', {
+      const { data, error } = await supabase.functions.invoke("send-nebenkostenabrechnung", {
         body: {
-          recipientEmail: abrechnung.mieterEmail,
-          recipientName: abrechnung.mieterName,
+          // Alle Vertragspartner müssen die Abrechnung erhalten (§ 556 BGB).
+          recipientEmails: abrechnung.mieterEmails,
+          recipientName: mieterNamenText(abrechnung.mieterNamen),
           pdfBase64,
           immobilieAdresse,
           einheitBezeichnung: abrechnung.einheitName,
@@ -637,45 +628,61 @@ export function NebenkostenStep3Abrechnung({
         },
       });
 
-      if (error) throw new Error(error.message || 'E-Mail konnte nicht gesendet werden');
+      if (error) throw new Error(error.message || "E-Mail konnte nicht gesendet werden");
       if (data?.error) throw new Error(data.error);
 
-      await saveKostenpositionAnteile();
-      await saveAbrechnungRecord(abrechnung, true);
-      queryClient.invalidateQueries({ queryKey: ['nebenkosten-abrechnungen-status', immobilieId, selectedYear] });
+      toast({
+        title: "E-Mail gesendet",
+        description: `Abrechnung wurde an ${abrechnung.mieterEmails.join(", ")} gesendet.`,
+      });
 
-      toast({ title: "E-Mail gesendet", description: `Abrechnung wurde an ${abrechnung.mieterEmail} gesendet.` });
+      // Erst nach dem bestätigten Versand protokollieren — und Fehler dabei
+      // getrennt melden, sonst liest sich ein Audit-Problem wie ein
+      // fehlgeschlagener Versand und die Mail wird ein zweites Mal geschickt.
+      await protokolliere(abrechnung, "email");
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      const message = err instanceof Error ? err.message : "Unbekannter Fehler";
       toast({ title: "Fehler beim Senden", description: message, variant: "destructive" });
     } finally {
-      setLoadingEmail(prev => {
+      setLoadingEmail((prev) => {
         const next = new Set(prev);
-        next.delete(abrechnung.mietvertragId);
+        next.delete(abrechnung.id);
         return next;
       });
     }
   }
 
-  // BKA-Salden als Forderungen/Guthaben anlegen (positiv = Nachzahlung, negativ = Guthaben)
+  // ── Forderungen ────────────────────────────────────────────────────────────
+
+  /**
+   * BKA-Salden werden mit typ='BKA' geschrieben. Ohne diese Kennzeichnung würde
+   * der Sollmieten-Cron sie für eine Mietforderung halten und überschreiben, und
+   * das Mahnwesen würde sie wie ausstehende Miete behandeln.
+   */
+  function bkaForderung(abrechnung: MieterAbrechnung) {
+    return {
+      mietvertrag_id: abrechnung.mietvertragId,
+      sollmonat: `${selectedYear}-12-01`,
+      sollbetrag: Math.round(abrechnung.saldo * 100) / 100,
+      typ: "BKA",
+    };
+  }
+
   const createForderungenMutation = useMutation({
     mutationFn: async () => {
-      const relevante = mieterAbrechnungen.filter(a => Math.abs(a.saldo) > 0.01);
+      const relevante = mieterAbrechnungen.filter(
+        (a) => Math.abs(a.saldo) > 0.01 && a.mietvertragId
+      );
       if (relevante.length === 0) return { nachzahlungen: 0, guthaben: 0 };
 
-      const inserts = relevante.map(a => ({
-        mietvertrag_id: a.mietvertragId,
-        sollmonat: `${selectedYear}-12-01`,
-        sollbetrag: Math.round(a.saldo * 100) / 100,
-        ist_faellig: a.saldo > 0,
-        typ: 'BKA',
-      }));
-
-      const { error } = await supabase.from('mietforderungen').insert(inserts);
+      const { error } = await supabase
+        .from("mietforderungen")
+        .insert(relevante.map(bkaForderung));
       if (error) throw error;
+
       return {
-        nachzahlungen: relevante.filter(a => a.saldo > 0).length,
-        guthaben: relevante.filter(a => a.saldo < 0).length,
+        nachzahlungen: relevante.filter((a) => a.saldo > 0).length,
+        guthaben: relevante.filter((a) => a.saldo < 0).length,
       };
     },
     onSuccess: (result) => {
@@ -685,9 +692,9 @@ export function NebenkostenStep3Abrechnung({
       if (result.guthaben > 0) parts.push(`${result.guthaben} Guthaben`);
       toast({
         title: "BKA-Positionen eingetragen",
-        description: `${parts.join(' und ')} wurden in die Forderungsübersicht übernommen.`,
+        description: `${parts.join(" und ")} wurden in die Forderungsübersicht übernommen.`,
       });
-      queryClient.invalidateQueries({ queryKey: ['mietforderungen'] });
+      queryClient.invalidateQueries({ queryKey: ["mietforderungen"] });
       setForderungenDialogOpen(false);
     },
     onError: (err: Error) => {
@@ -695,9 +702,27 @@ export function NebenkostenStep3Abrechnung({
     },
   });
 
+  const einzelForderungMutation = useMutation({
+    mutationFn: async (abrechnung: MieterAbrechnung) => {
+      const { error } = await supabase.from("mietforderungen").insert(bkaForderung(abrechnung));
+      if (error) throw error;
+      return abrechnung;
+    },
+    onSuccess: (abrechnung) => {
+      toast({
+        title: "Forderung angelegt",
+        description: `Nachzahlung von ${abrechnung.saldo.toFixed(2)} € erstellt.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["mietforderungen"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Fehler", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // ── Rendering ──────────────────────────────────────────────────────────────
+
   const isLoading = einheitenLoading || vertraegeLoading || kostenLoading;
-  const nachzahlungAbrechnungen = mieterAbrechnungen.filter(a => a.saldo > 0.01);
-  const guthabenAbrechnungen = mieterAbrechnungen.filter(a => a.saldo < -0.01);
 
   if (isLoading) {
     return (
@@ -707,14 +732,15 @@ export function NebenkostenStep3Abrechnung({
     );
   }
 
-  if (!kostenpositionen || kostenpositionen.length === 0) {
+  if (kostenpositionen.length === 0) {
     return (
       <Card>
         <CardContent className="text-center py-16">
           <Calculator className="h-14 w-14 mx-auto mb-4 text-muted-foreground opacity-30" />
           <p className="text-lg font-medium">Keine Kostenpositionen vorhanden</p>
           <p className="text-sm text-muted-foreground mt-2">
-            Ordnen Sie zuerst in Schritt 1 Zahlungen den Kategorien zu, bevor Sie die Abrechnung erstellen.
+            Ordnen Sie zuerst in Schritt 1 Zahlungen den Kategorien zu, bevor Sie die Abrechnung
+            erstellen.
           </p>
         </CardContent>
       </Card>
@@ -723,17 +749,54 @@ export function NebenkostenStep3Abrechnung({
 
   return (
     <div className="space-y-6">
-      {/* Warnung: fehlende BK-Vorauszahlung im Mietvertrag */}
-      {mieterAbrechnungen.some(a => a.monatlicheVorauszahlung === 0) && (
+      {/* Abrechnungsfrist § 556 Abs. 3 BGB */}
+      {fristAbgelaufen && (
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">Abrechnungsfrist abgelaufen</p>
+              <p className="text-xs text-red-700 mt-1">
+                Die Frist nach § 556 Abs. 3 BGB endete am 31.12.{selectedYear + 1}. Nachforderungen
+                sind ab jetzt in der Regel ausgeschlossen — Guthaben müssen weiterhin ausgezahlt
+                werden.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Überschneidende Verträge auf derselben Einheit */}
+      {ueberschneidungen.length > 0 && (
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">
+                Überschneidende Mietverträge ({ueberschneidungen.length})
+              </p>
+              <p className="text-xs text-red-700 mt-1">
+                Auf mindestens einer Einheit laufen zwei Verträge zeitgleich. Die Kostenanteile
+                summieren sich dadurch auf über 100 %. Bitte die Vertragszeiträume korrigieren.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Fehlende BK-Vorauszahlung */}
+      {ohneVorauszahlung.length > 0 && (
         <Card className="border-amber-300 bg-amber-50">
           <CardContent className="py-3 flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
             <div>
-              <p className="text-sm font-semibold text-amber-800">Fehlende Betriebskosten-Vorauszahlung</p>
+              <p className="text-sm font-semibold text-amber-800">
+                Fehlende Betriebskosten-Vorauszahlung
+              </p>
               <p className="text-xs text-amber-700 mt-1">
-                Kein BK-Betrag im Mietvertrag hinterlegt — Vorauszahlung wird als 0 € gerechnet:{' '}
+                Kein BK-Betrag im Mietvertrag hinterlegt — Vorauszahlung wird als 0 € gerechnet:{" "}
                 <span className="font-medium">
-                  {mieterAbrechnungen.filter(a => a.monatlicheVorauszahlung === 0).map(a => a.mieterName).join(', ')}
+                  {ohneVorauszahlung.map((a) => mieterNamenText(a.mieterNamen)).join(", ")}
                 </span>
               </p>
             </div>
@@ -753,9 +816,9 @@ export function NebenkostenStep3Abrechnung({
                 <p className="text-xs text-slate-600 font-medium">Mietverträge</p>
                 <p className="text-xl font-bold text-slate-800">
                   {mieterAbrechnungen.length}
-                  {abrechnungen.filter(a => a.isLeerstand).length > 0 && (
+                  {leerstandAbrechnungen.length > 0 && (
                     <span className="text-sm font-normal text-slate-500 ml-1">
-                      + {abrechnungen.filter(a => a.isLeerstand).length} Leerstand
+                      + {leerstandAbrechnungen.length} Leerstand
                     </span>
                   )}
                 </p>
@@ -773,7 +836,7 @@ export function NebenkostenStep3Abrechnung({
               <div>
                 <p className="text-xs text-emerald-700 font-medium">Umlagefähig</p>
                 <p className="text-lg font-bold text-emerald-800">
-                  {Array.from(kostenProKategorie.values()).reduce((s, v) => s + v.total, 0).toFixed(0)} €
+                  {gesamtkostenUmlagefaehig.toFixed(0)} €
                 </p>
               </div>
             </div>
@@ -813,7 +876,7 @@ export function NebenkostenStep3Abrechnung({
         </Card>
       </div>
 
-      {/* Aktions-Bar: Nachzahlungen und/oder Guthaben */}
+      {/* Aktions-Bar */}
       {(nachzahlungAbrechnungen.length > 0 || guthabenAbrechnungen.length > 0) && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="py-4">
@@ -823,7 +886,8 @@ export function NebenkostenStep3Abrechnung({
                   <div className="flex items-center gap-2">
                     <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
                     <p className="text-sm font-medium text-amber-800">
-                      {nachzahlungAbrechnungen.length} Nachzahlung(en): {gesamtNachzahlungen.toFixed(2)} €
+                      {nachzahlungAbrechnungen.length} Nachzahlung(en):{" "}
+                      {gesamtNachzahlungen.toFixed(2)} €
                     </p>
                   </div>
                 )}
@@ -834,6 +898,12 @@ export function NebenkostenStep3Abrechnung({
                       {guthabenAbrechnungen.length} Guthaben: {gesamtGuthaben.toFixed(2)} €
                     </p>
                   </div>
+                )}
+                {ohneEmail.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {ohneEmail.length} Abrechnung(en) ohne E-Mail-Adresse — PDF herunterladen und
+                    postalisch versenden.
+                  </p>
                 )}
               </div>
               <Button
@@ -870,34 +940,41 @@ export function NebenkostenStep3Abrechnung({
                   <p className="text-lg font-medium">Keine Mietverträge im Abrechnungszeitraum</p>
                 </div>
               ) : (
-                abrechnungen.map(abrechnung => {
-                  const isExpanded = expandedCards.has(abrechnung.mietvertragId);
+                abrechnungen.map((abrechnung) => {
+                  const isExpanded = expandedCards.has(abrechnung.id);
                   const isNachzahlung = !abrechnung.isLeerstand && abrechnung.saldo > 0.01;
-                  const isPdfLoading = loadingPdf.has(abrechnung.mietvertragId);
-                  const isEmailLoading = loadingEmail.has(abrechnung.mietvertragId);
+                  const isPdfLoading = loadingPdf.has(abrechnung.id);
+                  const isEmailLoading = loadingEmail.has(abrechnung.id);
+                  const versandInfo = getVersandInfo(abrechnung.mietvertragId);
+                  const bereitsVersendet = !!versandInfo?.versandt_am;
+                  const nutzungsanteil =
+                    bezugsgroessen.gesamtTage > 0
+                      ? abrechnung.periode.tage / bezugsgroessen.gesamtTage
+                      : 0;
 
                   return (
                     <Collapsible
-                      key={abrechnung.mietvertragId}
+                      key={abrechnung.id}
                       open={isExpanded}
                       onOpenChange={() => {
-                        setExpandedCards(prev => {
+                        setExpandedCards((prev) => {
                           const next = new Set(prev);
-                          if (next.has(abrechnung.mietvertragId)) next.delete(abrechnung.mietvertragId);
-                          else next.add(abrechnung.mietvertragId);
+                          if (next.has(abrechnung.id)) next.delete(abrechnung.id);
+                          else next.add(abrechnung.id);
                           return next;
                         });
                       }}
                     >
-                      <div className={cn(
-                        "border-2 rounded-xl transition-all",
-                        abrechnung.isLeerstand
-                          ? "border-slate-200 bg-slate-50/50"
-                          : isNachzahlung
-                          ? "border-red-200 bg-red-50/30"
-                          : "border-green-200 bg-green-50/30"
-                      )}>
-                        {/* Header */}
+                      <div
+                        className={cn(
+                          "border-2 rounded-xl transition-all",
+                          abrechnung.isLeerstand
+                            ? "border-slate-200 bg-slate-50/50"
+                            : isNachzahlung
+                            ? "border-red-200 bg-red-50/30"
+                            : "border-green-200 bg-green-50/30"
+                        )}
+                      >
                         <CollapsibleTrigger className="w-full p-4 text-left hover:bg-white/40 rounded-t-xl transition-colors">
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                             <div className="flex items-center gap-3">
@@ -906,40 +983,66 @@ export function NebenkostenStep3Abrechnung({
                               ) : (
                                 <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                               )}
-                              <div className={cn(
-                                "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
-                                abrechnung.isLeerstand ? "bg-slate-100" : isNachzahlung ? "bg-red-100" : "bg-green-100"
-                              )}>
-                                <Home className={cn("h-4 w-4", abrechnung.isLeerstand ? "text-slate-500" : isNachzahlung ? "text-red-600" : "text-green-600")} />
+                              <div
+                                className={cn(
+                                  "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                                  abrechnung.isLeerstand
+                                    ? "bg-slate-100"
+                                    : isNachzahlung
+                                    ? "bg-red-100"
+                                    : "bg-green-100"
+                                )}
+                              >
+                                <Home
+                                  className={cn(
+                                    "h-4 w-4",
+                                    abrechnung.isLeerstand
+                                      ? "text-slate-500"
+                                      : isNachzahlung
+                                      ? "text-red-600"
+                                      : "text-green-600"
+                                  )}
+                                />
                               </div>
                               <div>
-                                <p className="font-semibold">{abrechnung.mieterName}</p>
+                                <p className="font-semibold">
+                                  {mieterNamenText(abrechnung.mieterNamen)}
+                                </p>
                                 <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
                                   <span>{abrechnung.einheitName}</span>
                                   <span>•</span>
-                                  <span>{abrechnung.qm.toFixed(0)} m²</span>
+                                  <span>{abrechnung.periode.qm.toFixed(0)} m²</span>
+                                  <span>•</span>
+                                  <span>{abrechnung.periode.personen} Pers.</span>
                                   <span>•</span>
                                   <span>
-                                    {format(abrechnung.nutzungVon, 'dd.MM.yy', { locale: de })} –{' '}
-                                    {format(abrechnung.nutzungBis, 'dd.MM.yy', { locale: de })}
+                                    {format(abrechnung.periode.von, "dd.MM.yy", { locale: de })} –{" "}
+                                    {format(abrechnung.periode.bis, "dd.MM.yy", { locale: de })}
                                   </span>
-                                  {abrechnung.zeitanteilFaktor < 0.99 && (
+                                  {nutzungsanteil < 0.99 && (
                                     <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                      {abrechnung.belegteTage} Tage
+                                      {abrechnung.periode.tage} Tage
                                     </Badge>
                                   )}
-                                  {!abrechnung.mieterEmail && (
-                                    <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-300 text-amber-700">
-                                      Keine E-Mail
-                                    </Badge>
-                                  )}
+                                  {!abrechnung.isLeerstand &&
+                                    abrechnung.mieterEmails.length === 0 && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] px-1 py-0 border-amber-300 text-amber-700"
+                                      >
+                                        Keine E-Mail
+                                      </Badge>
+                                    )}
                                 </div>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-3 ml-10 sm:ml-0">
                               {abrechnung.isLeerstand ? (
-                                <Badge variant="outline" className="text-sm px-3 py-1 border-slate-400 text-slate-600">
+                                <Badge
+                                  variant="outline"
+                                  className="text-sm px-3 py-1 border-slate-400 text-slate-600"
+                                >
                                   {abrechnung.saldo.toFixed(2)} € Eigentümeranteil
                                 </Badge>
                               ) : (
@@ -947,29 +1050,37 @@ export function NebenkostenStep3Abrechnung({
                                   variant={isNachzahlung ? "destructive" : "default"}
                                   className={cn("text-sm px-3 py-1", !isNachzahlung && "bg-green-600")}
                                 >
-                                  {isNachzahlung ? '+' : ''}{abrechnung.saldo.toFixed(2)} €
-                                  {' '}
-                                  {isNachzahlung ? 'Nachzahlung' : 'Guthaben'}
+                                  {isNachzahlung ? "+" : ""}
+                                  {abrechnung.saldo.toFixed(2)} €{" "}
+                                  {isNachzahlung ? "Nachzahlung" : "Guthaben"}
                                 </Badge>
                               )}
                             </div>
                           </div>
                         </CollapsibleTrigger>
 
-                        {/* Details */}
                         <CollapsibleContent>
                           <div className="px-4 pb-4 space-y-4 border-t bg-white/30">
-                            {/* Kostenaufschlüsselung */}
                             <div className="pt-4 space-y-1">
                               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                                 Kostenaufschlüsselung
                               </p>
                               {abrechnung.kostenDetails.map((detail, idx) => (
-                                <div key={idx} className="flex items-center justify-between text-sm py-1.5 border-b border-dashed border-muted last:border-0">
-                                  <span className="text-muted-foreground">{detail.kategorieName}</span>
+                                <div
+                                  key={idx}
+                                  className="flex items-center justify-between text-sm py-1.5 border-b border-dashed border-muted last:border-0"
+                                >
+                                  <span className="text-muted-foreground">
+                                    {detail.betrkvNummer ? `${detail.betrkvNummer} ` : ""}
+                                    {detail.kategorieName}
+                                  </span>
                                   <div className="flex items-center gap-3">
-                                    <span className="text-xs text-muted-foreground">{detail.anteilProzent.toFixed(1)}%</span>
-                                    <span className="font-medium w-20 text-right">{detail.anteilBetrag.toFixed(2)} €</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {detail.anteilProzent.toFixed(1)}%
+                                    </span>
+                                    <span className="font-medium w-20 text-right">
+                                      {detail.anteilBetrag.toFixed(2)} €
+                                    </span>
                                   </div>
                                 </div>
                               ))}
@@ -978,19 +1089,36 @@ export function NebenkostenStep3Abrechnung({
                                 <span>{abrechnung.kostenAnteilGesamt.toFixed(2)} €</span>
                               </div>
                               <div className="flex items-center justify-between text-sm text-muted-foreground">
-                                <span>Vorauszahlungen ({abrechnung.anzahlMonate.toFixed(1)} Monate × {abrechnung.monatlicheVorauszahlung.toFixed(2)} €)</span>
+                                <span>
+                                  Vorauszahlungen ({abrechnung.anzahlMonate.toFixed(1)} Monate ×{" "}
+                                  {abrechnung.monatlicheVorauszahlung.toFixed(2)} €)
+                                </span>
                                 <span>– {abrechnung.vorauszahlungenGesamt.toFixed(2)} €</span>
                               </div>
-                              <div className={cn(
-                                "flex items-center justify-between text-base font-bold pt-2 border-t",
-                                abrechnung.isLeerstand ? "text-slate-600" : isNachzahlung ? "text-red-700" : "text-green-700"
-                              )}>
-                                <span>{abrechnung.isLeerstand ? 'Eigentümeranteil (Leerstand)' : isNachzahlung ? 'Nachzahlung' : 'Guthaben'}</span>
-                                <span>{isNachzahlung ? '+' : ''}{abrechnung.saldo.toFixed(2)} €</span>
+                              <div
+                                className={cn(
+                                  "flex items-center justify-between text-base font-bold pt-2 border-t",
+                                  abrechnung.isLeerstand
+                                    ? "text-slate-600"
+                                    : isNachzahlung
+                                    ? "text-red-700"
+                                    : "text-green-700"
+                                )}
+                              >
+                                <span>
+                                  {abrechnung.isLeerstand
+                                    ? "Eigentümeranteil (Leerstand)"
+                                    : isNachzahlung
+                                    ? "Nachzahlung"
+                                    : "Guthaben"}
+                                </span>
+                                <span>
+                                  {isNachzahlung ? "+" : ""}
+                                  {abrechnung.saldo.toFixed(2)} €
+                                </span>
                               </div>
                             </div>
 
-                            {/* Aktions-Buttons — nicht bei Leerstand */}
                             {!abrechnung.isLeerstand && (
                               <div className="flex flex-wrap gap-2 pt-2">
                                 <Button
@@ -1008,63 +1136,68 @@ export function NebenkostenStep3Abrechnung({
                                   PDF herunterladen
                                 </Button>
 
-                                {(() => {
-                                  const versandInfo = getVersandInfo(abrechnung.mietvertragId);
-                                  const bereitsVersendet = !!versandInfo?.versandt_am;
-                                  return (
-                                    <div className="flex flex-col gap-1">
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className={cn(
-                                          "gap-2",
-                                          bereitsVersendet && "border-blue-300 text-blue-700 hover:bg-blue-50"
-                                        )}
-                                        onClick={() => handleSendEmail(abrechnung)}
-                                        disabled={isEmailLoading || !abrechnung.mieterEmail}
-                                        title={!abrechnung.mieterEmail ? 'Keine E-Mail-Adresse hinterlegt' : undefined}
-                                      >
-                                        {isEmailLoading ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : bereitsVersendet ? (
-                                          <CheckCircle2 className="h-4 w-4" />
-                                        ) : (
-                                          <Mail className="h-4 w-4" />
-                                        )}
-                                        {bereitsVersendet ? 'Erneut senden' : 'Per E-Mail senden'}
-                                        {abrechnung.mieterEmail && (
-                                          <span className="text-xs text-muted-foreground ml-1">({abrechnung.mieterEmail})</span>
-                                        )}
-                                      </Button>
-                                      {bereitsVersendet && versandInfo?.versandt_am && (
-                                        <p className="text-xs text-blue-600 flex items-center gap-1 ml-1">
-                                          <CheckCircle2 className="h-3 w-3 shrink-0" />
-                                          Versendet am {format(parseISO(versandInfo.versandt_am), 'dd.MM.yyyy, HH:mm', { locale: de })} Uhr
-                                        </p>
-                                      )}
-                                    </div>
-                                  );
-                                })()}
+                                <div className="flex flex-col gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className={cn(
+                                      "gap-2",
+                                      bereitsVersendet &&
+                                        "border-blue-300 text-blue-700 hover:bg-blue-50"
+                                    )}
+                                    onClick={() => handleSendEmail(abrechnung)}
+                                    disabled={isEmailLoading || abrechnung.mieterEmails.length === 0}
+                                    title={
+                                      abrechnung.mieterEmails.length === 0
+                                        ? "Keine E-Mail-Adresse hinterlegt"
+                                        : undefined
+                                    }
+                                  >
+                                    {isEmailLoading ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : bereitsVersendet ? (
+                                      <CheckCircle2 className="h-4 w-4" />
+                                    ) : (
+                                      <Mail className="h-4 w-4" />
+                                    )}
+                                    {bereitsVersendet ? "Erneut senden" : "Per E-Mail senden"}
+                                    {abrechnung.mieterEmails.length > 0 && (
+                                      <span className="text-xs text-muted-foreground ml-1">
+                                        ({abrechnung.mieterEmails.join(", ")})
+                                      </span>
+                                    )}
+                                  </Button>
+                                  {bereitsVersendet && versandInfo?.versandt_am && (
+                                    <p className="text-xs text-blue-600 flex items-center gap-1 ml-1">
+                                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                      Versendet am{" "}
+                                      {format(parseISO(versandInfo.versandt_am), "dd.MM.yyyy, HH:mm", {
+                                        locale: de,
+                                      })}{" "}
+                                      Uhr
+                                    </p>
+                                  )}
+                                  {!bereitsVersendet && versandInfo?.pdf_erstellt_am && (
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1 ml-1">
+                                      <Download className="h-3 w-3 shrink-0" />
+                                      PDF erstellt am{" "}
+                                      {format(
+                                        parseISO(versandInfo.pdf_erstellt_am),
+                                        "dd.MM.yyyy, HH:mm",
+                                        { locale: de }
+                                      )}{" "}
+                                      Uhr
+                                    </p>
+                                  )}
+                                </div>
 
                                 {isNachzahlung && (
                                   <Button
                                     size="sm"
                                     variant="outline"
                                     className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
-                                    onClick={async () => {
-                                      const { error } = await supabase.from('mietforderungen').insert({
-                                        mietvertrag_id: abrechnung.mietvertragId,
-                                        sollmonat: `${selectedYear}-12-01`,
-                                        sollbetrag: Math.round(abrechnung.saldo * 100) / 100,
-                                        ist_faellig: true,
-                                      });
-                                      if (error) {
-                                        toast({ title: "Fehler", description: error.message, variant: "destructive" });
-                                      } else {
-                                        toast({ title: "Forderung angelegt", description: `Nachzahlung von ${abrechnung.saldo.toFixed(2)} € erstellt.` });
-                                        queryClient.invalidateQueries({ queryKey: ['mietforderungen'] });
-                                      }
-                                    }}
+                                    disabled={einzelForderungMutation.isPending}
+                                    onClick={() => einzelForderungMutation.mutate(abrechnung)}
                                   >
                                     <Receipt className="h-4 w-4" />
                                     Als Forderung anlegen
@@ -1084,7 +1217,6 @@ export function NebenkostenStep3Abrechnung({
         </CardContent>
       </Card>
 
-      {/* BKA-Salden eintragen Dialog */}
       <AlertDialog open={forderungenDialogOpen} onOpenChange={setForderungenDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1093,17 +1225,26 @@ export function NebenkostenStep3Abrechnung({
               <div className="space-y-2 text-sm text-muted-foreground">
                 {nachzahlungAbrechnungen.length > 0 && (
                   <p>
-                    <span className="font-medium text-amber-700">{nachzahlungAbrechnungen.length} Nachzahlung(en)</span>{' '}
-                    über insgesamt {gesamtNachzahlungen.toFixed(2)} € werden als Forderung eingetragen.
+                    <span className="font-medium text-amber-700">
+                      {nachzahlungAbrechnungen.length} Nachzahlung(en)
+                    </span>{" "}
+                    über insgesamt {gesamtNachzahlungen.toFixed(2)} € werden als Forderung
+                    eingetragen.
                   </p>
                 )}
                 {guthabenAbrechnungen.length > 0 && (
                   <p>
-                    <span className="font-medium text-green-700">{guthabenAbrechnungen.length} Guthaben</span>{' '}
-                    über insgesamt {gesamtGuthaben.toFixed(2)} € werden als Guthaben eingetragen (negativer Betrag).
+                    <span className="font-medium text-green-700">
+                      {guthabenAbrechnungen.length} Guthaben
+                    </span>{" "}
+                    über insgesamt {gesamtGuthaben.toFixed(2)} € werden als Guthaben eingetragen
+                    (negativer Betrag).
                   </p>
                 )}
-                <p>Alle Einträge werden mit Typ „BKA" und Fälligkeitsdatum 01.{selectedYear}-12 gespeichert.</p>
+                <p>
+                  Alle Einträge werden mit Typ „BKA" und Sollmonat 12/{selectedYear} gespeichert.
+                  Nachzahlungen sind 30 Tage nach Eintrag fällig, Guthaben werden nicht angemahnt.
+                </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1113,7 +1254,9 @@ export function NebenkostenStep3Abrechnung({
               onClick={() => createForderungenMutation.mutate()}
               disabled={createForderungenMutation.isPending}
             >
-              {createForderungenMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {createForderungenMutation.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
               Eintragen
             </AlertDialogAction>
           </AlertDialogFooter>

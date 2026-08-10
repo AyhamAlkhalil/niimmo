@@ -1168,33 +1168,42 @@ export type Database = {
           abrechnungsjahr: number
           aktualisiert_am: string | null
           erstellt_am: string | null
+          erstellt_von: string | null
           id: string
           kosten_gesamt: number
           mietvertrag_id: string
+          pdf_erstellt_am: string | null
           saldo: number
           versandt_am: string | null
+          versandt_an: string | null
           vorauszahlungen: number
         }
         Insert: {
           abrechnungsjahr: number
           aktualisiert_am?: string | null
           erstellt_am?: string | null
+          erstellt_von?: string | null
           id?: string
           kosten_gesamt: number
           mietvertrag_id: string
+          pdf_erstellt_am?: string | null
           saldo: number
           versandt_am?: string | null
+          versandt_an?: string | null
           vorauszahlungen: number
         }
         Update: {
           abrechnungsjahr?: number
           aktualisiert_am?: string | null
           erstellt_am?: string | null
+          erstellt_von?: string | null
           id?: string
           kosten_gesamt?: number
           mietvertrag_id?: string
+          pdf_erstellt_am?: string | null
           saldo?: number
           versandt_am?: string | null
+          versandt_an?: string | null
           vorauszahlungen?: number
         }
         Relationships: [
@@ -1927,6 +1936,10 @@ export type Database = {
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_hausmeister: { Args: { _user_id: string }; Returns: boolean }
+      replace_kostenposition_anteile: {
+        Args: { p_kostenposition_ids: string[]; p_anteile: Json }
+        Returns: number
+      }
       rpc_agent_all_tenants: {
         Args: { p_status?: string }
         Returns: {

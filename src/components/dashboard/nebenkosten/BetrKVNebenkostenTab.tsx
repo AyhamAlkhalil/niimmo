@@ -22,9 +22,17 @@ import {
   ClipboardList,
   ArrowRight,
 } from "lucide-react";
+import { parseISO } from "date-fns";
 import { NebenkostenStep1Zuordnung } from "./NebenkostenStep1Zuordnung";
 import { NebenkostenStep2Verteilung } from "./NebenkostenStep2Verteilung";
 import { NebenkostenStep3Abrechnung } from "./NebenkostenStep3Abrechnung";
+import {
+  useKostenpositionen,
+  positionenImZeitraum,
+  verteilteBetraegeProZahlung,
+  summeImZeitraum,
+  istZuordenbareZahlung,
+} from "@/hooks/useNebenkostenDaten";
 
 interface BetrKVNebenkostenTabProps {
   immobilieId: string;
@@ -35,33 +43,23 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [activeStep, setActiveStep] = useState<string>("step1");
 
+  // Die Statistik braucht id und betrag — vorher wurde nur buchungsdatum selektiert,
+  // wodurch jede Zahlung des Jahres als "noch offen" gezählt wurde.
   const { data: zahlungen, isLoading: zahlungenLoading } = useQuery({
     queryKey: ["immobilie-nebenkosten-zahlungen", immobilieId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("zahlungen")
-        .select("buchungsdatum")
-        .eq("immobilie_id", immobilieId);
+        .select("id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, kategorie")
+        .eq("immobilie_id", immobilieId)
+        .lt("betrag", 0)
+        .order("buchungsdatum", { ascending: false });
       if (error) throw error;
       return data || [];
     },
   });
 
-  const { data: kostenpositionen, isLoading: kostenLoading } = useQuery({
-    queryKey: ["kostenpositionen-betrkv", immobilieId, selectedYear],
-    queryFn: async () => {
-      const yearStart = `${selectedYear}-01-01`;
-      const yearEnd = `${selectedYear}-12-31`;
-      const { data, error } = await supabase
-        .from("kostenpositionen")
-        .select("*")
-        .eq("immobilie_id", immobilieId)
-        .gte("zeitraum_von", yearStart)
-        .lte("zeitraum_bis", yearEnd);
-      if (error) throw error;
-      return data || [];
-    },
-  });
+  const { data: kostenpositionen, isLoading: kostenLoading } = useKostenpositionen(immobilieId);
 
   const availableYears = useMemo(() => {
     const years = new Set<number>();
@@ -72,29 +70,27 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
   }, [zahlungen, currentYear]);
 
   const stats = useMemo(() => {
-    const yearPayments = zahlungen?.filter(
-      (z) => new Date(z.buchungsdatum).getFullYear() === selectedYear
-    ) || [];
+    const abrStart = parseISO(`${selectedYear}-01-01`);
+    const abrEnde = parseISO(`${selectedYear}-12-31`);
 
-    const unassigned = yearPayments.filter((z) => {
-      const positions = kostenpositionen?.filter((kp) => kp.zahlung_id === (z as any).id) || [];
-      if (positions.length === 0) return true;
-      const assignedTotal = positions.reduce((sum, kp) => sum + kp.gesamtbetrag, 0);
-      return assignedTotal < Math.abs((z as any).betrag || 0) - 0.01;
+    // Verteilt wird über alle Jahre gezählt: eine bereits im Vorjahr verplante
+    // Zahlung darf hier nicht erneut als offen erscheinen.
+    const verteilt = verteilteBetraegeProZahlung(kostenpositionen);
+
+    const unassigned = (zahlungen || []).filter((z) => {
+      if (!istZuordenbareZahlung(z)) return false;
+      const jahr = new Date(z.buchungsdatum).getFullYear();
+      if (jahr !== selectedYear && jahr !== selectedYear - 1) return false;
+      return (verteilt.get(z.id) || 0) < Math.abs(z.betrag || 0) - 0.01;
     });
 
-    const totalUmlagefaehig = kostenpositionen
-      ?.filter((kp) => kp.ist_umlagefaehig)
-      .reduce((s, kp) => s + kp.gesamtbetrag, 0) || 0;
-    const totalNichtUmlagefaehig = kostenpositionen
-      ?.filter((kp) => !kp.ist_umlagefaehig)
-      .reduce((s, kp) => s + kp.gesamtbetrag, 0) || 0;
+    const positionenImJahr = positionenImZeitraum(kostenpositionen, abrStart, abrEnde);
 
     return {
       unassignedCount: unassigned.length,
-      assignedCount: kostenpositionen?.length || 0,
-      totalUmlagefaehig,
-      totalNichtUmlagefaehig,
+      assignedCount: positionenImJahr.length,
+      totalUmlagefaehig: summeImZeitraum(kostenpositionen, abrStart, abrEnde, true),
+      totalNichtUmlagefaehig: summeImZeitraum(kostenpositionen, abrStart, abrEnde, false),
     };
   }, [zahlungen, kostenpositionen, selectedYear]);
 
