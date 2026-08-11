@@ -141,7 +141,7 @@ export function NebenkostenStep3Abrechnung({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("einheiten")
-        .select("id, zaehler, qm, anzahl_personen, einheitentyp")
+        .select("id, zaehler, qm, einheitentyp")
         .eq("immobilie_id", immobilieId);
       if (error) throw error;
       return data || [];
@@ -397,6 +397,18 @@ export function NebenkostenStep3Abrechnung({
   const unklareSchluessel = Array.from(kostenProKategorie.values()).filter(
     (k) => !istBerechenbarerSchluessel(k.schluessel)
   );
+
+  // Fehlt an einem Vertrag die Personenzahl, stimmen die Personentage der
+  // gesamten Immobilie nicht — dann sind ALLE Abrechnungen dieses Objekts
+  // betroffen, nicht nur die des lückenhaften Vertrags. Solange eine Kostenart
+  // nach Personentagen verteilt wird, wird deshalb nichts erzeugt oder versendet.
+  const personenSchluesselAktiv = Array.from(kostenProKategorie.values()).some(
+    (k) => k.schluessel === "personen"
+  );
+  const ohnePersonenzahl = abrechnungen.filter(
+    (a) => !a.isLeerstand && !a.periode.personenGepflegt
+  );
+  const abrechnungGesperrt = personenSchluesselAktiv && ohnePersonenzahl.length > 0;
 
   const fristAbgelaufen = istAbrechnungsfristAbgelaufen(selectedYear);
   const ohneVorauszahlung = mieterAbrechnungen.filter((a) => a.monatlicheVorauszahlung === 0);
@@ -805,6 +817,35 @@ export function NebenkostenStep3Abrechnung({
         </Card>
       )}
 
+      {/* Fehlende Personenzahl sperrt die Abrechnung */}
+      {abrechnungGesperrt && (
+        <Card className="border-red-400 bg-red-50">
+          <CardContent className="py-4 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-red-800">
+                Abrechnung gesperrt — Personenzahl fehlt bei {ohnePersonenzahl.length} Vertrag/Verträgen
+              </p>
+              <p className="text-xs text-red-700">
+                Mindestens eine Kostenart wird nach Personentagen verteilt. Die Personenzahl gehört
+                zum Mietvertrag und wird nicht ersetzt — fehlt sie, sind die Personentage der
+                gesamten Immobilie und damit <span className="font-medium">alle</span> Abrechnungen
+                dieses Objekts falsch, nicht nur die betroffenen.
+              </p>
+              <p className="text-xs text-red-700">
+                Betroffen:{" "}
+                <span className="font-medium">
+                  {ohnePersonenzahl.map((a) => mieterNamenText(a.mieterNamen)).join(", ")}
+                </span>
+              </p>
+              <p className="text-xs text-red-700">
+                Personenzahl in Schritt 2 oder direkt im Mietvertrag nachtragen.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Verteilerschlüssel ohne Berechnungsgrundlage */}
       {unklareSchluessel.length > 0 && (
         <Card className="border-amber-300 bg-amber-50">
@@ -953,6 +994,12 @@ export function NebenkostenStep3Abrechnung({
                 variant="outline"
                 size="sm"
                 className="border-blue-400 text-blue-800 hover:bg-blue-100 gap-2 shrink-0"
+                disabled={abrechnungGesperrt}
+                title={
+                  abrechnungGesperrt
+                    ? "Gesperrt: Personenzahl fehlt bei mindestens einem Vertrag"
+                    : undefined
+                }
                 onClick={() => setForderungenDialogOpen(true)}
               >
                 <Receipt className="h-4 w-4" />
@@ -1169,7 +1216,12 @@ export function NebenkostenStep3Abrechnung({
                                   variant="outline"
                                   className="gap-2"
                                   onClick={() => handleDownloadPdf(abrechnung)}
-                                  disabled={isPdfLoading}
+                                  disabled={isPdfLoading || abrechnungGesperrt}
+                                  title={
+                                    abrechnungGesperrt
+                                      ? "Gesperrt: Personenzahl fehlt bei mindestens einem Vertrag"
+                                      : undefined
+                                  }
                                 >
                                   {isPdfLoading ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -1189,9 +1241,15 @@ export function NebenkostenStep3Abrechnung({
                                         "border-blue-300 text-blue-700 hover:bg-blue-50"
                                     )}
                                     onClick={() => handleSendEmail(abrechnung)}
-                                    disabled={isEmailLoading || abrechnung.mieterEmails.length === 0}
+                                    disabled={
+                                      isEmailLoading ||
+                                      abrechnung.mieterEmails.length === 0 ||
+                                      abrechnungGesperrt
+                                    }
                                     title={
-                                      abrechnung.mieterEmails.length === 0
+                                      abrechnungGesperrt
+                                        ? "Gesperrt: Personenzahl fehlt bei mindestens einem Vertrag"
+                                        : abrechnung.mieterEmails.length === 0
                                         ? "Keine E-Mail-Adresse hinterlegt"
                                         : undefined
                                     }
@@ -1239,7 +1297,7 @@ export function NebenkostenStep3Abrechnung({
                                     size="sm"
                                     variant="outline"
                                     className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
-                                    disabled={einzelForderungMutation.isPending}
+                                    disabled={einzelForderungMutation.isPending || abrechnungGesperrt}
                                     onClick={() => einzelForderungMutation.mutate(abrechnung)}
                                   >
                                     <Receipt className="h-4 w-4" />

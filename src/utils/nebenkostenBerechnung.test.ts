@@ -21,8 +21,8 @@ const ABR_VON = new Date(2025, 0, 1);
 const ABR_BIS = new Date(2025, 11, 31);
 const GESAMT_TAGE = 365;
 
-function einheit(id: string, qm: number, personen: number | null = null) {
-  return { id, qm, anzahl_personen: personen };
+function einheit(id: string, qm: number) {
+  return { id, qm };
 }
 
 function vertrag(
@@ -175,14 +175,40 @@ describe('ermittlePerioden', () => {
     expect(leerstandsPerioden[0].tage).toBe(184);
   });
 
-  it('nimmt die Personenzahl aus dem Vertrag, nicht aus der Einheit', () => {
+  it('nimmt die Personenzahl aus dem Mietvertrag', () => {
     const { vertragsPerioden } = ermittlePerioden(
-      einheit('e1', 50, 1),
+      einheit('e1', 50),
       [vertrag('v1', '2024-01-01', null, 4)],
       ABR_VON,
       ABR_BIS
     );
     expect(vertragsPerioden[0].personen).toBe(4);
+    expect(vertragsPerioden[0].personenGepflegt).toBe(true);
+  });
+
+  it('ersetzt eine fehlende Personenzahl nicht, sondern markiert sie', () => {
+    // Die Personenzahl gehört zum Vertrag. Ein Rückgriff auf die Einheit würde
+    // die Belegung der Wohnung einem Vertrag zuschreiben, zu dem sie nicht gehört.
+    const { vertragsPerioden } = ermittlePerioden(
+      einheit('e1', 50),
+      [vertrag('v1', '2024-01-01', null, null)],
+      ABR_VON,
+      ABR_BIS
+    );
+    expect(vertragsPerioden[0].personen).toBe(0);
+    expect(vertragsPerioden[0].personenGepflegt).toBe(false);
+  });
+
+  it('führt Leerstand mit 0 Personen als echten Wert', () => {
+    const { leerstandsPerioden } = ermittlePerioden(
+      einheit('e1', 50),
+      [vertrag('v1', '2025-01-01', '2025-06-30', 3)],
+      ABR_VON,
+      ABR_BIS
+    );
+    expect(leerstandsPerioden[0].personen).toBe(0);
+    // Kein fehlender Wert: in einer leeren Wohnung wohnt niemand.
+    expect(leerstandsPerioden[0].personenGepflegt).toBe(true);
   });
 
   it('meldet überschneidende Verträge derselben Einheit', () => {
@@ -234,8 +260,8 @@ describe('berechneAnteil', () => {
   );
 
   it('gewichtet den Personen-Schlüssel über Personentage', () => {
-    // e1: 4 Personen × 365 = 1460; e2: 2 × 181 = 362, Leerstand 1 × 184 = 184
-    expect(bezug.personentage).toBe(4 * 365 + 2 * 181 + 1 * 184);
+    // e1: 4 Personen × 365 = 1460; e2: 2 × 181 = 362; Leerstand: 0
+    expect(bezug.personentage).toBe(4 * 365 + 2 * 181);
 
     const mieterE1 = p1.vertragsPerioden[0];
     expect(berechneAnteil(mieterE1, 'personen', bezug)).toBeCloseTo(
@@ -257,16 +283,18 @@ describe('berechneAnteil', () => {
     );
   });
 
-  it('lässt Leerstandskosten beim Eigentümer', () => {
+  it('lässt flächenbezogene Leerstandskosten beim Eigentümer', () => {
     const leerstand = p2.leerstandsPerioden[0];
     expect(berechneAnteil(leerstand, 'qm', bezug)).toBeGreaterThan(0);
-    expect(berechneAnteil(leerstand, 'personen', bezug)).toBeGreaterThan(0);
+    expect(berechneAnteil(leerstand, 'gleich', bezug)).toBeGreaterThan(0);
+    // Nach Personentagen trägt Leerstand nichts: dort hat niemand verbraucht.
+    expect(berechneAnteil(leerstand, 'personen', bezug)).toBe(0);
   });
 });
 
 describe('bezugsgroesseFuerSchluessel', () => {
   const periode: Nutzungsperiode = {
-    einheitId: 'e1', qm: 60, personen: 3,
+    einheitId: 'e1', qm: 60, personen: 3, personenGepflegt: true,
     von: ABR_VON, bis: ABR_BIS, tage: 365,
   };
   const bezug = berechneBezugsgroessen([einheit('e1', 60)], [periode], GESAMT_TAGE);

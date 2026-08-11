@@ -88,7 +88,14 @@ export function kostenAnteilImZeitraum(
 export interface Nutzungsperiode {
   einheitId: string;
   qm: number;
+  /** Bewohner laut Mietvertrag. Bei Leerstand 0, bei ungepflegtem Vertrag ebenfalls 0. */
   personen: number;
+  /**
+   * false, wenn am Mietvertrag keine Personenzahl hinterlegt ist. Dann fehlt die
+   * Bezugsgröße für den Personentage-Schlüssel und die Abrechnung der gesamten
+   * Immobilie ist nicht belegbar — es wird bewusst nichts geschätzt.
+   */
+  personenGepflegt: boolean;
   von: Date;
   bis: Date;
   tage: number;
@@ -222,13 +229,12 @@ export interface PeriodenErgebnis {
 }
 
 export function ermittlePerioden(
-  einheit: { id: string; qm: number | null; anzahl_personen: number | null },
+  einheit: { id: string; qm: number | null },
   vertraege: VertragFuerPeriode[],
   abrVon: Date,
   abrBis: Date
 ): PeriodenErgebnis {
   const qm = einheit.qm || 0;
-  const einheitPersonen = einheit.anzahl_personen ?? 1;
 
   const vertragsPerioden: (Nutzungsperiode & { mietvertragId: string })[] = [];
   const ueberschneidungen: { vertragA: string; vertragB: string }[] = [];
@@ -247,14 +253,18 @@ export function ermittlePerioden(
     const overlap = ueberlappung(start, ende, abrVon, abrBis);
     if (!overlap) continue;
 
-    // Personenzahl kommt primär vom Vertrag — nur dort wird sie in der UI gepflegt.
-    const personen = mv.anzahl_personen ?? einheit.anzahl_personen ?? 1;
+    // Die Personenzahl gehört zum Mietvertrag, nicht zur Einheit: sie beschreibt,
+    // wer dort wohnt, nicht die Wohnung. Ein Rückgriff auf einheiten.anzahl_personen
+    // würde die Belegung der Wohnung einem Vertrag zuschreiben, zu dem sie nicht
+    // gehört — deshalb wird hier bewusst nichts ersetzt.
+    const personen = mv.anzahl_personen ?? 0;
 
     vertragsPerioden.push({
       mietvertragId: mv.id,
       einheitId: einheit.id,
       qm,
       personen,
+      personenGepflegt: personen > 0,
       von: overlap.von,
       bis: overlap.bis,
       tage: overlap.tage,
@@ -279,7 +289,10 @@ export function ermittlePerioden(
         leerstandsPerioden.push({
           einheitId: einheit.id,
           qm,
-          personen: einheitPersonen,
+          // Leerstand hat keine Bewohner — 0 Personentage ist hier ein echter
+          // Wert, kein fehlender.
+          personen: 0,
+          personenGepflegt: true,
           von: new Date(cursor),
           bis: luekeEnde,
           tage,
@@ -297,7 +310,8 @@ export function ermittlePerioden(
       leerstandsPerioden.push({
         einheitId: einheit.id,
         qm,
-        personen: einheitPersonen,
+        personen: 0,
+        personenGepflegt: true,
         von: new Date(cursor),
         bis: new Date(abrBis),
         tage,

@@ -102,7 +102,7 @@ export function NebenkostenStep2Verteilung({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("einheiten")
-        .select("id, zaehler, qm, anzahl_personen, einheitentyp")
+        .select("id, zaehler, qm, einheitentyp")
         .eq("immobilie_id", immobilieId);
       if (error) throw error;
       return data || [];
@@ -207,8 +207,9 @@ export function NebenkostenStep2Verteilung({
     .filter((k) => k.kategorie.umlagefaehig)
     .reduce((sum, k) => sum + k.total, 0);
 
-  // Verträge ohne gepflegte Personenzahl. Fehlt sie, greift ein Fallback und der
-  // Personentage-Schlüssel (z. B. Wasserversorgung) wird verzerrt.
+  // Verträge ohne gepflegte Personenzahl. Sie wird nicht ersetzt — fehlt sie,
+  // ist die Umlage nach Personentagen für die ganze Immobilie nicht belegbar
+  // und Schritt 3 sperrt die Abrechnung.
   const fehlendePersonenzahl = useMemo(() => {
     if (!mietvertraege) return [];
     const relevanteIds = new Set(vertragsPerioden.map((p) => p.mietvertragId));
@@ -408,9 +409,9 @@ export function NebenkostenStep2Verteilung({
               Personenzahl erforderlich
             </CardTitle>
             <p className="text-sm text-amber-700">
-              Ohne Personenzahl wird für diese Verträge ersatzweise 1 Person gerechnet — die Umlage
-              nach Personentagen (z. B. Wasserversorgung) wird dadurch verzerrt. Die Eingabe wird im
-              Mietvertrag gespeichert.
+              Die Personenzahl gehört zum Mietvertrag und wird nicht ersetzt. Solange sie fehlt,
+              sperrt Schritt 3 die Abrechnung dieser Immobilie, sobald eine Kostenart nach
+              Personentagen verteilt wird — die Bezugsgröße wäre sonst für alle Mieter falsch.
             </p>
           </CardHeader>
           <CardContent>
