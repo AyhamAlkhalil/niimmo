@@ -1,1 +1,0 @@
-UPDATE mietvertrag SET status = 'gekuendigt', aktualisiert_am = now() WHERE id = '00000000-0000-0000-0000-000000202001';

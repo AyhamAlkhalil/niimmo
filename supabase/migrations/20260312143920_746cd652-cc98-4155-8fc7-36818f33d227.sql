@@ -1,1 +1,0 @@
-ALTER TABLE public.immobilien ADD COLUMN marktwert numeric NULL;

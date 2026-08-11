@@ -1,4 +1,0 @@
--- Diese Migration wurde direkt via Supabase MCP eingespielt (inline, ohne lokale Datei).
--- Inhalt: Erste Version des Mahnstufen-Fix (check_and_update_mahnstufen mit faelligkeitsdatum + kategorie='Miete').
--- Wurde durch 20260416134913_fix_mahnstufen_window_lower_bound.sql überschrieben (Fenster auf -14/+7 Tage erweitert).
--- Platzhalter-Datei damit supabase db push die Migration-History korrekt synchronisiert.
