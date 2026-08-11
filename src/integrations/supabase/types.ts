@@ -525,7 +525,6 @@ export type Database = {
       einheiten: {
         Row: {
           aktualisiert_am: string | null
-          anzahl_personen: number | null
           einheitentyp: Database["public"]["Enums"]["einheitentyp"] | null
           erstellt_am: string | null
           etage: string | null
@@ -551,7 +550,6 @@ export type Database = {
         }
         Insert: {
           aktualisiert_am?: string | null
-          anzahl_personen?: number | null
           einheitentyp?: Database["public"]["Enums"]["einheitentyp"] | null
           erstellt_am?: string | null
           etage?: string | null
@@ -577,7 +575,6 @@ export type Database = {
         }
         Update: {
           aktualisiert_am?: string | null
-          anzahl_personen?: number | null
           einheitentyp?: Database["public"]["Enums"]["einheitentyp"] | null
           erstellt_am?: string | null
           etage?: string | null
