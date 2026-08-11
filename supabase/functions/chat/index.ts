@@ -97,7 +97,10 @@ serve(async (req) => {
         .limit(200),
       supabase.from("mietforderungen")
         .select("id, sollbetrag, sollmonat, ist_faellig, faelligkeitsdatum, mietvertrag_id"),
-      supabase.from("einheiten").select("id, immobilie_id, qm, etage, einheitentyp, strom_zaehler, gas_zaehler, kaltwasser_zaehler, warmwasser_zaehler, strom_stand_aktuell, gas_stand_aktuell, kaltwasser_stand_aktuell, warmwasser_stand_aktuell, anzahl_personen"),
+      // Ohne anzahl_personen: Das Feld steht bei allen Einheiten auf dem Default 1
+      // und ist damit keine Information. Die Personenzahl gehört zum Mietvertrag
+      // und wird von dort geladen.
+      supabase.from("einheiten").select("id, immobilie_id, qm, etage, einheitentyp, strom_zaehler, gas_zaehler, kaltwasser_zaehler, warmwasser_zaehler, strom_stand_aktuell, gas_stand_aktuell, kaltwasser_stand_aktuell, warmwasser_stand_aktuell"),
       supabase.from("mietvertrag_mieter").select("mietvertrag_id, mieter_id"),
       supabase.from("darlehen").select("id, bezeichnung, bank, darlehensbetrag, restschuld, zinssatz_prozent, tilgungssatz_prozent, monatliche_rate, start_datum, ende_datum, kontonummer"),
       supabase.from("darlehen_immobilien").select("darlehen_id, immobilie_id"),
