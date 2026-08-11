@@ -25,6 +25,7 @@ import {
   Split,
   Sparkles,
   Plus,
+  MoreHorizontal,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -36,6 +37,7 @@ import {
   NICHT_UMLAGEFAEHIGE_KATEGORIEN,
   findeKategorieNachName,
   kategorieAusKiVorschlag,
+  pseudoKategorieFuerArt,
   type NebenkostenKategorie,
 } from "./nebenkostenKategorien";
 import {
@@ -268,13 +270,28 @@ export function NebenkostenStep1Zuordnung({
   const kostenProKategorie = useMemo(() => {
     const map = new Map<string, KostenpositionMitArt[]>();
     positionenDesJahres.forEach((kp) => {
-      const kategorie = findeKategorieNachName(kp.nebenkostenart?.name);
-      const kategorieId = kategorie?.id ?? "sonstige_betriebskosten";
-      const existing = map.get(kategorieId) || [];
+      const kategorie =
+        findeKategorieNachName(kp.nebenkostenart?.name) ??
+        pseudoKategorieFuerArt(kp.nebenkostenart);
+      if (!kategorie) return;
+      const existing = map.get(kategorie.id) || [];
       existing.push(kp);
-      map.set(kategorieId, existing);
+      map.set(kategorie.id, existing);
     });
     return map;
+  }, [positionenDesJahres]);
+
+  // Kostenarten aus dem Bestand, die keiner BetrKV-Position entsprechen. Sie
+  // gehören sichtbar gemacht, statt unter "2.17 Sonstige" zu verschwinden.
+  const sonstigeArten = useMemo(() => {
+    const bekannt = new Set([...BETRKV_KATEGORIEN, ...NICHT_UMLAGEFAEHIGE_KATEGORIEN].map((k) => k.id));
+    const map = new Map<string, NebenkostenKategorie>();
+    positionenDesJahres.forEach((kp) => {
+      if (findeKategorieNachName(kp.nebenkostenart?.name)) return;
+      const pseudo = pseudoKategorieFuerArt(kp.nebenkostenart);
+      if (pseudo && !bekannt.has(pseudo.id)) map.set(pseudo.id, pseudo);
+    });
+    return Array.from(map.values());
   }, [positionenDesJahres]);
 
   const handleDragStart = (e: React.DragEvent, zahlungId: string) => {
@@ -326,15 +343,19 @@ export function NebenkostenStep1Zuordnung({
     const Icon = kategorie.icon;
     const isExpanded = expandedCategories.has(kategorie.id);
     const chevronKlasse = cn("h-4 w-4", umlagefaehig ? "text-green-600" : "text-amber-600");
+    // Pseudo-Kategorien aus Bestandsdaten sind kein gültiges Ziel — für sie
+    // existiert keine BetrKV-Kategorie, aus der eine Nebenkostenart entstehen könnte.
+    const istDropZiel = !kategorie.id.startsWith("custom_");
 
     return (
       <div
         key={kategorie.id}
-        onDrop={(e) => handleDrop(e, kategorie.id)}
-        onDragOver={handleDragOver}
+        onDrop={istDropZiel ? (e) => handleDrop(e, kategorie.id) : undefined}
+        onDragOver={istDropZiel ? handleDragOver : undefined}
         className={cn(
-          "border-2 border-dashed rounded-xl transition-all",
-          draggedPayment
+          "border-2 rounded-xl transition-all",
+          istDropZiel ? "border-dashed" : "border-solid",
+          draggedPayment && istDropZiel
             ? umlagefaehig
               ? "border-green-400 bg-green-50"
               : "border-amber-400 bg-amber-50"
@@ -734,6 +755,23 @@ export function NebenkostenStep1Zuordnung({
                     renderKategorieCard(kategorie, false)
                   )}
                 </div>
+
+                {sonstigeArten.length > 0 && (
+                  <div className="space-y-2 pt-4 border-t">
+                    <h3 className="text-sm font-semibold text-slate-600 flex items-center gap-2 sticky top-0 bg-background py-2">
+                      <MoreHorizontal className="h-4 w-4" />
+                      Ohne BetrKV-Zuordnung
+                    </h3>
+                    <p className="text-xs text-muted-foreground -mt-1">
+                      Frei benannte Kostenarten aus dem Bestand. Sie werden abgerechnet, erhalten im
+                      PDF aber keine BetrKV-Nummer — zum Vereinheitlichen die Positionen einer
+                      Kategorie oben zuordnen.
+                    </p>
+                    {sonstigeArten.map((kategorie) =>
+                      renderKategorieCard(kategorie, kategorie.umlagefaehig)
+                    )}
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </CardContent>

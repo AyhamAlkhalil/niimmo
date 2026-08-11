@@ -46,9 +46,9 @@ import { de } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  BETRKV_KATEGORIEN,
-  NICHT_UMLAGEFAEHIGE_KATEGORIEN,
   findeKategorieNachName,
+  pseudoKategorieFuerArt,
+  istBerechenbarerSchluessel,
   type NebenkostenKategorie,
 } from "./nebenkostenKategorien";
 import {
@@ -174,11 +174,11 @@ export function NebenkostenStep2Verteilung({
     const map = new Map<string, KategorieMitKosten>();
 
     kostenpositionen.forEach((kp) => {
-      const kategorie =
-        findeKategorieNachName(kp.nebenkostenart?.name) ??
-        [...BETRKV_KATEGORIEN, ...NICHT_UMLAGEFAEHIGE_KATEGORIEN].find(
-          (k) => k.id === "sonstige_betriebskosten"
-        );
+      // Bestandsarten mit freiem Namen bleiben eigenständig, statt unter 2.17
+      // einsortiert zu werden — sonst zeigt die Oberfläche eine andere Kostenart
+      // an, als tatsächlich abgerechnet wird.
+      const kategorie = findeKategorieNachName(kp.nebenkostenart?.name)
+        ?? pseudoKategorieFuerArt(kp.nebenkostenart);
       if (!kategorie) return;
 
       const betrag = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
@@ -569,9 +569,20 @@ export function NebenkostenStep2Verteilung({
                                     Nicht speicherbar — Kostenposition ohne Nebenkostenart.
                                   </p>
                                 )}
+                                {!istBerechenbarerSchluessel(eintrag.schluessel) && (
+                                  <p className="text-xs text-amber-700">
+                                    Hinterlegt ist „{eintrag.schluessel}" — dafür gibt es keine
+                                    Berechnungsgrundlage. Es wird nach Wohnfläche verteilt, bis ein
+                                    gültiger Schlüssel gewählt ist.
+                                  </p>
+                                )}
                               </div>
                               <Select
-                                value={eintrag.schluessel}
+                                value={
+                                  istBerechenbarerSchluessel(eintrag.schluessel)
+                                    ? eintrag.schluessel
+                                    : undefined
+                                }
                                 disabled={
                                   !eintrag.nebenkostenartId || schluesselMutation.isPending
                                 }

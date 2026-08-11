@@ -49,6 +49,7 @@ import {
 import {
   BETRKV_KATEGORIEN,
   findeKategorieNachName,
+  istBerechenbarerSchluessel,
   type NebenkostenKategorie,
 } from "./nebenkostenKategorien";
 import {
@@ -391,6 +392,12 @@ export function NebenkostenStep3Abrechnung({
   const gesamtNachzahlungen = nachzahlungAbrechnungen.reduce((s, a) => s + a.saldo, 0);
   const gesamtGuthaben = guthabenAbrechnungen.reduce((s, a) => s + Math.abs(a.saldo), 0);
 
+  // Altdaten kennen 'individuell' und 'verbrauch'. Dafür gibt es keine
+  // Datengrundlage — es wird wie Wohnfläche gerechnet und muss sichtbar sein.
+  const unklareSchluessel = Array.from(kostenProKategorie.values()).filter(
+    (k) => !istBerechenbarerSchluessel(k.schluessel)
+  );
+
   const fristAbgelaufen = istAbrechnungsfristAbgelaufen(selectedYear);
   const ohneVorauszahlung = mieterAbrechnungen.filter((a) => a.monatlicheVorauszahlung === 0);
   const ohneEmail = mieterAbrechnungen.filter((a) => a.mieterEmails.length === 0);
@@ -507,24 +514,38 @@ export function NebenkostenStep3Abrechnung({
   // ── PDF ────────────────────────────────────────────────────────────────────
 
   function buildPdfData(abrechnung: MieterAbrechnung): NebenkostenAbrechnungPdfData {
+    function einheitenLabelFuer(schluessel: VerteilerSchluessel): string {
+      const gesamt = bezugsgroesseFuerSchluessel(schluessel, abrechnung.periode, bezugsgroessen)
+        .gesamt;
+      return schluessel === "qm" ? `${gesamt.toFixed(0)} m²` : `${gesamt.toFixed(0)}`;
+    }
+
     // Seite 2 zeigt alle 17 BetrKV-Positionen, auch die ohne Kosten.
     const immobilieKosten = BETRKV_KATEGORIEN.map((kat) => {
       const entry = kostenProKategorie.get(kat.id);
       const schluessel = (entry?.schluessel ?? kat.schluessel) as VerteilerSchluessel;
-      const gesamtBezug = bezugsgroesseFuerSchluessel(schluessel, abrechnung.periode, bezugsgroessen)
-        .gesamt;
-
-      let einheitenLabel: string;
-      if (schluessel === "qm") einheitenLabel = `${gesamtBezug.toFixed(0)} m²`;
-      else einheitenLabel = `${gesamtBezug.toFixed(0)}`;
-
       return {
         betrkvNummer: kat.betrkvNummer ?? "",
         name: kat.pdfName ?? kat.name,
         verteilerschluessel: schluessel,
         betragGesamt: entry?.total ?? 0,
-        einheitenLabel,
+        einheitenLabel: einheitenLabelFuer(schluessel),
       };
+    });
+
+    // Kostenarten ohne BetrKV-Zuordnung (im Bestand frei benannt) anhängen —
+    // sonst fehlen sie in der Auflistung, zählen aber in die Gesamtsumme und
+    // die Seite ginge rechnerisch nicht auf.
+    const betrkvIds = new Set(BETRKV_KATEGORIEN.map((k) => k.id));
+    kostenProKategorie.forEach((entry) => {
+      if (betrkvIds.has(entry.kategorieId)) return;
+      immobilieKosten.push({
+        betrkvNummer: "—",
+        name: entry.name,
+        verteilerschluessel: entry.schluessel,
+        betragGesamt: entry.total,
+        einheitenLabel: einheitenLabelFuer(entry.schluessel),
+      });
     });
 
     return {
@@ -778,6 +799,28 @@ export function NebenkostenStep3Abrechnung({
               <p className="text-xs text-red-700 mt-1">
                 Auf mindestens einer Einheit laufen zwei Verträge zeitgleich. Die Kostenanteile
                 summieren sich dadurch auf über 100 %. Bitte die Vertragszeiträume korrigieren.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Verteilerschlüssel ohne Berechnungsgrundlage */}
+      {unklareSchluessel.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                Verteilerschlüssel ohne Berechnungsgrundlage
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                Für{" "}
+                <span className="font-medium">
+                  {unklareSchluessel.map((k) => `${k.name} (${k.schluessel})`).join(", ")}
+                </span>{" "}
+                gibt es keine Verbrauchserfassung — es wird ersatzweise nach Wohnfläche verteilt.
+                Bitte in Schritt 2 einen gültigen Schlüssel wählen.
               </p>
             </div>
           </CardContent>

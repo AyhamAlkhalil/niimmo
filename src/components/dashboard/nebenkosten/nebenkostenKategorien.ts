@@ -81,21 +81,87 @@ export function normalisiereKategorieName(value: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+/**
+ * Namen von Nebenkostenarten, die im Bestand abweichend angelegt wurden, aber
+ * eindeutig einer BetrKV-Kategorie entsprechen. Ohne dieses Mapping liefen sie
+ * als unbekannte Kostenart durch und bekamen keine BetrKV-Nummer.
+ *
+ * Bewusst NICHT enthalten sind mehrdeutige Bestandsnamen wie "Wasser/Abwasser",
+ * das die getrennten Positionen 2.2 und 2.3 zusammenfasst — solche Arten bleiben
+ * eigenständig und werden im PDF als Zusatzposition ausgewiesen.
+ */
+const NAME_SYNONYME: Record<string, string> = {
+  heizung: "heizkosten",
+  muellabfuhr: "strassenreinigung_muell",
+  muell: "strassenreinigung_muell",
+  strassenreinigungundmuellbeseitigung: "strassenreinigung_muell",
+  strassenreinigungmuellbeseitigung: "strassenreinigung_muell",
+  // Die Normalisierung entfernt "&" ersatzlos — beide Schreibweisen abdecken.
+  gebaeudereinigungundungezieferbekaempfung: "gebaeudereinigung",
+  gebaeudereinigungungezieferbekaempfung: "gebaeudereinigung",
+  ungezieferbekaempfung: "gebaeudereinigung",
+  sachundhaftpflichtversicherung: "versicherungen",
+  versicherung: "versicherungen",
+  hausmeister: "hauswart",
+  allgemeinstrom: "beleuchtung",
+  strom: "beleuchtung",
+  abwasser: "entwaesserung",
+  kabelanschluss: "antenne_kabel",
+};
+
 /** Findet die Kategorie zu einem Nebenkostenart-Namen aus der Datenbank. */
 export function findeKategorieNachName(
   name: string | null | undefined
 ): NebenkostenKategorie | undefined {
   if (!name) return undefined;
   const normalisiert = normalisiereKategorieName(name);
-  return ALLE_KATEGORIEN.find(
+
+  const direkt = ALLE_KATEGORIEN.find(
     (k) =>
       normalisiereKategorieName(k.name) === normalisiert ||
       normalisiereKategorieName(k.id) === normalisiert
   );
+  if (direkt) return direkt;
+
+  const synonym = NAME_SYNONYME[normalisiert];
+  return synonym ? findeKategorieNachId(synonym) : undefined;
+}
+
+/**
+ * Verteilerschlüssel, für die eine Verteilung berechnet werden kann.
+ * `individuell` und `verbrauch` sind in Altdaten vorhanden, haben aber keine
+ * Datengrundlage (es gibt keine Verbrauchserfassung je Kostenart) — sie werden
+ * wie `qm` gerechnet und müssen im UI sichtbar gemacht werden, damit die
+ * Abweichung nicht unbemerkt in die Abrechnung läuft.
+ */
+export const BERECHENBARE_SCHLUESSEL = ["qm", "personen", "gleich"] as const;
+
+export function istBerechenbarerSchluessel(schluessel: string | null | undefined): boolean {
+  return !!schluessel && (BERECHENBARE_SCHLUESSEL as readonly string[]).includes(schluessel);
 }
 
 export function findeKategorieNachId(id: string): NebenkostenKategorie | undefined {
   return ALLE_KATEGORIEN.find((k) => k.id === id);
+}
+
+/**
+ * Ersatz-Kategorie für Nebenkostenarten, die im Bestand frei benannt wurden und
+ * keiner BetrKV-Position entsprechen (z. B. "Wasser/Abwasser", das 2.2 und 2.3
+ * zusammenfasst). Sie behalten ihren Namen und ihren gespeicherten Schlüssel,
+ * statt stillschweigend unter "2.17 Sonstige" zu verschwinden.
+ */
+export function pseudoKategorieFuerArt(
+  art: { id: string; name: string; verteilerschluessel_art: string | null; ist_umlagefaehig?: boolean } | null | undefined
+): NebenkostenKategorie | undefined {
+  if (!art) return undefined;
+  return {
+    id: `custom_${art.id}`,
+    name: art.name,
+    icon: MoreHorizontal,
+    beschreibung: "Kostenart ohne BetrKV-Zuordnung",
+    umlagefaehig: art.ist_umlagefaehig ?? true,
+    schluessel: (art.verteilerschluessel_art || "qm") as VerteilerSchluessel,
+  };
 }
 
 /**
