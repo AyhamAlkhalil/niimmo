@@ -1882,15 +1882,6 @@ export type Database = {
         Args: { buchungsdatum: string }
         Returns: string
       }
-      check_and_update_mahnstufen: {
-        Args: never
-        Returns: {
-          alte_mahnstufe: number
-          grund: string
-          mietvertrag_id: string
-          neue_mahnstufe: number
-        }[]
-      }
       check_zahlungs_anomalien: {
         Args: { p_tage_zurueck?: number }
         Returns: {

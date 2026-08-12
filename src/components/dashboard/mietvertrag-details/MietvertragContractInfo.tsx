@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Copy, Check, Mail, Phone, Building2, Square, XCircle, AlertTriangle } from "lucide-react";
+import { AlertCircle, Copy, Check, Mail, Phone, Building2, Square, XCircle, AlertTriangle, RotateCcw } from "lucide-react";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { MahnstufeIndicator } from "../MahnstufeIndicator";
 import { Input } from "@/components/ui/input";
@@ -330,36 +330,24 @@ export function MietvertragContractInfo({
               <div>
                 <p className="text-xs md:text-sm font-medium text-muted-foreground">Mahnstufe</p>
                 <div className="flex items-center gap-2 mt-1">
-                  <MahnstufeIndicator stufe={isGlobalEditMode && editedValues.mahnstufe !== undefined ? editedValues.mahnstufe : (vertrag.mahnstufe || 0)} />
-                  {isGlobalEditMode ? (
-                    <Select
-                      value={String(editedValues.mahnstufe !== undefined ? editedValues.mahnstufe : (vertrag.mahnstufe || 0))}
-                      onValueChange={(val) => onUpdateEditedValue?.('mahnstufe', parseInt(val, 10))}
+                  <MahnstufeIndicator stufe={vertrag.mahnstufe || 0} />
+                  <span className="text-sm font-semibold">{vertrag.mahnstufe || 0}</span>
+
+                  {/* Manuell ist nur das Zurücksetzen erlaubt. Erhöht wird die Mahnstufe
+                      ausschliesslich beim tatsaechlichen Mahnungsversand. */}
+                  {(vertrag.mahnstufe || 0) > 0 && editingMietvertrag !== 'mahnstufe' && (
+                    <Button
+                      onClick={() => onStartEdit('mahnstufe')}
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-xs opacity-60 hover:opacity-100"
+                      title="Mahnstufe zurücksetzen"
                     >
-                      <SelectTrigger className="w-20 h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="0">0</SelectItem>
-                        <SelectItem value="1">1</SelectItem>
-                        <SelectItem value="2">2</SelectItem>
-                        <SelectItem value="3">3</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold">{vertrag.mahnstufe || 0}</span>
-                      <Button
-                        onClick={() => onStartEdit('mahnstufe')}
-                        size="sm"
-                        variant="ghost"
-                        className="h-6 w-6 p-0 opacity-60 hover:opacity-100"
-                      >
-                        <AlertTriangle className="h-3 w-3" />
-                      </Button>
-                    </div>
+                      <RotateCcw className="h-3 w-3 mr-1" />
+                      Zurücksetzen
+                    </Button>
                   )}
-                  {editingMietvertrag === 'mahnstufe' && !isGlobalEditMode && (
+                  {editingMietvertrag === 'mahnstufe' && (
                     <Select
                       value={String(vertrag.mahnstufe || 0)}
                       onValueChange={(val) => onEditMietvertrag('mahnstufe', val)}
@@ -368,14 +356,16 @@ export function MietvertragContractInfo({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="0">0</SelectItem>
-                        <SelectItem value="1">1</SelectItem>
-                        <SelectItem value="2">2</SelectItem>
-                        <SelectItem value="3">3</SelectItem>
+                        {Array.from({ length: (vertrag.mahnstufe || 0) + 1 }, (_, stufe) => (
+                          <SelectItem key={stufe} value={String(stufe)}>{stufe}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   )}
                 </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Steigt nur beim tatsächlichen Mahnungsversand
+                </p>
               </div>
               <div />
             </div>

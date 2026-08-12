@@ -33,9 +33,6 @@ verify_jwt = false
 [functions.check-faelligkeiten]
 verify_jwt = false
 
-[functions.check-mahnstufen]
-verify_jwt = false
-
 [functions.send-mahnung]
 verify_jwt = false
 

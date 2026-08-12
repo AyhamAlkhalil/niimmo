@@ -579,13 +579,13 @@ const WRITE_TOOLS = [
     function: {
       name: 'set_mahnstufe',
       description:
-        'Mahnstufe eines aktiven Mietvertrags setzen (0 = keine Mahnung, 1–3 = Mahnstufe). Für "Setze Mahnstufe auf 2 für Meier", "Mahnstufe zurücksetzen".',
+        'Mahnstufe eines Mietvertrags ZURÜCKSETZEN (nur senken, z. B. auf 0). Erhöhen ist nicht möglich — die Mahnstufe steigt ausschliesslich beim tatsächlichen Mahnungsversand. Für "Mahnstufe zurücksetzen für Meier".',
       parameters: {
         type: 'object',
         properties: {
           mieter_search: { type: 'string', description: 'Mieter-Name (alternativ zu mietvertrag_id)' },
           mietvertrag_id: { type: 'string', description: 'UUID des Mietvertrags' },
-          mahnstufe: { type: 'integer', description: 'Neue Mahnstufe (0–3)' },
+          mahnstufe: { type: 'integer', description: 'Neue Mahnstufe (0–3), muss kleiner oder gleich der aktuellen sein' },
         },
         required: ['mahnstufe'],
       },
@@ -909,6 +909,21 @@ async function executeWrite(
           }
         }
         if (!mietvertragId) return { ok: false, error: 'Mietvertrag nicht gefunden — bitte mieter_search oder mietvertrag_id angeben' };
+
+        // Nur Zurücksetzen erlaubt. Erhöht wird die Mahnstufe ausschliesslich
+        // beim tatsaechlichen Mahnungsversand (send-mahnung).
+        const { data: aktuell } = await supabase
+          .from('mietvertrag')
+          .select('mahnstufe')
+          .eq('id', mietvertragId)
+          .single();
+        const aktuelleStufe = Number(aktuell?.mahnstufe || 0);
+        if (mahnstufe > aktuelleStufe) {
+          return {
+            ok: false,
+            error: `Mahnstufe kann nicht erhöht werden (aktuell ${aktuelleStufe}, angefragt ${mahnstufe}). Sie steigt ausschliesslich beim tatsächlichen Mahnungsversand.`,
+          };
+        }
 
         const { error } = await supabase
           .from('mietvertrag')

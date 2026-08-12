@@ -90,15 +90,26 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   const handleEditMietvertrag = async (field: 'kaltmiete' | 'betriebskosten' | 'neue_anschrift' | 'ruecklastschrift_gebuehr' | 'start_datum' | 'ende_datum' | 'anzahl_personen' | 'mahnstufe', value: string) => {
     try {
       // Handle mahnstufe
+      // Die Mahnstufe darf hier nur gesenkt werden. Erhöht wird sie ausschliesslich
+      // beim tatsaechlichen Mahnungsversand (Edge Function send-mahnung).
       if (field === 'mahnstufe') {
         const numValue = parseInt(value, 10);
         if (isNaN(numValue) || numValue < 0 || numValue > 3) {
           toast({ title: "Fehler", description: "Mahnstufe muss zwischen 0 und 3 liegen.", variant: "destructive" });
           return;
         }
+        const aktuelleStufe = Number(vertrag?.mahnstufe || 0);
+        if (numValue > aktuelleStufe) {
+          toast({
+            title: "Erhöhen nicht möglich",
+            description: `Die Mahnstufe kann nur zurückgesetzt werden (aktuell ${aktuelleStufe}). Sie steigt automatisch, sobald eine Mahnung versendet wird.`,
+            variant: "destructive",
+          });
+          return;
+        }
         const { error } = await supabase.from('mietvertrag').update({ mahnstufe: numValue }).eq('id', vertragId);
         if (error) throw error;
-        toast({ title: "✅ Mahnstufe aktualisiert", description: `Mahnstufe wurde auf ${numValue} gesetzt.` });
+        toast({ title: "✅ Mahnstufe zurückgesetzt", description: `Mahnstufe wurde von ${aktuelleStufe} auf ${numValue} gesetzt.` });
         setEditingMietvertrag(null);
         await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
         await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });

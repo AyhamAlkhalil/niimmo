@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Euro, CheckCircle, XCircle, Clock, Send, AlertTriangle, RefreshCw } from "lucide-react";
+import { Euro, CheckCircle, XCircle, Clock, Send, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { MahnstufeIndicator } from "./MahnstufeIndicator";
 import { MahnungVorschauModal } from "./MahnungVorschauModal";
@@ -17,7 +17,6 @@ interface PaymentHistoryProps {
 
 export const PaymentHistory = ({ mietvertragId, currentMahnstufe = 0 }: PaymentHistoryProps) => {
   const [isSendingMahnung, setIsSendingMahnung] = useState(false);
-  const [isCheckingMahnstufen, setIsCheckingMahnstufen] = useState(false);
   const [showMahnungModal, setShowMahnungModal] = useState(false);
   const { toast } = useToast();
 
@@ -193,38 +192,6 @@ export const PaymentHistory = ({ mietvertragId, currentMahnstufe = 0 }: PaymentH
     }
   };
 
-  const handleCheckMahnstufen = async () => {
-    setIsCheckingMahnstufen(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('check-mahnstufen', {
-        body: {}
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: "Mahnstufen-Prüfung abgeschlossen",
-        description: `Mahnstufen wurden basierend auf verspäteten Zahlungen aktualisiert.`,
-      });
-
-      // Refresh all data
-      await Promise.all([
-        refetchForderungen(),
-        refetchZahlungen(),
-        refetchVertrag()
-      ]);
-
-    } catch (error) {
-      toast({
-        title: "Fehler",
-        description: "Mahnstufen-Prüfung konnte nicht durchgeführt werden.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCheckingMahnstufen(false);
-    }
-  };
-
   if (forderungenLoading || !forderungen) {
     return (
       <Card className="elegant-card border-0 shadow-lg rounded-2xl overflow-hidden">
@@ -271,20 +238,11 @@ export const PaymentHistory = ({ mietvertragId, currentMahnstufe = 0 }: PaymentH
             <div>
               <span className="text-xl font-semibold">Zahlungshistorie & Mahnstufen</span>
               <p className="text-sm text-muted-foreground font-normal mt-1">
-                Automatische Prüfung verspäteter Zahlungen ab 2025
+                Die Mahnstufe steigt ausschließlich beim tatsächlichen Mahnungsversand
               </p>
             </div>
           </div>
           
-          <Button
-            onClick={handleCheckMahnstufen}
-            disabled={isCheckingMahnstufen}
-            size="sm"
-            variant="outline"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isCheckingMahnstufen ? 'animate-spin' : ''}`} />
-            {isCheckingMahnstufen ? 'Prüfe...' : 'Mahnstufen prüfen'}
-          </Button>
         </CardTitle>
 
         {/* Mahnstufen-Bereich - prominent angezeigt */}
