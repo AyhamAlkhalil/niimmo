@@ -15,6 +15,7 @@ export type ActivityAction =
   | "mahnung_gesendet"
   | "pdf_generiert"
   | "mietforderung_erstellt"
+  | "mietvertrag_pdf_erzeugt"
   | "zählerstand_geaendert";
 
 export const useActivityLog = () => {

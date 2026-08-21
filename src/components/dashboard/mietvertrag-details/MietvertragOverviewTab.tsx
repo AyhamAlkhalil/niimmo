@@ -35,6 +35,7 @@ interface MietvertragOverviewTabProps {
   onContractUpdate?: () => void;
   onShowMahnung?: () => void;
   onShowKuendigung?: () => void;
+  onShowVertragPdf?: () => void;
   formatDatum: (datum: string) => string;
   formatBetrag: (betrag: number) => string;
 }
@@ -71,6 +72,7 @@ export function MietvertragOverviewTab({
   onContractUpdate,
   onShowMahnung,
   onShowKuendigung,
+  onShowVertragPdf,
   formatDatum,
   formatBetrag
 }: MietvertragOverviewTabProps) {
@@ -93,6 +95,7 @@ export function MietvertragOverviewTab({
         formatBetrag={formatBetrag}
         onShowMahnung={onShowMahnung}
         onShowKuendigung={onShowKuendigung}
+        onShowVertragPdf={onShowVertragPdf}
       />
 
       {/* Kaution Section */}

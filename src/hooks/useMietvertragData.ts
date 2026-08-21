@@ -106,8 +106,17 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('mietvertrag_mieter')
-        .select(`mieter:mieter_id ( id, vorname, nachname, hauptmail, telnr, geburtsdatum, aktualisiert_am, erstellt_am, weitere_mails )`)
-        .eq('mietvertrag_id', vertragId);
+        .select(
+          `rolle, position,
+           mieter:mieter_id (
+             id, vorname, nachname, hauptmail, telnr, geburtsdatum,
+             aktualisiert_am, erstellt_am, weitere_mails,
+             anrede, ist_unternehmen, firmenname, vertreten_durch,
+             strasse, hausnummer, plz, ort
+           )`
+        )
+        .eq('mietvertrag_id', vertragId)
+        .order('position');
       if (error) throw error;
       return data?.map(mm => mm.mieter) || [];
     },

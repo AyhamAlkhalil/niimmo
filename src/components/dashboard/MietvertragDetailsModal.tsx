@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -8,6 +9,7 @@ import { MietvertragOverviewTab } from "./mietvertrag-details/MietvertragOvervie
 import { MietvertragDocumentsTab } from "./mietvertrag-details/MietvertragDocumentsTab";
 import { TerminationDialog } from "./termination/TerminationDialog";
 import { MahnungErstellungModal } from "./MahnungErstellungModal";
+import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
 
@@ -34,6 +36,7 @@ export default function MietvertragDetailsModal({
   } = useMietvertragData(vertragId, isOpen);
 
   const einheitData = fetchedEinheit || einheit;
+  const [showVertragPdfModal, setShowVertragPdfModal] = useState(false);
 
   // All editing state + mutations
   const mutations = useMietvertragMutations({ vertragId, vertrag, einheitData, mieter });
@@ -152,6 +155,7 @@ export default function MietvertragDetailsModal({
                 }}
                 onShowMahnung={() => mutations.setShowMahnungModal(true)}
                 onShowKuendigung={() => mutations.setShowTerminationDialog(true)}
+                onShowVertragPdf={() => setShowVertragPdfModal(true)}
                 allMietvertraege={allMietvertraege}
                 vertragId={vertragId}
                 formatDatum={formatDatum}
@@ -189,6 +193,13 @@ export default function MietvertragDetailsModal({
           einheit={einheitData}
           immobilie={immobilie}
           onTerminationSuccess={mutations.handleTerminationSuccess}
+        />
+
+        {/* Mietvertrag als PDF erzeugen */}
+        <MietvertragErstellungModal
+          isOpen={showVertragPdfModal}
+          onClose={() => setShowVertragPdfModal(false)}
+          vertragId={vertragId}
         />
 
         {/* Mahnung Modal */}

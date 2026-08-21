@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_logs: {
@@ -525,6 +550,10 @@ export type Database = {
       einheiten: {
         Row: {
           aktualisiert_am: string | null
+          anzahl_zimmer: number | null
+          ausstattung: string | null
+          bezeichnung: string | null
+          einbaukueche: boolean
           einheitentyp: Database["public"]["Enums"]["einheitentyp"] | null
           erstellt_am: string | null
           etage: string | null
@@ -536,7 +565,9 @@ export type Database = {
           kaltwasser_stand_aktuell: number | null
           kaltwasser_stand_datum: string | null
           kaltwasser_zaehler: string | null
+          nebenraeume: string | null
           qm: number | null
+          raeume: Json
           soll_miete: number | null
           strom_stand_aktuell: number | null
           strom_stand_datum: string | null
@@ -550,6 +581,10 @@ export type Database = {
         }
         Insert: {
           aktualisiert_am?: string | null
+          anzahl_zimmer?: number | null
+          ausstattung?: string | null
+          bezeichnung?: string | null
+          einbaukueche?: boolean
           einheitentyp?: Database["public"]["Enums"]["einheitentyp"] | null
           erstellt_am?: string | null
           etage?: string | null
@@ -561,7 +596,9 @@ export type Database = {
           kaltwasser_stand_aktuell?: number | null
           kaltwasser_stand_datum?: string | null
           kaltwasser_zaehler?: string | null
+          nebenraeume?: string | null
           qm?: number | null
+          raeume?: Json
           soll_miete?: number | null
           strom_stand_aktuell?: number | null
           strom_stand_datum?: string | null
@@ -575,6 +612,10 @@ export type Database = {
         }
         Update: {
           aktualisiert_am?: string | null
+          anzahl_zimmer?: number | null
+          ausstattung?: string | null
+          bezeichnung?: string | null
+          einbaukueche?: boolean
           einheitentyp?: Database["public"]["Enums"]["einheitentyp"] | null
           erstellt_am?: string | null
           etage?: string | null
@@ -586,7 +627,9 @@ export type Database = {
           kaltwasser_stand_aktuell?: number | null
           kaltwasser_stand_datum?: string | null
           kaltwasser_zaehler?: string | null
+          nebenraeume?: string | null
           qm?: number | null
+          raeume?: Json
           soll_miete?: number | null
           strom_stand_aktuell?: number | null
           strom_stand_datum?: string | null
@@ -634,10 +677,20 @@ export type Database = {
           baujahr: number | null
           beschreibung: string | null
           einheiten_anzahl: number
+          energie_kennwert: number | null
+          energieausweis_ausgestellt_am: string | null
+          energieausweis_gueltig_bis: string | null
+          energieausweis_typ:
+            | Database["public"]["Enums"]["energieausweis_typ"]
+            | null
+          energieeffizienzklasse: string | null
+          energietraeger: string | null
           erstellt_am: string | null
           hat_gas: boolean
           hat_strom: boolean
           hat_wasser: boolean
+          hausnummer: string | null
+          heizkosten_schluessel: string
           id: string
           ist_angespannt: boolean
           kaufpreis: number | null
@@ -645,7 +698,12 @@ export type Database = {
           marktwert: number | null
           name: string
           objekttyp: Database["public"]["Enums"]["objekttyp"] | null
+          ort: string | null
+          ortsteil: string | null
+          plz: string | null
           restschuld: number | null
+          strasse: string | null
+          vermieter_id: string | null
           versorger_gas_email: string | null
           versorger_gas_name: string | null
           versorger_strom_email: string | null
@@ -678,10 +736,20 @@ export type Database = {
           baujahr?: number | null
           beschreibung?: string | null
           einheiten_anzahl: number
+          energie_kennwert?: number | null
+          energieausweis_ausgestellt_am?: string | null
+          energieausweis_gueltig_bis?: string | null
+          energieausweis_typ?:
+            | Database["public"]["Enums"]["energieausweis_typ"]
+            | null
+          energieeffizienzklasse?: string | null
+          energietraeger?: string | null
           erstellt_am?: string | null
           hat_gas?: boolean
           hat_strom?: boolean
           hat_wasser?: boolean
+          hausnummer?: string | null
+          heizkosten_schluessel?: string
           id?: string
           ist_angespannt?: boolean
           kaufpreis?: number | null
@@ -689,7 +757,12 @@ export type Database = {
           marktwert?: number | null
           name: string
           objekttyp?: Database["public"]["Enums"]["objekttyp"] | null
+          ort?: string | null
+          ortsteil?: string | null
+          plz?: string | null
           restschuld?: number | null
+          strasse?: string | null
+          vermieter_id?: string | null
           versorger_gas_email?: string | null
           versorger_gas_name?: string | null
           versorger_strom_email?: string | null
@@ -722,10 +795,20 @@ export type Database = {
           baujahr?: number | null
           beschreibung?: string | null
           einheiten_anzahl?: number
+          energie_kennwert?: number | null
+          energieausweis_ausgestellt_am?: string | null
+          energieausweis_gueltig_bis?: string | null
+          energieausweis_typ?:
+            | Database["public"]["Enums"]["energieausweis_typ"]
+            | null
+          energieeffizienzklasse?: string | null
+          energietraeger?: string | null
           erstellt_am?: string | null
           hat_gas?: boolean
           hat_strom?: boolean
           hat_wasser?: boolean
+          hausnummer?: string | null
+          heizkosten_schluessel?: string
           id?: string
           ist_angespannt?: boolean
           kaufpreis?: number | null
@@ -733,7 +816,12 @@ export type Database = {
           marktwert?: number | null
           name?: string
           objekttyp?: Database["public"]["Enums"]["objekttyp"] | null
+          ort?: string | null
+          ortsteil?: string | null
+          plz?: string | null
           restschuld?: number | null
+          strasse?: string | null
+          vermieter_id?: string | null
           versorger_gas_email?: string | null
           versorger_gas_name?: string | null
           versorger_strom_email?: string | null
@@ -741,7 +829,15 @@ export type Database = {
           versorger_wasser_email?: string | null
           versorger_wasser_name?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "immobilien_vermieter_id_fkey"
+            columns: ["vermieter_id"]
+            isOneToOne: false
+            referencedRelation: "vermieter"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       kostenposition_anteile: {
         Row: {
@@ -873,6 +969,33 @@ export type Database = {
           },
         ]
       }
+      mahnstufe_backup_20260812: {
+        Row: {
+          created_at: string
+          letzte_mahnung_am: string | null
+          mahnstufe: number | null
+          mietvertrag_id: string
+          naechste_mahnung_am: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          letzte_mahnung_am?: string | null
+          mahnstufe?: number | null
+          mietvertrag_id: string
+          naechste_mahnung_am?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          letzte_mahnung_am?: string | null
+          mahnstufe?: number | null
+          mietvertrag_id?: string
+          naechste_mahnung_am?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       marktdaten: {
         Row: {
           abgerufen_am: string
@@ -906,34 +1029,58 @@ export type Database = {
       mieter: {
         Row: {
           aktualisiert_am: string | null
+          anrede: Database["public"]["Enums"]["anrede"] | null
           erstellt_am: string | null
+          firmenname: string | null
           geburtsdatum: string | null
           hauptmail: string | null
+          hausnummer: string | null
           id: string
+          ist_unternehmen: boolean
           nachname: string | null
+          ort: string | null
+          plz: string | null
+          strasse: string | null
           telnr: string | null
+          vertreten_durch: string | null
           vorname: string
           weitere_mails: string | null
         }
         Insert: {
           aktualisiert_am?: string | null
+          anrede?: Database["public"]["Enums"]["anrede"] | null
           erstellt_am?: string | null
+          firmenname?: string | null
           geburtsdatum?: string | null
           hauptmail?: string | null
+          hausnummer?: string | null
           id?: string
+          ist_unternehmen?: boolean
           nachname?: string | null
+          ort?: string | null
+          plz?: string | null
+          strasse?: string | null
           telnr?: string | null
+          vertreten_durch?: string | null
           vorname: string
           weitere_mails?: string | null
         }
         Update: {
           aktualisiert_am?: string | null
+          anrede?: Database["public"]["Enums"]["anrede"] | null
           erstellt_am?: string | null
+          firmenname?: string | null
           geburtsdatum?: string | null
           hauptmail?: string | null
+          hausnummer?: string | null
           id?: string
+          ist_unternehmen?: boolean
           nachname?: string | null
+          ort?: string | null
+          plz?: string | null
+          strasse?: string | null
           telnr?: string | null
+          vertreten_durch?: string | null
           vorname?: string
           weitere_mails?: string | null
         }
@@ -995,112 +1142,238 @@ export type Database = {
           aktualisiert_am: string | null
           anzahl_personen: number | null
           bankkonto_mieter: string | null
+          bankkonto_mieter_bic: string | null
           bankkonto_mieter_geprueft: boolean
+          befristungsgrund:
+            | Database["public"]["Enums"]["befristungsgrund"]
+            | null
+          befristungsgrund_text: string | null
+          besichtigt_am: string | null
           betriebskosten: number | null
+          betriebskosten_modus: Database["public"]["Enums"]["betriebskosten_modus"]
           einheit_id: string
           ende_datum: string | null
           erstellt_am: string | null
+          faelligkeit_werktag: number
           gas_auszug: number | null
           gas_einzug: number | null
+          heizkosten_vorauszahlung: number | null
           id: string
+          index_basis_monat: string | null
+          index_basis_wert: number | null
           kaltmiete: number | null
           kaltwasser_auszug: number | null
           kaltwasser_einzug: number | null
+          kaution_art: Database["public"]["Enums"]["kaution_art"]
           kaution_betrag: number | null
           kaution_gezahlt_am: string | null
           kaution_ist: number | null
+          kaution_raten: number
           kaution_status: string | null
+          kleinreparatur_einzelgrenze: number
+          kleinreparatur_jahresgrenze_prozent: number
+          kontoinhaber: string | null
           kuendigungsdatum: string | null
+          kuendigungsverzicht_bis: string | null
           lastschrift: boolean
           lastschrift_wartetage: number | null
           letzte_mahnung_am: string | null
           letzte_mieterhoehung_am: string | null
           mahnstufe: number | null
+          mietanpassung_art: Database["public"]["Enums"]["mietanpassung_art"]
+          mietpreisbremse_auskunft_am: string | null
+          mitbenutzung_einrichtungen: string | null
           naechste_mahnung_am: string | null
           neue_anschrift: string | null
+          raumaufstellung: string | null
           ruecklastschrift_gebuehr: number | null
+          schliessanlage_art:
+            | Database["public"]["Enums"]["schliessanlage_art"]
+            | null
+          schluessel: Json
+          schoenheitsreparaturen: boolean
+          sepa_mandat_datum: string | null
+          sepa_mandatsreferenz: string | null
+          staffelplan: Json | null
           start_datum: string | null
           status: Database["public"]["Enums"]["mietstatus"] | null
           strom_auszug: number | null
           strom_einzug: number | null
+          uebergabe_datum: string | null
+          uebergabezustand:
+            | Database["public"]["Enums"]["uebergabezustand"]
+            | null
+          uebergabezustand_text: string | null
+          unterschrift_ort: string | null
+          vertrag_datum: string | null
+          vertragsart: Database["public"]["Enums"]["vertragsart"]
           verwendungszweck: string[] | null
+          vorlage_version: string | null
+          vormiete_bis: string | null
+          vormiete_netto: number | null
           warmwasser_auszug: number | null
           warmwasser_einzug: number | null
           weitere_bankkonten: string | null
+          zusatzflaechen: string | null
+          zusatzvereinbarungen: string | null
         }
         Insert: {
           aktualisiert_am?: string | null
           anzahl_personen?: number | null
           bankkonto_mieter?: string | null
+          bankkonto_mieter_bic?: string | null
           bankkonto_mieter_geprueft?: boolean
+          befristungsgrund?:
+            | Database["public"]["Enums"]["befristungsgrund"]
+            | null
+          befristungsgrund_text?: string | null
+          besichtigt_am?: string | null
           betriebskosten?: number | null
+          betriebskosten_modus?: Database["public"]["Enums"]["betriebskosten_modus"]
           einheit_id: string
           ende_datum?: string | null
           erstellt_am?: string | null
+          faelligkeit_werktag?: number
           gas_auszug?: number | null
           gas_einzug?: number | null
+          heizkosten_vorauszahlung?: number | null
           id?: string
+          index_basis_monat?: string | null
+          index_basis_wert?: number | null
           kaltmiete?: number | null
           kaltwasser_auszug?: number | null
           kaltwasser_einzug?: number | null
+          kaution_art?: Database["public"]["Enums"]["kaution_art"]
           kaution_betrag?: number | null
           kaution_gezahlt_am?: string | null
           kaution_ist?: number | null
+          kaution_raten?: number
           kaution_status?: string | null
+          kleinreparatur_einzelgrenze?: number
+          kleinreparatur_jahresgrenze_prozent?: number
+          kontoinhaber?: string | null
           kuendigungsdatum?: string | null
+          kuendigungsverzicht_bis?: string | null
           lastschrift?: boolean
           lastschrift_wartetage?: number | null
           letzte_mahnung_am?: string | null
           letzte_mieterhoehung_am?: string | null
           mahnstufe?: number | null
+          mietanpassung_art?: Database["public"]["Enums"]["mietanpassung_art"]
+          mietpreisbremse_auskunft_am?: string | null
+          mitbenutzung_einrichtungen?: string | null
           naechste_mahnung_am?: string | null
           neue_anschrift?: string | null
+          raumaufstellung?: string | null
           ruecklastschrift_gebuehr?: number | null
+          schliessanlage_art?:
+            | Database["public"]["Enums"]["schliessanlage_art"]
+            | null
+          schluessel?: Json
+          schoenheitsreparaturen?: boolean
+          sepa_mandat_datum?: string | null
+          sepa_mandatsreferenz?: string | null
+          staffelplan?: Json | null
           start_datum?: string | null
           status?: Database["public"]["Enums"]["mietstatus"] | null
           strom_auszug?: number | null
           strom_einzug?: number | null
+          uebergabe_datum?: string | null
+          uebergabezustand?:
+            | Database["public"]["Enums"]["uebergabezustand"]
+            | null
+          uebergabezustand_text?: string | null
+          unterschrift_ort?: string | null
+          vertrag_datum?: string | null
+          vertragsart?: Database["public"]["Enums"]["vertragsart"]
           verwendungszweck?: string[] | null
+          vorlage_version?: string | null
+          vormiete_bis?: string | null
+          vormiete_netto?: number | null
           warmwasser_auszug?: number | null
           warmwasser_einzug?: number | null
           weitere_bankkonten?: string | null
+          zusatzflaechen?: string | null
+          zusatzvereinbarungen?: string | null
         }
         Update: {
           aktualisiert_am?: string | null
           anzahl_personen?: number | null
           bankkonto_mieter?: string | null
+          bankkonto_mieter_bic?: string | null
           bankkonto_mieter_geprueft?: boolean
+          befristungsgrund?:
+            | Database["public"]["Enums"]["befristungsgrund"]
+            | null
+          befristungsgrund_text?: string | null
+          besichtigt_am?: string | null
           betriebskosten?: number | null
+          betriebskosten_modus?: Database["public"]["Enums"]["betriebskosten_modus"]
           einheit_id?: string
           ende_datum?: string | null
           erstellt_am?: string | null
+          faelligkeit_werktag?: number
           gas_auszug?: number | null
           gas_einzug?: number | null
+          heizkosten_vorauszahlung?: number | null
           id?: string
+          index_basis_monat?: string | null
+          index_basis_wert?: number | null
           kaltmiete?: number | null
           kaltwasser_auszug?: number | null
           kaltwasser_einzug?: number | null
+          kaution_art?: Database["public"]["Enums"]["kaution_art"]
           kaution_betrag?: number | null
           kaution_gezahlt_am?: string | null
           kaution_ist?: number | null
+          kaution_raten?: number
           kaution_status?: string | null
+          kleinreparatur_einzelgrenze?: number
+          kleinreparatur_jahresgrenze_prozent?: number
+          kontoinhaber?: string | null
           kuendigungsdatum?: string | null
+          kuendigungsverzicht_bis?: string | null
           lastschrift?: boolean
           lastschrift_wartetage?: number | null
           letzte_mahnung_am?: string | null
           letzte_mieterhoehung_am?: string | null
           mahnstufe?: number | null
+          mietanpassung_art?: Database["public"]["Enums"]["mietanpassung_art"]
+          mietpreisbremse_auskunft_am?: string | null
+          mitbenutzung_einrichtungen?: string | null
           naechste_mahnung_am?: string | null
           neue_anschrift?: string | null
+          raumaufstellung?: string | null
           ruecklastschrift_gebuehr?: number | null
+          schliessanlage_art?:
+            | Database["public"]["Enums"]["schliessanlage_art"]
+            | null
+          schluessel?: Json
+          schoenheitsreparaturen?: boolean
+          sepa_mandat_datum?: string | null
+          sepa_mandatsreferenz?: string | null
+          staffelplan?: Json | null
           start_datum?: string | null
           status?: Database["public"]["Enums"]["mietstatus"] | null
           strom_auszug?: number | null
           strom_einzug?: number | null
+          uebergabe_datum?: string | null
+          uebergabezustand?:
+            | Database["public"]["Enums"]["uebergabezustand"]
+            | null
+          uebergabezustand_text?: string | null
+          unterschrift_ort?: string | null
+          vertrag_datum?: string | null
+          vertragsart?: Database["public"]["Enums"]["vertragsart"]
           verwendungszweck?: string[] | null
+          vorlage_version?: string | null
+          vormiete_bis?: string | null
+          vormiete_netto?: number | null
           warmwasser_auszug?: number | null
           warmwasser_einzug?: number | null
           weitere_bankkonten?: string | null
+          zusatzflaechen?: string | null
+          zusatzvereinbarungen?: string | null
         }
         Relationships: [
           {
@@ -1112,18 +1385,66 @@ export type Database = {
           },
         ]
       }
+      mietvertrag_einheiten: {
+        Row: {
+          bemerkung: string | null
+          einheit_id: string
+          erstellt_am: string
+          mietvertrag_id: string
+          rolle: Database["public"]["Enums"]["objektrolle"]
+          teilmiete: number | null
+        }
+        Insert: {
+          bemerkung?: string | null
+          einheit_id: string
+          erstellt_am?: string
+          mietvertrag_id: string
+          rolle?: Database["public"]["Enums"]["objektrolle"]
+          teilmiete?: number | null
+        }
+        Update: {
+          bemerkung?: string | null
+          einheit_id?: string
+          erstellt_am?: string
+          mietvertrag_id?: string
+          rolle?: Database["public"]["Enums"]["objektrolle"]
+          teilmiete?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mietvertrag_einheiten_einheit_id_fkey"
+            columns: ["einheit_id"]
+            isOneToOne: false
+            referencedRelation: "einheiten"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mietvertrag_einheiten_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mietvertrag_mieter: {
         Row: {
           mieter_id: string
           mietvertrag_id: string
+          position: number
+          rolle: Database["public"]["Enums"]["mieterrolle"]
         }
         Insert: {
           mieter_id: string
           mietvertrag_id: string
+          position?: number
+          rolle?: Database["public"]["Enums"]["mieterrolle"]
         }
         Update: {
           mieter_id?: string
           mietvertrag_id?: string
+          position?: number
+          rolle?: Database["public"]["Enums"]["mieterrolle"]
         }
         Relationships: [
           {
@@ -1552,6 +1873,90 @@ export type Database = {
         }
         Relationships: []
       }
+      vermieter: {
+        Row: {
+          aktualisiert_am: string
+          email: string | null
+          erstellt_am: string
+          fax: string | null
+          firmenname: string
+          glaeubiger_id: string | null
+          handelsregister: string | null
+          hausnummer: string
+          id: string
+          ist_standard: boolean
+          kaution_bic: string | null
+          kaution_iban: string | null
+          miet_bic: string | null
+          miet_iban: string | null
+          ort: string
+          plz: string
+          rechtsform: string | null
+          registergericht: string | null
+          stammdaten_geprueft: boolean
+          steuernummer: string | null
+          strasse: string
+          telefon: string | null
+          ust_id: string | null
+          vertreten_durch: string[]
+          vertretung_art: Database["public"]["Enums"]["vertretungsart"]
+        }
+        Insert: {
+          aktualisiert_am?: string
+          email?: string | null
+          erstellt_am?: string
+          fax?: string | null
+          firmenname: string
+          glaeubiger_id?: string | null
+          handelsregister?: string | null
+          hausnummer: string
+          id?: string
+          ist_standard?: boolean
+          kaution_bic?: string | null
+          kaution_iban?: string | null
+          miet_bic?: string | null
+          miet_iban?: string | null
+          ort: string
+          plz: string
+          rechtsform?: string | null
+          registergericht?: string | null
+          stammdaten_geprueft?: boolean
+          steuernummer?: string | null
+          strasse: string
+          telefon?: string | null
+          ust_id?: string | null
+          vertreten_durch?: string[]
+          vertretung_art?: Database["public"]["Enums"]["vertretungsart"]
+        }
+        Update: {
+          aktualisiert_am?: string
+          email?: string | null
+          erstellt_am?: string
+          fax?: string | null
+          firmenname?: string
+          glaeubiger_id?: string | null
+          handelsregister?: string | null
+          hausnummer?: string
+          id?: string
+          ist_standard?: boolean
+          kaution_bic?: string | null
+          kaution_iban?: string | null
+          miet_bic?: string | null
+          miet_iban?: string | null
+          ort?: string
+          plz?: string
+          rechtsform?: string | null
+          registergericht?: string | null
+          stammdaten_geprueft?: boolean
+          steuernummer?: string | null
+          strasse?: string
+          telefon?: string | null
+          ust_id?: string | null
+          vertreten_durch?: string[]
+          vertretung_art?: Database["public"]["Enums"]["vertretungsart"]
+        }
+        Relationships: []
+      }
       versicherungen: {
         Row: {
           aktualisiert_am: string | null
@@ -1924,8 +2329,9 @@ export type Database = {
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_hausmeister: { Args: { _user_id: string }; Returns: boolean }
+      ist_angespannter_markt: { Args: { _ort: string }; Returns: boolean }
       replace_kostenposition_anteile: {
-        Args: { p_kostenposition_ids: string[]; p_anteile: Json }
+        Args: { p_anteile: Json; p_kostenposition_ids: string[] }
         Returns: number
       }
       rpc_agent_all_tenants: {
@@ -2291,7 +2697,10 @@ export type Database = {
       }
     }
     Enums: {
+      anrede: "Herr" | "Frau" | "Divers" | "Firma"
       app_role: "admin" | "hausmeister"
+      befristungsgrund: "eigenbedarf" | "bauliche_massnahme" | "dienstwohnung"
+      betriebskosten_modus: "vorauszahlung" | "pauschale" | "inklusiv"
       einheitentyp:
         | "Wohnung"
         | "Gewerbe"
@@ -2300,6 +2709,7 @@ export type Database = {
         | "Haus (Doppelhaushälfte, Reihenhaus)"
         | "Lager"
         | "Sonstiges"
+      energieausweis_typ: "bedarf" | "verbrauch"
       kategorie:
         | "Mietvertrag"
         | "Kündigung"
@@ -2309,9 +2719,21 @@ export type Database = {
         | "Schriftverkehr"
         | "Versicherungen"
         | "Betriebskostenabrechnung"
+      kaution_art:
+        | "barkaution"
+        | "buergschaft"
+        | "verpfaendung"
+        | "sparbuch"
+        | "keine"
+      mietanpassung_art: "keine" | "staffel" | "index"
       mieterrolle: "Hauptmieter" | "Zweitmieter" | "Drittmieter"
       mietstatus: "aktiv" | "gekuendigt" | "beendet"
+      objektrolle: "hauptobjekt" | "nebenobjekt"
       objekttyp: "Wohnhaus" | "Gewerbe" | "Mischnutzung"
+      schliessanlage_art: "einzel" | "zentral"
+      uebergabezustand: "renoviert" | "teilrenoviert" | "unrenoviert"
+      vertragsart: "wohnraum" | "gewerbe" | "stellplatz" | "sonstiges"
+      vertretungsart: "einzel" | "gesamt"
       zahlkategorien:
         | "Miete"
         | "Nichtmiete"
@@ -2445,9 +2867,15 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
+      anrede: ["Herr", "Frau", "Divers", "Firma"],
       app_role: ["admin", "hausmeister"],
+      befristungsgrund: ["eigenbedarf", "bauliche_massnahme", "dienstwohnung"],
+      betriebskosten_modus: ["vorauszahlung", "pauschale", "inklusiv"],
       einheitentyp: [
         "Wohnung",
         "Gewerbe",
@@ -2457,6 +2885,7 @@ export const Constants = {
         "Lager",
         "Sonstiges",
       ],
+      energieausweis_typ: ["bedarf", "verbrauch"],
       kategorie: [
         "Mietvertrag",
         "Kündigung",
@@ -2467,9 +2896,22 @@ export const Constants = {
         "Versicherungen",
         "Betriebskostenabrechnung",
       ],
+      kaution_art: [
+        "barkaution",
+        "buergschaft",
+        "verpfaendung",
+        "sparbuch",
+        "keine",
+      ],
+      mietanpassung_art: ["keine", "staffel", "index"],
       mieterrolle: ["Hauptmieter", "Zweitmieter", "Drittmieter"],
       mietstatus: ["aktiv", "gekuendigt", "beendet"],
+      objektrolle: ["hauptobjekt", "nebenobjekt"],
       objekttyp: ["Wohnhaus", "Gewerbe", "Mischnutzung"],
+      schliessanlage_art: ["einzel", "zentral"],
+      uebergabezustand: ["renoviert", "teilrenoviert", "unrenoviert"],
+      vertragsart: ["wohnraum", "gewerbe", "stellplatz", "sonstiges"],
+      vertretungsart: ["einzel", "gesamt"],
       zahlkategorien: [
         "Miete",
         "Nichtmiete",
