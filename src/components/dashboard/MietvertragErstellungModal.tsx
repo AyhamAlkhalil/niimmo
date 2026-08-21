@@ -79,6 +79,12 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
     setEntwurf(v => (v ? { ...v, [feld]: wert } : v));
   }, []);
 
+  const aendereMieter = useCallback((index: number, teil: Partial<MietvertragDaten['mieter'][number]>) => {
+    setEntwurf(v =>
+      v ? { ...v, mieter: v.mieter.map((m, i) => (i === index ? { ...m, ...teil } : m)) } : v
+    );
+  }, []);
+
   // ─── Vorschau ─────────────────────────────────────────────────────────────
   const vorschauErzeugen = useCallback(async (daten: MietvertragDaten) => {
     setErzeugtVorschau(true);
@@ -124,6 +130,9 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
     entwurf?.anlagen,
     entwurf?.faelligkeitWerktag,
     entwurf?.kautionRaten,
+    entwurf?.anzahlPersonen,
+    entwurf?.einheit,
+    entwurf?.mieter,
   ]);
 
   useEffect(() => () => {
@@ -181,9 +190,68 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           vertrag_datum: entwurf.vertragsdatum,
           unterschrift_ort: entwurf.unterschriftOrt,
           vorlage_version: VORLAGE_VERSION,
+          anzahl_personen: entwurf.anzahlPersonen || null,
+          raumaufstellung: entwurf.einheit.raumaufstellung || null,
         })
         .eq('id', vertragId);
       if (updateError) throw updateError;
+
+      // Stammdaten, die im Dialog ergänzt wurden, dorthin zurückschreiben,
+      // wo sie hingehören — sonst müsste man sie beim nächsten Vertrag erneut
+      // eintippen und die Daten liefen auseinander.
+      if (geladen) {
+        if (
+          entwurf.einheit.bezeichnung !== geladen.einheit.bezeichnung ||
+          entwurf.einheit.lage !== geladen.einheit.lage ||
+          entwurf.einheit.wohnflaecheQm !== geladen.einheit.wohnflaecheQm
+        ) {
+          const { data: vertragRow } = await supabase
+            .from('mietvertrag')
+            .select('einheit_id')
+            .eq('id', vertragId)
+            .single();
+          if (vertragRow?.einheit_id) {
+            const { error: einheitError } = await supabase
+              .from('einheiten')
+              .update({
+                bezeichnung: entwurf.einheit.bezeichnung || null,
+                etage: entwurf.einheit.lage || null,
+                qm: entwurf.einheit.wohnflaecheQm || null,
+              })
+              .eq('id', vertragRow.einheit_id);
+            if (einheitError) throw einheitError;
+          }
+        }
+
+        const { data: verknuepfungen } = await supabase
+          .from('mietvertrag_mieter')
+          .select('mieter_id, position')
+          .eq('mietvertrag_id', vertragId)
+          .order('position');
+
+        for (const [i, m] of entwurf.mieter.entries()) {
+          const alt = geladen.mieter[i];
+          const geaendert =
+            !alt ||
+            m.strasse !== alt.strasse ||
+            m.hausnummer !== alt.hausnummer ||
+            m.plz !== alt.plz ||
+            m.ort !== alt.ort;
+          const mieterId = verknuepfungen?.[i]?.mieter_id;
+          if (geaendert && mieterId) {
+            const { error: mieterError } = await supabase
+              .from('mieter')
+              .update({
+                strasse: m.strasse,
+                hausnummer: m.hausnummer,
+                plz: m.plz,
+                ort: m.ort,
+              })
+              .eq('id', mieterId);
+            if (mieterError) throw mieterError;
+          }
+        }
+      }
 
       logActivity('mietvertrag_pdf_erzeugt', 'mietvertrag', vertragId, {
         datei: dateiname,
@@ -283,6 +351,121 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
                   </AlertDescription>
                 </Alert>
               )}
+
+              <Separator />
+
+              {/* Stammdaten, die im Vertrag stehen müssen und oft noch fehlen.
+                  Sie werden beim Speichern in Mieter, Einheit und Vertrag
+                  zurückgeschrieben — damit sie beim nächsten Mal da sind. */}
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold">Angaben zur Mietsache</Label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="einheit-bez">Einheitenbezeichnung</Label>
+                    <Input
+                      id="einheit-bez"
+                      placeholder="WE 12"
+                      value={entwurf.einheit.bezeichnung}
+                      onChange={e =>
+                        aendere('einheit', { ...entwurf.einheit, bezeichnung: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="einheit-qm">Wohnfläche (m²)</Label>
+                    <Input
+                      id="einheit-qm"
+                      inputMode="decimal"
+                      value={entwurf.einheit.wohnflaecheQm ? String(entwurf.einheit.wohnflaecheQm) : ''}
+                      onChange={e =>
+                        aendere('einheit', {
+                          ...entwurf.einheit,
+                          wohnflaecheQm: zahl(e.target.value, entwurf.einheit.wohnflaecheQm),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="einheit-lage">Lage im Gebäude</Label>
+                  <Input
+                    id="einheit-lage"
+                    placeholder="Haus rechts, Dachgeschoss rechts"
+                    value={entwurf.einheit.lage}
+                    onChange={e => aendere('einheit', { ...entwurf.einheit, lage: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="raumaufstellung">Räume</Label>
+                  <Input
+                    id="raumaufstellung"
+                    placeholder="3,5 Zimmer, 1 Küche, 1 Badezimmer, 1 Gäste-WC"
+                    value={entwurf.einheit.raumaufstellung}
+                    onChange={e =>
+                      aendere('einheit', { ...entwurf.einheit, raumaufstellung: e.target.value })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="personen">Anzahl Personen im Haushalt</Label>
+                  <Input
+                    id="personen"
+                    inputMode="numeric"
+                    value={entwurf.anzahlPersonen ? String(entwurf.anzahlPersonen) : ''}
+                    onChange={e =>
+                      aendere('anzahlPersonen', Math.round(zahl(e.target.value, entwurf.anzahlPersonen)))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Gehört zum Vertrag, nicht zur Einheit. Wird nicht geschätzt — ohne Angabe ist
+                    der Personenschlüssel bei den Betriebskosten nicht vereinbarungsfähig.
+                  </p>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Mieteranschrift vor Einzug — steht im Vertragsrubrum */}
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold">
+                  Anschrift {entwurf.mieter.length > 1 ? 'der Mieter' : 'des Mieters'} vor Einzug
+                </Label>
+                {entwurf.mieter.map((m, i) => (
+                  <div key={i} className="space-y-2 rounded border p-3">
+                    <p className="text-xs font-medium">
+                      {m.istUnternehmen ? m.firmenname : `${m.vorname} ${m.nachname}`.trim()}
+                    </p>
+                    <div className="grid grid-cols-[1fr_80px] gap-2">
+                      <Input
+                        placeholder="Straße"
+                        value={m.strasse ?? ''}
+                        onChange={e => aendereMieter(i, { strasse: e.target.value || null })}
+                      />
+                      <Input
+                        placeholder="Nr."
+                        value={m.hausnummer ?? ''}
+                        onChange={e => aendereMieter(i, { hausnummer: e.target.value || null })}
+                      />
+                    </div>
+                    <div className="grid grid-cols-[90px_1fr] gap-2">
+                      <Input
+                        placeholder="PLZ"
+                        value={m.plz ?? ''}
+                        onChange={e => aendereMieter(i, { plz: e.target.value || null })}
+                      />
+                      <Input
+                        placeholder="Ort"
+                        value={m.ort ?? ''}
+                        onChange={e => aendereMieter(i, { ort: e.target.value || null })}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
 
               <Separator />
 
