@@ -10,6 +10,8 @@ import {
   tageInZeitraum,
   ueberlappung,
   vertragsNutzungsende,
+  objektAdresseZeilen,
+  nachsendeAdresseZeilen,
   type Nutzungsperiode,
   type VerteilerSchluessel,
 } from './nebenkostenBerechnung';
@@ -351,5 +353,68 @@ describe('istAbrechnungsfristAbgelaufen', () => {
 
   it('ist nach dem 31.12. des Folgejahres abgelaufen', () => {
     expect(istAbrechnungsfristAbgelaufen(2025, new Date(2027, 0, 1))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Briefanschrift
+// ---------------------------------------------------------------------------
+describe('objektAdresseZeilen', () => {
+  it('setzt die Straße vor PLZ und Ort', () => {
+    expect(
+      objektAdresseZeilen({
+        strasse: 'Burger Landstraße',
+        hausnummer: '18 - 18 e',
+        plz: '29227',
+        ort: 'Celle',
+        adresse: '29227 Celle, Burger Landstraße 18 - 18 e',
+      })
+    ).toEqual(['Burger Landstraße 18 - 18 e', '29227 Celle']);
+  });
+
+  it('ignoriert das Freitextfeld, solange atomisierte Felder existieren', () => {
+    // Der Freitext führt PLZ und Ort voran — zerlegt ergäbe er eine
+    // vertauschte Anschrift auf dem Brief.
+    const zeilen = objektAdresseZeilen({
+      strasse: 'Liebigstraße',
+      hausnummer: '12',
+      plz: '30851',
+      ort: 'Langenhagen',
+      adresse: '30851, Langenhagen, Liebigstraße 12',
+    });
+    expect(zeilen[0]).toBe('Liebigstraße 12');
+    expect(zeilen[1]).toBe('30851 Langenhagen');
+  });
+
+  it('nimmt den Freitext unzerlegt, wenn nichts atomisiert vorliegt', () => {
+    expect(objektAdresseZeilen({ adresse: '30161 Hannover, Celler Straße 79' })).toEqual([
+      '30161 Hannover, Celler Straße 79',
+    ]);
+  });
+
+  it('kommt mit Teilangaben und Leerwerten zurecht', () => {
+    expect(objektAdresseZeilen({ strasse: 'Hauptstraße', hausnummer: '20' })).toEqual([
+      'Hauptstraße 20',
+    ]);
+    expect(objektAdresseZeilen({ plz: '12345', ort: 'Musterstadt' })).toEqual(['12345 Musterstadt']);
+    expect(objektAdresseZeilen({})).toEqual([]);
+  });
+});
+
+describe('nachsendeAdresseZeilen', () => {
+  it('trennt an Umbrüchen und Kommas', () => {
+    expect(nachsendeAdresseZeilen('Neue Straße 5\n12345 Neustadt')).toEqual([
+      'Neue Straße 5',
+      '12345 Neustadt',
+    ]);
+    expect(nachsendeAdresseZeilen('Neue Straße 5, 12345 Neustadt')).toEqual([
+      'Neue Straße 5',
+      '12345 Neustadt',
+    ]);
+  });
+
+  it('liefert für Leerwerte eine leere Liste', () => {
+    expect(nachsendeAdresseZeilen(null)).toEqual([]);
+    expect(nachsendeAdresseZeilen('   ')).toEqual([]);
   });
 });

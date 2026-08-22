@@ -2,10 +2,11 @@ import { useState, useMemo, useCallback } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 import {
   Loader2, Search, ChevronDown, ChevronRight, Save, X, ArrowLeft,
   TableProperties, Building2, Users, Banknote, Check, Pencil,
-  FileDown, Printer, ChevronDown as ChevronDownIcon,
+  FileDown, Printer, ChevronDown as ChevronDownIcon, AlertTriangle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -312,6 +313,9 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
   const grouped = useMemo(() => {
     if (!rows) return [];
     const filtered = rows.filter((r) => {
+      if (statusFilter === "unvollstaendig") {
+        return luecken.einheitIds.has(r.einheitId) || luecken.contractIds.has(r.contractId);
+      }
       if (statusFilter === "leerstand") return r.isLeerstand;
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (search) {
@@ -491,6 +495,54 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
     };
   }, [rows]);
 
+  // ── Stammdaten-Lücken ─────────────────────────────────────────────────────
+  // Wohnfläche und Personenzahl sind Bezugsgrößen der Betriebskostenabrechnung.
+  // Fehlt eine davon, sperrt die Abrechnung das gesamte Objekt — deshalb hier
+  // sichtbar machen, wo die Pflege stattfindet, statt erst in Schritt 3.
+  const luecken = useMemo(() => {
+    const all = rows || [];
+
+    // Einheiten können mehrere Verträge haben — Flächen je Einheit nur einmal zählen.
+    const einheitenOhneFlaeche = new Map<string, { objektName: string; etage: string }>();
+    all.forEach((r) => {
+      if (!r.qm || r.qm <= 0) {
+        einheitenOhneFlaeche.set(r.einheitId, { objektName: r.objektName, etage: r.etage });
+      }
+    });
+
+    // Personenzahl nur für laufende Verträge — beendete werden nur bei einer
+    // rückwirkenden Abrechnung gebraucht und würden die Liste sonst zumüllen.
+    const vertraegeOhnePersonen = all.filter(
+      (r) =>
+        !r.isLeerstand &&
+        (r.status === "aktiv" || r.status === "gekuendigt") &&
+        (r.anzahlPersonen ?? 0) <= 0
+    );
+
+    const proObjekt = new Map<string, { name: string; flaeche: number; personen: number }>();
+    einheitenOhneFlaeche.forEach((info) => {
+      const e = proObjekt.get(info.objektName) || { name: info.objektName, flaeche: 0, personen: 0 };
+      e.flaeche += 1;
+      proObjekt.set(info.objektName, e);
+    });
+    vertraegeOhnePersonen.forEach((r) => {
+      const e = proObjekt.get(r.objektName) || { name: r.objektName, flaeche: 0, personen: 0 };
+      e.personen += 1;
+      proObjekt.set(r.objektName, e);
+    });
+
+    return {
+      flaecheCount: einheitenOhneFlaeche.size,
+      personenCount: vertraegeOhnePersonen.length,
+      gesamt: einheitenOhneFlaeche.size + vertraegeOhnePersonen.length,
+      proObjekt: Array.from(proObjekt.values()).sort(
+        (a, b) => b.flaeche + b.personen - (a.flaeche + a.personen)
+      ),
+      einheitIds: new Set(einheitenOhneFlaeche.keys()),
+      contractIds: new Set(vertraegeOhnePersonen.map((r) => r.contractId)),
+    };
+  }, [rows]);
+
   const toggleAll = useCallback(() => {
     if (expanded.size === grouped.length) setExpanded(new Set());
     else setExpanded(new Set(grouped.map((g) => g.objektId)));
@@ -578,6 +630,9 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                   <SelectItem value="leerstand">Leerstand</SelectItem>
                   <SelectItem value="gekuendigt">Gekündigt</SelectItem>
                   <SelectItem value="beendet">Beendet</SelectItem>
+                  {luecken.gesamt > 0 && (
+                    <SelectItem value="unvollstaendig">Unvollständig ({luecken.gesamt})</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" className="h-8 text-xs hidden sm:flex" onClick={toggleAll}>
@@ -608,6 +663,59 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
           </div>
         </div>
       </div>
+
+      {/* Stammdaten-Lücken für die Betriebskostenabrechnung */}
+      {luecken.gesamt > 0 && (
+        <div className="border-b bg-amber-50 px-3 sm:px-4 py-2.5">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-4">
+            <div className="flex items-start gap-2 min-w-0">
+              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-amber-900">
+                  {luecken.gesamt} fehlende Angabe(n) für die Betriebskostenabrechnung
+                </p>
+                <p className="text-[11px] text-amber-800">
+                  {luecken.flaecheCount > 0 && (
+                    <span>{luecken.flaecheCount} Einheit(en) ohne m²</span>
+                  )}
+                  {luecken.flaecheCount > 0 && luecken.personenCount > 0 && <span> · </span>}
+                  {luecken.personenCount > 0 && (
+                    <span>{luecken.personenCount} laufende(r) Vertrag/Verträge ohne Personenzahl</span>
+                  )}
+                  <span> — solange sie fehlen, sperrt die Abrechnung das betroffene Objekt.</span>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap lg:ml-auto shrink-0">
+              {luecken.proObjekt.slice(0, 4).map((o) => (
+                <Badge
+                  key={o.name}
+                  variant="outline"
+                  className="text-[10px] border-amber-300 text-amber-800 bg-white/60 font-normal"
+                >
+                  {o.name}: {o.flaeche + o.personen}
+                </Badge>
+              ))}
+              {luecken.proObjekt.length > 4 && (
+                <span className="text-[10px] text-amber-700">
+                  +{luecken.proObjekt.length - 4} weitere
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px] border-amber-400 text-amber-900 hover:bg-amber-100"
+                onClick={() =>
+                  setStatusFilter(statusFilter === "unvollstaendig" ? "all" : "unvollstaendig")
+                }
+              >
+                {statusFilter === "unvollstaendig" ? "Filter aufheben" : "Nur unvollständige"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scrollable table */}
       <div className="flex-1 overflow-auto">
@@ -707,7 +815,17 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                             <TableCell className="py-1 px-2">
                               <EditCell rowId={row.einheitId} table="einheiten" field="etage" value={row.etage} />
                             </TableCell>
-                            <TableCell className="py-1 px-2">
+                            <TableCell
+                              className={cn(
+                                "py-1 px-2",
+                                luecken.einheitIds.has(row.einheitId) && "bg-amber-50"
+                              )}
+                              title={
+                                luecken.einheitIds.has(row.einheitId)
+                                  ? "Wohnfläche fehlt — Umlage nach m² nicht möglich"
+                                  : undefined
+                              }
+                            >
                               <EditCell rowId={row.einheitId} table="einheiten" field="qm" value={row.qm} type="qm" />
                             </TableCell>
                             <TableCell className="py-1 px-2">
@@ -773,7 +891,17 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                             <TableCell className="py-1 px-2 text-right">
                               <EditCell rowId={row.einheitId} table="einheiten" field="soll_miete" value={row.sollMiete} type="number" />
                             </TableCell>
-                            <TableCell className="py-1 px-2 text-center">
+                            <TableCell
+                              className={cn(
+                                "py-1 px-2 text-center",
+                                luecken.contractIds.has(row.contractId) && "bg-amber-50"
+                              )}
+                              title={
+                                luecken.contractIds.has(row.contractId)
+                                  ? "Personenzahl fehlt — Umlage nach Personentagen nicht möglich"
+                                  : undefined
+                              }
+                            >
                               {!row.isLeerstand && (
                                 <EditCell rowId={row.contractId} table="mietvertrag" field="anzahl_personen" value={row.anzahlPersonen} type="personen" />
                               )}

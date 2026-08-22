@@ -61,6 +61,9 @@ import {
   istAbrechnungsfristAbgelaufen,
   kostenAnteilImZeitraum,
   tageInZeitraum,
+  objektAdresseEinzeilig,
+  objektAdresseZeilen,
+  nachsendeAdresseZeilen,
   type Bezugsgroessen,
   type Nutzungsperiode,
   type VerteilerSchluessel,
@@ -128,7 +131,7 @@ export function NebenkostenStep3Abrechnung({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("immobilien")
-        .select("id, adresse, name")
+        .select("id, adresse, name, strasse, hausnummer, plz, ort")
         .eq("id", immobilieId)
         .single();
       if (error) throw error;
@@ -210,7 +213,11 @@ export function NebenkostenStep3Abrechnung({
     enabled: !!mietvertraege && mietvertraege.length > 0,
   });
 
-  const immobilieAdresse = (immobilie?.adresse || "").trim();
+  // Aus den atomisierten Feldern, nicht aus dem Freitext: der führt PLZ und Ort
+  // voran ("29227 Celle, Burger Landstraße 18") und ergäbe zerlegt eine
+  // vertauschte Briefanschrift.
+  const immobilieAdresse = immobilie ? objektAdresseEinzeilig(immobilie) : "";
+  const objektAdressZeilen = immobilie ? objektAdresseZeilen(immobilie) : [];
 
   // ── Nutzungsperioden je Einheit (Verträge + Leerstand) ─────────────────────
   const { perioden, ueberschneidungen } = useMemo(() => {
@@ -349,9 +356,8 @@ export function NebenkostenStep3Abrechnung({
         .filter((mail): mail is string => !!mail && mail.includes("@"));
 
       // Nach Auszug geht die Abrechnung an die Nachsendeadresse, nicht an das Objekt.
-      const empfaengerAdresse = vertrag?.neue_anschrift
-        ? vertrag.neue_anschrift.split(/[\n,]/).map((z) => z.trim()).filter(Boolean)
-        : immobilieAdresse.split(",").map((z) => z.trim()).filter(Boolean);
+      const nachsende = nachsendeAdresseZeilen(vertrag?.neue_anschrift);
+      const empfaengerAdresse = nachsende.length > 0 ? nachsende : objektAdressZeilen;
 
       const einheitName = einheit?.zaehler
         ? `Einheit ${einheit.zaehler}`
@@ -382,7 +388,7 @@ export function NebenkostenStep3Abrechnung({
     mietvertraege,
     kostenProKategorie,
     bezugsgroessen,
-    immobilieAdresse,
+    objektAdressZeilen,
   ]);
 
   const mieterAbrechnungen = abrechnungen.filter((a) => !a.isLeerstand);
@@ -398,17 +404,40 @@ export function NebenkostenStep3Abrechnung({
     (k) => !istBerechenbarerSchluessel(k.schluessel)
   );
 
-  // Fehlt an einem Vertrag die Personenzahl, stimmen die Personentage der
-  // gesamten Immobilie nicht — dann sind ALLE Abrechnungen dieses Objekts
-  // betroffen, nicht nur die des lückenhaften Vertrags. Solange eine Kostenart
-  // nach Personentagen verteilt wird, wird deshalb nichts erzeugt oder versendet.
+  // Fehlt eine Bezugsgröße, stimmt der Nenner für die gesamte Immobilie nicht —
+  // dann sind ALLE Abrechnungen dieses Objekts betroffen, nicht nur die der
+  // lückenhaften Einheit oder des lückenhaften Vertrags. Solange ein Schlüssel
+  // auf die fehlende Größe zugreift, wird deshalb nichts erzeugt oder versendet.
   const personenSchluesselAktiv = Array.from(kostenProKategorie.values()).some(
     (k) => k.schluessel === "personen"
   );
+  // Nicht berechenbare Schlüssel ('individuell', 'verbrauch') werden ersatzweise
+  // nach Wohnfläche verteilt und brauchen die Flächen deshalb genauso.
+  const qmSchluesselAktiv = Array.from(kostenProKategorie.values()).some(
+    (k) => k.schluessel === "qm" || !istBerechenbarerSchluessel(k.schluessel)
+  );
+
   const ohnePersonenzahl = abrechnungen.filter(
     (a) => !a.isLeerstand && !a.periode.personenGepflegt
   );
-  const abrechnungGesperrt = personenSchluesselAktiv && ohnePersonenzahl.length > 0;
+  const einheitenOhneFlaeche = (einheiten || []).filter((e) => !e.qm || e.qm <= 0);
+
+  const sperrgruende: string[] = [];
+  if (personenSchluesselAktiv && ohnePersonenzahl.length > 0) {
+    sperrgruende.push(
+      `Personenzahl fehlt bei ${ohnePersonenzahl.length} Vertrag/Verträgen: ` +
+        ohnePersonenzahl.map((a) => mieterNamenText(a.mieterNamen)).join(", ")
+    );
+  }
+  if (qmSchluesselAktiv && einheitenOhneFlaeche.length > 0) {
+    sperrgruende.push(
+      `Wohnfläche fehlt bei ${einheitenOhneFlaeche.length} Einheit(en): ` +
+        einheitenOhneFlaeche
+          .map((e) => (e.zaehler ? `Einheit ${e.zaehler}` : `Einheit ${e.id.slice(-4)}`))
+          .join(", ")
+    );
+  }
+  const abrechnungGesperrt = sperrgruende.length > 0;
 
   const fristAbgelaufen = istAbrechnungsfristAbgelaufen(selectedYear);
   const ohneVorauszahlung = mieterAbrechnungen.filter((a) => a.monatlicheVorauszahlung === 0);
@@ -817,29 +846,28 @@ export function NebenkostenStep3Abrechnung({
         </Card>
       )}
 
-      {/* Fehlende Personenzahl sperrt die Abrechnung */}
+      {/* Fehlende Bezugsgrößen sperren die Abrechnung */}
       {abrechnungGesperrt && (
         <Card className="border-red-400 bg-red-50">
           <CardContent className="py-4 flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <p className="text-sm font-semibold text-red-800">
-                Abrechnung gesperrt — Personenzahl fehlt bei {ohnePersonenzahl.length} Vertrag/Verträgen
+                Abrechnung gesperrt — Stammdaten unvollständig
               </p>
               <p className="text-xs text-red-700">
-                Mindestens eine Kostenart wird nach Personentagen verteilt. Die Personenzahl gehört
-                zum Mietvertrag und wird nicht ersetzt — fehlt sie, sind die Personentage der
-                gesamten Immobilie und damit <span className="font-medium">alle</span> Abrechnungen
-                dieses Objekts falsch, nicht nur die betroffenen.
+                Die fehlenden Angaben sind Bezugsgrößen der Umlage. Ohne sie stimmt der Nenner für
+                die gesamte Immobilie nicht — betroffen wären{" "}
+                <span className="font-medium">alle</span> Abrechnungen dieses Objekts, nicht nur die
+                lückenhaften. Es wird deshalb nichts geschätzt.
               </p>
+              <ul className="text-xs text-red-700 list-disc pl-4 space-y-0.5">
+                {sperrgruende.map((grund, idx) => (
+                  <li key={idx}>{grund}</li>
+                ))}
+              </ul>
               <p className="text-xs text-red-700">
-                Betroffen:{" "}
-                <span className="font-medium">
-                  {ohnePersonenzahl.map((a) => mieterNamenText(a.mieterNamen)).join(", ")}
-                </span>
-              </p>
-              <p className="text-xs text-red-700">
-                Personenzahl in Schritt 2 oder direkt im Mietvertrag nachtragen.
+                Nachtragen in Schritt 2 (Personenzahl) oder unter „Stammdaten" im Dashboard.
               </p>
             </div>
           </CardContent>
@@ -997,7 +1025,7 @@ export function NebenkostenStep3Abrechnung({
                 disabled={abrechnungGesperrt}
                 title={
                   abrechnungGesperrt
-                    ? "Gesperrt: Personenzahl fehlt bei mindestens einem Vertrag"
+                    ? "Gesperrt: Stammdaten unvollständig — siehe Hinweis oben"
                     : undefined
                 }
                 onClick={() => setForderungenDialogOpen(true)}
@@ -1219,7 +1247,7 @@ export function NebenkostenStep3Abrechnung({
                                   disabled={isPdfLoading || abrechnungGesperrt}
                                   title={
                                     abrechnungGesperrt
-                                      ? "Gesperrt: Personenzahl fehlt bei mindestens einem Vertrag"
+                                      ? "Gesperrt: Stammdaten unvollständig — siehe Hinweis oben"
                                       : undefined
                                   }
                                 >
@@ -1248,7 +1276,7 @@ export function NebenkostenStep3Abrechnung({
                                     }
                                     title={
                                       abrechnungGesperrt
-                                        ? "Gesperrt: Personenzahl fehlt bei mindestens einem Vertrag"
+                                        ? "Gesperrt: Stammdaten unvollständig — siehe Hinweis oben"
                                         : abrechnung.mieterEmails.length === 0
                                         ? "Keine E-Mail-Adresse hinterlegt"
                                         : undefined

@@ -333,3 +333,54 @@ export function istAbrechnungsfristAbgelaufen(
 ): boolean {
   return heute > abrechnungsfristEnde(abrechnungsjahr);
 }
+
+// ─── Adressen ─────────────────────────────────────────────────────────────────
+
+export interface ObjektAdresse {
+  strasse?: string | null;
+  hausnummer?: string | null;
+  plz?: string | null;
+  ort?: string | null;
+  /** Freitextfeld aus dem Altbestand, Format "PLZ Ort, Straße Hausnummer". */
+  adresse?: string | null;
+}
+
+/**
+ * Objektadresse als Briefanschrift (Straße zuerst, dann PLZ und Ort).
+ *
+ * Das Freitextfeld `immobilien.adresse` führt PLZ und Ort VORAN
+ * ("29227 Celle, Burger Landstraße 18"). Wer es an Kommas zerlegt und den ersten
+ * Teil als Straße nimmt, erzeugt eine vertauschte Anschrift. Deshalb werden die
+ * atomisierten Felder bevorzugt; das Freitextfeld dient nur als Notnagel.
+ */
+export function objektAdresseZeilen(objekt: ObjektAdresse): string[] {
+  const strasse = [objekt.strasse, objekt.hausnummer].filter(Boolean).join(" ").trim();
+  const plzOrt = [objekt.plz, objekt.ort].filter(Boolean).join(" ").trim();
+
+  if (strasse && plzOrt) return [strasse, plzOrt];
+  if (strasse) return [strasse];
+  if (plzOrt) return [plzOrt];
+
+  // Kein atomisierter Datensatz: Freitext unverändert übernehmen, statt ihn zu
+  // zerlegen und dabei womöglich falsch zu sortieren.
+  const freitext = (objekt.adresse || "").trim();
+  return freitext ? [freitext] : [];
+}
+
+/** Einzeilige Objektbezeichnung für Betreff und Kopfzeilen. */
+export function objektAdresseEinzeilig(objekt: ObjektAdresse): string {
+  const zeilen = objektAdresseZeilen(objekt);
+  return zeilen.length > 0 ? zeilen.join(", ") : "";
+}
+
+/**
+ * Zerlegt die vom Mieter angegebene Nachsendeadresse in Zeilen. Sie ist ein
+ * freies Textfeld und wird deshalb nur an Umbrüchen und Kommas getrennt.
+ */
+export function nachsendeAdresseZeilen(anschrift: string | null | undefined): string[] {
+  if (!anschrift) return [];
+  return anschrift
+    .split(/[\n,]/)
+    .map((z) => z.trim())
+    .filter(Boolean);
+}
