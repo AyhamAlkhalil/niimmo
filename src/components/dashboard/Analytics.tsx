@@ -35,7 +35,7 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('mietvertrag')
-        .select('*, einheit_id, einheiten(immobilie_id, qm)');
+        .select('*, einheit_id, einheiten!mietvertraege_einheit_id_fkey(immobilie_id, qm)');
       if (error) throw error;
       return data;
     },
