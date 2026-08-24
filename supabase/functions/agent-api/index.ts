@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.0';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const SYSTEM_PROMPT = `Du bist Chilla, der KI-Assistent der NiImmo Holding GmbH (Hausverwaltung).
 
