@@ -113,6 +113,12 @@ export const TerminationDialog = ({
         }));
         setMieterList(mieter);
       } catch (err) {
+        console.error('Mieterliste zum Vertrag konnte nicht geladen werden:', err);
+        toast({
+          title: "Mieterdaten nicht geladen",
+          description: "Die Mieter zu diesem Vertrag konnten nicht geladen werden. Bitte Dialog erneut oeffnen.",
+          variant: "destructive",
+        });
       }
     };
 
@@ -195,6 +201,12 @@ export const TerminationDialog = ({
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
+      console.error('Kuendigungs-Vorschau konnte nicht erzeugt werden:', err);
+      toast({
+        title: "Vorschau nicht moeglich",
+        description: "Das Kuendigungsschreiben konnte nicht erzeugt werden. Bitte pruefen Sie die Vertragsdaten.",
+        variant: "destructive",
+      });
     } finally {
       setIsGeneratingPreview(false);
     }

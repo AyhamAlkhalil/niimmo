@@ -36,22 +36,16 @@ class TerminationWebhookService {
 
     // Send to all configured webhook endpoints
     const promises = this.webhookEndpoints.map(async (url) => {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-        if (!response.ok) {
-          throw new Error(`Webhook failed: ${response.status} ${response.statusText}`);
-        }
-
-      } catch (error) {
-        // error is rethrown
-        throw error;
+      if (!response.ok) {
+        throw new Error(`Webhook failed: ${response.status} ${response.statusText}`);
       }
     });
 
@@ -61,16 +55,11 @@ class TerminationWebhookService {
 
   // Method to call the existing tenant service if needed
   async kuendigungMieter(vertragId: string, kuendigungsdatum: string): Promise<void> {
-    try {
-      // This would integrate with your existing tenant service
-      // Placeholder for actual implementation
-      
-      // Example of what this might look like:
-      // await tenantService.terminateContract(vertragId, kuendigungsdatum);
-    } catch (error) {
-      // error is rethrown
-      throw error;
-    }
+    // This would integrate with your existing tenant service
+    // Placeholder for actual implementation
+
+    // Example of what this might look like:
+    // await tenantService.terminateContract(vertragId, kuendigungsdatum);
   }
 }
 

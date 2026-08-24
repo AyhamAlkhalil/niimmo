@@ -136,6 +136,12 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
+      console.error('Mieterhoehungs-Vorschau konnte nicht erzeugt werden:', err);
+      toast({
+        title: "Vorschau nicht moeglich",
+        description: "Das Mieterhoehungsschreiben konnte nicht erzeugt werden. Bitte pruefen Sie die Vertragsdaten.",
+        variant: "destructive",
+      });
     } finally {
       setIsGeneratingPreview(false);
     }

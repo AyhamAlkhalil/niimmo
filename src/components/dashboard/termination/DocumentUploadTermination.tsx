@@ -155,6 +155,7 @@ export const DocumentUploadTermination = ({
         });
 
       if (docError) {
+        console.error('Kuendigung gespeichert, aber der Dokumenteintrag fehlt:', docError);
       }
 
       clearInterval(progressInterval);
@@ -170,6 +171,7 @@ export const DocumentUploadTermination = ({
           method: 'document_upload'
         });
       } catch (webhookError) {
+        console.warn('Kuendigungs-Webhook nicht erreicht:', webhookError);
       }
 
       toast({

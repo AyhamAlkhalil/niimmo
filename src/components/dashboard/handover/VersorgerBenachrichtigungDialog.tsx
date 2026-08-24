@@ -182,6 +182,13 @@ Tel. 05138 – 600 72 72`;
       try {
         pdfPath = await uploadPdf();
       } catch (e) {
+        // Versand laeuft weiter, aber ohne Anhang - das muss sichtbar sein
+        console.error('PDF-Upload fehlgeschlagen, die Versorger-Mails gehen ohne Anhang raus:', e);
+        toast({
+          title: "Anhang fehlt",
+          description: "Das Protokoll-PDF konnte nicht hochgeladen werden. Die Benachrichtigungen gehen ohne Anhang raus.",
+          variant: "destructive",
+        });
       }
 
       for (const v of selectedVersorger) {

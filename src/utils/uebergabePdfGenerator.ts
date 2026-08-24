@@ -271,6 +271,7 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
     try {
       doc.addImage(data.vermieterSignature, 'PNG', leftSigX, y, sigWidth, sigHeight);
     } catch (e) {
+      console.warn('Unterschrift des Vermieters konnte nicht ins PDF uebernommen werden:', e);
     }
   }
 
@@ -279,6 +280,7 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
     try {
       doc.addImage(data.mieterSignature, 'PNG', rightSigX, y, sigWidth, sigHeight);
     } catch (e) {
+      console.warn('Unterschrift des Mieters konnte nicht ins PDF uebernommen werden:', e);
     }
   }
 

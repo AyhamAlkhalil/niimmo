@@ -213,7 +213,7 @@ export function MietvertragTimelineView({
     const valueToSave = customValue !== undefined ? customValue : editPaymentValue;
 
     try {
-      let updateData: any = {};
+      const updateData: any = {};
 
       if (editingPayment.field === 'kategorie') {
         updateData.kategorie = valueToSave as any;

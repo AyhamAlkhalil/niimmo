@@ -210,7 +210,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   const { data: allPayments, isLoading: allPaymentsLoading, isError: allPaymentsError } = useQuery({
     queryKey: ['zahlungen-overview'],
     queryFn: async () => {
-      let allData: any[] = [];
+      const allData: any[] = [];
       let from = 0;
       const pageSize = 1000;
       
@@ -457,14 +457,16 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           return b.betrag - a.betrag;
         case 'betrag-asc':
           return a.betrag - b.betrag;
-        case 'status':
+        case 'status': {
           const aAssigned = a.mietvertrag_id || a.immobilie_id ? 1 : 0;
           const bAssigned = b.mietvertrag_id || b.immobilie_id ? 1 : 0;
           return bAssigned - aAssigned;
-        case 'kategorie':
+        }
+        case 'kategorie': {
           const katA = a.kategorie || 'Keine Kategorie';
           const katB = b.kategorie || 'Keine Kategorie';
           return katA.localeCompare(katB);
+        }
         default:
           return 0;
       }

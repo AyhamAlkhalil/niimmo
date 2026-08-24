@@ -281,6 +281,8 @@ export const NewTenantContractDialog = ({
       try {
         textContent = await OCRProcessingService.extractTextFromPDF(file);
       } catch (e) {
+        // Kein Textlayer im PDF - unten wird die erste Seite als Bild gerendert
+        console.warn('Textextraktion aus dem PDF fehlgeschlagen:', e);
       }
 
       // If no text extracted, render first page as image
@@ -288,6 +290,7 @@ export const NewTenantContractDialog = ({
         try {
           base64 = await OCRProcessingService.renderPdfFirstPageToBase64(file);
         } catch (e) {
+          console.warn('Erste PDF-Seite konnte nicht gerendert werden:', e);
         }
       }
 
@@ -400,7 +403,7 @@ export const NewTenantContractDialog = ({
     setIsLoading(true);
     
     // Track created records for rollback if needed
-    let createdTenantIds: string[] = [];
+    const createdTenantIds: string[] = [];
     let createdContractId: string | null = null;
     
     try {
@@ -578,6 +581,7 @@ export const NewTenantContractDialog = ({
             });
           
           if (docError) {
+            console.error('Mietvertrag angelegt, aber der Dokumenteintrag fehlt:', docError);
           }
         }
       }
@@ -604,6 +608,7 @@ export const NewTenantContractDialog = ({
             .delete()
             .eq('id', createdContractId);
         } catch (rollbackError) {
+          console.error('Rollback des Mietvertrags fehlgeschlagen, Datensatz bleibt verwaist:', createdContractId, rollbackError);
         }
       }
 
@@ -615,6 +620,7 @@ export const NewTenantContractDialog = ({
             .delete()
             .in('id', createdTenantIds);
         } catch (rollbackError) {
+          console.error('Rollback der Mieter fehlgeschlagen, Datensaetze bleiben verwaist:', createdTenantIds, rollbackError);
         }
       }
       

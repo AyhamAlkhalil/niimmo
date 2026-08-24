@@ -224,6 +224,12 @@ export function MahnungErstellungModal({
       const url = URL.createObjectURL(blob);
       setPdfBlobUrl(url);
     } catch (err) {
+      console.error('Mahnungs-Vorschau konnte nicht erzeugt werden:', err);
+      toast({
+        title: "Vorschau nicht moeglich",
+        description: "Das Mahnungs-PDF konnte nicht erzeugt werden. Bitte pruefen Sie die Vertragsdaten.",
+        variant: "destructive",
+      });
     } finally {
       setIsGeneratingPreview(false);
     }

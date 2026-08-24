@@ -198,6 +198,13 @@ Ihre Hausverwaltung`
       try {
         pdfFilePath = await uploadPdfAndSaveRef();
       } catch (uploadErr) {
+        // Versand laeuft weiter, aber ohne Anhang - das muss sichtbar sein
+        console.error('PDF-Upload fehlgeschlagen, die E-Mail geht ohne Anhang raus:', uploadErr);
+        toast({
+          title: "Anhang fehlt",
+          description: "Das Protokoll-PDF konnte nicht hochgeladen werden. Die E-Mail wird ohne Anhang versendet.",
+          variant: "destructive",
+        });
       }
 
       const response = await supabase.functions.invoke("send-uebergabe-email", {
@@ -220,7 +227,10 @@ Ihre Hausverwaltung`
             const body = await ctx.json();
             if (body?.error) errorMessage = body.error;
           }
-        } catch {}
+        } catch (parseErr) {
+          // Antwort ohne JSON-Body - die Rohmeldung oben bleibt stehen
+          console.warn('Fehlerantwort der Edge Function nicht lesbar:', parseErr);
+        }
         throw new Error(errorMessage);
       }
 

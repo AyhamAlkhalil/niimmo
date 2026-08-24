@@ -120,6 +120,8 @@ export function PaymentUndoSplitModal({
           queryClient.invalidateQueries({ queryKey: ['zahlungen'] }),
         ]);
       } catch (refreshError) {
+        // Split wurde rueckgaengig gemacht, nur die Anzeige ist evtl. veraltet
+        console.warn('Aktualisierung der Ansicht nach dem Split-Undo fehlgeschlagen:', refreshError);
       }
 
       onClose();

@@ -67,6 +67,7 @@ export const ManualTerminationForm = ({
         });
 
       if (docError) {
+        console.error('Kuendigung gespeichert, aber der Dokumenteintrag fehlt:', docError);
       }
 
       // Call webhook service
@@ -79,6 +80,7 @@ export const ManualTerminationForm = ({
           method: 'manual'
         });
       } catch (webhookError) {
+        console.warn('Kuendigungs-Webhook nicht erreicht:', webhookError);
       }
 
       toast({

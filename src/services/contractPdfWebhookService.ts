@@ -93,7 +93,7 @@ export class ContractPdfWebhookService {
       }
       
       // Wenn success fehlt, aber extractedData vorhanden ist, setze success=true
-      if (!data.hasOwnProperty('success') && data.extractedData) {
+      if (!Object.prototype.hasOwnProperty.call(data, 'success') && data.extractedData) {
         data.success = true;
       }
       

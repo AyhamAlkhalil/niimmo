@@ -136,7 +136,7 @@ export const MietvertragDetailView = ({ einheitId, onBack, einheit, immobilie, o
     const currentDate = new Date();
     const endDate = vertrag.ende_datum ? new Date(vertrag.ende_datum) : currentDate;
     
-    let checkDate = new Date(startDate);
+    const checkDate = new Date(startDate);
     while (checkDate <= endDate && checkDate <= currentDate) {  
       const isPaid = false; // Bei leerer Zahlungstabelle ist nichts bezahlt
       payments.push({
