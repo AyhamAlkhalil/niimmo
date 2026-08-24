@@ -20,12 +20,13 @@ import { MietaufstellungBank } from "@/components/dashboard/MietaufstellungBank"
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
+import { NeuerMietvertragDialog } from "@/components/dashboard/NeuerMietvertragDialog";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
 import { useState, useMemo, useCallback } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert } from "lucide-react";
+import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
@@ -63,6 +64,7 @@ const Index = () => {
   const [showDevLog, setShowDevLog] = useState<boolean>(false);
   const [showAgentLogs, setShowAgentLogs] = useState<boolean>(false);
   const [showBlacklist, setShowBlacklist] = useState<boolean>(false);
+  const [showNeuerMietvertrag, setShowNeuerMietvertrag] = useState<boolean>(false);
   const [rueckstaendeOpen, setRueckstaendeOpen] = useState<boolean>(false);
   const [rentIncreaseOpen, setRentIncreaseOpen] = useState<boolean>(false);
   const [listSource, setListSource] = useState<'rueckstaende' | 'rentincrease' | null>(null);
@@ -212,7 +214,7 @@ const Index = () => {
   const handleMietvertragClick = async (mietvertragId: string) => {
     const { data: mietvertrag } = await supabase
       .from('mietvertrag')
-      .select(`einheit_id, einheiten (immobilie_id)`)
+      .select(`einheit_id, einheiten!mietvertraege_einheit_id_fkey (immobilie_id)`)
       .eq('id', mietvertragId)
       .maybeSingle(); // Use maybeSingle to handle cases where no data exists
       
@@ -228,7 +230,7 @@ const Index = () => {
   const handleSearchMietvertragClick = async (mietvertragId: string) => {
     const { data: mietvertrag } = await supabase
       .from('mietvertrag')
-      .select(`einheit_id, einheiten (immobilie_id)`)
+      .select(`einheit_id, einheiten!mietvertraege_einheit_id_fkey (immobilie_id)`)
       .eq('id', mietvertragId)
       .maybeSingle();
       
@@ -253,7 +255,7 @@ const Index = () => {
   const handleRentIncreaseContractClick = async (mietvertragId: string) => {
     const { data: mietvertrag } = await supabase
       .from('mietvertrag')
-      .select(`einheit_id, einheiten (immobilie_id)`)
+      .select(`einheit_id, einheiten!mietvertraege_einheit_id_fkey (immobilie_id)`)
       .eq('id', mietvertragId)
       .maybeSingle();
       
@@ -388,6 +390,15 @@ const Index = () => {
               {/* Action Buttons - Only for Admin */}
               {isAdmin && (
                 <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-2 sm:flex-wrap">
+                  <Button
+                    onClick={() => setShowNeuerMietvertrag(true)}
+                    variant="ghost"
+                    size="sm"
+                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
+                  >
+                    <FilePlus2 className="h-4 w-4 mr-1.5 shrink-0" />
+                    <span className="truncate">Neuer Mietvertrag</span>
+                  </Button>
                   <Button 
                     onClick={() => setShowControlboard(true)} 
                     variant="ghost"
@@ -550,7 +561,12 @@ const Index = () => {
             </div>
           </div>}
       </div>
-      
+
+      <NeuerMietvertragDialog
+        isOpen={showNeuerMietvertrag}
+        onClose={() => setShowNeuerMietvertrag(false)}
+      />
+
     </div>;
 };
 export default Index;
