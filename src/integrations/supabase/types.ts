@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_logs: {
@@ -533,13 +508,6 @@ export type Database = {
           },
           {
             foreignKeyName: "dokumente_mietvertrag_id_fkey"
-            columns: ["mietvertrag_id"]
-            isOneToOne: false
-            referencedRelation: "mietvertrag"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "fk_dokumente_mietvertrag"
             columns: ["mietvertrag_id"]
             isOneToOne: false
             referencedRelation: "mietvertrag"
@@ -1122,13 +1090,6 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "fk_mietvertrag_id_on_mietforderungen"
-            columns: ["mietvertrag_id"]
-            isOneToOne: false
-            referencedRelation: "mietvertrag"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "mietforderungen_mietvertrag_id_fkey"
             columns: ["mietvertrag_id"]
             isOneToOne: false
@@ -1390,6 +1351,7 @@ export type Database = {
           bemerkung: string | null
           einheit_id: string
           erstellt_am: string
+          id: string
           mietvertrag_id: string
           rolle: Database["public"]["Enums"]["objektrolle"]
           teilmiete: number | null
@@ -1398,6 +1360,7 @@ export type Database = {
           bemerkung?: string | null
           einheit_id: string
           erstellt_am?: string
+          id?: string
           mietvertrag_id: string
           rolle?: Database["public"]["Enums"]["objektrolle"]
           teilmiete?: number | null
@@ -1406,6 +1369,7 @@ export type Database = {
           bemerkung?: string | null
           einheit_id?: string
           erstellt_am?: string
+          id?: string
           mietvertrag_id?: string
           rolle?: Database["public"]["Enums"]["objektrolle"]
           teilmiete?: number | null
@@ -2867,9 +2831,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       anrede: ["Herr", "Frau", "Divers", "Firma"],

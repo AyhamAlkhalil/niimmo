@@ -58,7 +58,7 @@ export const PaymentHistory = ({ mietvertragId, currentMahnstufe = 0 }: PaymentH
         .from('mietvertrag')
         .select(`
           *,
-          einheiten!mietvertraege_einheit_id_fkey(
+          einheiten(
             id,
             immobilien(id, name, adresse)
           ),

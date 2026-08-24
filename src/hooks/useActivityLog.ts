@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
+import type { Json } from "@/integrations/supabase/types";
 
 export type ActivityAction =
   | "login"
@@ -38,7 +39,7 @@ export const useActivityLog = () => {
           action,
           entity_type: entityType ?? null,
           entity_id: entityId ?? null,
-          details: details ?? null,
+          details: (details ?? null) as Json,
         });
       })();
     },

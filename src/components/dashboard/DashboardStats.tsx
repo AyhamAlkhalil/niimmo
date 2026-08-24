@@ -42,7 +42,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
           ende_datum,
           kuendigungsdatum,
           einheit_id,
-          einheiten!mietvertraege_einheit_id_fkey(
+          einheiten(
             id,
             immobilie_id
           )

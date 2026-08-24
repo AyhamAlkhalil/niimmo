@@ -103,11 +103,12 @@ export function MietvertragDocumentsTab({
         case 'titel':
           comparison = (a.titel || '').localeCompare(b.titel || '');
           break;
-        case 'datum':
+        case 'datum': {
           const dateA = new Date(a.hochgeladen_am || 0).getTime();
           const dateB = new Date(b.hochgeladen_am || 0).getTime();
           comparison = dateA - dateB;
           break;
+        }
         default:
           return 0;
       }
@@ -655,7 +656,7 @@ export function MietvertragDocumentsTab({
           </div>
           <div className="space-y-2">
             <Label htmlFor="kategorie">Kategorie</Label>
-            <Select value={uploadKategorie} onValueChange={setUploadKategorie}>
+            <Select value={uploadKategorie} onValueChange={(v) => setUploadKategorie(v as DokumentKategorie)}>
               <SelectTrigger id="kategorie">
                 <SelectValue />
               </SelectTrigger>

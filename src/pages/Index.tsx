@@ -214,7 +214,7 @@ const Index = () => {
   const handleMietvertragClick = async (mietvertragId: string) => {
     const { data: mietvertrag } = await supabase
       .from('mietvertrag')
-      .select(`einheit_id, einheiten!mietvertraege_einheit_id_fkey (immobilie_id)`)
+      .select(`einheit_id, einheiten (immobilie_id)`)
       .eq('id', mietvertragId)
       .maybeSingle(); // Use maybeSingle to handle cases where no data exists
       
@@ -230,7 +230,7 @@ const Index = () => {
   const handleSearchMietvertragClick = async (mietvertragId: string) => {
     const { data: mietvertrag } = await supabase
       .from('mietvertrag')
-      .select(`einheit_id, einheiten!mietvertraege_einheit_id_fkey (immobilie_id)`)
+      .select(`einheit_id, einheiten (immobilie_id)`)
       .eq('id', mietvertragId)
       .maybeSingle();
       
@@ -255,7 +255,7 @@ const Index = () => {
   const handleRentIncreaseContractClick = async (mietvertragId: string) => {
     const { data: mietvertrag } = await supabase
       .from('mietvertrag')
-      .select(`einheit_id, einheiten!mietvertraege_einheit_id_fkey (immobilie_id)`)
+      .select(`einheit_id, einheiten (immobilie_id)`)
       .eq('id', mietvertragId)
       .maybeSingle();
       

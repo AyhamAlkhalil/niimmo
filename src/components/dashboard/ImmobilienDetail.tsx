@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { EinheitCard } from "./EinheitCard";
 import { ArrowLeft, Building, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame, Search } from "lucide-react";
@@ -15,6 +16,12 @@ import { format } from "date-fns";
 import { ImmobilienDocumentsTab } from "./ImmobilienDocumentsTab";
 import { ImmobilienNebenkostenTabNew } from "./nebenkosten/ImmobilienNebenkostenTabNew";
 import { ImmobilienVersicherungenTab } from "./ImmobilienVersicherungenTab";
+
+/** Mieterfelder, die der Vertrags-Query nachlaedt (siehe useQuery 'mietvertrag-detail'). */
+type MieterKurz = Pick<
+  Database['public']['Tables']['mieter']['Row'],
+  'id' | 'vorname' | 'nachname' | 'hauptmail' | 'telnr'
+>;
 
 interface ImmobilienDetailProps {
   immobilieId: string;
@@ -116,7 +123,9 @@ export const ImmobilienDetail = ({
       if (vertraegeError) throw vertraegeError;
       
       const vertragIds = vertraege?.map(v => v.id) || [];
-      if (vertragIds.length === 0) return vertraege;
+      // Immer mit mieter-Feld zurueckgeben, sonst ist der Typ je nach Pfad ein anderer
+      const ohneMieter = (vertraege || []).map(v => ({ ...v, mieter: [] as MieterKurz[] }));
+      if (vertragIds.length === 0) return ohneMieter;
       
       const { data: mietvertragMieter, error: mmError } = await supabase
         .from('mietvertrag_mieter')
@@ -126,7 +135,7 @@ export const ImmobilienDetail = ({
       if (mmError) throw mmError;
       
       const mieterIds = mietvertragMieter?.map(mm => mm.mieter_id) || [];
-      if (mieterIds.length === 0) return vertraege;
+      if (mieterIds.length === 0) return ohneMieter;
       
       const { data: mieter, error: mieterError } = await supabase
         .from('mieter')
@@ -137,10 +146,9 @@ export const ImmobilienDetail = ({
       
       return vertraege?.map(vertrag => {
         const allMieterForVertrag = mietvertragMieter?.filter(mm => mm.mietvertrag_id === vertrag.id) || [];
-        const mieterData = allMieterForVertrag.map(mvMieter => {
-          const mieterInfo = mieter?.find(m => m.id === mvMieter.mieter_id);
-          return mieterInfo;
-        }).filter(Boolean);
+        const mieterData = allMieterForVertrag
+          .map(mvMieter => mieter?.find(m => m.id === mvMieter.mieter_id))
+          .filter((m): m is MieterKurz => Boolean(m));
         
         return { ...vertrag, mieter: mieterData };
       }) || [];
@@ -496,7 +504,7 @@ export const ImmobilienDetail = ({
                       ) return true;
                       const vertraegeForEinheit = mietvertraege?.filter(v => v.einheit_id === einheit.id) || [];
                       return vertraegeForEinheit.some(v =>
-                        (v.mieter as Array<{ vorname: string; nachname: string }> | undefined)?.some(m =>
+                        v.mieter?.some(m =>
                           `${m.vorname} ${m.nachname}`.toLowerCase().includes(searchLower)
                         )
                       );
@@ -556,7 +564,7 @@ export const ImmobilienDetail = ({
                 ) return true;
                 const vertraegeForEinheit = mietvertraege?.filter(v => v.einheit_id === einheit.id) || [];
                 return vertraegeForEinheit.some(v =>
-                  (v.mieter as Array<{ vorname: string; nachname: string }> | undefined)?.some(m =>
+                  v.mieter?.some(m =>
                     `${m.vorname} ${m.nachname}`.toLowerCase().includes(searchLower)
                   )
                 );

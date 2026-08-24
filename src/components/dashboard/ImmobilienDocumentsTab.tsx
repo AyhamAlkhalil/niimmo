@@ -412,7 +412,7 @@ export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDoc
             
             <div className="space-y-2">
               <Label>Kategorie</Label>
-              <Select value={uploadKategorie} onValueChange={setUploadKategorie}>
+              <Select value={uploadKategorie} onValueChange={(v) => setUploadKategorie(v as DokumentKategorie)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
