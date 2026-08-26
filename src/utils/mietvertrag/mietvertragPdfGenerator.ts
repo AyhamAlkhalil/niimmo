@@ -1,32 +1,28 @@
 /**
  * Erzeugt den Mietvertrag als PDF.
  *
- * Optik nach der NiImmo-Briefvorlage (wie `nebenkostenAbrechnungPdfGenerator`),
- * Seitenmechanik aus `briefLayout`. Anders als bei den Briefdokumenten ist die
- * Länge nicht vorhersagbar — deshalb paginiert jeder Absatz selbst und die
- * Seitenzahlen werden erst am Ende gesetzt.
+ * Die Optik folgt bewusst der Word-Hausvorlage und nicht der NiImmo-Briefvorlage:
+ * schlichter Titel, Rubrum in Tabulatorform mit den Feldbeschriftungen unter den
+ * Werten, „als Vermieter" bzw. „als Mieter" rechtsbündig. Kein Logo, keine
+ * Farbflächen — ein Nachmieter soll dasselbe Dokument in der Hand halten wie
+ * sein Vormieter.
+ *
+ * Seitenmechanik aus `briefLayout`. Die Länge ist nicht vorhersagbar, deshalb
+ * paginiert jeder Absatz selbst und die Seitenzahlen entstehen erst am Ende.
  */
 import jsPDF from 'jspdf';
-import {
-  ORANGE,
-  DARK,
-  GRAY,
-  PAGE_WIDTH,
-  createLayout,
-  loadLogo,
-  logoMasse,
-  formatDatum,
-} from '../pdf/briefLayout';
+import { DARK, GRAY, PAGE_WIDTH, createLayout, formatDatum } from '../pdf/briefLayout';
 import { anlagenFuerVertrag, type Anlage } from './anlagen';
 import { wohnraumParagraphen, type Absatz, type Paragraph } from './wohnraumKlauseln';
 import type { MieterDaten, MietvertragDaten } from './typen';
 
 const ML = 20;
 const MR = 20;
+/** Spalte, in der die Werte des Rubrums beginnen — entspricht dem Tabstopp in Word. */
+const RUBRUM_X = ML + 28;
 
 export async function generateMietvertragPdf(d: MietvertragDaten): Promise<Blob> {
   const doc = new jsPDF('p', 'mm', 'a4');
-  const logo = await loadLogo();
 
   const bezug = `Mietvertrag · ${d.objekt.strasse} ${d.objekt.hausnummer}, ${d.objekt.plz} ${d.objekt.ort} · ${d.einheit.bezeichnung}`;
 
@@ -39,7 +35,7 @@ export async function generateMietvertragPdf(d: MietvertragDaten): Promise<Blob>
     zeilenhoehe: 4.6,
   });
 
-  let y = titelseite(doc, d, logo);
+  let y = titelseite(doc, d);
 
   for (const p of wohnraumParagraphen(d)) {
     y = paragraphRendern(layout, p, y);
@@ -58,128 +54,110 @@ export async function generateMietvertragPdf(d: MietvertragDaten): Promise<Blob>
 
 // ─── Titelseite ──────────────────────────────────────────────────────────────
 
-function titelseite(doc: jsPDF, d: MietvertragDaten, logo: string | null): number {
-  if (logo) {
-    const { breite, hoehe } = logoMasse(16);
-    doc.addImage(logo, 'PNG', PAGE_WIDTH / 2 - breite / 2, 10, breite, hoehe);
-  }
-
-  let y = logo ? 32 : 20;
-
-  doc.setFontSize(8);
-  doc.setTextColor(...GRAY);
-  doc.setFont('helvetica', 'normal');
-  doc.text('— Gruppe —', PAGE_WIDTH / 2, y, { align: 'center' });
-  y += 5;
-
-  doc.setDrawColor(...ORANGE);
-  doc.setLineWidth(0.6);
-  doc.line(ML, y, PAGE_WIDTH - MR, y);
-  y += 12;
-
-  doc.setFontSize(17);
+function titelseite(doc: jsPDF, d: MietvertragDaten): number {
+  // Der Titel steht in der Word-Vorlage eingerückt, nicht zentriert.
+  let y = 28;
+  doc.setFontSize(15);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
-  doc.text('Mietvertrag über Wohnraum', PAGE_WIDTH / 2, y, { align: 'center' });
-  y += 12;
+  doc.text('Mietvertrag', RUBRUM_X + 22, y);
+  y += 14;
 
-  // ── Vermieterblock
-  doc.setFontSize(9.5);
+  // ── Vermieterseite
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text('zwischen', ML, y);
-  y += 6;
 
   const v = d.vermieter;
+  if (v.rechtsform) {
+    doc.text('Firma', RUBRUM_X, y);
+    y += 5;
+  }
   doc.setFont('helvetica', 'bold');
-  doc.text(v.firmenname, ML + 10, y);
-  y += 4.8;
+  doc.text(v.firmenname, RUBRUM_X, y);
   doc.setFont('helvetica', 'normal');
+  y += 5;
+
   if (v.vertretenDurch.length > 0) {
     const wort = v.vertretungArt === 'einzel' ? 'vertreten durch' : 'gemeinsam vertreten durch';
-    doc.text(`${wort} ${v.vertretenDurch.join(' und ')}`, ML + 10, y);
-    y += 4.8;
+    doc.text(`${wort} ${v.vertretenDurch.join(' und ')}`, RUBRUM_X, y);
+    y += 5;
   }
-  doc.text(`${v.strasse} ${v.hausnummer}`, ML + 10, y);
-  y += 4.8;
-  doc.text(`${v.plz} ${v.ort}`, ML + 10, y);
-  y += 4.8;
-  if (v.handelsregister && v.registergericht) {
-    doc.setFontSize(8);
-    doc.setTextColor(...GRAY);
-    doc.text(`${v.registergericht}, ${v.handelsregister}`, ML + 10, y);
-    doc.setFontSize(9.5);
-    doc.setTextColor(...DARK);
-    y += 4.8;
-  }
+  doc.text(`${v.strasse} ${v.hausnummer}`, RUBRUM_X, y);
+  y += 5;
+  doc.text(`${v.plz} ${v.ort}`, RUBRUM_X, y);
+  y += 8;
 
-  doc.setFont('helvetica', 'italic');
-  doc.text('— nachfolgend Vermieter —', PAGE_WIDTH - MR, y, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  y += 9;
+  doc.text('als Vermieter', PAGE_WIDTH - MR, y, { align: 'right' });
+  y += 10;
 
-  // ── Mieterblock
+  // ── Mieterseite
   doc.text('und', ML, y);
-  y += 6;
-
   d.mieter.forEach((m, i) => {
-    if (i > 0) y += 3;
+    if (i > 0) y += 4;
     y = mieterZeilen(doc, m, y);
   });
 
-  doc.setFont('helvetica', 'italic');
-  doc.text('— nachfolgend Mieter —', PAGE_WIDTH - MR, y, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  y += 10;
+  y += 3;
+  doc.text('als Mieter', PAGE_WIDTH - MR, y, { align: 'right' });
+  y += 12;
 
-  doc.setFontSize(9.5);
-  doc.text('wird folgender Mietvertrag geschlossen:', ML, y);
+  doc.text('wird folgender Mietvertrag vereinbart:', ML, y);
 
-  return y + 8;
+  return y + 10;
+}
+
+/** Beschriftung unter dem Wert, wie in der Word-Vorlage („Vor- und Zuname"). */
+function feldbeschriftung(doc: jsPDF, text: string, y: number): number {
+  doc.setFontSize(8);
+  doc.setTextColor(...GRAY);
+  doc.text(text, RUBRUM_X, y);
+  doc.setFontSize(10);
+  doc.setTextColor(...DARK);
+  return y + 6;
 }
 
 function mieterZeilen(doc: jsPDF, m: MieterDaten, y: number): number {
-  doc.setFontSize(9.5);
+  doc.setFontSize(10);
+  doc.setTextColor(...DARK);
 
   if (m.istUnternehmen) {
-    doc.setFont('helvetica', 'bold');
-    doc.text(m.firmenname ?? '', ML + 10, y);
-    y += 4.8;
     doc.setFont('helvetica', 'normal');
+    doc.text('Firma', RUBRUM_X, y);
+    y += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(m.firmenname ?? '', RUBRUM_X, y);
+    doc.setFont('helvetica', 'normal');
+    y += 5;
     if (m.vertretenDurch) {
-      doc.text(`vertreten durch ${m.vertretenDurch}`, ML + 10, y);
-      y += 4.8;
+      doc.text(`vertreten durch ${m.vertretenDurch}`, RUBRUM_X, y);
+      y += 5;
     }
   } else {
     doc.setFont('helvetica', 'normal');
     if (m.anrede && m.anrede !== 'Divers') {
-      doc.text(m.anrede, ML + 10, y);
-      y += 4.8;
+      doc.text(m.anrede, RUBRUM_X, y);
+      y += 5;
     }
     doc.setFont('helvetica', 'bold');
-    doc.text(`${m.vorname} ${m.nachname}`.trim(), ML + 10, y);
-    y += 4.8;
+    doc.text(`${m.vorname} ${m.nachname}`.trim(), RUBRUM_X, y);
     doc.setFont('helvetica', 'normal');
+    y += 4;
+    y = feldbeschriftung(doc, 'Vor- und Zuname', y);
+
     if (m.geburtsdatum) {
-      doc.setFontSize(8.5);
-      doc.setTextColor(...GRAY);
-      doc.text(`geboren am ${formatDatum(m.geburtsdatum)}`, ML + 10, y);
-      doc.setFontSize(9.5);
-      doc.setTextColor(...DARK);
-      y += 4.8;
+      doc.text(formatDatum(m.geburtsdatum), RUBRUM_X, y);
+      y += 4;
+      y = feldbeschriftung(doc, 'Geburtsdatum', y);
     }
   }
 
   if (m.strasse) {
-    doc.text(`${m.strasse} ${m.hausnummer ?? ''}`.trim(), ML + 10, y);
-    y += 4.8;
-    doc.text(`${m.plz ?? ''} ${m.ort ?? ''}`.trim(), ML + 10, y);
-    y += 4.8;
-    doc.setFontSize(8);
-    doc.setTextColor(...GRAY);
-    doc.text('zur Zeit wohnhaft', ML + 10, y);
-    doc.setFontSize(9.5);
-    doc.setTextColor(...DARK);
-    y += 4.8;
+    const anschrift = `${m.strasse} ${m.hausnummer ?? ''}`.trim() +
+      `, ${`${m.plz ?? ''} ${m.ort ?? ''}`.trim()}`;
+    doc.text(anschrift, RUBRUM_X, y);
+    y += 4;
+    y = feldbeschriftung(doc, 'Zur Zeit wohnhaft in', y);
   }
 
   return y;
@@ -221,72 +199,84 @@ function unterschriftsblock(
   d: MietvertragDaten,
   y: number
 ): number {
-  const vermieterLinien = d.vermieter.vertretungArt === 'gesamt' ? d.vermieter.vertretenDurch.length || 1 : 1;
-  const linien = vermieterLinien + d.mieter.length;
-  // Ort/Datum-Zeile plus je Unterschrift 18 mm
-  y = layout.umbruchPruefen(y + 8, 20 + linien * 18);
+  // Aufbau der Word-Vorlage: je Partei eine Ort/Datum-Linie, darunter die
+  // Unterschriftslinie. Bei Gesamtvertretung braucht die Vermieterseite so
+  // viele Linien, wie Geschaeftsfuehrer gemeinsam zeichnen muessen.
+  const vermieterLinien =
+    d.vermieter.vertretungArt === 'gesamt' ? d.vermieter.vertretenDurch.length || 1 : 1;
+  const zeilen = Math.max(vermieterLinien, d.mieter.length);
 
-  doc.setFontSize(9);
+  y = layout.umbruchPruefen(y + 10, 26 + zeilen * 22);
+
+  const spalte2 = PAGE_WIDTH / 2 + 5;
+  const breite = 68;
+
+  doc.setFontSize(9.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...DARK);
 
   const ortDatum =
     d.unterschriftOrt && d.vertragsdatum
       ? `${d.unterschriftOrt}, den ${formatDatum(d.vertragsdatum)}`
-      : '________________________, den ______________';
-  doc.text(ortDatum, ML, y);
-  y += 14;
+      : '';
 
-  const spalte2 = PAGE_WIDTH / 2 + 5;
-  const linienBreite = 62;
+  // Ort/Datum fuer beide Seiten
+  for (const x of [ML, spalte2]) {
+    if (ortDatum) doc.text(ortDatum, x, y - 1.5);
+    linie(doc, x, y, breite);
+    beschriftung(doc, '(Ort, Datum)', x, y + 4);
+  }
+  y += 20;
 
-  // Vermieterseite links, Mieterseite rechts
-  const maxZeilen = Math.max(vermieterLinien, d.mieter.length);
-  for (let i = 0; i < maxZeilen; i++) {
-    y = layout.umbruchPruefen(y, 20);
+  for (let i = 0; i < zeilen; i++) {
+    y = layout.umbruchPruefen(y, 22);
 
     if (i < vermieterLinien) {
-      unterschriftslinie(
+      linie(doc, ML, y, breite);
+      beschriftung(
         doc,
-        ML,
-        y,
-        linienBreite,
         i === 0 ? 'Vermieter' : '',
+        ML,
+        y + 4,
         d.vermieter.vertretenDurch[i] ?? d.vermieter.firmenname
       );
     }
     if (i < d.mieter.length) {
       const m = d.mieter[i];
       const name = m.istUnternehmen ? (m.firmenname ?? '') : `${m.vorname} ${m.nachname}`.trim();
-      unterschriftslinie(doc, spalte2, y, linienBreite, i === 0 ? 'Mieter' : '', name);
+      linie(doc, spalte2, y, breite);
+      beschriftung(doc, i === 0 ? 'Mieter' : '', spalte2, y + 4, name);
     }
-    y += 20;
+    y += 22;
   }
 
   return y;
 }
 
-function unterschriftslinie(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  breite: number,
-  rolle: string,
-  name: string
-): void {
-  doc.setDrawColor(140, 140, 140);
+function linie(doc: jsPDF, x: number, y: number, breite: number): void {
+  doc.setDrawColor(60, 60, 60);
   doc.setLineWidth(0.3);
   doc.line(x, y, x + breite, y);
+}
 
-  doc.setFontSize(8);
-  doc.setTextColor(...DARK);
-  doc.setFont('helvetica', 'normal');
-  doc.text(name, x, y + 4);
-
+/** Rollenbezeichnung unter der Linie, darunter optional der Name. */
+function beschriftung(
+  doc: jsPDF,
+  rolle: string,
+  x: number,
+  y: number,
+  name?: string
+): void {
   if (rolle) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...DARK);
+    doc.text(rolle, x, y);
+  }
+  if (name) {
     doc.setFontSize(7.5);
     doc.setTextColor(...GRAY);
-    doc.text(rolle, x, y + 8);
+    doc.text(name, x, y + (rolle ? 4 : 0));
     doc.setTextColor(...DARK);
   }
 }
@@ -301,25 +291,21 @@ function anlageRendern(
 ): number {
   let y = 28;
 
-  doc.setFontSize(8);
-  doc.setTextColor(...GRAY);
-  doc.setFont('helvetica', 'normal');
-  doc.text(anlage.kennung.toUpperCase(), ML, y);
-  y += 6;
-
   doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
   doc.text(anlage.titel, ML, y);
-  y += 4;
+  y += 5;
 
-  doc.setDrawColor(...ORANGE);
-  doc.setLineWidth(0.5);
-  doc.line(ML, y, PAGE_WIDTH - MR, y);
-  y += 7;
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...GRAY);
+  doc.text(`${anlage.kennung} zum Mietvertrag`, ML, y);
+  doc.setTextColor(...DARK);
+  y += 9;
 
   if (anlage.vorspann) {
-    y = layout.blocksatz(anlage.vorspann, y, { fontSize: 8.5 });
+    y = layout.blocksatz(anlage.vorspann, y, { fontSize: 9 });
     y += 3;
   }
 
@@ -337,17 +323,20 @@ function anlageRendern(
   }
 
   if (anlage.unterschrift) {
-    y = layout.umbruchPruefen(y + 10, 26);
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...DARK);
-    doc.text('________________________, den ______________', ML, y);
-    y += 16;
-    const name = d.mieter
-      .map(m => (m.istUnternehmen ? (m.firmenname ?? '') : `${m.vorname} ${m.nachname}`.trim()))
-      .join(', ');
-    unterschriftslinie(doc, ML, y, 62, 'Mieter', name);
-    y += 18;
+    // Dreispaltig wie in der Word-Vorlage: Datum, Vermieter, Mieter
+    y = layout.umbruchPruefen(y + 12, 26);
+    const spalten = [ML, ML + 58, ML + 116];
+    const breiten = [50, 50, 50];
+    const rollen = ['(Datum)', '(Vermieter)', '(Mieter)'];
+
+    spalten.forEach((x, i) => {
+      linie(doc, x, y, breiten[i]);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...DARK);
+      doc.text(rollen[i], x, y + 4);
+    });
+    y += 14;
   }
 
   return y;

@@ -192,8 +192,11 @@ export function createLayout(doc: jsPDF, opts: LayoutOptions = {}): Layout {
     doc.setTextColor(...GRAY);
     doc.setFont('helvetica', 'normal');
     doc.text(opts.folgeseitenKopf, ml, 15);
-    doc.setDrawColor(...ORANGE);
-    doc.setLineWidth(0.4);
+    // Dezente Haarlinie statt Briefkopf-Akzent: Der Vertrag soll wie eine
+    // Urkunde wirken, nicht wie ein Anschreiben. Der Bezug auf jeder Seite
+    // stützt zugleich die Einheit der Urkunde (§ 550 BGB).
+    doc.setDrawColor(190, 190, 190);
+    doc.setLineWidth(0.2);
     doc.line(ml, 18, PAGE_WIDTH - mr, 18);
     doc.setTextColor(...DARK);
   }

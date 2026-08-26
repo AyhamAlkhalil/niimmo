@@ -1,21 +1,12 @@
 /**
- * PDF für die Kurzverträge: Stellplatz und Einbauküche.
+ * PDF für Stellplatz, Einbauküche und Gewerbe.
  *
- * Teilt sich Layout und Mechanik mit dem Wohnraumvertrag, hat aber einen
- * eigenen Kopf — die Parteien heißen bei der Küche Verleiher und Entleiher,
- * nicht Vermieter und Mieter.
+ * Gleicher Aufbau wie der Wohnraumvertrag und damit wie die Word-Hausvorlage:
+ * schlichter Titel, Rubrum in Tabulatorform, „als Vermieter" rechtsbündig.
+ * Bei der Küchenüberlassung heißen die Parteien Verleiher und Entleiher.
  */
 import jsPDF from 'jspdf';
-import {
-  ORANGE,
-  DARK,
-  GRAY,
-  PAGE_WIDTH,
-  createLayout,
-  loadLogo,
-  logoMasse,
-  formatDatum,
-} from '../pdf/briefLayout';
+import { DARK, GRAY, PAGE_WIDTH, createLayout, formatDatum } from '../pdf/briefLayout';
 import { gewerbeParagraphen, type GewerbeDaten } from './gewerbeKlauseln';
 import {
   kuechenParagraphen,
@@ -29,6 +20,8 @@ import type { MieterDaten } from './typen';
 
 const ML = 20;
 const MR = 20;
+/** Tabstopp des Rubrums, wie im Wohnraumvertrag. */
+const RUBRUM_X = ML + 28;
 
 export type Nebenvertragsart = 'stellplatz' | 'kueche';
 
@@ -70,7 +63,6 @@ async function rendern(
   paragraphen: Paragraph[]
 ): Promise<Blob> {
   const doc = new jsPDF('p', 'mm', 'a4');
-  const logo = await loadLogo();
 
   const layout = createLayout(doc, {
     marginLeft: ML,
@@ -81,7 +73,7 @@ async function rendern(
     zeilenhoehe: 4.6,
   });
 
-  let y = kopf(doc, art, titel, d, logo);
+  let y = kopf(doc, art, titel, d);
 
   for (const p of paragraphen) {
     y = layout.ueberschrift(`${p.nummer} ${p.titel}`, y);
@@ -101,118 +93,108 @@ function kopf(
   doc: jsPDF,
   art: Nebenvertragsart | 'gewerbe',
   titel: string,
-  d: NebenvertragDaten,
-  logo: string | null
+  d: NebenvertragDaten
 ): number {
   const { geber, nehmer } = rollen(art);
 
-  if (logo) {
-    const { breite, hoehe } = logoMasse(16);
-    doc.addImage(logo, 'PNG', PAGE_WIDTH / 2 - breite / 2, 10, breite, hoehe);
-  }
-
-  let y = logo ? 32 : 20;
-
-  doc.setFontSize(8);
-  doc.setTextColor(...GRAY);
-  doc.setFont('helvetica', 'normal');
-  doc.text('— Gruppe —', PAGE_WIDTH / 2, y, { align: 'center' });
-  y += 5;
-
-  doc.setDrawColor(...ORANGE);
-  doc.setLineWidth(0.6);
-  doc.line(ML, y, PAGE_WIDTH - MR, y);
-  y += 12;
-
-  doc.setFontSize(16);
+  let y = 28;
+  doc.setFontSize(15);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
-  doc.text(titel, PAGE_WIDTH / 2, y, { align: 'center' });
-  y += 12;
+  doc.text(titel, RUBRUM_X + 10, y);
+  y += 14;
 
-  doc.setFontSize(9.5);
+  doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.text('zwischen', ML, y);
-  y += 6;
 
   const v = d.vermieter;
-  doc.setFont('helvetica', 'bold');
-  doc.text(v.firmenname, ML + 10, y);
-  y += 4.8;
-  doc.setFont('helvetica', 'normal');
-  if (v.vertretenDurch.length > 0) {
-    doc.text(`vertreten durch ${v.vertretenDurch.join(' und ')}`, ML + 10, y);
-    y += 4.8;
+  if (v.rechtsform) {
+    doc.text('Firma', RUBRUM_X, y);
+    y += 5;
   }
-  doc.text(`${v.strasse} ${v.hausnummer}`, ML + 10, y);
-  y += 4.8;
-  doc.text(`${v.plz} ${v.ort}`, ML + 10, y);
-  y += 4.8;
-
-  doc.setFont('helvetica', 'italic');
-  doc.text(`— nachfolgend ${geber} —`, PAGE_WIDTH - MR, y, { align: 'right' });
+  doc.setFont('helvetica', 'bold');
+  doc.text(v.firmenname, RUBRUM_X, y);
   doc.setFont('helvetica', 'normal');
-  y += 9;
+  y += 5;
+  if (v.vertretenDurch.length > 0) {
+    doc.text(`vertreten durch ${v.vertretenDurch.join(' und ')}`, RUBRUM_X, y);
+    y += 5;
+  }
+  doc.text(`${v.strasse} ${v.hausnummer}`, RUBRUM_X, y);
+  y += 5;
+  doc.text(`${v.plz} ${v.ort}`, RUBRUM_X, y);
+  y += 8;
+
+  doc.text(`als ${geber}`, PAGE_WIDTH - MR, y, { align: 'right' });
+  y += 10;
 
   doc.text('und', ML, y);
-  y += 6;
-
-  for (const m of d.mieter) {
+  d.mieter.forEach((m, i) => {
+    if (i > 0) y += 4;
     y = parteiZeilen(doc, m, y);
-    y += 2;
-  }
+  });
 
-  doc.setFont('helvetica', 'italic');
-  doc.text(`— nachfolgend ${nehmer} —`, PAGE_WIDTH - MR, y, { align: 'right' });
-  doc.setFont('helvetica', 'normal');
-  y += 10;
+  y += 3;
+  doc.text(`als ${nehmer}`, PAGE_WIDTH - MR, y, { align: 'right' });
+  y += 12;
 
   doc.text(
     art === 'kueche'
       ? 'wird folgende Vereinbarung geschlossen:'
-      : 'wird folgender Mietvertrag geschlossen:',
+      : 'wird folgender Mietvertrag vereinbart:',
     ML,
     y
   );
 
-  return y + 8;
+  return y + 10;
+}
+
+/** Beschriftung unter dem Wert, wie in der Word-Vorlage. */
+function feldbeschriftung(doc: jsPDF, text: string, y: number): number {
+  doc.setFontSize(8);
+  doc.setTextColor(...GRAY);
+  doc.text(text, RUBRUM_X, y);
+  doc.setFontSize(10);
+  doc.setTextColor(...DARK);
+  return y + 6;
 }
 
 function parteiZeilen(doc: jsPDF, m: MieterDaten, y: number): number {
-  doc.setFontSize(9.5);
+  doc.setFontSize(10);
+  doc.setTextColor(...DARK);
 
   if (m.istUnternehmen) {
-    doc.setFont('helvetica', 'bold');
-    doc.text(m.firmenname ?? '', ML + 10, y);
-    y += 4.8;
     doc.setFont('helvetica', 'normal');
+    doc.text('Firma', RUBRUM_X, y);
+    y += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(m.firmenname ?? '', RUBRUM_X, y);
+    doc.setFont('helvetica', 'normal');
+    y += 5;
     if (m.vertretenDurch) {
-      doc.text(`vertreten durch ${m.vertretenDurch}`, ML + 10, y);
-      y += 4.8;
+      doc.text(`vertreten durch ${m.vertretenDurch}`, RUBRUM_X, y);
+      y += 5;
     }
   } else {
+    doc.setFont('helvetica', 'normal');
     if (m.anrede && m.anrede !== 'Divers') {
-      doc.setFont('helvetica', 'normal');
-      doc.text(m.anrede, ML + 10, y);
-      y += 4.8;
+      doc.text(m.anrede, RUBRUM_X, y);
+      y += 5;
     }
     doc.setFont('helvetica', 'bold');
-    doc.text(`${m.vorname} ${m.nachname}`.trim(), ML + 10, y);
-    y += 4.8;
+    doc.text(`${m.vorname} ${m.nachname}`.trim(), RUBRUM_X, y);
     doc.setFont('helvetica', 'normal');
+    y += 4;
+    y = feldbeschriftung(doc, 'Vor- und Zuname', y);
   }
 
   if (m.strasse) {
-    doc.text(`${m.strasse} ${m.hausnummer ?? ''}`.trim(), ML + 10, y);
-    y += 4.8;
-    doc.text(`${m.plz ?? ''} ${m.ort ?? ''}`.trim(), ML + 10, y);
-    y += 4.8;
-    doc.setFontSize(8);
-    doc.setTextColor(...GRAY);
-    doc.text('zur Zeit wohnhaft', ML + 10, y);
-    doc.setFontSize(9.5);
-    doc.setTextColor(...DARK);
-    y += 4.8;
+    const anschrift = `${m.strasse} ${m.hausnummer ?? ''}`.trim() +
+      `, ${`${m.plz ?? ''} ${m.ort ?? ''}`.trim()}`;
+    doc.text(anschrift, RUBRUM_X, y);
+    y += 4;
+    y = feldbeschriftung(doc, 'Zur Zeit wohnhaft in', y);
   }
 
   return y;
@@ -232,50 +214,70 @@ function unterschriften(
   d: NebenvertragDaten,
   y: number
 ): void {
+  // Aufbau wie im Wohnraumvertrag: je Partei Ort/Datum, darunter die Unterschrift.
   const { geber, nehmer } = rollen(art);
   const zeilen = Math.max(1, d.mieter.length);
-  y = layout.umbruchPruefen(y + 8, 24 + zeilen * 18);
-
-  doc.setFontSize(9);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...DARK);
-  doc.text(
-    d.unterschriftOrt && d.vertragsdatum
-      ? `${d.unterschriftOrt}, den ${formatDatum(d.vertragsdatum)}`
-      : '________________________, den ______________',
-    ML,
-    y
-  );
-  y += 14;
+  y = layout.umbruchPruefen(y + 10, 26 + zeilen * 22);
 
   const spalte2 = PAGE_WIDTH / 2 + 5;
+  const breite = 68;
+
+  doc.setFontSize(9.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...DARK);
+
+  const ortDatum =
+    d.unterschriftOrt && d.vertragsdatum
+      ? `${d.unterschriftOrt}, den ${formatDatum(d.vertragsdatum)}`
+      : '';
+
+  for (const x of [ML, spalte2]) {
+    if (ortDatum) doc.text(ortDatum, x, y - 1.5);
+    strich(doc, x, y, breite);
+    rolleUndName(doc, '(Ort, Datum)', x, y + 4);
+  }
+  y += 20;
 
   for (let i = 0; i < zeilen; i++) {
-    y = layout.umbruchPruefen(y, 20);
+    y = layout.umbruchPruefen(y, 22);
+
     if (i === 0) {
-      linie(doc, ML, y, geber, d.vermieter.vertretenDurch[0] ?? d.vermieter.firmenname);
+      strich(doc, ML, y, breite);
+      rolleUndName(doc, geber, ML, y + 4, d.vermieter.vertretenDurch[0] ?? d.vermieter.firmenname);
     }
     const m = d.mieter[i];
     if (m) {
       const name = m.istUnternehmen ? (m.firmenname ?? '') : `${m.vorname} ${m.nachname}`.trim();
-      linie(doc, spalte2, y, i === 0 ? nehmer : '', name);
+      strich(doc, spalte2, y, breite);
+      rolleUndName(doc, i === 0 ? nehmer : '', spalte2, y + 4, name);
     }
-    y += 20;
+    y += 22;
   }
 }
 
-function linie(doc: jsPDF, x: number, y: number, rolle: string, name: string): void {
-  doc.setDrawColor(140, 140, 140);
+function strich(doc: jsPDF, x: number, y: number, breite: number): void {
+  doc.setDrawColor(60, 60, 60);
   doc.setLineWidth(0.3);
-  doc.line(x, y, x + 62, y);
-  doc.setFontSize(8);
-  doc.setTextColor(...DARK);
-  doc.setFont('helvetica', 'normal');
-  doc.text(name, x, y + 4);
+  doc.line(x, y, x + breite, y);
+}
+
+function rolleUndName(
+  doc: jsPDF,
+  rolle: string,
+  x: number,
+  y: number,
+  name?: string
+): void {
   if (rolle) {
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...DARK);
+    doc.text(rolle, x, y);
+  }
+  if (name) {
     doc.setFontSize(7.5);
     doc.setTextColor(...GRAY);
-    doc.text(rolle, x, y + 8);
+    doc.text(name, x, y + (rolle ? 4 : 0));
     doc.setTextColor(...DARK);
   }
 }

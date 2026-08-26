@@ -231,6 +231,27 @@ describe('PDF-Erzeugung', () => {
     expect(seitenzahl(bytes)).toBeGreaterThanOrEqual(6);
   });
 
+  it('folgt dem Aufbau der Word-Hausvorlage', async () => {
+    const t = textAusPdf(await bytesVon(await generateMietvertragPdf(WOHNRAUM)));
+
+    // Schlichter Titel, kein Briefkopf
+    expect(t).toMatch(/^\s*Mietvertrag\b/);
+    expect(t).not.toContain('Mietvertrag über Wohnraum');
+    expect(t).not.toContain('Gruppe');
+
+    // Rubrum wie im Original
+    expect(t).toContain('Firma');
+    expect(t).toContain('als Vermieter');
+    expect(t).toContain('als Mieter');
+    expect(t).not.toContain('nachfolgend Vermieter');
+    expect(t).toContain('Vor- und Zuname');
+    expect(t).toContain('Zur Zeit wohnhaft in');
+    expect(t).toContain('wird folgender Mietvertrag vereinbart');
+
+    // Unterschriftsblock mit Ort/Datum je Partei
+    expect(t).toContain('(Ort, Datum)');
+  });
+
   it('paginiert und nummeriert die Seiten', async () => {
     const bytes = await bytesVon(await generateMietvertragPdf(WOHNRAUM));
     const t = textAusPdf(bytes);
