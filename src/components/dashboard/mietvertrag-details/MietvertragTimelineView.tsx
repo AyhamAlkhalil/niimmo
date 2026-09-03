@@ -34,11 +34,20 @@ interface MietvertragTimelineViewProps {
   allMietvertraege?: any[];
   vertragId: string;
   vertrag?: any;
+  /** Ziel-Immobilie beim Umbuchen auf Nebenkosten/Nichtmiete. */
+  immobilie?: { id: string; name?: string } | null;
   formatDatum: (datum: string) => string;
   formatBetrag: (betrag: number) => string;
 }
 
 const KATEGORIE_LABEL: Record<string, string> = { Betriebskostenabrechnung: "BKA (Mieter)" };
+
+/**
+ * Kategorien, die keine Mieterzahlung sind. Sie gehoeren an die Immobilie, nicht
+ * an den Mietvertrag -- sonst taucht eine Versorgerrechnung in der Zahlungs-
+ * historie des Mieters auf.
+ */
+const OBJEKTKATEGORIEN = ["Nebenkosten", "Nichtmiete"] as const;
 
 export function MietvertragTimelineView({
   forderungen,
@@ -46,6 +55,7 @@ export function MietvertragTimelineView({
   allMietvertraege,
   vertragId,
   vertrag,
+  immobilie,
   formatDatum,
   formatBetrag
 }: MietvertragTimelineViewProps) {
@@ -207,6 +217,22 @@ export function MietvertragTimelineView({
     }
   };
 
+  /**
+   * Immobilie des Vertrags. Ohne sie waere eine auf Nebenkosten umgebuchte
+   * Zahlung nirgends mehr auffindbar: Die Timeline laedt ueber mietvertrag_id,
+   * die Nebenkostenansicht der Immobilie ueber immobilie_id.
+   */
+  const ermittleImmobilieId = async (): Promise<string | null> => {
+    if (immobilie?.id) return immobilie.id;
+    if (!vertrag?.einheit_id) return null;
+    const { data } = await supabase
+      .from('einheiten')
+      .select('immobilie_id')
+      .eq('id', vertrag.einheit_id)
+      .maybeSingle();
+    return data?.immobilie_id ?? null;
+  };
+
   const handleSavePaymentField = async (customValue?: string) => {
     if (!editingPayment) return;
 
@@ -217,6 +243,20 @@ export function MietvertragTimelineView({
 
       if (editingPayment.field === 'kategorie') {
         updateData.kategorie = valueToSave as any;
+
+        if ((OBJEKTKATEGORIEN as readonly string[]).includes(valueToSave)) {
+          const immobilieId = await ermittleImmobilieId();
+          if (!immobilieId) {
+            toast({
+              title: "Umbuchen nicht möglich",
+              description: "Zu diesem Vertrag ist keine Immobilie hinterlegt. Ohne Objektbezug wäre die Zahlung in der Nebenkostenabrechnung nicht auffindbar.",
+              variant: "destructive",
+            });
+            return;
+          }
+          updateData.immobilie_id = immobilieId;
+          updateData.mietvertrag_id = null;
+        }
       } else if (editingPayment.field === 'monat') {
         updateData.zugeordneter_monat = valueToSave;
       } else if (editingPayment.field === 'mietvertrag') {
@@ -230,12 +270,15 @@ export function MietvertragTimelineView({
 
       if (error) throw error;
 
+      const umgebucht = updateData.immobilie_id != null;
       toast({
-        title: "Aktualisiert",
-        description: `${editingPayment.field === 'kategorie' ? 'Kategorie' :
-          editingPayment.field === 'monat' ? 'Zugeordneter Monat' :
-          editingPayment.field === 'gebuehr' ? 'Gebühr' :
-            'Mietvertrag'} wurde erfolgreich aktualisiert.`,
+        title: umgebucht ? "Auf das Objekt umgebucht" : "Aktualisiert",
+        description: umgebucht
+          ? `Die Zahlung ist jetzt als "${valueToSave}" dem Objekt${immobilie?.name ? ` ${immobilie.name}` : ""} zugeordnet und steht dort in der Nebenkostenabrechnung zur Verteilung bereit.`
+          : `${editingPayment.field === 'kategorie' ? 'Kategorie' :
+              editingPayment.field === 'monat' ? 'Zugeordneter Monat' :
+              editingPayment.field === 'gebuehr' ? 'Gebühr' :
+                'Mietvertrag'} wurde erfolgreich aktualisiert.`,
       });
 
       setEditingPayment(null);
@@ -245,6 +288,9 @@ export function MietvertragTimelineView({
         queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-details', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
+        queryClient.invalidateQueries({ queryKey: ['immobilie-nebenkosten-zahlungen'] }),
+        queryClient.invalidateQueries({ queryKey: ['unzugeordnete-nebenkosten'] }),
+        queryClient.invalidateQueries({ queryKey: ['zugeordnete-nebenkosten'] }),
       ]);
 
     } catch (error) {
@@ -534,7 +580,7 @@ export function MietvertragTimelineView({
           {editingPayment?.zahlungId === zahlung.id && editingPayment.field === 'kategorie' ? (
             <div className="flex items-center gap-1 flex-wrap">
               <Select value={editPaymentValue} onValueChange={setEditPaymentValue}>
-                <SelectTrigger className="w-24 sm:w-28 h-6 sm:h-7 text-[10px] sm:text-xs">
+                <SelectTrigger className="w-32 sm:w-44 h-6 sm:h-7 text-[10px] sm:text-xs">
                   <SelectValue placeholder="Kategorie" />
                 </SelectTrigger>
                 <SelectContent>
@@ -543,6 +589,9 @@ export function MietvertragTimelineView({
                   <SelectItem value="Betriebskostenabrechnung">BKA (Mieter)</SelectItem>
                   <SelectItem value="Rücklastschrift">Rücklastschrift</SelectItem>
                   <SelectItem value="Ignorieren">Ignorieren</SelectItem>
+                  {/* Objektkosten: loesen den Vertragsbezug und wandern an die Immobilie */}
+                  <SelectItem value="Nebenkosten">Nebenkosten → Objekt</SelectItem>
+                  <SelectItem value="Nichtmiete">Nichtmiete → Objekt</SelectItem>
                 </SelectContent>
               </Select>
               <Button onClick={() => handleSavePaymentField()} size="sm" className="h-6 w-6 p-0">

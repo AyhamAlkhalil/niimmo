@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Collapsible,
@@ -26,6 +27,7 @@ import {
   Sparkles,
   Plus,
   MoreHorizontal,
+  Search,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -80,6 +82,11 @@ export function NebenkostenStep1Zuordnung({
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitDialogZahlung, setSplitDialogZahlung] = useState<Zahlung | null>(null);
   const [splitVorschlag, setSplitVorschlag] = useState<string | undefined>(undefined);
+  const [suche, setSuche] = useState("");
+  // Die Liste zeigte nur offene Zahlungen aus zwei Jahren, nach Monaten
+  // weggeklappt. Wer eine bestimmte Buchung suchte, fand sie nicht.
+  const [zeigeAlle, setZeigeAlle] = useState(false);
+  const [nachMonat, setNachMonat] = useState(true);
 
   const yearStart = parseISO(`${selectedYear}-01-01`);
   const yearEnd = parseISO(`${selectedYear}-12-31`);
@@ -229,10 +236,45 @@ export function NebenkostenStep1Zuordnung({
     });
   }, [zahlungen, selectedYear, verteiltProZahlung]);
 
+  /**
+   * Was die Liste zeigt: im Normalfall die offenen Posten des Abrechnungsjahres,
+   * auf Wunsch aber alle Zahlungen des Objekts -- ueber alle Jahre und
+   * einschliesslich der bereits verteilten.
+   */
+  const sichtbareZahlungen = useMemo(() => {
+    const basis = zeigeAlle
+      ? (zahlungen || []).filter(istZuordenbareZahlung)
+      : unassignedZahlungen;
+
+    const begriff = suche.trim().toLowerCase();
+    if (!begriff) return basis;
+
+    return basis.filter((z) => {
+      const betrag = Math.abs(z.betrag ?? 0).toFixed(2);
+      return (
+        (z.empfaengername || "").toLowerCase().includes(begriff) ||
+        (z.verwendungszweck || "").toLowerCase().includes(begriff) ||
+        (z.iban || "").toLowerCase().includes(begriff) ||
+        z.buchungsdatum.includes(begriff) ||
+        betrag.includes(begriff.replace(",", "."))
+      );
+    });
+  }, [zeigeAlle, zahlungen, unassignedZahlungen, suche]);
+
   const zahlungenByMonth = useMemo(() => {
+    if (!nachMonat) {
+      if (sichtbareZahlungen.length === 0) return [];
+      return [{
+        monthKey: "__alle__",
+        label: "Alle Zahlungen",
+        payments: sichtbareZahlungen,
+        total: sichtbareZahlungen.reduce((sum, z) => sum + z.betrag, 0),
+      }];
+    }
+
     const groups: Record<string, { label: string; payments: Zahlung[] }> = {};
 
-    unassignedZahlungen.forEach((zahlung) => {
+    sichtbareZahlungen.forEach((zahlung) => {
       const date = new Date(zahlung.buchungsdatum);
       const monthKey = format(date, "yyyy-MM");
       const monthLabel = format(date, "MMMM yyyy", { locale: de });
@@ -248,12 +290,16 @@ export function NebenkostenStep1Zuordnung({
         payments: groups[key].payments,
         total: groups[key].payments.reduce((sum, z) => sum + z.betrag, 0),
       }));
-  }, [unassignedZahlungen]);
+  }, [sichtbareZahlungen, nachMonat]);
 
-  // Monate initial zuklappen — einmalig, danach entscheidet der Nutzer.
+  // Monate bleiben offen. Vorher waren initial alle zugeklappt -- die Liste sah
+  // dadurch leer aus, obwohl Zahlungen darin lagen. Ab 12 Monatsgruppen wird
+  // zugeklappt, damit die Liste nicht ausufert.
   useEffect(() => {
     if (!monthsInitialized && zahlungenByMonth.length > 0) {
-      setCollapsedMonths(new Set(zahlungenByMonth.map((m) => m.monthKey)));
+      if (zahlungenByMonth.length > 12) {
+        setCollapsedMonths(new Set(zahlungenByMonth.map((m) => m.monthKey)));
+      }
       setMonthsInitialized(true);
     }
   }, [zahlungenByMonth, monthsInitialized]);
@@ -473,6 +519,42 @@ export function NebenkostenStep1Zuordnung({
           <CardContent className="flex-1 p-0">
             <ScrollArea className="h-[400px] sm:h-[calc(100vh-400px)]">
               <div className="p-4 space-y-3">
+                {/* Suche und Umschalter. Ohne sie zeigte die Liste nur die
+                    offenen Posten zweier Jahre, nach Monaten weggeklappt. */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      value={suche}
+                      onChange={(e) => setSuche(e.target.value)}
+                      placeholder="Empfänger, Verwendungszweck, Betrag oder Datum…"
+                      className="pl-8 h-9"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant={zeigeAlle ? "default" : "outline"}
+                      className="h-7 text-xs"
+                      onClick={() => setZeigeAlle((v) => !v)}
+                    >
+                      {zeigeAlle ? "Alle Zahlungen des Objekts" : "Nur offene Posten"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1.5"
+                      onClick={() => setNachMonat((v) => !v)}
+                    >
+                      <Calendar className="h-3.5 w-3.5" />
+                      {nachMonat ? "Nach Monat" : "Als Liste"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {sichtbareZahlungen.length} von {(zahlungen || []).filter(istZuordenbareZahlung).length}
+                    </span>
+                  </div>
+                </div>
+
                 <Button
                   variant="outline"
                   className="w-full gap-2 border-dashed"
@@ -482,14 +564,26 @@ export function NebenkostenStep1Zuordnung({
                   Kostenposition ohne Bankbewegung anlegen
                 </Button>
 
-                {unassignedZahlungen.length === 0 ? (
-                  <div className="text-center py-12">
-                    <Check className="h-12 w-12 text-green-500 mx-auto mb-3" />
-                    <p className="text-lg font-medium text-green-700">Alle Ausgaben zugeordnet!</p>
-                    <p className="text-sm text-muted-foreground">
-                      Wechseln Sie zu Schritt 2 für die Verteilung
-                    </p>
-                  </div>
+                {sichtbareZahlungen.length === 0 ? (
+                  suche.trim() ? (
+                    <div className="text-center py-12">
+                      <Search className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                      <p className="text-sm font-medium">Keine Zahlung passt zu „{suche}“</p>
+                      <p className="text-sm text-muted-foreground">
+                        {zeigeAlle
+                          ? "Auch unter allen Zahlungen dieses Objekts nicht."
+                          : "Schalten Sie oben auf „Alle Zahlungen des Objekts“, um auch bereits zugeordnete zu durchsuchen."}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <Check className="h-12 w-12 text-green-500 mx-auto mb-3" />
+                      <p className="text-lg font-medium text-green-700">Alle Ausgaben zugeordnet!</p>
+                      <p className="text-sm text-muted-foreground">
+                        Wechseln Sie zu Schritt 2 für die Verteilung
+                      </p>
+                    </div>
+                  )
                 ) : (
                   zahlungenByMonth.map((monthGroup) => {
                     const isCollapsed = collapsedMonths.has(monthGroup.monthKey);
@@ -499,7 +593,7 @@ export function NebenkostenStep1Zuordnung({
                         open={!isCollapsed}
                         onOpenChange={() => toggleMonth(monthGroup.monthKey)}
                       >
-                        <CollapsibleTrigger className="w-full">
+                        <CollapsibleTrigger className={cn("w-full", monthGroup.monthKey === "__alle__" && "hidden")}>
                           <div className="flex items-center justify-between bg-muted/60 hover:bg-muted rounded-lg px-3 py-2.5 cursor-pointer transition-colors mb-2">
                             <div className="flex items-center gap-2">
                               {isCollapsed ? (
@@ -512,7 +606,7 @@ export function NebenkostenStep1Zuordnung({
                                 {monthGroup.label}
                               </span>
                               <Badge variant="secondary" className="text-xs">
-                                {monthGroup.payments.length} offen
+                                {monthGroup.payments.length} {zeigeAlle ? "Zahlungen" : "offen"}
                               </Badge>
                             </div>
                             <span className="text-sm font-bold text-destructive">
@@ -565,13 +659,19 @@ export function NebenkostenStep1Zuordnung({
 
                                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                                           {verteilt > 0.01 && (
-                                            <Badge
-                                              variant="outline"
-                                              className="text-xs border-primary/50 text-primary"
-                                            >
-                                              {verteilt.toFixed(2)} € verteilt – Rest:{" "}
-                                              {(Math.abs(zahlung.betrag) - verteilt).toFixed(2)} €
-                                            </Badge>
+                                            Math.abs(zahlung.betrag) - verteilt <= 0.01 ? (
+                                              <Badge className="text-xs bg-green-100 text-green-800 border-green-200">
+                                                vollständig zugeordnet
+                                              </Badge>
+                                            ) : (
+                                              <Badge
+                                                variant="outline"
+                                                className="text-xs border-primary/50 text-primary"
+                                              >
+                                                {verteilt.toFixed(2)} € verteilt – Rest:{" "}
+                                                {(Math.abs(zahlung.betrag) - verteilt).toFixed(2)} €
+                                              </Badge>
+                                            )
                                           )}
                                           {istVorjahr && (
                                             <Badge

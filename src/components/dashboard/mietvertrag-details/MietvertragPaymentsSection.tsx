@@ -349,6 +349,7 @@ export function MietvertragPaymentsSection({
             allMietvertraege={allMietvertraege}
             vertragId={vertragId}
             vertrag={vertrag}
+            immobilie={immobilie}
             formatDatum={formatDatum}
             formatBetrag={formatBetrag}
           />

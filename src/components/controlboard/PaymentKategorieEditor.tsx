@@ -37,16 +37,58 @@ export function PaymentKategorieEditor({
   useEffect(() => {
     setSelectedKategorie(currentKategorie || "");
   }, [paymentId, currentKategorie]);
+  /**
+   * Immobilie einer Zahlung ueber ihren bisherigen Mietvertrag ermitteln.
+   *
+   * Beim Umbuchen auf Nebenkosten/Nichtmiete fiel bisher nur der Vertragsbezug
+   * weg, ohne dass ein Objektbezug entstand. Die Zahlung war danach weder in
+   * der Zahlungshistorie des Mieters noch in der Nebenkostenabrechnung der
+   * Immobilie auffindbar -- die dortige Liste filtert auf immobilie_id.
+   */
+  const immobilieAusVertrag = async (): Promise<string | null> => {
+    const { data: zahlung } = await supabase
+      .from('zahlungen')
+      .select('mietvertrag_id')
+      .eq('id', paymentId)
+      .maybeSingle();
+    if (!zahlung?.mietvertrag_id) return null;
+
+    const { data: vertrag } = await supabase
+      .from('mietvertrag')
+      .select('einheit_id')
+      .eq('id', zahlung.mietvertrag_id)
+      .maybeSingle();
+    if (!vertrag?.einheit_id) return null;
+
+    const { data: einheit } = await supabase
+      .from('einheiten')
+      .select('immobilie_id')
+      .eq('id', vertrag.einheit_id)
+      .maybeSingle();
+    return einheit?.immobilie_id ?? null;
+  };
+
   // Update mutation
   const updateMutation = useMutation({
     mutationFn: async (kategorie: string) => {
       const updateData: Record<string, any> = {
         kategorie: kategorie as any,
       };
-      // Clear mietvertrag_id for non-rent categories
-      if (["Nebenkosten", "Nichtmiete", "Ignorieren"].includes(kategorie)) {
+
+      if (["Nebenkosten", "Nichtmiete"].includes(kategorie)) {
+        // Objektbezug herstellen, bevor der Vertragsbezug faellt.
+        const immobilieId = currentImmobilieId ?? (await immobilieAusVertrag());
+        if (!immobilieId) {
+          throw new Error(
+            "Keine Immobilie ermittelbar. Ordnen Sie die Zahlung im Tab \"Nebenkosten-Zuordnung\" einem Objekt zu."
+          );
+        }
+        updateData.immobilie_id = immobilieId;
+        updateData.mietvertrag_id = null;
+      } else if (kategorie === "Ignorieren") {
         updateData.mietvertrag_id = null;
       }
+
       const { error } = await supabase
         .from('zahlungen')
         .update(updateData)
@@ -58,21 +100,32 @@ export function PaymentKategorieEditor({
       queryClient.invalidateQueries({ queryKey: ['zahlungen-overview'] });
       queryClient.invalidateQueries({ queryKey: ['unassigned-payments'] });
       // Nebenkosten-Queries nur invalidieren wenn Kategorie gewechselt hat
-      if (newKategorie === 'Nebenkosten' || currentKategorie === 'Nebenkosten') {
+      if (['Nebenkosten', 'Nichtmiete'].includes(newKategorie) ||
+          ['Nebenkosten', 'Nichtmiete'].includes(currentKategorie || '')) {
         queryClient.invalidateQueries({ queryKey: ['unzugeordnete-nebenkosten'] });
         queryClient.invalidateQueries({ queryKey: ['zugeordnete-nebenkosten'] });
+        queryClient.invalidateQueries({ queryKey: ['immobilie-nebenkosten-zahlungen'] });
       }
       onUpdate?.();
     },
-    onError: (error) => {
-      toast.error("Fehler beim Aktualisieren der Kategorie");
+    onError: (error: unknown) => {
+      const grund = error instanceof Error ? error.message : "Unbekannter Fehler";
+      toast.error(`Kategorie nicht geändert: ${grund}`);
+      setSelectedKategorie(currentKategorie || "");
     }
   });
 
   const handleKategorieChange = (value: string) => {
     setSelectedKategorie(value);
-    updateMutation.mutate(value);
-    toast.success(`Kategorie auf "${value}" geändert`);
+    updateMutation.mutate(value, {
+      onSuccess: () => {
+        toast.success(
+          ["Nebenkosten", "Nichtmiete"].includes(value)
+            ? `Als "${value}" dem Objekt zugeordnet — steht dort in der Nebenkostenabrechnung bereit.`
+            : `Kategorie auf "${value}" geändert`
+        );
+      },
+    });
   };
 
   const getKategorieColor = (kat: string) => {
