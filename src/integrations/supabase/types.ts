@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_logs: {
@@ -160,6 +185,103 @@ export type Database = {
           verordnung?: string | null
         }
         Relationships: []
+      }
+      app_benutzer: {
+        Row: {
+          aktiv: boolean
+          anzeigename: string
+          auth_user_id: string | null
+          darf_aufgaben: boolean
+          email: string
+          erstellt_am: string
+          funktion: string
+          id: string
+          kuerzel: string
+          sortierung: number
+        }
+        Insert: {
+          aktiv?: boolean
+          anzeigename: string
+          auth_user_id?: string | null
+          darf_aufgaben?: boolean
+          email: string
+          erstellt_am?: string
+          funktion: string
+          id?: string
+          kuerzel: string
+          sortierung?: number
+        }
+        Update: {
+          aktiv?: boolean
+          anzeigename?: string
+          auth_user_id?: string | null
+          darf_aufgaben?: boolean
+          email?: string
+          erstellt_am?: string
+          funktion?: string
+          id?: string
+          kuerzel?: string
+          sortierung?: number
+        }
+        Relationships: []
+      }
+      benachrichtigungen: {
+        Row: {
+          ausgeloest_von: string | null
+          empfaenger_id: string
+          erstellt_am: string
+          gelesen_am: string | null
+          id: string
+          text: string | null
+          ticket_id: string | null
+          titel: string
+          typ: string
+        }
+        Insert: {
+          ausgeloest_von?: string | null
+          empfaenger_id: string
+          erstellt_am?: string
+          gelesen_am?: string | null
+          id?: string
+          text?: string | null
+          ticket_id?: string | null
+          titel: string
+          typ: string
+        }
+        Update: {
+          ausgeloest_von?: string | null
+          empfaenger_id?: string
+          erstellt_am?: string
+          gelesen_am?: string | null
+          id?: string
+          text?: string | null
+          ticket_id?: string | null
+          titel?: string
+          typ?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "benachrichtigungen_ausgeloest_von_fkey"
+            columns: ["ausgeloest_von"]
+            isOneToOne: false
+            referencedRelation: "app_benutzer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "benachrichtigungen_empfaenger_id_fkey"
+            columns: ["empfaenger_id"]
+            isOneToOne: false
+            referencedRelation: "app_benutzer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "benachrichtigungen_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "dev_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       bewerbung_blacklist: {
         Row: {
@@ -381,6 +503,42 @@ export type Database = {
           },
         ]
       }
+      dev_ticket_erwaehnungen: {
+        Row: {
+          benutzer_id: string
+          erstellt_am: string
+          id: string
+          ticket_id: string
+        }
+        Insert: {
+          benutzer_id: string
+          erstellt_am?: string
+          id?: string
+          ticket_id: string
+        }
+        Update: {
+          benutzer_id?: string
+          erstellt_am?: string
+          id?: string
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dev_ticket_erwaehnungen_benutzer_id_fkey"
+            columns: ["benutzer_id"]
+            isOneToOne: false
+            referencedRelation: "app_benutzer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dev_ticket_erwaehnungen_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "dev_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dev_ticket_kommentare: {
         Row: {
           erstellt_am: string
@@ -388,6 +546,7 @@ export type Database = {
           id: string
           kommentar: string
           ticket_id: string
+          verfasser_id: string | null
         }
         Insert: {
           erstellt_am?: string
@@ -395,6 +554,7 @@ export type Database = {
           id?: string
           kommentar: string
           ticket_id: string
+          verfasser_id?: string | null
         }
         Update: {
           erstellt_am?: string
@@ -402,6 +562,7 @@ export type Database = {
           id?: string
           kommentar?: string
           ticket_id?: string
+          verfasser_id?: string | null
         }
         Relationships: [
           {
@@ -411,52 +572,95 @@ export type Database = {
             referencedRelation: "dev_tickets"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "dev_ticket_kommentare_verfasser_id_fkey"
+            columns: ["verfasser_id"]
+            isOneToOne: false
+            referencedRelation: "app_benutzer"
+            referencedColumns: ["id"]
+          },
         ]
       }
       dev_tickets: {
         Row: {
           aktualisiert_am: string
           beschreibung: string | null
+          erledigt_am: string | null
           erstellt_am: string
           erstellt_von: string | null
           id: string
           kurzbeschreibung: string | null
+          melder_id: string | null
           prioritaet: string
-          screenshot_urls: string[] | null
+          quelle: string
+          screenshot_pfade: string[]
+          seiten_pfad: string | null
+          seiten_titel: string | null
           sort_order: number
           status: string
+          technischer_kontext: Json | null
           titel: string
           typ: string
+          verantwortlich_id: string | null
         }
         Insert: {
           aktualisiert_am?: string
           beschreibung?: string | null
+          erledigt_am?: string | null
           erstellt_am?: string
           erstellt_von?: string | null
           id?: string
           kurzbeschreibung?: string | null
+          melder_id?: string | null
           prioritaet?: string
-          screenshot_urls?: string[] | null
+          quelle?: string
+          screenshot_pfade?: string[]
+          seiten_pfad?: string | null
+          seiten_titel?: string | null
           sort_order?: number
           status?: string
+          technischer_kontext?: Json | null
           titel: string
           typ?: string
+          verantwortlich_id?: string | null
         }
         Update: {
           aktualisiert_am?: string
           beschreibung?: string | null
+          erledigt_am?: string | null
           erstellt_am?: string
           erstellt_von?: string | null
           id?: string
           kurzbeschreibung?: string | null
+          melder_id?: string | null
           prioritaet?: string
-          screenshot_urls?: string[] | null
+          quelle?: string
+          screenshot_pfade?: string[]
+          seiten_pfad?: string | null
+          seiten_titel?: string | null
           sort_order?: number
           status?: string
+          technischer_kontext?: Json | null
           titel?: string
           typ?: string
+          verantwortlich_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "dev_tickets_melder_id_fkey"
+            columns: ["melder_id"]
+            isOneToOne: false
+            referencedRelation: "app_benutzer"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dev_tickets_verantwortlich_id_fkey"
+            columns: ["verantwortlich_id"]
+            isOneToOne: false
+            referencedRelation: "app_benutzer"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       dokumente: {
         Row: {
@@ -2294,6 +2498,18 @@ export type Database = {
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_hausmeister: { Args: { _user_id: string }; Returns: boolean }
       ist_angespannter_markt: { Args: { _ort: string }; Returns: boolean }
+      lege_benachrichtigung_an: {
+        Args: {
+          _ausloeser: string
+          _empfaenger: string
+          _text: string
+          _ticket: string
+          _titel: string
+          _typ: string
+        }
+        Returns: undefined
+      }
+      mein_app_benutzer_id: { Args: never; Returns: string }
       replace_kostenposition_anteile: {
         Args: { p_anteile: Json; p_kostenposition_ids: string[] }
         Returns: number
@@ -2721,12 +2937,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2750,11 +2966,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2775,11 +2991,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2800,11 +3016,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2817,11 +3033,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2831,6 +3047,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       anrede: ["Herr", "Frau", "Divers", "Firma"],

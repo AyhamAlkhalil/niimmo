@@ -36,6 +36,37 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.1.0",
+    datum: "2026-09-03",
+    schwerpunkt: "Probleme direkt aus der Anwendung melden",
+    aenderungen: [
+      {
+        art: "neu",
+        titel: "Bildschirm aufnehmen und daraus sofort eine Aufgabe machen",
+        detail:
+          "Unten rechts, über dem Chat, sitzt jetzt ein Kamera-Knopf. Ein Klick nimmt den aktuellen Bildschirm auf, im selben Schritt entsteht daraus eine Aufgabe — mit Titel, Dringlichkeit und der Person, die sich darum kümmern soll. Bisher musste ein Problem gesondert beschrieben und auf anderem Weg verschickt werden.",
+      },
+      {
+        art: "neu",
+        titel: "Personen markieren, die es sofort erfahren sollen",
+        detail:
+          "Wer markiert wird, sieht die Meldung unmittelbar an der Glocke im Kopfbereich, ohne die Seite neu zu laden. Markierbar sind die Geschäftsführung, die Entwicklung und die Buchhaltung. Klappt keine Aufnahme, lässt sich auch ein eigenes Bild einfügen oder die Meldung ganz ohne Bild abschicken.",
+      },
+      {
+        art: "neu",
+        titel: "Aufgaben-Übersicht mit allen offenen Punkten",
+        detail:
+          "Erreichbar über „Aufgaben“ im Kopfbereich oder den Listen-Knopf unten rechts. Mit den Ansichten „Für mich“, „Offen“ und „Alle“, dazu Suche, Filter nach Art und Status sowie einem Verlauf je Aufgabe, in dem Rückfragen festgehalten werden.",
+      },
+      {
+        art: "verbessert",
+        titel: "Der Hausmeister-Zugang bleibt auf Zählerstände beschränkt",
+        detail:
+          "Aufgaben, Meldungen und Benachrichtigungen sind für diesen Zugang weder sichtbar noch abrufbar. Zuvor waren die internen Einträge grundsätzlich für jeden angemeldeten Zugang lesbar.",
+      },
+    ],
+  },
+  {
     version: "1.0.0",
     datum: "2026-09-03",
     schwerpunkt: "Einheitliche Zahlen und ein eindeutiges Vertragsende",

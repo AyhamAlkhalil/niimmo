@@ -384,3 +384,10 @@
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
   }
 }
+
+/* Während einer Bildschirmaufnahme blenden sich die schwebenden Knöpfe aus,
+   damit sie nicht selbst auf dem gemeldeten Bild landen. Das Kennzeichen setzt
+   die Aufnahme-Funktion synchron vor dem Zugriff auf die Kamera-Freigabe. */
+html[data-aufnahme] .schwebende-knoepfe {
+  visibility: hidden;
+}

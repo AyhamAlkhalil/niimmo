@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { MessageCircle, Sparkles } from "lucide-react";
 import { ModernChatbot } from "./ModernChatbot";
 import { CsvUploadProgressBar } from "./CsvUploadProgressBar";
+import { MelderLeiste } from "@/components/aufgaben/MelderLeiste";
 
 export function ModernChatbotTrigger() {
   const location = useLocation();
@@ -42,9 +43,13 @@ export function ModernChatbotTrigger() {
         />
       )}
 
-      {/* Floating Action Button */}
+      {/* Floating Action Button — darüber die Melder-Leiste (Aufgaben & Meldungen).
+          Beide teilen sich denselben Stapel, damit sie beim Öffnen des Chats
+          gemeinsam verschwinden und nicht über dem abgedunkelten Hintergrund stehen. */}
       {!isChatOpen && (
-        <div className="fixed bottom-6 right-6 z-50">
+        <div className="schwebende-knoepfe fixed bottom-6 right-6 z-50 flex flex-col items-center gap-3">
+          <MelderLeiste />
+
           <div className="relative">
             {/* Subtle ring effect */}
             <div className="absolute -inset-2 bg-gradient-to-r from-red-600 to-red-900 rounded-full opacity-20"></div>
