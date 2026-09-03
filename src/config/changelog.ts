@@ -36,6 +36,18 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.1.1",
+    datum: "2026-09-03",
+    aenderungen: [
+      {
+        art: "behoben",
+        titel: "Der Vorname des Geschäftsführers war falsch geschrieben",
+        detail:
+          "In den Vermieter-Stammdaten stand „Denis Mikyas“ statt „Dennis Mikyas“ — und damit auf jedem erzeugten Schreiben: Mahnung, Kündigung, Mieterhöhung, Übergabeprotokoll, Versorger-Benachrichtigung und Mietvertrag. Ab sofort steht überall die richtige Schreibweise; bereits verschickte Schreiben ändern sich dadurch nicht.",
+      },
+    ],
+  },
+  {
     version: "1.1.0",
     datum: "2026-09-03",
     schwerpunkt: "Probleme direkt aus der Anwendung melden",

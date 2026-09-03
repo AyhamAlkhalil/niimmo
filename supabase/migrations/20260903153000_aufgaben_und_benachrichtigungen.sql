@@ -521,7 +521,7 @@ insert into public.app_benutzer (auth_user_id, email, anzeigename, kuerzel, funk
 values
   ('6e40a868-b85d-4b67-9880-a358724b8e9a', 'info@kitdienstleistungen.de',   'Ayham Alkhalil',       'AA', 'entwicklung',        true,  10),
   ('104a56c9-4a17-47c2-a75c-95051431837a', 'yeyrek@niimmo.de',              'Ayhan Yeyrek',         'AY', 'geschaeftsfuehrung', true,  20),
-  ('59879a5d-38e4-4c2a-b655-53c968984a9d', 'mikyas@niimmo.de',              'Denis Mikyas',         'DM', 'geschaeftsfuehrung', true,  30),
+  ('59879a5d-38e4-4c2a-b655-53c968984a9d', 'mikyas@niimmo.de',              'Dennis Mikyas',         'DM', 'geschaeftsfuehrung', true,  30),
   (null,                                   'buchhaltung@niimmo.de',         'Buchhaltung',          'BH', 'buchhaltung',        true,  40),
   ('5f8c4da6-2904-4c97-9e60-95ae1b3e7cdc', 'info@leine-gebaeudeservice.de', 'Leine Gebäudeservice', 'LG', 'hausmeister',        false, 90)
 on conflict (email) do update set

@@ -277,7 +277,7 @@ serve(async (req) => {
     doc.setFont(undefined, 'bold');
     doc.text('Vertretungsberechtigte Geschäftsführer:', 20, yPos);
     doc.setFont(undefined, 'normal');
-    doc.text('Ayhan Yeyrek, Denis Mikyas', 20, yPos + 3);
+    doc.text('Ayhan Yeyrek, Dennis Mikyas', 20, yPos + 3);
     
     doc.setFont(undefined, 'bold');
     doc.text('Registergericht:', 20, yPos + 8);

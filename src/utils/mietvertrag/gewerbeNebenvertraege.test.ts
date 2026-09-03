@@ -15,7 +15,7 @@ const VERMIETER: MietvertragDaten['vermieter'] = {
   hausnummer: '11',
   plz: '31319',
   ort: 'Sehnde',
-  vertretenDurch: ['Denis Mikyas'],
+  vertretenDurch: ['Dennis Mikyas'],
   vertretungArt: 'einzel',
   registergericht: 'Amtsgericht Hildesheim',
   handelsregister: 'HRB 208151',

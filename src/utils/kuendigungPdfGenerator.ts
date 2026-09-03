@@ -262,7 +262,7 @@ export async function generateKuendigungPdf(data: KuendigungPdfData): Promise<Bl
   doc.text('Mit freundlichem Gruß', marginLeft, y);
   y += 14;
   doc.setFont('helvetica', 'bold');
-  doc.text('Denis Mikyas', marginLeft, y);
+  doc.text('Dennis Mikyas', marginLeft, y);
   y += 5;
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(9);
@@ -315,7 +315,7 @@ function addFooter(doc: jsPDF) {
   doc.text('Vertretungsberechtigte Geschäftsführer:', marginLeft, fy);
   doc.setFont('helvetica', 'normal');
   fy += 3;
-  doc.text('Ayhan Yeyrek, Denis Mikyas', marginLeft, fy);
+  doc.text('Ayhan Yeyrek, Dennis Mikyas', marginLeft, fy);
   fy += 3;
   doc.setFont('helvetica', 'bold');
   doc.text('Registergericht:', marginLeft, fy);

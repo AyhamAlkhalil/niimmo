@@ -12,14 +12,14 @@ insert into public.vermieter
 values
   ('NiImmo Wohnungsbaugesellschaft mbH', 'GmbH',
    'Egestorffstraße', '11', '31319', 'Sehnde',
-   array['Ayhan Yeyrek','Denis Mikyas'], 'gesamt',
+   array['Ayhan Yeyrek','Dennis Mikyas'], 'gesamt',
    'Amtsgericht Hildesheim', 'HRB 208151', '16/204/50864',
    '05138 - 600 72 72', '05138 - 600 72 79', 'mikyas@niimmo.de',
    null, null, true, false),
 
   ('NiImmo Projektentwicklung & Bau GmbH', 'GmbH',
    'Egestorffstraße', '11', '31319', 'Sehnde',
-   array['Denis Baris Mikyas'], 'einzel',
+   array['Dennis Baris Mikyas'], 'einzel',
    null, null, null,
    '05138 600 72 70', null, 'info@niimmo.de',
    'DE89255914133155410501', 'GENODEF1BCK', false, false),

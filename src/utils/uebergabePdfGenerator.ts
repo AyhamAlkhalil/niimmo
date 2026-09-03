@@ -460,7 +460,7 @@ function addFooter(doc: jsPDF) {
   doc.text('Vertretungsberechtigte Geschäftsführer:', marginLeft, fy);
   doc.setFont('helvetica', 'normal');
   fy += 3;
-  doc.text('Ayhan Yeyrek, Denis Mikyas', marginLeft, fy);
+  doc.text('Ayhan Yeyrek, Dennis Mikyas', marginLeft, fy);
   fy += 3;
   doc.setFont('helvetica', 'bold');
   doc.text('Registergericht:', marginLeft, fy);

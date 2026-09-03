@@ -122,7 +122,7 @@ Bitte nehmen Sie die ${isEinzug ? 'Anmeldung' : 'Abmeldung'} entsprechend vor.
 
 Mit freundlichen Grüßen
 Nilmmo Projektentwicklung & Bau GmbH
-Denis Mikyas
+Dennis Mikyas
 Egestorffstraße 11, 31319 Sehnde
 Tel. 05138 – 600 72 72`;
       }

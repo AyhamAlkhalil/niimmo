@@ -15,7 +15,7 @@ function basisVertrag(ueberschreibungen: Partial<MietvertragDaten> = {}): Mietve
       hausnummer: '11',
       plz: '31319',
       ort: 'Sehnde',
-      vertretenDurch: ['Ayhan Yeyrek', 'Denis Mikyas'],
+      vertretenDurch: ['Ayhan Yeyrek', 'Dennis Mikyas'],
       vertretungArt: 'gesamt',
       registergericht: 'Amtsgericht Hildesheim',
       handelsregister: 'HRB 208151',

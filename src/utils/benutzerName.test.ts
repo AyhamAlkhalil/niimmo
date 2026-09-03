@@ -16,7 +16,7 @@ describe("kurzName", () => {
   });
 
   it("nimmt bei mehrteiligen Namen den LETZTEN Teil als Initial", () => {
-    expect(kurzName({ anzeigename: "Denis Baris Mikyas" })).toBe("Denis M.");
+    expect(kurzName({ anzeigename: "Dennis Baris Mikyas" })).toBe("Dennis M.");
     expect(kurzName({ anzeigename: "Anna Maria Sophie Berger" })).toBe("Anna B.");
   });
 
@@ -27,7 +27,7 @@ describe("kurzName", () => {
 
   it("verkraftet mehrfache Leerzeichen zwischen den Namensteilen", () => {
     expect(kurzName({ anzeigename: "Ayham    Alkhalil" })).toBe("Ayham A.");
-    expect(kurzName({ anzeigename: "  Denis   Baris    Mikyas " })).toBe("Denis M.");
+    expect(kurzName({ anzeigename: "  Dennis   Baris    Mikyas " })).toBe("Dennis M.");
   });
 
   it("liefert fuer einen leeren Namen einen leeren String", () => {

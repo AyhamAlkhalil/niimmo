@@ -123,7 +123,7 @@ serve(async (req) => {
     doc.setTextColor(100);
     doc.text('Rückfragen richten Sie bitte an:', contactX, contactY);
     doc.setFont(undefined, 'bold');
-    doc.text('Denis Baris Mikyas', contactX, contactY + 5);
+    doc.text('Dennis Baris Mikyas', contactX, contactY + 5);
     doc.setFont(undefined, 'normal');
     doc.text('📱 01583 - 600 72 72', contactX, contactY + 10);
     doc.text('☎ 05138 - 600 72 79', contactX, contactY + 15);
@@ -251,7 +251,7 @@ serve(async (req) => {
     doc.setFont(undefined, 'bold');
     doc.text('Vertretungsberechtigte Geschäftsführer:', 20, yPos);
     doc.setFont(undefined, 'normal');
-    doc.text('Ayhan Yeyrek, Denis Mikyas', 20, yPos + 3);
+    doc.text('Ayhan Yeyrek, Dennis Mikyas', 20, yPos + 3);
     
     doc.setFont(undefined, 'bold');
     doc.text('Registergericht:', 20, yPos + 8);
