@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Printer, Pencil, Check, Loader2 } from "lucide-react";
-import { getCurrentContract } from "@/utils/contractUtils";
+import { getCurrentContract, getLaufenderVertrag, getVertragsende } from "@/utils/contractUtils";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -25,12 +25,16 @@ interface UnitRow {
   sollMiete: number | null;
   kaltmiete: number | null;
   betriebskosten: number | null;
+  /** KM + BKV. Die Spalte "Warmmiete" zeigte vorher nur die Kaltmiete. */
+  warmmiete: number | null;
   startDatum: string | null;
   endeDatum: string | null;
   mieterNames: string[];
   isVacant: boolean;
   isGekuendigt: boolean;
   lastEndDate: string | null;
+  /** Gesetzt, wenn die Einheit heute leer steht, aber ein Vertrag ansteht. */
+  nextStartDate: string | null;
 }
 
 const fmt = (val: number | null | undefined, decimals = 2): string => {
@@ -61,7 +65,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           id, etage, qm, einheitentyp, soll_miete,
           immobilien!inner( id, name, adresse ),
           mietvertrag(
-            id, status, kaltmiete, betriebskosten, start_datum, ende_datum,
+            id, status, kaltmiete, betriebskosten, start_datum, ende_datum, kuendigungsdatum,
             mietvertrag_mieter( mieter( vorname, nachname ) )
           )
         `),
@@ -83,11 +87,14 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
       return (einheitenRes.data ?? []).map((e): UnitRow => {
         const imm = e.immobilien as any;
         const contracts = (e.mietvertrag ?? []) as any[];
+        // Fuer die Summen zaehlt nur, was am Stichtag laeuft. getCurrentContract
+        // liefert daneben den zuletzt relevanten Vertrag -- den brauchen wir nur
+        // noch, um bei Leerstand das Datum des letzten Auszugs anzuzeigen.
         const currentContract = getCurrentContract(contracts);
+        const activeContract = getLaufenderVertrag(contracts);
 
-        const isVacant = !currentContract || currentContract.status === "beendet";
-        const isGekuendigt = !isVacant && currentContract?.status === "gekuendigt";
-        const activeContract = isVacant ? null : currentContract;
+        const isVacant = !activeContract;
+        const isGekuendigt = activeContract?.status === "gekuendigt";
 
         const mieterNames = activeContract
           ? (activeContract.mietvertrag_mieter ?? [])
@@ -108,14 +115,20 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           sollMiete: e.soll_miete,
           kaltmiete: activeContract?.kaltmiete ?? null,
           betriebskosten: activeContract?.betriebskosten ?? null,
+          warmmiete: activeContract
+            ? (activeContract.kaltmiete ?? 0) + (activeContract.betriebskosten ?? 0)
+            : null,
           startDatum: activeContract?.start_datum ?? null,
-          endeDatum: activeContract?.ende_datum ?? null,
+          endeDatum: activeContract ? getVertragsende(activeContract) : null,
           mieterNames,
           isVacant,
           isGekuendigt,
-          lastEndDate:
-            isVacant && currentContract?.status === "beendet"
-              ? currentContract.ende_datum
+          // Bei Leerstand: wann der letzte Vertrag endete, bzw. ab wann der
+          // naechste beginnt.
+          lastEndDate: isVacant ? getVertragsende(currentContract) : null,
+          nextStartDate:
+            isVacant && currentContract?.start_datum && currentContract.status !== "beendet"
+              ? currentContract.start_datum
               : null,
         };
       });
@@ -174,8 +187,11 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
     }
 
     const annuitaet = Array.from(annuitaetMap.values()).reduce((s, v) => s + v, 0);
-    const ist = km; // IST = nur Kaltmiete, BKV wird ignoriert
-    return { qm, km, bkv, ist, soll, annuitaet, vacantCount, gekuendigtCount };
+    // IST und SOLL sind Kaltmieten und werden gegen die Annuitaet gestellt:
+    // Betriebskosten sind durchlaufende Posten und kein Ertrag.
+    const ist = km;
+    const warm = km + bkv;
+    return { qm, km, bkv, warm, ist, soll, annuitaet, vacantCount, gekuendigtCount };
   }, [rows]);
 
   if (isLoading) {
@@ -228,7 +244,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold font-sans text-gradient-red">Mietaufstellung</h1>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Stand: {format(new Date(), "dd.MM.yyyy")} · SOLL-Miete direkt editierbar · Annuität aus Darlehen
+                  Stand: {format(new Date(), "dd.MM.yyyy")} · nur am Stichtag laufende Verträge · SOLL-Miete direkt editierbar · Annuität aus Darlehen
                 </p>
               </div>
             </div>
@@ -255,10 +271,18 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
             <div className="flex justify-between gap-2"><span>IST:</span> <b>{fmtEuro(grandTotals.ist * 12)}</b></div>
             <div className="flex justify-between gap-2 border-t border-gray-200 mt-0.5 pt-0.5"><span>SOLL:</span> <b>{fmtEuro(grandTotals.soll * 12)}</b></div>
           </div>
+          <div className="border border-gray-300 rounded px-2 py-1 min-w-[110px]">
+            <div className="font-semibold text-center text-[10px] text-gray-500 mb-0.5">Warmmiete</div>
+            <div className="flex justify-between gap-2"><span>p.m.:</span> <b>{fmtEuro(grandTotals.warm)}</b></div>
+            <div className="flex justify-between gap-2 border-t border-gray-200 mt-0.5 pt-0.5"><span>p.a.:</span> <b>{fmtEuro(grandTotals.warm * 12)}</b></div>
+          </div>
           <div><span>Annuität p.m.:</span> <b>{fmtEuro(grandTotals.annuitaet)}</b></div>
           <div><span>Leerstand:</span>     <b>{grandTotals.vacantCount} Einh.</b></div>
-          <div><span>Überschuss p.m.:</span> <b>{fmtEuro(grandTotals.ist - grandTotals.annuitaet)}</b></div>
-          <div><span>Überschuss p.a.:</span> <b>{fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)}</b></div>
+          <div className="border border-gray-300 rounded px-2 py-1 min-w-[120px]">
+            <div className="font-semibold text-center text-[10px] text-gray-500 mb-0.5">Überschuss p.a.</div>
+            <div className="flex justify-between gap-2"><span>IST:</span> <b>{fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)}</b></div>
+            <div className="flex justify-between gap-2 border-t border-gray-200 mt-0.5 pt-0.5"><span>SOLL:</span> <b>{fmtEuro((grandTotals.soll - grandTotals.annuitaet) * 12)}</b></div>
+          </div>
         </div>
 
         {/* Kennzahlen-Karten */}
@@ -289,7 +313,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           </div>
           {/* weitere Karten */}
           {[
-            { label: "Überschuss p.m.", value: fmtEuro(grandTotals.ist - grandTotals.annuitaet), negative: (grandTotals.ist - grandTotals.annuitaet) < 0 },
+            { label: "Warmmiete p.m.", value: fmtEuro(grandTotals.warm) },
             { label: "Überschuss p.a.", value: fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12), negative: (grandTotals.ist - grandTotals.annuitaet) < 0 },
             { label: "Annuität p.m.", value: fmtEuro(grandTotals.annuitaet) },
             { label: "Leerstand", value: `${grandTotals.vacantCount} Einh.` },
@@ -314,15 +338,18 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">€/m²</th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">KM</th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">BKV</th>
-                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">Gesamt</th>
+                <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">
+                  <div>Warmmiete</div>
+                  <div className="text-[8px] font-normal text-gray-400">KM + BKV</div>
+                </th>
                 <th className="px-1.5 py-1.5 text-left font-semibold whitespace-nowrap">Laufzeit</th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">
                   <div>p.m.</div>
-                  <div className="text-[8px] font-normal text-gray-400">IST / SOLL</div>
+                  <div className="text-[8px] font-normal text-gray-400">Kaltmiete IST / SOLL</div>
                 </th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">
                   <div>p.a.</div>
-                  <div className="text-[8px] font-normal text-gray-400">IST / SOLL</div>
+                  <div className="text-[8px] font-normal text-gray-400">Kaltmiete IST / SOLL</div>
                 </th>
                 <th className="px-1.5 py-1.5 text-right font-semibold whitespace-nowrap">Diff.</th>
               </tr>
@@ -333,7 +360,10 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 return grouped.flatMap((imm) => {
                   const immKm   = imm.units.reduce((s, u) => s + (u.kaltmiete ?? 0), 0);
                   const immBkv  = imm.units.reduce((s, u) => s + (u.betriebskosten ?? 0), 0);
-                  const immIst  = immKm; // IST = nur Kaltmiete
+                  const immWarm = immKm + immBkv;
+                  // IST/SOLL und der Annuitaetsvergleich rechnen mit der
+                  // Kaltmiete -- Betriebskosten fliessen an die Versorger weiter.
+                  const immIst  = immKm;
                   const immSoll = imm.units.reduce((s, u) => {
                     return s + (u.sollMiete ?? (u.isVacant ? 0 : (u.kaltmiete ?? 0)));
                   }, 0);
@@ -359,7 +389,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                       <td className="px-1.5 py-1.5" />
                       <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immKm)}</td>
                       <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immBkv)}</td>
-                      <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immIst)}</td>
+                      <td className="px-1.5 py-1.5 text-right font-semibold text-gray-700 tabular-nums">{fmtEuro(immWarm)}</td>
 
                       {/* Laufzeit-Spalte: Annuität (aus Darlehen, read-only) + Überschuss */}
                       <td className="px-1.5 py-1.5 text-[10px] text-gray-600 whitespace-nowrap">
@@ -395,7 +425,8 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
                   const unitRows = imm.units.map((unit) => {
                     nr++;
-                    const istPm   = unit.kaltmiete ?? 0; // IST = nur Kaltmiete
+                    const istPm   = unit.kaltmiete ?? 0; // IST/SOLL vergleichen Kaltmiete gegen Kaltmiete
+                    const warmPm  = unit.warmmiete ?? 0;
                     const sollPm  = unit.sollMiete ?? (unit.isVacant ? null : istPm);
                     const diffPm  = sollPm != null && !unit.isVacant ? (istPm - sollPm) : null;
                     const eurProQm = unit.kaltmiete && unit.qm ? unit.kaltmiete / unit.qm : null;
@@ -403,7 +434,10 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
 
                     let laufzeit: string;
                     if (unit.isVacant) {
-                      laufzeit = unit.lastEndDate ? `leer · bis ${fmtDate(unit.lastEndDate)}` : "—";
+                      // Ein Vertrag, der erst spaeter beginnt, ist heute kein Ertrag.
+                      // Er wird als Leerstand mit Startdatum ausgewiesen.
+                      if (unit.nextStartDate) laufzeit = `leer · vermietet ab ${fmtDate(unit.nextStartDate)}`;
+                      else laufzeit = unit.lastEndDate ? `leer · bis ${fmtDate(unit.lastEndDate)}` : "—";
                     } else if (unit.endeDatum) {
                       laufzeit = `${fmtDate(unit.startDatum)} – ${fmtDate(unit.endeDatum)}${unit.isGekuendigt ? " (gek.)" : ""}`;
                     } else {
@@ -448,7 +482,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                           {unit.isVacant ? "—" : fmtEuro(unit.betriebskosten)}
                         </td>
                         <td className="px-1.5 py-1 text-right tabular-nums text-gray-600 font-medium">
-                          {unit.isVacant ? "—" : fmtEuro(istPm)}
+                          {unit.isVacant ? "—" : fmtEuro(warmPm)}
                         </td>
 
                         <td className="px-1.5 py-1 text-gray-400 text-[10px] whitespace-nowrap">{laufzeit}</td>
@@ -552,14 +586,18 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 <td className="px-1.5 py-1.5" />
                 <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.km)}</td>
                 <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.bkv)}</td>
-                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.ist)}</td>
+                <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">{fmtEuro(grandTotals.warm)}</td>
                 <td className="px-1.5 py-1.5 text-[10px]">
                   Annuität ges.:{" "}
                   <span className="font-semibold tabular-nums">{fmtEuro(grandTotals.annuitaet)}</span>
                   <span className="mx-1.5 opacity-40">|</span>
                   Überschuss IST:{" "}
                   <span className={cn("font-semibold tabular-nums", (grandTotals.ist - grandTotals.annuitaet) < 0 ? "text-red-400" : "text-emerald-400")}>
-                    {fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)} p.a.
+                    {fmtEuro((grandTotals.ist - grandTotals.annuitaet) * 12)}
+                  </span>
+                  {" / "}SOLL:{" "}
+                  <span className={cn("font-semibold tabular-nums", (grandTotals.soll - grandTotals.annuitaet) < 0 ? "text-red-400" : "text-emerald-400")}>
+                    {fmtEuro((grandTotals.soll - grandTotals.annuitaet) * 12)} p.a.
                   </span>
                 </td>
                 <td className="px-1.5 py-1.5 text-right tabular-nums font-bold">

@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { sortPropertiesByName, getCurrentContract } from "@/utils/contractUtils";
+import { sortPropertiesByName, getLaufenderVertrag, getVertragsende } from "@/utils/contractUtils";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -85,14 +85,18 @@ function buildBankHtml(
 ): string {
   const today = format(new Date(), "dd.MM.yyyy");
   let nr = 0;
-  let grandKm = 0, grandBkv = 0, grandSoll = 0;
+  let grandKm = 0, grandBkv = 0, grandSoll = 0, grandQm = 0;
   const annMap = new Map<string, number>();
 
   const rows = grouped.map((g) => {
     let gKm = 0, gBkv = 0, gSoll = 0, gQm = 0;
     const unitRows = g.contracts.map((r) => {
       nr++;
-      const istPm = r.kaltmiete + r.betriebskosten;
+      // IST/SOLL sind Kaltmieten: die SOLL-Miete aus einheiten.soll_miete ist
+      // eine Kaltmiete. Vorher stand hier die Warmmiete gegen die Kalt-SOLL --
+      // die Diff-Spalte war um die Betriebskosten verschoben.
+      const istPm = r.kaltmiete;
+      const warmPm = r.kaltmiete + r.betriebskosten;
       const sollPm = r.sollMiete ?? istPm;
       const eurQm = r.kaltmiete && r.qm ? r.kaltmiete / r.qm : null;
       const diffPm = istPm - sollPm;
@@ -102,9 +106,12 @@ function buildBankHtml(
         ? `${fmtDate(r.mietbeginn)} – ${fmtDate(r.mietende)}`
         : `${fmtDate(r.mietbeginn)} – unbefristet`;
 
-      gKm += r.kaltmiete;
-      gBkv += r.betriebskosten;
-      gSoll += sollPm;
+      // Leerstandszeilen zeigen "—" und duerfen die Summen nicht fuellen.
+      if (!r.isLeerstand) {
+        gKm += r.kaltmiete;
+        gBkv += r.betriebskosten;
+        gSoll += sollPm;
+      }
       gQm += r.qm;
 
       const leerCls = r.isLeerstand ? ' class="leerstand"' : "";
@@ -119,20 +126,23 @@ function buildBankHtml(
         <td class="num">${r.isLeerstand ? "—" : fmtNum(eurQm, 2)}</td>
         <td class="num">${r.isLeerstand ? "—" : fmtEuro(r.kaltmiete)}</td>
         <td class="num">${r.isLeerstand ? "—" : fmtEuro(r.betriebskosten)}</td>
-        <td class="num">${r.isLeerstand ? "—" : fmtEuro(istPm)}</td>
+        <td class="num">${r.isLeerstand ? "—" : fmtEuro(warmPm)}</td>
         <td>${laufzeit}</td>
         <td class="num">${r.isLeerstand ? "—" : fmtEuro(istPm)}</td>
         <td class="num">${r.isLeerstand ? "—" : fmtEuro(istPm * 12)}</td>
-        <td class="num${r.sollMiete == null ? " muted" : ""}">${fmtEuro(sollPm)}</td>
-        <td class="num">${r.sollMiete != null ? fmtEuro(r.sollMiete * 12) : "—"}</td>
+        <td class="num${r.sollMiete == null ? " muted" : ""}">${r.isLeerstand && r.sollMiete == null ? "—" : fmtEuro(sollPm)}</td>
+        <td class="num${r.sollMiete == null ? " muted" : ""}">${r.isLeerstand && r.sollMiete == null ? "—" : fmtEuro(sollPm * 12)}</td>
         <td class="num${negCls(diffPm)}">${diffPm !== 0 ? fmtEuro(diffPm) : "—"}</td>
       </tr>`;
     });
 
-    grandKm += gKm; grandBkv += gBkv; grandSoll += gSoll;
+    grandKm += gKm; grandBkv += gBkv; grandSoll += gSoll; grandQm += gQm;
     if (g.annuitaet != null) annMap.set(g.objektId, g.annuitaet);
 
-    const gIst = gKm + gBkv;
+    const gWarm = gKm + gBkv;
+    // Der Annuitaetsvergleich laeuft ueber die Kaltmiete: Betriebskosten sind
+    // durchlaufende Posten und kein Ertrag.
+    const gIst = gKm;
     const uIst = (gIst - (g.annuitaet ?? 0)) * 12;
     const uSoll = (gSoll - (g.annuitaet ?? 0)) * 12;
 
@@ -143,7 +153,7 @@ function buildBankHtml(
       <td></td>
       <td class="num"><b>${fmtEuro(gKm)}</b></td>
       <td class="num"><b>${fmtEuro(gBkv)}</b></td>
-      <td class="num"><b>${fmtEuro(gIst)}</b></td>
+      <td class="num"><b>${fmtEuro(gWarm)}</b></td>
       <td style="font-size:7pt">
         Annuität: <b>${fmtEuro(g.annuitaet)}</b> p.m.
         &nbsp;|&nbsp; Überschuss IST: <b style="color:${uIst < 0 ? '#dc2626' : '#16a34a'}">${fmtEuro(uIst)}</b> p.a.
@@ -159,18 +169,19 @@ function buildBankHtml(
     return headerRow + unitRows.join("");
   });
 
-  const grandIst = grandKm + grandBkv;
+  const grandWarm = grandKm + grandBkv;
+  const grandIst = grandKm;
   const grandAnn = Array.from(annMap.values()).reduce((s, v) => s + v, 0);
   const grandUeberschuss = (grandIst - grandAnn) * 12;
   const negCol = grandUeberschuss < 0 ? "#dc2626" : "#16a34a";
 
   const totalRow = `<tr class="total-row">
     <td colspan="4"><b>Gesamt</b></td>
-    <td class="num"><b>—</b></td>
+    <td class="num"><b>${fmtNum(grandQm, 0)} m²</b></td>
     <td></td>
     <td class="num"><b>${fmtEuro(grandKm)}</b></td>
     <td class="num"><b>${fmtEuro(grandBkv)}</b></td>
-    <td class="num"><b>${fmtEuro(grandIst)}</b></td>
+    <td class="num"><b>${fmtEuro(grandWarm)}</b></td>
     <td style="font-size:7pt">Annuität ges.: <b>${fmtEuro(grandAnn)}</b> p.m. &nbsp;|&nbsp; Überschuss IST: <b style="color:${negCol}">${fmtEuro(grandUeberschuss)}</b> p.a.</td>
     <td class="num"><b>${fmtEuro(grandIst)}</b></td>
     <td class="num"><b>${fmtEuro(grandIst * 12)}</b></td>
@@ -209,10 +220,10 @@ function buildBankHtml(
   <thead>
     <tr>
       <th>Nr.</th><th>Lage</th><th>Nutzung</th><th>Mieter</th>
-      <th>Fläche m²</th><th>€/m²</th><th>KM</th><th>BKV</th><th>Gesamtmiete</th>
+      <th>Fläche m²</th><th>€/m²</th><th>KM</th><th>BKV</th><th>Warmmiete<br>KM+BKV</th>
       <th>Laufzeit</th>
-      <th>IST p.m.</th><th>IST p.a.</th>
-      <th>SOLL p.m.</th><th>SOLL p.a.</th>
+      <th>Kaltmiete<br>IST p.m.</th><th>Kaltmiete<br>IST p.a.</th>
+      <th>Kaltmiete<br>SOLL p.m.</th><th>Kaltmiete<br>SOLL p.a.</th>
       <th>Diff. p.m.</th>
     </tr>
   </thead>
@@ -238,24 +249,41 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
   const { data: rows, isLoading } = useQuery({
     queryKey: ["miet-overview"],
     queryFn: async () => {
-      const { data: einheitenData, error: einheitenError } = await supabase
-        .from("einheiten")
-        .select(`
-          id, etage, qm, einheitentyp, zaehler, soll_miete,
-          immobilien!inner( id, name, adresse, "Annuität" ),
-          mietvertrag(
-            id, status, kaltmiete, betriebskosten, start_datum, ende_datum,
-            lastschrift, anzahl_personen, verwendungszweck, bankkonto_mieter,
-            kaution_betrag, kaution_status,
-            mietvertrag_mieter( mieter( id, vorname, nachname, hauptmail, telnr ) )
-          )
-        `);
+      const [{ data: einheitenData, error: einheitenError }, darlehenRes] = await Promise.all([
+        supabase
+          .from("einheiten")
+          .select(`
+            id, etage, qm, einheitentyp, zaehler, soll_miete,
+            immobilien!inner( id, name, adresse ),
+            mietvertrag(
+              id, status, kaltmiete, betriebskosten, start_datum, ende_datum, kuendigungsdatum,
+              lastschrift, anzahl_personen, verwendungszweck, bankkonto_mieter,
+              kaution_betrag, kaution_status,
+              mietvertrag_mieter( mieter( id, vorname, nachname, hauptmail, telnr ) )
+            )
+          `),
+        supabase.from("darlehen_immobilien").select(`immobilie_id, darlehen( monatliche_rate )`),
+      ]);
       if (einheitenError) throw einheitenError;
+
+      // Die Annuitaet kam bisher aus immobilien."Annuität" -- das Feld ist bei
+      // allen 13 Objekten leer, der ausgewiesene "Ueberschuss" war deshalb die
+      // ungekuerzte Jahresmiete. Sie kommt jetzt wie in der Bank-Aufstellung
+      // aus den hinterlegten Darlehen.
+      const annMap = new Map<string, number>();
+      for (const di of darlehenRes.data ?? []) {
+        const rate = (di.darlehen as any)?.monatliche_rate ?? 0;
+        if (di.immobilie_id && rate > 0)
+          annMap.set(di.immobilie_id, (annMap.get(di.immobilie_id) ?? 0) + rate);
+      }
 
       const results: ContractRow[] = [];
       einheitenData?.forEach((einheit) => {
         const contracts = (einheit.mietvertrag || []) as any[];
-        const currentContract = getCurrentContract(contracts);
+        // Nur der am Stichtag laufende Vertrag zaehlt. getCurrentContract lieferte
+        // auch beendete und noch nicht begonnene Vertraege -- deren Mieten
+        // standen dadurch in den Summen.
+        const currentContract = getLaufenderVertrag(contracts);
         const isLeerstand = !currentContract;
 
         const allMieter: MieterInfo[] = isLeerstand
@@ -279,7 +307,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
           objektId: imm.id,
           objektName: imm.name,
           objektAdresse: imm.adresse || "",
-          annuitaet: imm["Annuität"] ?? null,
+          annuitaet: annMap.get(imm.id) ?? null,
           einheitId: einheit.id,
           mieterId: hauptmieter?.id || "",
           etage: einheit.etage || "",
@@ -294,7 +322,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
           kaltmiete: currentContract?.kaltmiete || 0,
           betriebskosten: currentContract?.betriebskosten || 0,
           mietbeginn: currentContract?.start_datum || "",
-          mietende: currentContract?.ende_datum || "",
+          mietende: getVertragsende(currentContract) || "",
           lastschrift: currentContract?.lastschrift || false,
           anzahlPersonen: currentContract?.anzahl_personen ?? null,
           verwendungszweck: currentContract?.verwendungszweck ?? null,

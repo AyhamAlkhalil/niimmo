@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
+import { istLaufenderVertrag } from "@/utils/contractUtils";
 
 interface DashboardStatsProps {
   immobilien: any[] | undefined;
@@ -106,9 +107,12 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     setEditingTyp(null);
   };
 
-  const aktiveMietvertraege = mietvertraege?.filter(mv => mv.status === 'aktiv') || [];
-  const gekuendigteMietvertraege = mietvertraege?.filter(mv => mv.status === 'gekuendigt') || [];
-  const relevanteVertraege = [...aktiveMietvertraege, ...gekuendigteMietvertraege];
+  // Dieselbe Stichtagsregel wie Mietaufstellung und Mietuebersicht. Der Filter
+  // in der Query oben ist nur der Vorfilter -- massgeblich ist istLaufenderVertrag,
+  // damit die drei Ansichten nicht wieder auseinanderlaufen.
+  const relevanteVertraege = (mietvertraege || []).filter((mv) => istLaufenderVertrag(mv));
+  const aktiveMietvertraege = relevanteVertraege.filter(mv => mv.status === 'aktiv');
+  const gekuendigteMietvertraege = relevanteVertraege.filter(mv => mv.status === 'gekuendigt');
 
   const gesamtKaltmiete = relevanteVertraege.reduce((sum, v) => sum + (v.kaltmiete || 0), 0);
   const gesamtBetriebskosten = relevanteVertraege.reduce((sum, v) => sum + (v.betriebskosten || 0), 0);
