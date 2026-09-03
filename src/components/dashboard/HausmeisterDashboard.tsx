@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { UserMenu } from "./UserMenu";
+import { VersionBadge } from "./ChangelogDialog";
 import { toast } from "sonner";
 import { 
   Loader2, 
@@ -393,7 +394,10 @@ export const HausmeisterDashboard = () => {
                 </div>
               </div>
             </div>
-            <UserMenu />
+            <div className="flex items-center gap-2">
+              <VersionBadge className="hidden sm:flex" />
+              <UserMenu />
+            </div>
           </div>
         </div>
 

@@ -17,6 +17,7 @@ import { HausmeisterDashboard } from "@/components/dashboard/HausmeisterDashboar
 
 import { ZaehlerVerwaltung } from "@/components/dashboard/ZaehlerVerwaltung";
 import { MietaufstellungBank } from "@/components/dashboard/MietaufstellungBank";
+import { VersionBadge } from "@/components/dashboard/ChangelogDialog";
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
@@ -382,9 +383,13 @@ const Index = () => {
                     <p className="text-gray-600 font-sans text-xs sm:text-sm hidden sm:block">
                       {isHausmeister ? "Zähler & Einheiten" : "Zentrale Verwaltung"}
                     </p>
+                    <VersionBadge className="mt-1 sm:hidden" />
                   </div>
                 </div>
-                <UserMenu />
+                <div className="flex items-center gap-2">
+                  <VersionBadge className="hidden sm:flex" />
+                  <UserMenu />
+                </div>
               </div>
               
               {/* Action Buttons - Only for Admin */}
