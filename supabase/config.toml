@@ -48,3 +48,6 @@ verify_jwt = false
 
 [functions.agent-api]
 verify_jwt = false
+
+[functions.send-passwort-reset]
+verify_jwt = false

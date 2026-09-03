@@ -25,8 +25,10 @@ export function ModernChatbotTrigger() {
     };
   }, [isChatOpen]);
 
-  // Don't show chatbot on auth page
-  if (location.pathname === "/auth") {
+  // Nicht auf den Anmeldeseiten. Nach dem Einloesen des Zuruecksetz-Links
+  // besteht bereits eine Sitzung — ohne diese Ausnahme staende der Chatbot
+  // ueber dem Formular fuer das neue Passwort.
+  if (location.pathname === "/auth" || location.pathname === "/passwort-neu") {
     return null;
   }
 

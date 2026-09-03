@@ -36,6 +36,25 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.2.0",
+    datum: "2026-09-03",
+    schwerpunkt: "Zugang für die Buchhaltung",
+    aenderungen: [
+      {
+        art: "neu",
+        titel: "Die Buchhaltung hat einen eigenen Zugang",
+        detail:
+          "buchhaltung@niimmo.de kann sich jetzt anmelden, mit denselben Rechten wie die Geschäftsführung. Bisher war die Buchhaltung zwar in Aufgaben markierbar, konnte die Meldungen aber nicht abrufen — die aufgelaufenen Hinweise sind jetzt erreichbar.",
+      },
+      {
+        art: "neu",
+        titel: "Passwort selbst zurücksetzen",
+        detail:
+          "Auf der Anmeldeseite lässt sich ein Link anfordern, mit dem man sich selbst ein neues Passwort vergibt. Das ging bisher überhaupt nicht: Ein vergessenes Passwort musste jemand von Hand beim Anbieter zurücksetzen. Der Link gilt eine Stunde und lässt sich nur einmal verwenden; aus Sicherheitsgründen verrät die Seite nie, ob es zu einer Adresse einen Zugang gibt.",
+      },
+    ],
+  },
+  {
     version: "1.1.1",
     datum: "2026-09-03",
     aenderungen: [

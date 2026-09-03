@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Mail, Lock, User } from 'lucide-react';
+import { Loader2, Mail, Lock, User, ArrowLeft } from 'lucide-react';
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
@@ -20,6 +20,34 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [resetModus, setResetModus] = useState(false);
+
+  // Passwort zuruecksetzen laeuft ueber eine eigene Function: Fuer Auth-Mails
+  // ist bei Supabase kein SMTP hinterlegt, der geteilte Absender waere auf
+  // zwei Mails pro Stunde begrenzt.
+  const sendeResetMail = async () => {
+    setError(null);
+    setSuccess(null);
+
+    if (!email.trim()) {
+      setError('Bitte geben Sie Ihre E-Mail-Adresse ein');
+      return;
+    }
+
+    setLoading(true);
+    const { error: fehler } = await supabase.functions.invoke('send-passwort-reset', {
+      body: { email: email.trim() },
+    });
+    setLoading(false);
+
+    if (fehler) {
+      setError('Die E-Mail konnte gerade nicht verschickt werden. Bitte später erneut versuchen.');
+      return;
+    }
+    // Bewusst unabhaengig davon, ob die Adresse bekannt ist — sonst liesse sich
+    // hier herausfinden, wer einen Zugang hat.
+    setSuccess('Falls für diese Adresse ein Zugang besteht, ist eine E-Mail mit dem Link unterwegs.');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,12 +143,14 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
           <User className="h-12 w-12 text-red-500" />
         </div>
         <CardTitle className="text-2xl font-bold">
-          {mode === 'login' ? 'Anmelden' : 'Registrieren'}
+          {resetModus ? 'Passwort zurücksetzen' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
         </CardTitle>
         <CardDescription>
-          {mode === 'login' 
-            ? 'Melden Sie sich in Ihrem NiImmo Account an' 
-            : 'Erstellen Sie einen neuen NiImmo Account'
+          {resetModus
+            ? 'Wir schicken Ihnen einen Link, mit dem Sie ein neues Passwort vergeben'
+            : mode === 'login'
+              ? 'Melden Sie sich in Ihrem NiImmo Account an'
+              : 'Erstellen Sie einen neuen NiImmo Account'
           }
         </CardDescription>
       </CardHeader>
@@ -143,6 +173,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
             </div>
           </div>
 
+          {!resetModus && (
           <div className="space-y-2">
             <Label htmlFor="password">Passwort</Label>
             <div className="relative">
@@ -159,8 +190,9 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
               />
             </div>
           </div>
+          )}
 
-          {mode === 'signup' && (
+          {mode === 'signup' && !resetModus && (
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Passwort bestätigen</Label>
               <div className="relative">
@@ -196,6 +228,10 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
             className="w-full cursor-pointer relative z-10" 
             disabled={loading}
             onClick={(e) => {
+              if (resetModus) {
+                void sendeResetMail();
+                return;
+              }
               handleSubmit(e);
             }}
             style={{ pointerEvents: 'auto' }}
@@ -203,25 +239,52 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {mode === 'login' ? 'Anmelden...' : 'Registrieren...'}
+                {resetModus ? 'Wird gesendet...' : mode === 'login' ? 'Anmelden...' : 'Registrieren...'}
               </>
             ) : (
-              mode === 'login' ? 'Anmelden' : 'Registrieren'
+              resetModus ? 'Link anfordern' : mode === 'login' ? 'Anmelden' : 'Registrieren'
             )}
           </Button>
 
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={onToggleMode}
-              className="text-sm text-blue-600 hover:text-blue-800 underline cursor-pointer"
-              disabled={loading}
-            >
-              {mode === 'login' 
-                ? 'Noch kein Account? Jetzt registrieren' 
-                : 'Bereits ein Account? Jetzt anmelden'
-              }
-            </button>
+          <div className="space-y-2 text-center">
+            {resetModus ? (
+              <button
+                type="button"
+                onClick={() => { setResetModus(false); setError(null); setSuccess(null); }}
+                className="inline-flex items-center gap-1 text-sm text-blue-600 underline hover:text-blue-800"
+                disabled={loading}
+              >
+                <ArrowLeft className="h-3.5 w-3.5" /> Zurück zur Anmeldung
+              </button>
+            ) : (
+              <>
+                {mode === 'login' && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => { setResetModus(true); setError(null); setSuccess(null); }}
+                      className="text-sm text-blue-600 underline hover:text-blue-800"
+                      disabled={loading}
+                    >
+                      Passwort vergessen?
+                    </button>
+                  </div>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    onClick={onToggleMode}
+                    className="text-sm text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                    disabled={loading}
+                  >
+                    {mode === 'login' 
+                      ? 'Noch kein Account? Jetzt registrieren' 
+                      : 'Bereits ein Account? Jetzt anmelden'
+                    }
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </form>
       </CardContent>

@@ -11,6 +11,7 @@ import { useBenachrichtigungsStrom } from "@/hooks/useBenachrichtigungen";
 import { ModernChatbotTrigger } from "@/components/chatbot/ModernChatbotTrigger";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
+import PasswortNeu from "./pages/PasswortNeu";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
           <BrowserRouter>
             <Routes>
               <Route path="/auth" element={<Auth />} />
+              <Route path="/passwort-neu" element={<PasswortNeu />} />
               <Route path="/" element={
                 <ProtectedRoute>
                   <Index />
