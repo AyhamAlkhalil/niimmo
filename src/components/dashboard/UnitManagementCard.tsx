@@ -6,6 +6,7 @@ import { useState } from "react";
 import { NewTenantContractDialog } from "./NewTenantContractDialog";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { TerminationDialog } from "./termination/TerminationDialog";
+import { getVertragsende, istGekuendigt } from "@/utils/contractUtils";
 interface UnitManagementCardProps {
   einheit: {
     id: string;
@@ -196,13 +197,20 @@ export const UnitManagementCard = ({
                 </div>
               )}
 
-              {/* Termination Info */}
-              {vertrag.status === 'gekuendigt' && vertrag.kuendigungsdatum && (
-                <div className="flex items-center space-x-2 text-sm text-orange-700 bg-orange-100 p-2 rounded">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span>Kündigung: {new Date(vertrag.kuendigungsdatum).toLocaleDateString('de-DE')}</span>
-                </div>
-              )}
+              {/* Vertragsende aus derselben Quelle wie die Detailansicht */}
+              {(() => {
+                const ende = getVertragsende(vertrag);
+                if (!ende) return null;
+                const gekuendigt = istGekuendigt(vertrag);
+                return (
+                  <div className={`flex items-center space-x-2 text-sm p-2 rounded ${gekuendigt ? 'text-orange-700 bg-orange-100' : 'text-muted-foreground'}`}>
+                    {gekuendigt ? <AlertTriangle className="h-4 w-4" /> : <Calendar className="h-4 w-4" />}
+                    <span>
+                      {gekuendigt ? 'Gekündigt zum' : 'Befristet bis'}: {new Date(ende).toLocaleDateString('de-DE')}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           )}
 

@@ -47,6 +47,10 @@ export const ManualTerminationForm = ({
         .update({
           status: 'gekuendigt',
           kuendigungsdatum: kuendigungsdatum,
+          // ende_datum ist die einzige Anzeigequelle fuer das Vertragsende.
+          // Wird es hier nicht mitgeschrieben, zeigt die Detailansicht
+          // weiterhin "Unbefristet", waehrend die Karte den Kuendigungstermin nennt.
+          ende_datum: kuendigungsdatum,
           aktualisiert_am: new Date().toISOString()
         })
         .eq('id', vertragId);

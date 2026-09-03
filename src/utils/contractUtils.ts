@@ -106,6 +106,86 @@ export const getCurrentContract = (contracts: any[]): any | null => {
 };
 
 /**
+ * Das massgebliche Ende eines Mietverhaeltnisses.
+ *
+ * `ende_datum` ist die fuehrende Quelle: Der Kuendigungs-Workflow schreibt den
+ * Kuendigungstermin seit dem 03.09.2026 dorthin mit. Zuvor fuehrten beide
+ * Felder dieselbe Aussage getrennt -- die Einheiten-Karte zeigte
+ * `kuendigungsdatum`, die Vertragsdetails `ende_datum`, und bei 23 Vertraegen
+ * wichen sie voneinander ab.
+ *
+ * `kuendigungsdatum` bleibt nur noch Fallback fuer Datensaetze, die von aussen
+ * (Import, Altbestand) ohne `ende_datum` hereinkommen.
+ */
+export const getVertragsende = (
+  vertrag: { ende_datum?: string | null; kuendigungsdatum?: string | null } | null | undefined
+): string | null => {
+  if (!vertrag) return null;
+  return vertrag.ende_datum || vertrag.kuendigungsdatum || null;
+};
+
+/** True, wenn das Ende auf einer belegten Kuendigung beruht und nicht auf einer Befristung. */
+export const istGekuendigt = (
+  vertrag: { kuendigungsdatum?: string | null } | null | undefined
+): boolean => Boolean(vertrag?.kuendigungsdatum);
+
+/** Tagesgenauer ISO-Stichtag ohne Zeitzonen-Verschiebung. */
+const alsIsoTag = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export interface VertragZeitraum {
+  status?: string | null;
+  start_datum?: string | null;
+  ende_datum?: string | null;
+  kuendigungsdatum?: string | null;
+}
+
+/**
+ * Laeuft das Mietverhaeltnis am Stichtag tatsaechlich?
+ *
+ * Massgeblich fuer jede Mietsumme. Vorher hatte jede Auswertung ihre eigene
+ * Regel: Das Dashboard verlangte Start <= heute und Ende >= heute, die
+ * Mietaufstellung pruefte gar keine Daten, die Mietuebersicht zaehlte sogar
+ * beendete Vertraege mit. Dieselbe Kaltmiete stand deshalb an drei Stellen mit
+ * drei Betraegen -- 50.078 EUR, 51.478 EUR und 55.196 EUR.
+ */
+export const istLaufenderVertrag = (
+  vertrag: VertragZeitraum | null | undefined,
+  stichtag: Date = new Date()
+): boolean => {
+  if (!vertrag) return false;
+  if (vertrag.status !== "aktiv" && vertrag.status !== "gekuendigt") return false;
+
+  const tag = alsIsoTag(stichtag);
+  if (vertrag.start_datum && vertrag.start_datum > tag) return false;
+
+  const ende = getVertragsende(vertrag);
+  if (ende && ende < tag) return false;
+
+  return true;
+};
+
+/**
+ * Der am Stichtag laufende Vertrag einer Einheit, sonst null (= Leerstand).
+ *
+ * Anders als getCurrentContract faellt diese Funktion nicht auf beendete oder
+ * noch nicht begonnene Vertraege zurueck -- fuer Mietsummen ist ein Vertrag,
+ * der erst in Wochen beginnt, kein Ertrag.
+ */
+export const getLaufenderVertrag = <T extends VertragZeitraum>(
+  contracts: T[] | null | undefined,
+  stichtag: Date = new Date()
+): T | null => {
+  const laufende = (contracts ?? []).filter((c) => istLaufenderVertrag(c, stichtag));
+  if (laufende.length === 0) return null;
+  if (laufende.length === 1) return laufende[0];
+  // Mehrere gleichzeitig laufende Vertraege auf einer Einheit sind ein
+  // Datenfehler. Damit die Summe nicht doppelt zaehlt, gewinnt der zuletzt
+  // begonnene.
+  return [...laufende].sort((a, b) => (b.start_datum ?? "").localeCompare(a.start_datum ?? ""))[0];
+};
+
+/**
  * Formats currency values consistently
  */
 export const formatCurrency = (value: number | null | undefined): string => {

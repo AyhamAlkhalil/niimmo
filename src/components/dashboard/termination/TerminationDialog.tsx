@@ -349,7 +349,7 @@ export const TerminationDialog = ({
 
       const { error: updateError } = await supabase
         .from('mietvertrag')
-        .update({ status: 'gekuendigt', kuendigungsdatum: uploadKuendigungsdatum, aktualisiert_am: new Date().toISOString() })
+        .update({ status: 'gekuendigt', kuendigungsdatum: uploadKuendigungsdatum, ende_datum: uploadKuendigungsdatum, aktualisiert_am: new Date().toISOString() })
         .eq('id', vertragId);
 
       if (updateError) throw new Error('Vertragsaktualisierung fehlgeschlagen: ' + updateError.message);

@@ -6,6 +6,7 @@ import { FileText, Building, Home, Euro, Calendar, MapPin, AlertTriangle, Chevro
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragInfoProps {
   vertrag: any;
@@ -564,8 +565,8 @@ export const MietvertragInfo = ({ vertrag, einheit, immobilie }: MietvertragInfo
                 <div className="bg-white p-4 rounded-lg border border-purple-100">
                   <label className="text-sm font-medium text-gray-600 block mb-1">Vertragsende</label>
                   <p className="text-lg font-semibold text-gray-900">
-                    {vertrag?.ende_datum 
-                      ? new Date(vertrag.ende_datum).toLocaleDateString('de-DE', {
+                    {getVertragsende(vertrag)
+                      ? new Date(getVertragsende(vertrag)!).toLocaleDateString('de-DE', {
                           day: '2-digit',
                           month: 'long',
                           year: 'numeric'

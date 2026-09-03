@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLinkedContracts } from "@/hooks/useLinkedContracts";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getVertragstyp, getVertragstypColors } from "@/utils/tenantTypeUtils";
+import { getVertragsende, istGekuendigt } from "@/utils/contractUtils";
 
 interface EinheitCardProps {
   einheit: {
@@ -351,14 +352,24 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
                 </div>
               )}
 
-              {vertrag.status === 'gekuendigt' && vertrag.kuendigungsdatum && (
-                <div className="flex items-center space-x-2 pt-1">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                  <span className="text-sm text-yellow-700 font-medium">
-                    Kündigungsdatum: {new Date(vertrag.kuendigungsdatum).toLocaleDateString('de-DE')}
-                  </span>
-                </div>
-              )}
+              {/* Vertragsende aus derselben Quelle wie die Detailansicht. Vorher
+                  zeigte die Karte kuendigungsdatum und das Detail ende_datum --
+                  bei abweichenden Werten nannten beide ein anderes Datum. */}
+              {(() => {
+                const ende = getVertragsende(vertrag);
+                if (!ende) return null;
+                const gekuendigt = istGekuendigt(vertrag);
+                return (
+                  <div className="flex items-center space-x-2 pt-1">
+                    {gekuendigt
+                      ? <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                      : <Calendar className="h-4 w-4 text-gray-500" />}
+                    <span className={`text-sm font-medium ${gekuendigt ? 'text-yellow-700' : 'text-gray-600'}`}>
+                      {gekuendigt ? 'Gekündigt zum' : 'Befristet bis'}: {new Date(ende).toLocaleDateString('de-DE')}
+                    </span>
+                  </div>
+                );
+              })()}
             </>
           )}
 

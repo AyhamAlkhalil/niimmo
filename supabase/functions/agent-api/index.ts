@@ -816,6 +816,10 @@ async function executeWrite(
           .update({
             status: 'gekuendigt',
             kuendigungsdatum: args.kuendigungsdatum,
+            // ende_datum ist die Anzeigequelle fuer das Vertragsende und muss
+            // den Kuendigungstermin mittragen, sonst weichen Karten- und
+            // Detailansicht voneinander ab.
+            ende_datum: args.kuendigungsdatum,
             kuendigungsgrund: args.kuendigungsgrund ?? null,
           })
           .eq('id', args.mietvertrag_id);
