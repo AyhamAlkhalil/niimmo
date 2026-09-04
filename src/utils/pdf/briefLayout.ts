@@ -150,6 +150,22 @@ function zahlInWorten(n: number): string {
 
 // ─── Seitenmechanik ───────────────────────────────────────────────────────────
 
+/**
+ * Zeile einer Betragstabelle. Die Hausvorlage führt die Betriebskosten als
+ * Aufstellung mit rechtsbündiger Eurospalte, Zwischensumme und doppelt
+ * unterstrichener Endsumme — nicht als Fließtext. Wer den Vertrag prüft,
+ * liest genau diese Spalte.
+ */
+export interface TabellenZeile {
+  links: string;
+  rechts: string;
+  bold?: boolean;
+  /** Trennlinie über der Zeile, z. B. vor einer Summe. */
+  linieOben?: boolean;
+  /** Doppelstrich unter der Zeile — kennzeichnet die Endsumme. */
+  doppelstrichUnten?: boolean;
+}
+
 export interface LayoutOptions {
   marginLeft?: number;
   marginRight?: number;
@@ -174,6 +190,8 @@ export interface Layout {
   absatz(text: string, y: number, opts?: { fontSize?: number; bold?: boolean; indent?: number }): number;
   /** Paragraphenüberschrift. */
   ueberschrift(text: string, y: number): number;
+  /** Zweispaltige Betragstabelle: Bezeichnung links, Betrag rechtsbündig. */
+  betragstabelle(zeilen: TabellenZeile[], y: number): number;
   /** Setzt „Seite X von Y" auf alle Seiten. Am Ende aufrufen. */
   seitenzahlenSetzen(): void;
 }
@@ -274,6 +292,44 @@ export function createLayout(doc: jsPDF, opts: LayoutOptions = {}): Layout {
     return y + 5.5;
   }
 
+  /**
+   * Beträge stehen rechtsbündig an derselben Kante, damit die Spalte beim
+   * Überfliegen eine Linie bildet. Lange Bezeichnungen werden umgebrochen,
+   * der Betrag steht dann auf der ersten Zeile.
+   */
+  function betragstabelle(zeilen: TabellenZeile[], y: number): number {
+    const rechteKante = PAGE_WIDTH - mr;
+    const textBreite = cw - 26;
+
+    for (const z of zeilen) {
+      const lines = doc.splitTextToSize(z.links, textBreite) as string[];
+      y = umbruchPruefen(y, lines.length * zeilenhoehe + (z.linieOben ? 3 : 0));
+
+      if (z.linieOben) {
+        doc.setDrawColor(90, 90, 90);
+        doc.setLineWidth(0.2);
+        doc.line(ml, y - 3.2, rechteKante, y - 3.2);
+      }
+
+      schriftSetzen(8.5, z.bold ?? false);
+      lines.forEach((line, i) => {
+        doc.text(line, ml, y + i * zeilenhoehe);
+      });
+      if (z.rechts) doc.text(z.rechts, rechteKante, y, { align: 'right' });
+
+      y += lines.length * zeilenhoehe;
+
+      if (z.doppelstrichUnten) {
+        doc.setDrawColor(60, 60, 60);
+        doc.setLineWidth(0.25);
+        doc.line(rechteKante - 32, y - 2.8, rechteKante, y - 2.8);
+        doc.line(rechteKante - 32, y - 1.8, rechteKante, y - 1.8);
+        y += 1.5;
+      }
+    }
+    return y;
+  }
+
   function seitenzahlenSetzen(): void {
     const gesamt = doc.getNumberOfPages();
     for (let i = 1; i <= gesamt; i++) {
@@ -285,5 +341,7 @@ export function createLayout(doc: jsPDF, opts: LayoutOptions = {}): Layout {
     }
   }
 
-  return { ml, mr, cw, umbruchPruefen, blocksatz, absatz, ueberschrift, seitenzahlenSetzen };
+  return {
+    ml, mr, cw, umbruchPruefen, blocksatz, absatz, ueberschrift, betragstabelle, seitenzahlenSetzen,
+  };
 }

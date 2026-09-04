@@ -1315,6 +1315,7 @@ export type Database = {
           befristungsgrund_text: string | null
           besichtigt_am: string | null
           betriebskosten: number | null
+          betriebskosten_positionen: Json | null
           betriebskosten_modus: Database["public"]["Enums"]["betriebskosten_modus"]
           einheit_id: string
           ende_datum: string | null
@@ -1394,6 +1395,7 @@ export type Database = {
           befristungsgrund_text?: string | null
           besichtigt_am?: string | null
           betriebskosten?: number | null
+          betriebskosten_positionen?: Json | null
           betriebskosten_modus?: Database["public"]["Enums"]["betriebskosten_modus"]
           einheit_id: string
           ende_datum?: string | null
@@ -1473,6 +1475,7 @@ export type Database = {
           befristungsgrund_text?: string | null
           besichtigt_am?: string | null
           betriebskosten?: number | null
+          betriebskosten_positionen?: Json | null
           betriebskosten_modus?: Database["public"]["Enums"]["betriebskosten_modus"]
           einheit_id?: string
           ende_datum?: string | null

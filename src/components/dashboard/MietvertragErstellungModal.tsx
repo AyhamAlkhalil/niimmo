@@ -36,6 +36,7 @@ import { useMietvertragPdfDaten } from '@/hooks/useMietvertragPdfDaten';
 import { supabase } from '@/integrations/supabase/client';
 import { generateMietvertragPdf } from '@/utils/mietvertrag/mietvertragPdfGenerator';
 import { hatBlocker, pruefeVertragsdaten, type Befund } from '@/utils/mietvertrag/pflichtpruefung';
+import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
 import { AENDERUNGEN } from '@/utils/mietvertrag/wohnraumKlauseln';
 import {
   VORLAGE_VERSION,
@@ -61,6 +62,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [erzeugtVorschau, setErzeugtVorschau] = useState(false);
   const [speichert, setSpeichert] = useState(false);
+  const [zeigeVermieter, setZeigeVermieter] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -72,12 +74,41 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
     [entwurf]
   );
   const blockiert = hatBlocker(befunde);
+
+  // Kontrollzahl für den Betriebskosten-Editor: Die Spalte muss aufgehen,
+  // bevor ein PDF entsteht — pruefeVertragsdaten blockiert sonst.
+  const positionenSumme = useMemo(
+    () =>
+      (entwurf?.betriebskostenPositionen ?? [])
+        .filter(p => p.umgelegt && p.betrag !== null)
+        .reduce((s, p) => s + (p.betrag ?? 0), 0),
+    [entwurf?.betriebskostenPositionen]
+  );
+  const summeStimmt =
+    !entwurf ||
+    Math.round(positionenSumme * 100) === Math.round(entwurf.betriebskostenVorauszahlung * 100);
   const blocker = befunde.filter(f => f.schwere === 'blocker');
   const warnungen = befunde.filter(f => f.schwere === 'warnung');
 
   const aendere = useCallback(<K extends keyof MietvertragDaten>(feld: K, wert: MietvertragDaten[K]) => {
     setEntwurf(v => (v ? { ...v, [feld]: wert } : v));
   }, []);
+
+  const aenderePosition = useCallback(
+    (nummer: string, teil: Partial<MietvertragDaten['betriebskostenPositionen'][number]>) => {
+      setEntwurf(v =>
+        v
+          ? {
+              ...v,
+              betriebskostenPositionen: v.betriebskostenPositionen.map(p =>
+                p.nummer === nummer ? { ...p, ...teil } : p
+              ),
+            }
+          : v
+      );
+    },
+    []
+  );
 
   const aendereMieter = useCallback((index: number, teil: Partial<MietvertragDaten['mieter'][number]>) => {
     setEntwurf(v =>
@@ -133,6 +164,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
     entwurf?.anzahlPersonen,
     entwurf?.einheit,
     entwurf?.mieter,
+    entwurf?.betriebskostenPositionen,
   ]);
 
   useEffect(() => () => {
@@ -192,6 +224,16 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           vorlage_version: VORLAGE_VERSION,
           anzahl_personen: entwurf.anzahlPersonen || null,
           raumaufstellung: entwurf.einheit.raumaufstellung || null,
+          // Schnappschuss der Kostenaufstellung: Ein Nachdruck muss dieselbe
+          // Spalte ergeben, auch wenn die Kostenarten der Immobilie später
+          // geändert werden.
+          betriebskosten_positionen: entwurf.betriebskostenPositionen.map(pos => ({
+            nummer: pos.nummer,
+            bezeichnung: pos.bezeichnung,
+            schluessel: pos.schluessel,
+            umgelegt: pos.umgelegt,
+            betrag: pos.betrag,
+          })),
         })
         .eq('id', vertragId);
       if (updateError) throw updateError;
@@ -279,6 +321,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
   }
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-[95vw] h-[92vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 py-4 border-b">
@@ -331,6 +374,16 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
                         </li>
                       ))}
                     </ul>
+                    {blocker.some(f => f.feld.startsWith('vermieter')) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => setZeigeVermieter(true)}
+                      >
+                        Vermieter-Stammdaten öffnen
+                      </Button>
+                    )}
                   </AlertDescription>
                 </Alert>
               )}
@@ -426,6 +479,78 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
                   </p>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Betriebskosten: Aufstellung wie in § 4 der Hausvorlage */}
+              {entwurf.betriebskostenModus !== 'inklusiv' && (
+                <div className="space-y-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <Label className="text-sm font-semibold">
+                      Betriebskosten — Aufstellung für § 4
+                    </Label>
+                    <span
+                      className={
+                        summeStimmt
+                          ? 'text-xs text-muted-foreground'
+                          : 'text-xs font-medium text-destructive'
+                      }
+                    >
+                      {positionenSumme.toLocaleString('de-DE', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      von{' '}
+                      {entwurf.betriebskostenVorauszahlung.toLocaleString('de-DE', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      €
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Nur angehakte Positionen werden umgelegt. Nicht benannte Kosten sind nach
+                    § 556 Abs. 1 BGB nicht umlagefähig. Die Einzelbeträge müssen die vereinbarte
+                    Vorauszahlung ergeben.
+                  </p>
+                  <div className="max-h-72 space-y-1 overflow-y-auto rounded border p-2">
+                    {entwurf.betriebskostenPositionen.map(pos => (
+                      <div
+                        key={pos.nummer}
+                        className="grid grid-cols-[24px_1fr_88px] items-center gap-2"
+                      >
+                        <Checkbox
+                          checked={pos.umgelegt}
+                          onCheckedChange={c =>
+                            aenderePosition(pos.nummer, {
+                              umgelegt: c === true,
+                              betrag: c === true ? pos.betrag : null,
+                            })
+                          }
+                        />
+                        <span className="truncate text-xs" title={pos.bezeichnung}>
+                          <span className="text-muted-foreground">{pos.nummer}</span>{' '}
+                          {pos.bezeichnung}
+                        </span>
+                        <Input
+                          className="h-8 text-right text-xs"
+                          inputMode="decimal"
+                          placeholder="—"
+                          disabled={!pos.umgelegt}
+                          value={pos.betrag === null ? '' : String(pos.betrag).replace('.', ',')}
+                          onChange={e => {
+                            const roh = e.target.value.replace(',', '.').trim();
+                            const zahl = roh === '' ? null : Number(roh);
+                            aenderePosition(pos.nummer, {
+                              betrag: zahl !== null && Number.isFinite(zahl) ? zahl : null,
+                            });
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Separator />
 
@@ -718,6 +843,16 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
         )}
       </DialogContent>
     </Dialog>
+
+      {/* Bewusst neben dem Vertragsdialog, nicht darin: Radix soll zwei
+          eigenständige Ebenen verwalten, sonst schließt das Speichern der
+          Stammdaten auch den Vertrag. */}
+      <VermieterStammdatenDialog
+        isOpen={zeigeVermieter}
+        onClose={() => setZeigeVermieter(false)}
+        onGespeichert={() => setZeigeVermieter(false)}
+      />
+    </>
   );
 }
 

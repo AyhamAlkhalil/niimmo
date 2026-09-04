@@ -24,12 +24,13 @@ import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung"
 import { AufgabenBoard } from "@/components/aufgaben/AufgabenBoard";
 import { BenachrichtigungsGlocke } from "@/components/aufgaben/BenachrichtigungsGlocke";
 import { NeuerMietvertragDialog } from "@/components/dashboard/NeuerMietvertragDialog";
+import VermieterStammdatenDialog from "@/components/dashboard/VermieterStammdatenDialog";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
 import { useState, useMemo, useCallback } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks } from "lucide-react";
+import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Building } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
@@ -74,6 +75,7 @@ const Index = () => {
   const [showAgentLogs, setShowAgentLogs] = useState<boolean>(false);
   const [showBlacklist, setShowBlacklist] = useState<boolean>(false);
   const [showNeuerMietvertrag, setShowNeuerMietvertrag] = useState<boolean>(false);
+  const [showVermieter, setShowVermieter] = useState<boolean>(false);
   const [rueckstaendeOpen, setRueckstaendeOpen] = useState<boolean>(false);
   const [rentIncreaseOpen, setRentIncreaseOpen] = useState<boolean>(false);
   const [listSource, setListSource] = useState<'rueckstaende' | 'rentincrease' | null>(null);
@@ -425,6 +427,15 @@ const Index = () => {
                     <FilePlus2 className="h-4 w-4 mr-1.5 shrink-0" />
                     <span className="truncate">Neuer Mietvertrag</span>
                   </Button>
+                  <Button
+                    onClick={() => setShowVermieter(true)}
+                    variant="ghost"
+                    size="sm"
+                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
+                  >
+                    <Building className="h-4 w-4 mr-1.5 shrink-0" />
+                    <span className="truncate">Vermieter</span>
+                  </Button>
                   <Button 
                     onClick={() => setShowControlboard(true)} 
                     variant="ghost"
@@ -596,6 +607,11 @@ const Index = () => {
             </div>
           </div>}
       </div>
+
+      <VermieterStammdatenDialog
+        isOpen={showVermieter}
+        onClose={() => setShowVermieter(false)}
+      />
 
       <NeuerMietvertragDialog
         isOpen={showNeuerMietvertrag}

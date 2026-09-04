@@ -37,6 +37,43 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.3.0",
+    datum: "2026-09-04",
+    schwerpunkt: "Mietvertrag: Betriebskosten im Vertrag ausweisen",
+    aenderungen: [
+      {
+        art: "neu",
+        titel: "Der Mietvertrag zeigt die Betriebskosten jetzt einzeln mit Betrag",
+        detail:
+          "Im Vertrag steht eine Aufstellung mit einem Betrag je Kostenart, darunter die Summe der Vorauszahlung und die Summe der monatlichen Zahlungen. Vorher war nur der Gesamtbetrag genannt; wofür er erhoben wird, ging aus dem Vertrag nicht hervor. Die Beträge werden beim Anlegen des Vertrags erfasst und dort gespeichert, sodass ein Nachdruck später denselben Vertrag ergibt.",
+      },
+      {
+        art: "neu",
+        titel: "Vermieterdaten lassen sich selbst pflegen",
+        detail:
+          "Über \"Vermieter\" im Kopfbereich sind Firmierung, Vertretung, Anschrift, Handelsregister und Bankverbindung der vermietenden Gesellschaften einzusehen und zu ändern. Das ging bisher gar nicht. Bei der NiImmo Wohnungsbaugesellschaft mbH fehlte deshalb die Bankverbindung — ohne Mietkonto lässt sich kein Vertrag erzeugen. Die IBAN wird beim Eintippen auf ihre Prüfziffer geprüft.",
+      },
+      {
+        art: "verbessert",
+        titel: "Vertragsaufbau folgt der Hausvorlage bis 2.19",
+        detail:
+          "Die Kostenarten sind jetzt wie in der gewohnten Word-Vorlage bis 2.19 durchnummeriert, einschließlich Rauchwarnmelder und Abgasmessung. Außerdem umfasst der Abschnitt über besondere Einrichtungen wieder Fahrstuhl und Gemeinschaftsempfangsanlage — Kosten dafür dürfen nur umgelegt werden, wenn der Vertrag die Einrichtung auch regelt.",
+      },
+      {
+        art: "behoben",
+        titel: "Bei nur einem Mieter fehlte im Vertrag ein Paragraph",
+        detail:
+          "Der Vertrag sprang von § 22 auf § 24 und sah aus, als fehle eine Seite. Die Zählung ist jetzt lückenlos; der Abschnitt regelt zusätzlich, wer beim Tod des Mieters in das Mietverhältnis eintritt.",
+      },
+      {
+        art: "behoben",
+        titel: "Widersprüchliche Betriebskosten werden nicht mehr gedruckt",
+        detail:
+          "Ergeben die Einzelbeträge eine andere Summe als die vereinbarte Vorauszahlung, wird kein Vertrag erzeugt und der Unterschied angezeigt. Ein Vertrag mit zwei Beträgen für dieselbe Sache müsste im Streitfall ein Gericht auflösen.",
+      },
+    ],
+  },
+  {
     version: "1.2.0",
     datum: "2026-09-03",
     schwerpunkt: "Zugang für die Buchhaltung",

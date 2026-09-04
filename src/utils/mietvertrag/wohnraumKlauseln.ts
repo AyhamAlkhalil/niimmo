@@ -11,7 +11,13 @@
  * WICHTIG: Dieser Text ist nicht anwaltlich geprüft. Vor dem ersten
  * Produktiveinsatz muss NiImmo ihn freigeben lassen.
  */
-import { formatDatum, formatEur, formatIban, betragInWorten } from '../pdf/briefLayout';
+import {
+  formatDatum,
+  formatEur,
+  formatIban,
+  betragInWorten,
+  type TabellenZeile,
+} from '../pdf/briefLayout';
 import type { MietvertragDaten } from './typen';
 
 export interface Absatz {
@@ -21,6 +27,12 @@ export interface Absatz {
   bold?: boolean;
   /** Ohne Blocksatz rendern, z. B. für Aufzählungen und Beträge. */
   linksbuendig?: boolean;
+  /**
+   * Betragstabelle statt Fließtext. Die Kostenaufstellung des § 4 ist der
+   * Teil, den Mieter und Buchhaltung tatsächlich lesen — sie gehört in eine
+   * Spalte, nicht in einen Satz.
+   */
+  tabelle?: TabellenZeile[];
 }
 
 export interface Paragraph {
@@ -267,11 +279,14 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     ],
   });
 
-  // ─── § 4 Mietzins und Betriebskosten ───────────────────────────────────
-  const gesamt =
-    d.kaltmiete +
-    (d.betriebskostenModus === 'inklusiv' ? 0 : d.betriebskostenVorauszahlung) +
-    (d.heizkostenVorauszahlung ?? 0);
+  // ─── § 4 Mietzins, Betriebskosten und weitere Nebenkosten ──────────────
+  // Die Hausvorlage führt die Betriebskosten als Aufstellung mit Eurospalte
+  // und Summenzeile. Genau diese Spalte prüfen Mieter und Buchhaltung —
+  // deshalb steht sie hier als Tabelle und nicht als Aufzählung im Fließtext.
+  const betriebskosten =
+    d.betriebskostenModus === 'inklusiv' ? 0 : d.betriebskostenVorauszahlung;
+  const heizkosten = d.heizkostenVorauszahlung ?? 0;
+  const gesamt = d.kaltmiete + betriebskosten + heizkosten;
 
   const p4: Absatz[] = [
     {
@@ -287,52 +302,86 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       text: 'Mit der Miete nach Ziffer 1 sind sämtliche Betriebskosten abgegolten. Eine gesonderte Umlage findet nicht statt.',
     });
   } else {
-    const modusWort = d.betriebskostenModus === 'pauschale' ? 'Betriebskostenpauschale' : 'Vorauszahlung auf die Betriebskosten';
+    const modusWort =
+      d.betriebskostenModus === 'pauschale'
+        ? 'Betriebskostenpauschale'
+        : 'Vorauszahlung auf die Betriebskosten';
+
     p4.push({
       nummer: '2.',
-      text: `Neben der Miete trägt der Mieter die nachstehend im Einzelnen benannten Betriebskosten im Sinne des § 556 Abs. 1 BGB in Verbindung mit § 2 der Betriebskostenverordnung. Hierauf leistet er eine monatliche ${modusWort} von ${formatEur(d.betriebskostenVorauszahlung)}.`,
+      text: `Neben der Miete trägt der Mieter die nachstehend im Einzelnen benannten Betriebskosten im Sinne des § 556 Abs. 1 BGB in Verbindung mit § 2 der Betriebskostenverordnung. Hierauf leistet er eine monatliche ${modusWort}. Kosten, die hier nicht benannt sind, werden nicht umgelegt.`,
     });
 
-    const umgelegte = d.betriebskostenPositionen.filter(x => x.umgelegt);
+    p4.push({ text: '', tabelle: betriebskostenTabelle(d, betriebskosten) });
+
     p4.push({
-      text: 'Umgelegt werden folgende Betriebskosten:',
+      text: 'Positionen ohne Betrag sind benannt, aber derzeit nicht Gegenstand der Umlage. Für die Verteilung gilt:',
       linksbuendig: true,
     });
-    for (const pos of umgelegte) {
-      p4.push({
-        text: `${pos.nummer}  ${pos.bezeichnung} — Verteilung nach ${schluesselLabel(pos.schluessel)}`,
-        linksbuendig: true,
-      });
-    }
-
-    if (d.heizkostenVorauszahlung !== null && d.heizkostenVorauszahlung > 0) {
-      p4.push({
-        nummer: '3.',
-        text: `Auf die Kosten der Versorgung mit Wärme und Warmwasser leistet der Mieter eine gesonderte monatliche Vorauszahlung von ${formatEur(d.heizkostenVorauszahlung)}. Diese Kosten werden ausschließlich nach den Bestimmungen der Heizkostenverordnung abgerechnet; der verbrauchsabhängige Anteil beträgt ${d.objekt.heizkostenSchluessel.split('/')[0]} %, der übrige Anteil wird nach der Wohnfläche verteilt.`,
-      });
-    } else if (d.objekt.heizungsart === 'etage') {
-      p4.push({
-        nummer: '3.',
-        text: 'Die Wohnung wird über eine vom Mieter selbst betriebene Etagenheizung mit eigenem Versorgungsvertrag beheizt. Eine Umlage von Heiz- und Warmwasserkosten findet nicht statt; der Mieter trägt die Kosten der jährlichen Wartung als Betriebskosten.',
-      });
+    for (const zeile of verteilerschluesselZeilen(d)) {
+      p4.push({ text: zeile, linksbuendig: true });
     }
 
     p4.push({
-      text: `Abrechnungszeitraum ist ${d.abrechnungszeitraum}. Über die Vorauszahlungen wird jährlich abgerechnet; die Abrechnung ist dem Mieter spätestens zwölf Monate nach Ende des Abrechnungszeitraums mitzuteilen (§ 556 Abs. 3 BGB). Der Mieter kann die Abrechnungsunterlagen nach Terminvereinbarung einsehen.`,
-    });
-
-    p4.push({
-      text: 'Auf die Kosten der Versorgung mit Wärme und Warmwasser wird der auf den Vermieter entfallende Anteil der Kohlendioxidkosten nach dem Kohlendioxidkostenaufteilungsgesetz angerechnet.',
+      text: `Abrechnungszeitraum ist ${d.abrechnungszeitraum.replace(/\.$/, '')}. Über die Vorauszahlungen wird jährlich abgerechnet; die Abrechnung ist dem Mieter spätestens zwölf Monate nach Ende des Abrechnungszeitraums mitzuteilen (§ 556 Abs. 3 BGB). Der Mieter kann die Abrechnungsunterlagen nach Terminvereinbarung einsehen. Die Anlage „Betriebskostenverordnung“ ist Bestandteil dieses Vertrages.`,
     });
   }
 
-  p4.push({
-    nummer: d.betriebskostenModus === 'inklusiv' ? '3.' : '4.',
-    text: `Die monatliche Gesamtzahlung beträgt derzeit ${formatEur(gesamt)}. Sie ist zu zahlen auf das Konto ${formatIban(d.vermieter.mietIban)}${d.vermieter.mietBic ? `, BIC ${d.vermieter.mietBic}` : ''}, Kontoinhaber ${d.vermieter.firmenname}. Als Verwendungszweck sind ${d.einheit.bezeichnung} und der Name des Mieters anzugeben.`,
-    linksbuendig: true,
+  if (heizkosten > 0) {
+    p4.push({
+      nummer: '3.',
+      text: `Auf die Kosten der Versorgung mit Wärme und Warmwasser leistet der Mieter eine gesonderte monatliche Vorauszahlung von ${formatEur(heizkosten)}. Diese Kosten werden ausschließlich nach den Bestimmungen der Heizkostenverordnung abgerechnet; der verbrauchsabhängige Anteil beträgt ${d.objekt.heizkostenSchluessel.split('/')[0]} %, der übrige Anteil wird nach der Wohnfläche verteilt. Auf die Kosten der Versorgung mit Wärme und Warmwasser wird der auf den Vermieter entfallende Anteil der Kohlendioxidkosten nach dem Kohlendioxidkostenaufteilungsgesetz angerechnet.`,
+    });
+  } else if (d.objekt.heizungsart === 'etage') {
+    p4.push({
+      nummer: '3.',
+      text: 'Die Wohnung wird über eine vom Mieter selbst betriebene Etagenheizung mit eigenem Versorgungsvertrag beheizt. Eine Umlage von Heiz- und Warmwasserkosten findet nicht statt; der Mieter trägt die Kosten der jährlichen Wartung als Betriebskosten.',
+    });
+  }
+
+  // Zahlbetrag: Was der Mieter jeden Monat überweist, in einer Spalte.
+  const summenZeilen: TabellenZeile[] = [
+    { links: 'Nettokaltmiete', rechts: formatEur(d.kaltmiete) },
+  ];
+  if (d.betriebskostenModus !== 'inklusiv') {
+    summenZeilen.push({
+      links:
+        d.betriebskostenModus === 'pauschale'
+          ? 'Betriebskostenpauschale'
+          : 'Vorauszahlung auf die Betriebskosten',
+      rechts: formatEur(betriebskosten),
+    });
+  }
+  if (heizkosten > 0) {
+    summenZeilen.push({
+      links: 'Vorauszahlung auf Heiz- und Warmwasserkosten',
+      rechts: formatEur(heizkosten),
+    });
+  }
+  summenZeilen.push({
+    links: 'Summe der monatlichen Zahlungen',
+    rechts: formatEur(gesamt),
+    bold: true,
+    linieOben: true,
+    doppelstrichUnten: true,
   });
 
-  p.push({ nummer: '§ 4', titel: 'Miete und Betriebskosten', absaetze: p4 });
+  p4.push({
+    nummer: heizkosten > 0 || d.objekt.heizungsart === 'etage' ? '4.' : '3.',
+    text: 'Der Mieter zahlt monatlich:',
+    linksbuendig: true,
+  });
+  p4.push({ text: '', tabelle: summenZeilen });
+
+  p4.push({
+    text: `Die Zahlung erfolgt auf das Konto ${formatIban(d.vermieter.mietIban)}${d.vermieter.mietBic ? `, BIC ${d.vermieter.mietBic}` : ''}, Kontoinhaber ${d.vermieter.firmenname}. Als Verwendungszweck sind ${d.einheit.bezeichnung} und der Name des Mieters anzugeben.`,
+  });
+
+  p.push({
+    nummer: '§ 4',
+    titel: 'Mietzins, Betriebskosten und weitere Nebenkosten',
+    absaetze: p4,
+  });
 
   // ─── § 5 Änderung der Miete ────────────────────────────────────────────
   p.push({ nummer: '§ 5', titel: 'Änderung der Miete', absaetze: mietanpassungAbsaetze(d) });
@@ -650,36 +699,52 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     ],
   });
 
-  // ─── § 23 Personenmehrheit ─────────────────────────────────────────────
+  // ─── § 23 Personenmehrheit und Eintritt ────────────────────────────────
+  // Bewusst ohne Bedingung: Fiele der Paragraph bei nur einem Mieter weg,
+  // sprünge die Nummerierung von § 22 auf § 24 und der Vertrag sähe aus,
+  // als fehle eine Seite. Die Eintrittsregeln der §§ 563, 563a BGB gelten
+  // ohnehin unabhängig von der Zahl der Mieter.
+  const p23: Absatz[] = [];
   if (d.mieter.length > 1) {
-    p.push({
-      nummer: '§ 23',
-      titel: 'Mehrere Mieter',
-      absaetze: [
-        {
-          nummer: '1.',
-          text: 'Alle als Mieter benannten Personen haften für die Verpflichtungen aus diesem Vertrag als Gesamtschuldner.',
-        },
-        {
-          nummer: '2.',
-          text: 'Die Mieter bevollmächtigen sich gegenseitig zur Entgegennahme von Erklärungen des Vermieters, die das Mietverhältnis betreffen. Ausgenommen sind Kündigungen, Mieterhöhungsverlangen und Abmahnungen; diese sind gegenüber jedem Mieter gesondert zu erklären. Die Vollmacht kann jederzeit in Textform widerrufen werden; der Widerruf wirkt für Erklärungen, die nach seinem Zugang abgegeben werden.',
-        },
-        {
-          nummer: '3.',
-          text: 'Eine Kündigung des Mietverhältnisses muss von allen Mietern gemeinsam erklärt und gegenüber allen Mietern ausgesprochen werden.',
-        },
-      ],
-    });
+    p23.push(
+      {
+        nummer: `${p23.length + 1}.`,
+        text: 'Alle als Mieter benannten Personen haften für die Verpflichtungen aus diesem Vertrag als Gesamtschuldner.',
+      },
+      {
+        nummer: `${p23.length + 2}.`,
+        text: 'Jeder Mieter bevollmächtigt die übrigen Mieter, Erklärungen des Vermieters entgegenzunehmen. Die Vollmacht kann jederzeit durch schriftliche Erklärung gegenüber dem Vermieter widerrufen werden.',
+      },
+      {
+        nummer: `${p23.length + 3}.`,
+        text: 'Eine Kündigung des Mietverhältnisses muss von allen Mietern gemeinsam erklärt und gegenüber allen Mietern ausgesprochen werden.',
+      }
+    );
   }
+  p23.push({
+    nummer: `${p23.length + 1}.`,
+    text: 'Stirbt ein Mieter, treten die in §§ 563, 563a BGB benannten Personen an seiner Stelle oder gemeinsam mit den übrigen Mietern in das Mietverhältnis ein. Das gesetzliche Sonderkündigungsrecht der eintretenden Personen und des Vermieters bleibt unberührt.',
+  });
+  p23.push({
+    nummer: `${p23.length + 1}.`,
+    text: 'Ein Wechsel in der Person des Mieters im Übrigen bedarf einer schriftlichen Vereinbarung aller Beteiligten.',
+  });
+  p.push({
+    nummer: '§ 23',
+    titel: 'Mehrere Mieter, Eintritt in das Mietverhältnis',
+    absaetze: p23,
+  });
 
   // ─── § 24 Besondere Einrichtungen ──────────────────────────────────────
-  if (d.objekt.heizungsart !== 'keine') {
-    p.push({
-      nummer: '§ 24',
-      titel: 'Heizung und Warmwasser',
-      absaetze: heizungAbsaetze(d),
-    });
-  }
+  // Umfasst wie die Hausvorlage Heizung, Warmwasser, Fahrstuhl und
+  // Gemeinschaftsempfangsanlage. Aufzugs- und Antennenkosten (2.7 und 2.15)
+  // dürfen nur umgelegt werden, wenn der Vertrag die Einrichtung auch regelt —
+  // ohne diesen Abschnitt stünde ein Kostenposten ohne Grundlage da.
+  p.push({
+    nummer: '§ 24',
+    titel: 'Vereinbarungen über besondere Einrichtungen',
+    absaetze: besondereEinrichtungenAbsaetze(d),
+  });
 
   // ─── § 25 Zustand bei Übergabe ─────────────────────────────────────────
   p.push({
@@ -761,6 +826,75 @@ function befristungsgrundText(d: MietvertragDaten): string {
         ? 'Der Vermieter will die Räume nach Ablauf der Mietzeit beseitigen, wesentlich verändern oder instand setzen; die Maßnahmen würden durch eine Fortsetzung erheblich erschwert (§ 575 Abs. 1 Nr. 2 BGB)'
         : 'Der Vermieter will die Räume nach Ablauf der Mietzeit an einen zur Dienstleistung Verpflichteten vermieten (§ 575 Abs. 1 Nr. 3 BGB)';
   return d.befristungsgrundText?.trim() ? `${basis} — ${d.befristungsgrundText.trim()}` : basis;
+}
+
+/** Betrag ohne Währungszeichen — die Tabellenüberschrift nennt die Einheit. */
+function betragSpalte(v: number | null): string {
+  if (v === null) return '';
+  return v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Kostenaufstellung des § 4 wie in der Hausvorlage: alle benannten Positionen
+ * mit ihrem monatlichen Anteil, darunter die Summe.
+ *
+ * Nicht umgelegte Positionen bleiben mit leerer Betragsspalte stehen, statt
+ * aus der Liste zu verschwinden. Nur so ist im Vertrag belegt, dass über sie
+ * gesprochen wurde und der Mieter sie nicht schuldet — verschwiegene
+ * Positionen ließen später offen, ob sie nur vergessen wurden.
+ */
+function betriebskostenTabelle(
+  d: MietvertragDaten,
+  vorauszahlung: number
+): TabellenZeile[] {
+  const zeilen: TabellenZeile[] = [
+    { links: 'Umlagefähige Betriebskosten', rechts: 'EUR monatlich', bold: true },
+  ];
+
+  for (const pos of d.betriebskostenPositionen) {
+    zeilen.push({
+      links: `${pos.nummer}  ${pos.bezeichnung}`,
+      rechts: pos.umgelegt ? betragSpalte(pos.betrag) : '– – –',
+    });
+  }
+
+  zeilen.push({
+    links:
+      d.betriebskostenModus === 'pauschale'
+        ? 'Betriebskostenpauschale'
+        : 'Summe der monatlichen Vorauszahlung',
+    rechts: betragSpalte(vorauszahlung),
+    bold: true,
+    linieOben: true,
+  });
+
+  return zeilen;
+}
+
+/**
+ * Verteilerschlüssel gebündelt statt hinter jeder Zeile — so steht jeder
+ * Schlüssel einmal da und die Kostenspalte bleibt lesbar. Reihenfolge der
+ * Hausvorlage: Verbrauch, direkt zugeordnet, Fläche, nutzerbezogen.
+ */
+function verteilerschluesselZeilen(d: MietvertragDaten): string[] {
+  const reihenfolge = ['verbrauch', 'einheit', 'gleich', 'qm', 'personen', 'nutzer', 'individuell'];
+  const gruppen = new Map<string, string[]>();
+
+  for (const pos of d.betriebskostenPositionen) {
+    if (!pos.umgelegt) continue;
+    const label = schluesselLabel(pos.schluessel);
+    const bisher = gruppen.get(label) ?? [];
+    bisher.push(pos.nummer);
+    gruppen.set(label, bisher);
+  }
+
+  const sortiert = [...gruppen.entries()].sort((a, b) => {
+    const ia = reihenfolge.findIndex(k => schluesselLabel(k) === a[0]);
+    const ib = reihenfolge.findIndex(k => schluesselLabel(k) === b[0]);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+  });
+
+  return sortiert.map(([label, nummern]) => `${nummern.join(', ')} — Verteilung nach ${label}`);
 }
 
 function schluesselLabel(s: string): string {
@@ -920,6 +1054,47 @@ function schoenheitsreparaturAbsaetze(d: MietvertragDaten): Absatz[] {
       text: 'Bei Beendigung des Mietverhältnisses schuldet der Mieter Schönheitsreparaturen nur, soweit sie nach dem tatsächlichen Erhaltungszustand erforderlich sind. Eine Verpflichtung zur Zahlung anteiliger Kosten für noch nicht fällige Schönheitsreparaturen besteht nicht. Veränderungen und Verschlechterungen durch den vertragsgemäßen Gebrauch hat der Mieter nicht zu vertreten (§ 538 BGB).',
     },
   ];
+}
+
+/**
+ * § 24 der Hausvorlage: Heizung, Warmwasser, Fahrstuhl, Empfangsanlage.
+ *
+ * Die Abschnitte erscheinen nur, wenn die Einrichtung im Vertrag auch eine
+ * Rolle spielt — der Fahrstuhl also, wenn Position 2.7 umgelegt wird, die
+ * Empfangsanlage bei 2.15. Ist nichts davon vorhanden, sagt der Paragraph
+ * genau das, statt zu verschwinden und eine Lücke in der Zählung zu lassen.
+ */
+function besondereEinrichtungenAbsaetze(d: MietvertragDaten): Absatz[] {
+  const a: Absatz[] = [];
+  const umgelegt = (nummer: string) =>
+    d.betriebskostenPositionen.some(p => p.nummer === nummer && p.umgelegt);
+
+  if (d.objekt.heizungsart !== 'keine') {
+    a.push({ text: 'I. Heizung und Warmwasser', bold: true, linksbuendig: true });
+    a.push(...heizungAbsaetze(d));
+  }
+
+  if (umgelegt('2.7')) {
+    a.push({ text: 'II. Fahrstuhl', bold: true, linksbuendig: true });
+    a.push({
+      text: 'Der Mieter und seine Besucher dürfen den vorhandenen Fahrstuhl nach Maßgabe der Betriebsvorschriften und der Hausordnung benutzen. Die Betriebskosten trägt der Mieter nach dem in § 4 vereinbarten Schlüssel. Bei einer Störung, die der Vermieter nicht zu vertreten hat, bleiben die gesetzlichen Rechte des Mieters unberührt.',
+    });
+  }
+
+  if (umgelegt('2.15')) {
+    a.push({ text: `${umgelegt('2.7') ? 'III' : 'II'}. Rundfunk- und Fernsehempfang`, bold: true, linksbuendig: true });
+    a.push({
+      text: 'Der Mieter darf die bauseits vorhandene Gemeinschaftsempfangsanlage nutzen. Die Betriebskosten trägt er nach dem in § 4 vereinbarten Schlüssel. Die Errichtung einer Gemeinschaftsanlage hat der Mieter nach § 555d BGB zu dulden; Ersatz für eine selbst installierte Anlage kann er nicht verlangen. Entfällt die Nutzungsmöglichkeit aus einem Grund, den der Vermieter nicht zu vertreten hat, bleiben die gesetzlichen Rechte des Mieters unberührt.',
+    });
+  }
+
+  if (a.length === 0) {
+    a.push({
+      text: 'Besondere Einrichtungen im Sinne dieses Paragraphen — zentrale Heizungs- oder Warmwasseranlage, Fahrstuhl, Gemeinschaftsempfangsanlage — sind nicht Gegenstand dieses Mietverhältnisses.',
+    });
+  }
+
+  return a;
 }
 
 function heizungAbsaetze(d: MietvertragDaten): Absatz[] {

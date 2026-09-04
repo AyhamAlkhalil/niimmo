@@ -38,6 +38,25 @@ async function bytesVon(blob: Blob): Promise<Uint8Array> {
  * Der Text lässt sich deshalb direkt aus dem PDF lesen — dasselbe Vorgehen wie
  * in uebergabePdfGenerator.test.ts.
  */
+/**
+ * jsPDF schreibt die Standardschriften in WinAnsiEncoding. Die Plätze 0x80
+ * bis 0x9F weichen dort von latin1 ab — dort liegen unter anderem €, die
+ * Gedankenstriche und die deutschen Anführungszeichen. Ohne diese Umsetzung
+ * fielen genau die Zeichen aus der Prüfung heraus, bei denen ein Fehler am
+ * ehesten unbemerkt bliebe.
+ */
+const WINANSI_HOCH: Record<number, string> = {
+  0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡',
+  0x88: 'ˆ', 0x89: '‰', 0x8a: 'Š', 0x8b: '‹', 0x8c: 'Œ', 0x8e: 'Ž',
+  0x91: '\u2018', 0x92: '\u2019', 0x93: '“', 0x94: '”', 0x95: '•',
+  0x96: '–', 0x97: '—', 0x98: '˜', 0x99: '™', 0x9a: 'š', 0x9b: '›',
+  0x9c: 'œ', 0x9e: 'ž', 0x9f: 'Ÿ',
+};
+
+function ausWinAnsi(s: string): string {
+  return s.replace(/[\u0080-\u009f]/g, z => WINANSI_HOCH[z.charCodeAt(0)] ?? z);
+}
+
 function textAusPdf(bytes: Uint8Array): string {
   const roh = Buffer.from(bytes).toString('latin1');
   const stuecke: string[] = [];
@@ -51,7 +70,7 @@ function textAusPdf(bytes: Uint8Array): string {
         .replace(/\\([()\\])/g, '$1')
     );
   }
-  return stuecke.join(' ');
+  return ausWinAnsi(stuecke.join(' '));
 }
 
 function seitenzahl(bytes: Uint8Array): number {
@@ -155,12 +174,12 @@ const WOHNRAUM: MietvertragDaten = {
   betriebskostenVorauszahlung: 90,
   heizkostenVorauszahlung: 60,
   betriebskostenPositionen: [
-    { nummer: '2.1', bezeichnung: 'Grundsteuer', umgelegt: true, schluessel: 'qm' },
-    { nummer: '2.2', bezeichnung: 'Kosten der Wasserversorgung', umgelegt: true, schluessel: 'verbrauch' },
-    { nummer: '2.8', bezeichnung: 'Strassenreinigung und Muellbeseitigung', umgelegt: true, schluessel: 'qm' },
-    { nummer: '2.10', bezeichnung: 'Gartenpflege', umgelegt: true, schluessel: 'qm' },
-    { nummer: '2.13', bezeichnung: 'Sach- und Haftpflichtversicherung', umgelegt: true, schluessel: 'qm' },
-    { nummer: '2.7', bezeichnung: 'Aufzug', umgelegt: false, schluessel: 'qm' },
+    { nummer: '2.1', bezeichnung: 'Grundsteuer', umgelegt: true, schluessel: 'qm', betrag: null },
+    { nummer: '2.2', bezeichnung: 'Kosten der Wasserversorgung', umgelegt: true, schluessel: 'verbrauch', betrag: null },
+    { nummer: '2.8', bezeichnung: 'Strassenreinigung und Muellbeseitigung', umgelegt: true, schluessel: 'qm', betrag: null },
+    { nummer: '2.10', bezeichnung: 'Gartenpflege', umgelegt: true, schluessel: 'qm', betrag: null },
+    { nummer: '2.13', bezeichnung: 'Sach- und Haftpflichtversicherung', umgelegt: true, schluessel: 'qm', betrag: null },
+    { nummer: '2.7', bezeichnung: 'Aufzug', umgelegt: false, schluessel: 'qm', betrag: null },
   ],
   abrechnungszeitraum: 'das Kalenderjahr',
   kautionBetrag: 1287,

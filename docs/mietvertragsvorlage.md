@@ -75,6 +75,37 @@ was nicht erfasst ist. Blockierend sind unter anderem:
 - Staffelstufen mit weniger als zwölf Monaten Abstand (§ 557a Abs. 2 BGB)
 - Objekt in einem Gebiet mit angespanntem Wohnungsmarkt, ohne dokumentierte Auskunft nach § 556g Abs. 1a BGB
 - Fehlende Mieteranschrift, Objektadresse, Wohnfläche, Raumaufstellung oder Einheitenbezeichnung
+- Kein Mietkonto beim Vermieter hinterlegt
+- **Die Einzelbeträge der Betriebskosten ergeben eine andere Summe als die vereinbarte
+  Vorauszahlung.** Ein Vertrag mit zwei Beträgen für dieselbe Sache müsste im Streitfall
+  ein Gericht auflösen
+
+## Abgleich mit dem Vertrag vom 01.06.2025
+
+NiImmo hat den Mietvertrag vom 01.06.2025 (Liebigstraße 12, Langenhagen, WE7)
+als Maßstab benannt. Er ist als Prüfstein hinterlegt
+(`src/utils/mietvertrag/hausvorlage.test.ts`): Der Test erzeugt den Vertrag aus
+den echten Angaben und prüft, dass jeder Wert der Vorlage darin vorkommt,
+dass die Kostenspalte aufgeht und die Paragraphenfolge lückenlos ist.
+
+Der Abgleich hat drei Lücken im Generator aufgedeckt, die alle geschlossen sind:
+
+| Lücke | Wirkung | Behoben durch |
+|---|---|---|
+| **§ 4 hatte keine Kostenaufstellung.** Die Betriebskosten standen als Aufzählung ohne Beträge im Fließtext, nur die Gesamtsumme war genannt. | Der Vertrag konnte nicht zeigen, wofür die Vorauszahlung im Einzelnen erhoben wird. Genau diese Spalte prüfen Mieter und Buchhaltung. | Echte Tabelle mit Eurospalte, Zwischensumme und doppelt unterstrichener Endsumme. Neue Spalte `mietvertrag.betriebskosten_positionen` hält die Aufstellung als Schnappschuss fest. |
+| **17 statt 19 Kostenarten.** Die Hausvorlage nummeriert bis 2.19 und führt Rauchwarnmelder (2.17) und Abgasmessung (2.18) als eigene Zeilen. | Zwei im Haus übliche Positionen fehlten. Nicht benannte sonstige Betriebskosten sind nach § 556 Abs. 1 BGB nicht umlagefähig. | Katalog auf die Hausnummerierung umgestellt. |
+| **Lücke in der Paragraphenzählung.** § 23 erschien nur bei mehreren Mietern, § 24 nur bei vorhandener Heizung — bei einem einzelnen Mieter sprang der Vertrag von § 22 auf § 24. | Ein Vertrag mit fehlender Nummer sieht aus, als fehle eine Seite. | § 23 deckt jetzt zusätzlich den Eintritt nach §§ 563, 563a BGB und steht immer; § 24 umfasst wie die Hausvorlage auch Fahrstuhl und Gemeinschaftsempfangsanlage. |
+
+Beim Abgleich zusätzlich aufgefallen:
+
+- **Der Standardvermieter hatte keine Bankverbindung hinterlegt.** In der Tabelle
+  `vermieter` stand bei der NiImmo Wohnungsbaugesellschaft mbH weder ein Mietkonto
+  noch ein Kautionskonto — und es gab keine Maske, um das zu pflegen. Damit ließ sich
+  kein einziger Vertrag erzeugen. Es gibt jetzt einen Dialog „Vermieter" im Dashboard.
+  Welches Konto zu welcher Gesellschaft gehört, ist eine Entscheidung von NiImmo
+  (siehe offene Fragen).
+- **Die Mieteranschrift des zweiten Mieters ist in der Vorlage unvollständig**
+  („Burgkstraße 37 Dresden", ohne Postleitzahl). Der Generator blockiert das.
 
 ## Nebenbefund: Mietpreisbremse
 
@@ -138,6 +169,22 @@ Antworten ändern nur Werte, keinen Aufbau.
 10. **Gewerbe: Umsatzsteueroption.** Wird nach § 9 UStG optiert? Das setzt
     voraus, dass der Mieter die Fläche für vorsteuerabzugsberechtigende Umsätze
     nutzt.
+
+### Zusatzfrage: Welches Konto gehört zu welcher Gesellschaft?
+
+In den vorliegenden Verträgen tauchen drei Konten auf, ohne erkennbare Zuordnung
+zu einer Gesellschaft:
+
+| IBAN | Verwendung in den Bestandsverträgen |
+|---|---|
+| `DE89 2559 1413 3155 4105 01` | Mietkonto in acht Verträgen — sowohl der Wohnungsbaugesellschaft mbH (01.06.2025) als auch der Projektentwicklung & Bau GmbH (01.08.2023) |
+| `DE02 2559 1413 3155 4105 15` | Kautionskonto im Vertrag vom 01.06.2025 |
+| `DE59 2569 0009 1103 8616 01` | Mietkonto in vier Verträgen — Projektentwicklung & Bau GmbH und GmbH & Co. KG |
+| `DE89 2559 1413 3155 4105 00` | nur im Vertrag vom 01.01.2025, **Prüfziffer ungültig** |
+
+In der Datenbank steht `DE89 … 4105 01` derzeit als *Kautions*konto der
+Projektentwicklung & Bau GmbH — in den Verträgen wird es als *Miet*konto benutzt.
+Wir haben nichts eingetragen: Wohin Miete und Kaution fließen, entscheidet NiImmo.
 
 ## Nicht umgesetzt
 

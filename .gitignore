@@ -26,3 +26,9 @@ dist-ssr
 
 # Local Supabase CLI metadata
 supabase/.temp/
+
+# Echte Kundendokumente (Mietvertraege, Scans) liegen nur lokal — sie
+# enthalten Namen, Anschriften und Bankverbindungen von Mietern.
+*.docx
+*.doc
+.tmp/

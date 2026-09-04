@@ -201,6 +201,11 @@ function parteiZeilen(doc: jsPDF, m: MieterDaten, y: number): number {
 }
 
 function absatz(layout: ReturnType<typeof createLayout>, a: Absatz, y: number): number {
+  if (a.tabelle) {
+    // Beträge stehen in einer eigenen Spalte, nicht im Fließtext.
+    return layout.betragstabelle(a.tabelle, y + 1) + 3;
+  }
+
   if (!a.text.trim()) return y + 3;
   const text = a.nummer ? `${a.nummer}  ${a.text}` : a.text;
   y = a.linksbuendig ? layout.absatz(text, y) : layout.blocksatz(text, y);

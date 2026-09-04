@@ -140,6 +140,33 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       'Umzulegende Positionen auswählen — ohne Benennung sind sie nach § 556 Abs. 1 BGB nicht umlagefähig.'
     );
   }
+  // Die Kostenspalte muss aufgehen. Ein Vertrag, dessen Einzelbeträge eine
+  // andere Summe ergeben als die vereinbarte Vorauszahlung, ist in sich
+  // widersprüchlich — welcher der beiden Beträge gilt, müsste ein Gericht
+  // klären. Lieber kein PDF als eines mit zwei Wahrheiten.
+  if (d.betriebskostenModus !== 'inklusiv') {
+    const mitBetrag = d.betriebskostenPositionen.filter(p => p.umgelegt && p.betrag !== null);
+    if (mitBetrag.length > 0) {
+      const summe = mitBetrag.reduce((s, p) => s + (p.betrag ?? 0), 0);
+      // Centgenau vergleichen, Rundungsrauschen aus Gleitkomma ignorieren.
+      if (Math.round(summe * 100) !== Math.round(d.betriebskostenVorauszahlung * 100)) {
+        blocker(
+          'betriebskostenPositionen',
+          `Die Einzelbeträge der Betriebskosten ergeben ${summe.toFixed(2).replace('.', ',')} €, vereinbart sind aber ${d.betriebskostenVorauszahlung.toFixed(2).replace('.', ',')} €.`,
+          'Einzelbeträge oder Gesamtvorauszahlung angleichen.'
+        );
+      }
+      const ohneBetrag = d.betriebskostenPositionen.filter(p => p.umgelegt && p.betrag === null);
+      if (ohneBetrag.length > 0) {
+        warnung(
+          'betriebskostenPositionen',
+          `${ohneBetrag.length} umgelegte Position(en) haben keinen Betrag: ${ohneBetrag.map(p => p.nummer).join(', ')}.`,
+          'Betrag ergänzen oder Position von der Umlage ausnehmen.'
+        );
+      }
+    }
+  }
+
   if (d.betriebskostenPositionen.some(p => p.umgelegt && p.schluessel === 'personen') && !d.anzahlPersonen) {
     blocker(
       'anzahlPersonen',

@@ -16,25 +16,51 @@ import type {
 } from '@/utils/mietvertrag/typen';
 
 /** Die 17 Kategorien der BetrKV in der Reihenfolge des Gesetzes. */
+/**
+ * Kostenarten in der Nummerierung der NiImmo-Hausvorlage.
+ *
+ * Sie geht bis 2.19 und weicht damit bewusst von der BetrKV ab, die unter
+ * 2.17 nur „sonstige Betriebskosten" kennt: Rauchwarnmelder und Abgasmessung
+ * sind dort eigene Zeilen. Genau so muessen sie im Vertrag stehen — nicht
+ * benannte sonstige Betriebskosten sind nach § 556 Abs. 1 BGB nicht
+ * umlagefaehig, eine Sammelzeile „sonstige" traegt also nichts.
+ */
 const BETRKV_STANDARD: { nummer: string; bezeichnung: string; schluessel: string }[] = [
-  { nummer: '2.1', bezeichnung: 'Laufende öffentliche Lasten des Grundstücks (Grundsteuer)', schluessel: 'qm' },
+  { nummer: '2.1', bezeichnung: 'Laufende öffentliche Lasten des Grundstücks (Grundsteuer)', schluessel: 'einheit' },
   { nummer: '2.2', bezeichnung: 'Kosten der Wasserversorgung', schluessel: 'verbrauch' },
-  { nummer: '2.3', bezeichnung: 'Kosten der Entwässerung', schluessel: 'verbrauch' },
-  { nummer: '2.4', bezeichnung: 'Kosten des Betriebs der zentralen Heizungsanlage', schluessel: 'verbrauch' },
-  { nummer: '2.5', bezeichnung: 'Kosten des Betriebs der zentralen Warmwasserversorgung', schluessel: 'verbrauch' },
-  { nummer: '2.6', bezeichnung: 'Kosten verbundener Heizungs- und Warmwasserversorgungsanlagen', schluessel: 'verbrauch' },
+  { nummer: '2.3', bezeichnung: 'Kosten der Entwässerung', schluessel: 'qm' },
+  { nummer: '2.4', bezeichnung: 'Kosten des Betriebs und der Wartung der Heizungsanlage', schluessel: 'einheit' },
+  { nummer: '2.5', bezeichnung: 'Kosten des Betriebs und der Wartung der Warmwasserversorgung', schluessel: 'einheit' },
+  { nummer: '2.6', bezeichnung: 'Kosten verbundener Heizungs- und Warmwasserversorgungsanlagen', schluessel: 'einheit' },
   { nummer: '2.7', bezeichnung: 'Kosten des Betriebs des Personen- oder Lastenaufzugs', schluessel: 'qm' },
   { nummer: '2.8', bezeichnung: 'Kosten der Straßenreinigung und Müllbeseitigung', schluessel: 'qm' },
   { nummer: '2.9', bezeichnung: 'Kosten der Gebäudereinigung und Ungezieferbekämpfung', schluessel: 'qm' },
   { nummer: '2.10', bezeichnung: 'Kosten der Gartenpflege', schluessel: 'qm' },
   { nummer: '2.11', bezeichnung: 'Kosten der Beleuchtung', schluessel: 'qm' },
-  { nummer: '2.12', bezeichnung: 'Kosten der Schornsteinreinigung', schluessel: 'qm' },
+  { nummer: '2.12', bezeichnung: 'Kosten der Schornsteinreinigung', schluessel: 'einheit' },
   { nummer: '2.13', bezeichnung: 'Kosten der Sach- und Haftpflichtversicherung', schluessel: 'qm' },
   { nummer: '2.14', bezeichnung: 'Kosten für den Hauswart', schluessel: 'qm' },
-  { nummer: '2.15', bezeichnung: 'Kosten des Betriebs der Gemeinschafts-Antennenanlage', schluessel: 'nutzer' },
+  { nummer: '2.15', bezeichnung: 'Kosten für Antennen- und Kabelanschluss', schluessel: 'nutzer' },
   { nummer: '2.16', bezeichnung: 'Kosten des Betriebs der Einrichtungen für die Wäschepflege', schluessel: 'qm' },
-  { nummer: '2.17', bezeichnung: 'Sonstige Betriebskosten', schluessel: 'qm' },
+  { nummer: '2.17', bezeichnung: 'Kosten des Betriebs der Rauchwarnmeldeeinrichtung', schluessel: 'qm' },
+  { nummer: '2.18', bezeichnung: 'Kosten der Abgasmessung', schluessel: 'einheit' },
+  { nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten', schluessel: 'qm' },
 ];
+
+/** Eine im Vertrag gespeicherte Position — Schnappschuss aus der Datenbank. */
+interface GespeichertePosition {
+  nummer?: string;
+  bezeichnung?: string;
+  schluessel?: string;
+  umgelegt?: boolean;
+  betrag?: number | string | null;
+}
+
+function zuZahl(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 export function useMietvertragPdfDaten(vertragId: string | null, aktiv: boolean) {
   return useQuery({
@@ -112,13 +138,36 @@ export function useMietvertragPdfDaten(vertragId: string | null, aktiv: boolean)
       const gepflegt = new Map(
         (nebenkostenarten ?? []).map(n => [normalisiere(n.name), n])
       );
+      // Am Vertrag gespeicherte Aufstellung hat Vorrang: Ein unterschriebener
+      // Vertrag muss auch dann unveraendert erzeugbar bleiben, wenn die
+      // Kostenarten der Immobilie spaeter geaendert werden.
+      const gespeichert = new Map(
+        (Array.isArray(vertrag.betriebskosten_positionen)
+          ? (vertrag.betriebskosten_positionen as GespeichertePosition[])
+          : []
+        )
+          .filter(x => typeof x?.nummer === 'string')
+          .map(x => [x.nummer as string, x])
+      );
+
       const betriebskostenPositionen: BetriebskostenPosition[] = BETRKV_STANDARD.map(pos => {
+        const gespeicherteZeile = gespeichert.get(pos.nummer);
+        if (gespeicherteZeile) {
+          return {
+            nummer: pos.nummer,
+            bezeichnung: gespeicherteZeile.bezeichnung || pos.bezeichnung,
+            umgelegt: gespeicherteZeile.umgelegt === true,
+            schluessel: gespeicherteZeile.schluessel || pos.schluessel,
+            betrag: zuZahl(gespeicherteZeile.betrag),
+          };
+        }
         const treffer = findeArt(gepflegt, pos.bezeichnung);
         return {
           nummer: pos.nummer,
           bezeichnung: pos.bezeichnung,
           umgelegt: treffer ? treffer.ist_umlagefaehig !== false : false,
           schluessel: treffer?.verteilerschluessel_art || pos.schluessel,
+          betrag: null,
         };
       });
 

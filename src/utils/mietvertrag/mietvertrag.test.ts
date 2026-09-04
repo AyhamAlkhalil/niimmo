@@ -83,8 +83,8 @@ function basisVertrag(ueberschreibungen: Partial<MietvertragDaten> = {}): Mietve
     betriebskostenVorauszahlung: 90,
     heizkostenVorauszahlung: null,
     betriebskostenPositionen: [
-      { nummer: '2.1', bezeichnung: 'Grundsteuer', umgelegt: true, schluessel: 'qm' },
-      { nummer: '2.2', bezeichnung: 'Wasserversorgung', umgelegt: true, schluessel: 'verbrauch' },
+      { nummer: '2.1', bezeichnung: 'Grundsteuer', umgelegt: true, schluessel: 'qm', betrag: null },
+      { nummer: '2.2', bezeichnung: 'Wasserversorgung', umgelegt: true, schluessel: 'verbrauch', betrag: null },
     ],
     abrechnungszeitraum: 'das Kalenderjahr',
     kautionBetrag: 1287,
@@ -178,7 +178,7 @@ describe('Pflichtprüfung', () => {
     const d = basisVertrag({
       anzahlPersonen: 0,
       betriebskostenPositionen: [
-        { nummer: '2.8', bezeichnung: 'Müllbeseitigung', umgelegt: true, schluessel: 'personen' },
+        { nummer: '2.8', bezeichnung: 'Müllbeseitigung', umgelegt: true, schluessel: 'personen', betrag: null },
       ],
     });
     const befunde = pruefeVertragsdaten(d);
@@ -300,12 +300,20 @@ describe('Klauseltexte', () => {
     expect(alleAbsaetze(basisVertrag())).toMatch(/Wohnungsgeberbestätigung nach § 19 Abs. 3/);
   });
 
-  it('fügt § 23 nur bei mehreren Mietern ein', () => {
-    expect(wohnraumParagraphen(basisVertrag()).some(p => p.nummer === '§ 23')).toBe(false);
+  it('regelt die Gesamtschuld nur bei mehreren Mietern, behält § 23 aber immer', () => {
+    // § 23 darf nicht entfallen — sonst spränge die Zählung von § 22 auf § 24
+    // und der Vertrag sähe aus, als fehle eine Seite. Bei einem einzelnen
+    // Mieter bleibt der Eintritt nach §§ 563, 563a BGB stehen.
+    const einer = wohnraumParagraphen(basisVertrag()).find(p => p.nummer === '§ 23');
+    expect(einer).toBeDefined();
+    const textEiner = einer!.absaetze.map(a => a.text).join(' ');
+    expect(textEiner).not.toContain('Gesamtschuldner');
+    expect(textEiner).toContain('563');
 
     const d = basisVertrag();
     d.mieter = [d.mieter[0], { ...d.mieter[0], vorname: 'Erika' }];
-    expect(wohnraumParagraphen(d).some(p => p.nummer === '§ 23')).toBe(true);
+    const mehrere = wohnraumParagraphen(d).find(p => p.nummer === '§ 23');
+    expect(mehrere!.absaetze.map(a => a.text).join(' ')).toContain('Gesamtschuldner');
   });
 
   it('gibt bei Indexmiete den Basisindex 2020 aus, nicht 2000', () => {

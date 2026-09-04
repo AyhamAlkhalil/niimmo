@@ -102,6 +102,13 @@ export interface BetriebskostenPosition {
   umgelegt: boolean;
   /** qm | personen | einheit | verbrauch | nutzer */
   schluessel: string;
+  /**
+   * Monatlicher Vorauszahlungsanteil dieser Position in Euro.
+   * `null` heißt: Position ist benannt, aber ohne eigenen Betrag ausgewiesen.
+   * Die Summe aller Beträge muss `betriebskostenVorauszahlung` ergeben —
+   * `pflichtpruefung` blockiert den Druck, wenn die Spalte nicht aufgeht.
+   */
+  betrag: number | null;
 }
 
 export interface SchluesselAngabe {
