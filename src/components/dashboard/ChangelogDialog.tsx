@@ -67,6 +67,18 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
   // Nur das jüngste Release ist offen; ältere klappt man bei Bedarf auf.
   const [offen, setOffen] = useState<Set<string>>(() => new Set([RELEASES[0]?.version]));
 
+  // Details stehen zusammengeklappt. Sonst füllt ein einziges Release den
+  // ganzen Dialog und man muss scrollen, um zu sehen, was es überhaupt gibt.
+  const [offeneDetails, setOffeneDetails] = useState<Set<string>>(() => new Set());
+
+  const toggleDetail = (schluessel: string) =>
+    setOffeneDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(schluessel)) next.delete(schluessel);
+      else next.add(schluessel);
+      return next;
+    });
+
   useEffect(() => {
     if (open) merkeGesehen(APP_VERSION);
   }, [open]);
@@ -88,7 +100,7 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
             Was ist neu
           </DialogTitle>
           <DialogDescription>
-            Alle Updates der NiImmo-Verwaltung, neueste zuerst.
+            Neueste zuerst. Für Einzelheiten den jeweiligen Punkt anklicken.
           </DialogDescription>
         </DialogHeader>
 
@@ -148,32 +160,57 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
                   </button>
 
                   {istOffen && (
-                    <ul className="space-y-3 border-t px-4 py-3">
+                    <ul className="divide-y border-t">
                       {[...release.aenderungen]
                         .sort((a, b) => ART_REIHENFOLGE[a.art] - ART_REIHENFOLGE[b.art])
                         .map((a, i) => {
-                        const stil = ART_STIL[a.art];
-                        const Icon = stil.icon;
-                        return (
-                          <li key={i} className="flex gap-3">
-                            <Badge
-                              variant="outline"
-                              className={cn("h-5 shrink-0 gap-1 px-1.5 text-[10px]", stil.klasse)}
-                            >
-                              <Icon className="h-2.5 w-2.5" />
-                              {stil.label}
-                            </Badge>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium leading-snug">{a.titel}</p>
-                              {a.detail && (
-                                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                          const stil = ART_STIL[a.art];
+                          const Icon = stil.icon;
+                          const schluessel = `${release.version}#${i}`;
+                          const detailOffen = offeneDetails.has(schluessel);
+
+                          return (
+                            <li key={schluessel}>
+                              <button
+                                type="button"
+                                onClick={() => a.detail && toggleDetail(schluessel)}
+                                aria-expanded={a.detail ? detailOffen : undefined}
+                                className={cn(
+                                  "flex w-full items-start gap-2.5 px-4 py-2.5 text-left",
+                                  a.detail && "transition-colors hover:bg-muted/50",
+                                )}
+                              >
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "mt-0.5 h-5 shrink-0 gap-1 px-1.5 text-[10px]",
+                                    stil.klasse,
+                                  )}
+                                >
+                                  <Icon className="h-2.5 w-2.5" />
+                                  {stil.label}
+                                </Badge>
+                                <span className="min-w-0 flex-1 text-sm font-medium leading-snug">
+                                  {a.titel}
+                                </span>
+                                {a.detail && (
+                                  <ChevronDown
+                                    className={cn(
+                                      "mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                                      detailOffen && "rotate-180",
+                                    )}
+                                  />
+                                )}
+                              </button>
+
+                              {a.detail && detailOffen && (
+                                <p className="px-4 pb-3 pl-[5.25rem] text-xs leading-relaxed text-muted-foreground">
                                   {a.detail}
                                 </p>
                               )}
-                            </div>
-                          </li>
-                        );
-                      })}
+                            </li>
+                          );
+                        })}
                     </ul>
                   )}
                 </div>

@@ -11,8 +11,9 @@
  * Verwaltung, nicht an Entwickler — also fachlich formulieren: was kann man
  * jetzt, was ging vorher schief. Keine Dateinamen, keine Funktionsnamen.
  *
- * Die Einträge vor 1.0.0 wurden nachträglich aus der Entwicklungshistorie
- * zusammengefasst, als der Changelog eingeführt wurde.
+ * Die Liste beginnt bewusst mit dem Stand vom 3. September 2026. Was davor lag,
+ * war nachträglich aus der Entwicklungshistorie zusammengetragen und für die
+ * Verwaltung ohne Wert — es hat die Übersicht nur lang gemacht.
  */
 
 export type AenderungsArt = "neu" | "verbessert" | "behoben";
@@ -51,18 +52,6 @@ export const RELEASES: Release[] = [
         titel: "Passwort selbst zurücksetzen",
         detail:
           "Auf der Anmeldeseite lässt sich ein Link anfordern, mit dem man sich selbst ein neues Passwort vergibt. Das ging bisher überhaupt nicht: Ein vergessenes Passwort musste jemand von Hand beim Anbieter zurücksetzen. Der Link gilt eine Stunde und lässt sich nur einmal verwenden; aus Sicherheitsgründen verrät die Seite nie, ob es zu einer Adresse einen Zugang gibt.",
-      },
-    ],
-  },
-  {
-    version: "1.1.1",
-    datum: "2026-09-03",
-    aenderungen: [
-      {
-        art: "behoben",
-        titel: "Der Vorname des Geschäftsführers war falsch geschrieben",
-        detail:
-          "In den Vermieter-Stammdaten stand „Denis Mikyas“ statt „Dennis Mikyas“ — und damit auf jedem erzeugten Schreiben: Mahnung, Kündigung, Mieterhöhung, Übergabeprotokoll, Versorger-Benachrichtigung und Mietvertrag. Ab sofort steht überall die richtige Schreibweise; bereits verschickte Schreiben ändern sich dadurch nicht.",
       },
     ],
   },
@@ -167,183 +156,6 @@ export const RELEASES: Release[] = [
         titel: "Versionsnummer und diese Übersicht",
         detail:
           "Oben im Kopf steht jetzt die laufende Version. Ein Klick darauf öffnet diese Liste aller Updates.",
-      },
-    ],
-  },
-  {
-    version: "0.9.0",
-    datum: "2026-08-26",
-    schwerpunkt: "Mietvertragsvorlage",
-    aenderungen: [
-      {
-        art: "verbessert",
-        titel: "Vertragslayout an die Word-Hausvorlage angeglichen",
-        detail:
-          "Der Klauseltext ist nicht anwaltlich geprüft — die Abweichungen gegenüber der Hausvorlage sind dokumentiert.",
-      },
-    ],
-  },
-  {
-    version: "0.8.0",
-    datum: "2026-08-24",
-    schwerpunkt: "Sicherheit und Datenintegrität",
-    aenderungen: [
-      {
-        art: "behoben",
-        titel: "Zugriff auf Mieter- und Objektdaten ohne Anmeldung geschlossen",
-        detail:
-          "Mieter-, Einheiten- und Objektdaten waren ohne Login les- und schreibbar. Der Zugang ist geschlossen, angemeldete Nutzer arbeiten unverändert weiter.",
-      },
-      {
-        art: "behoben",
-        titel: "Fällige Forderungen wurden seit April nicht mehr markiert",
-        detail:
-          "650 fällige Forderungen standen weiter auf „nicht fällig“. Rückstandsbeträge waren nie betroffen, nur die Aufteilung fällig / noch nicht fällig. Altfälle nachgezogen.",
-      },
-      {
-        art: "behoben",
-        titel: "Mietverträge mit Dokumenten ließen sich nicht löschen",
-      },
-      {
-        art: "behoben",
-        titel: "Erwartete Miete und Leerstand wieder korrekt berechnet",
-      },
-      {
-        art: "neu",
-        titel: "Mietvertrag zentral anlegen, ohne Umweg über die Einheit",
-      },
-    ],
-  },
-  {
-    version: "0.7.0",
-    datum: "2026-08-21",
-    schwerpunkt: "Mietvertragsvorlage",
-    aenderungen: [
-      {
-        art: "neu",
-        titel: "Generator für Wohnraum, Gewerbe, Stellplatz und Küchen-Nutzungsvereinbarung",
-        detail:
-          "Fehlt eine Pflichtangabe, wird kein PDF erzeugt — der Generator rät nichts.",
-      },
-      {
-        art: "neu",
-        titel: "Fehlende Stammdaten direkt im Erstellungsdialog erfassen",
-      },
-      {
-        art: "verbessert",
-        titel: "Lücken in den Stammdaten werden sichtbar gemacht",
-        detail:
-          "Wohnfläche und Personenzahl sind Bezugsgrößen der Betriebskostenabrechnung. Fehlen sie, wird das jetzt angezeigt, statt die Abrechnung stillschweigend zu blockieren.",
-      },
-    ],
-  },
-  {
-    version: "0.6.0",
-    datum: "2026-08-12",
-    schwerpunkt: "Mahnwesen und Nebenkosten",
-    aenderungen: [
-      {
-        art: "verbessert",
-        titel: "Mahnstufe steigt nur noch beim tatsächlichen Mahnungsversand",
-        detail: "Manuell lässt sie sich nur zurücksetzen, nie erhöhen.",
-      },
-      {
-        art: "behoben",
-        titel: "Betriebskostenabrechnung: Rechenlogik, Zustellung und Bestandsdaten",
-      },
-      {
-        art: "behoben",
-        titel: "Personenzahl gehört zum Mietvertrag, nicht zur Einheit",
-        detail:
-          "Fehlt sie, wird sie nicht mehr geschätzt, sondern die Abrechnung gesperrt.",
-      },
-    ],
-  },
-  {
-    version: "0.5.0",
-    datum: "2026-08-04",
-    schwerpunkt: "Übergabeprotokoll und Eingabefelder",
-    aenderungen: [
-      {
-        art: "behoben",
-        titel: "Dezimalkomma in allen Zahlenfeldern",
-        detail:
-          "Eingaben mit Komma wurden vorher stillschweigend verschluckt — betraf unter anderem Zählerstände.",
-      },
-      {
-        art: "behoben",
-        titel: "Übergabeprotokoll: Zählerstände, Zustandsfotos und Bildausrichtung",
-      },
-    ],
-  },
-  {
-    version: "0.4.0",
-    datum: "2026-07-31",
-    schwerpunkt: "E-Mail-Versand",
-    aenderungen: [
-      {
-        art: "behoben",
-        titel: "E-Mails mit PDF-Anhang wurden gar nicht verschickt",
-        detail:
-          "Betraf Übergabeprotokoll, Mahnung und Nebenkostenabrechnung. Der Versand brach ab, bevor eine Mail rausging.",
-      },
-      {
-        art: "behoben",
-        titel: "Beendete Verträge waren in der Übergabe nicht auffindbar",
-      },
-    ],
-  },
-  {
-    version: "0.3.0",
-    datum: "2026-07-22",
-    schwerpunkt: "Zahlungszuordnung",
-    aenderungen: [
-      {
-        art: "neu",
-        titel: "Täglicher Check auf Fehlzuordnungen bei verbundenen Mietverträgen",
-        detail: "Auffälligkeiten erscheinen als Banner mit Sprung zur betroffenen Zahlung.",
-      },
-      {
-        art: "behoben",
-        titel: "Mehrdeutige Namens- und Ortstreffer werden nicht mehr geraten",
-      },
-      {
-        art: "verbessert",
-        titel: "Rücklastschriften werden über die eingebettete IBAN erkannt",
-      },
-    ],
-  },
-  {
-    version: "0.2.0",
-    datum: "2026-07-01",
-    schwerpunkt: "Betriebskostenabrechnung im Zahlungslauf",
-    aenderungen: [
-      {
-        art: "neu",
-        titel: "BKA-Saldo direkt in der Mietvertrags-Timeline eintragbar",
-      },
-      {
-        art: "verbessert",
-        titel: "BKA-Zahlungen und -Forderungen fließen in alle Auswertungen ein",
-      },
-    ],
-  },
-  {
-    version: "0.1.0",
-    datum: "2026-06-25",
-    schwerpunkt: "Zahlungsverwaltung",
-    aenderungen: [
-      {
-        art: "neu",
-        titel: "Vollbild-Modus für die Zahlungsverwaltung",
-      },
-      {
-        art: "neu",
-        titel: "Betriebskostenabrechnung als Dokumentenkategorie",
-      },
-      {
-        art: "behoben",
-        titel: "Mehrere Fehler beim Aufteilen von Zahlungen",
       },
     ],
   },
