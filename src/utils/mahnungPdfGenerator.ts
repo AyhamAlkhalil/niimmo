@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { COMPANY } from '@/config/company';
 
 export interface MahnungPdfData {
   // Empfänger
@@ -123,7 +124,7 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
   doc.setFontSize(7.5);
   doc.setTextColor(100, 100, 100);
   doc.setFont('helvetica', 'normal');
-  const senderLine = 'NiImmo Wohnungsbaugesellschaft, Egestorffstraße 11, 31319 Sehnde';
+  const senderLine = COMPANY.absenderzeile;
   doc.text(senderLine, marginLeft, y);
   const senderWidth = doc.getTextWidth(senderLine);
   doc.setDrawColor(100, 100, 100);
@@ -166,18 +167,18 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
   doc.setFontSize(7);
   // Phone + number
   doc.text('Tel.', contactX, contactY);
-  doc.text('05138 – 600 72 72', contactX + 8, contactY);
+  doc.text(COMPANY.ansprechpartner.telefon, contactX + 8, contactY);
   contactY += 4;
   // Fax + number
   doc.text('Fax', contactX, contactY);
-  doc.text('05138 – 600 72 79', contactX + 8, contactY);
+  doc.text(COMPANY.ansprechpartner.fax, contactX + 8, contactY);
   contactY += 4;
   // Address
-  doc.text('Egestorffstraße 11, 31319 Sehnde', contactX + 8, contactY);
+  doc.text(`${COMPANY.strasse}, ${COMPANY.plzOrt}`, contactX + 8, contactY);
   contactY += 4;
   // Email
   doc.text('E-Mail', contactX, contactY);
-  doc.text('info@niimmo.de', contactX + 12, contactY);
+  doc.text(COMPANY.email, contactX + 12, contactY);
   
   // ============ DATE ============
   y = 105;
@@ -388,23 +389,23 @@ function addFooter(doc: jsPDF) {
   doc.text('Vertretungsberechtigte Geschäftsführer:', marginLeft, fy);
   doc.setFont('helvetica', 'normal');
   fy += 3;
-  doc.text('Ayhan Yeyrek, Dennis Mikyas', marginLeft, fy);
+  doc.text(COMPANY.geschaeftsfuehrer, marginLeft, fy);
   fy += 3;
   doc.setFont('helvetica', 'bold');
   doc.text('Registergericht:', marginLeft, fy);
   doc.setFont('helvetica', 'normal');
   fy += 3;
-  doc.text('Amtsgericht Hildesheim Handelsregister B', marginLeft, fy);
+  doc.text(`${COMPANY.register.gericht} ${COMPANY.register.abteilung}`, marginLeft, fy);
   fy += 3;
-  doc.text('Registernummer: HRB 208111', marginLeft, fy);
+  doc.text(`Registernummer: ${COMPANY.register.nummer}`, marginLeft, fy);
   fy += 3;
   doc.setFont('helvetica', 'bold');
   doc.text('Gewerbeerlaubnis nach § 34 C GewO; Aufsichtsbehörde:', marginLeft, fy);
   doc.setFont('helvetica', 'normal');
   fy += 3;
-  doc.text('IHK Hannover', marginLeft, fy);
+  doc.text(COMPANY.gewerbeerlaubnis.aufsicht, marginLeft, fy);
   fy += 3;
-  doc.text('Steuer-Nummer: 16/204/50884', marginLeft, fy);
+  doc.text(`Steuer-Nummer: ${COMPANY.steuernummer}`, marginLeft, fy);
   
   // Right column
   const rightCol = 130;

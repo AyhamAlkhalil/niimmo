@@ -47,7 +47,7 @@ const REFERENZ: MietvertragDaten = {
     firmenname: 'NiImmo Wohnungsbaugesellschaft mbH', rechtsform: 'GmbH',
     strasse: 'Egestorffstraße', hausnummer: '11', plz: '31319', ort: 'Sehnde',
     vertretenDurch: ['Dennis Baris Mikyas'], vertretungArt: 'einzel',
-    registergericht: 'Amtsgericht Hildesheim', handelsregister: 'HRB 208151',
+    registergericht: 'Amtsgericht Hildesheim', handelsregister: 'HRB 208111',
     steuernummer: null, ustId: null, telefon: null, fax: null, email: null,
     mietIban: 'DE89255914133155410501', mietBic: 'GENODEF1BCK',
     kautionIban: 'DE02255914133155410515', kautionBic: 'GENODEF1BCK',

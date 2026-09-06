@@ -18,7 +18,7 @@ const VERMIETER: MietvertragDaten['vermieter'] = {
   vertretenDurch: ['Dennis Mikyas'],
   vertretungArt: 'einzel',
   registergericht: 'Amtsgericht Hildesheim',
-  handelsregister: 'HRB 208151',
+  handelsregister: 'HRB 208111',
   steuernummer: null,
   ustId: null,
   telefon: null,

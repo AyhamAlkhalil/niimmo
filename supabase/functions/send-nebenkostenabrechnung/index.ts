@@ -6,8 +6,8 @@ import nodemailer from "npm:nodemailer@6.9.10";
 // Muss mit src/config/company.ts übereinstimmen — Deno kann die Datei nicht importieren.
 const COMPANY = {
   name: "NiImmo Wohnungsbaugesellschaft mbH",
-  strasse: "Egerstorffstraße 11",
-  plzOrt: "33119 Sehnde",
+  strasse: "Egestorffstraße 11",
+  plzOrt: "31319 Sehnde",
   telefon: "05138 - 600 72 72",
   email: "mikyas@niimmo.de",
 };

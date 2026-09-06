@@ -359,7 +359,7 @@ export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeiche
                     <Input
                       value={entwurf.handelsregister ?? ''}
                       onChange={e => setze('handelsregister', e.target.value || null)}
-                      placeholder="HRB 208151"
+                      placeholder="HRB 208111"
                     />
                   </div>
                   <div className="space-y-1">

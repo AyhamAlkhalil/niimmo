@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
+import { COMPANY } from '@/config/company';
 
 interface VersorgerInfo {
   typ: 'strom' | 'gas' | 'wasser';
@@ -121,10 +122,10 @@ Zählerstand ${v.label}: ${zaehlerstand}
 Bitte nehmen Sie die ${isEinzug ? 'Anmeldung' : 'Abmeldung'} entsprechend vor.
 
 Mit freundlichen Grüßen
-Nilmmo Projektentwicklung & Bau GmbH
-Dennis Mikyas
-Egestorffstraße 11, 31319 Sehnde
-Tel. 05138 – 600 72 72`;
+${COMPANY.name}
+${COMPANY.ansprechpartner.unterschrift}
+${COMPANY.strasse}, ${COMPANY.plzOrt}
+Tel. ${COMPANY.ansprechpartner.telefon}`;
       }
       setEmailTexte(texte);
       setEmailSubjects(subjects);
