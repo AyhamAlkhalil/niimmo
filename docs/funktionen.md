@@ -388,79 +388,17 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 
 ## Gebaut, aber nicht erreichbar
 
-Von `main.tsx` aus nicht erreichbar (statische Importanalyse, dynamische Importe eingeschlossen):
-**38 Fachdateien, 10.691 Zeilen** — etwa ein Sechstel des Anwendungscodes; dazu 22 ungenutzte shadcn-Bausteine.
-Diese Funktionen existieren im Repo, laufen aber nie. Sie sind die häufigste Fehlerquelle bei Änderungen:
-man ändert die Datei, die niemand rendert.
+Am 06.09.2026 wurden 30 Vorgänger-Fassungen entfernt (7380 Zeilen). Diese acht Dateien blieben: Sie sind
+vollständig gebaut, haben eigenständigen fachlichen Wert, aber keinen Einstieg in der Oberfläche. Sie stehen in
+der Ausnahmeliste von `src/erreichbarkeit.test.ts`, der ab jetzt meldet, wenn neuer unerreichbarer Code entsteht.
 
-| Funktion | Fachbereich | Ort |
+| Funktion | Ort | Warum behalten |
 |---|---|---|
-| Einheiten-Detailmodal (Stammdaten, Zaehler, Kuendigung) | Immobilien, Einheiten, Zähler | `src/components/dashboard/EinheitenDetailModal.tsx:45` |
-| UnitManagementCard | Immobilien, Einheiten, Zähler | `src/components/dashboard/UnitManagementCard.tsx:42` |
-| Nebenobjekte am Vertrag (Stellplatz, Garage) | Immobilien, Einheiten, Zähler | `src/hooks/useMietvertragPdfDaten.ts:110-113 (mietvertrag_einh…` |
-| Verteilerschluessel an der Einheit | Immobilien, Einheiten, Zähler | `einheiten.verteilerschluessel_art / verteilerschluessel_wert …` |
-| Gepflegte Schluesselwerte je Einheit und Kostenart | Immobilien, Einheiten, Zähler | `Tabelle nebenkosten_anteile (src/integrations/supabase/types.…` |
-| WhatsApp-Posteingang im Dashboard | Mieter und Mieterbeziehungen | `src/components/dashboard/WhatsappNachrichten.tsx:33-307` |
-| Mieterkontaktkarte mit Inline-Bearbeitung und Kopierfunktion | Mieter und Mieterbeziehungen | `src/components/dashboard/MieterList.tsx:15-285` |
-| Mieterauswahl-Karte fuer Mehrfachauswahl | Mieter und Mieterbeziehungen | `src/components/dashboard/TenantSelectionCard.tsx:22-119` |
-| Mieteransicht je Einheit (Altfassung) | Mieter und Mieterbeziehungen | `src/components/dashboard/MietvertragDetailView.tsx:22-300` |
-| Filter Vertragsart Privat/Gewerbe | Mieter und Mieterbeziehungen | `src/components/dashboard/FilterPanel.tsx:62-82` |
-| Sammel-Ablauf abgelaufener Kuendigungen… | Mietvertrag: Lebenszyklus und Timeline | `src/integrations/supabase/types.ts:2870` |
-| Benachrichtigung externer Systeme bei Kuendigung | Mietvertrag: Lebenszyklus und Timeline | `src/services/terminationWebhookService.ts:11-35` |
-| Vertragsfilterung und -sortierung (Hook) | Mietvertrag: Lebenszyklus und Timeline | `src/hooks/useContractFiltering.ts:23-141` |
-| Alternative Vertragsdetail-Ansichten | Mietvertrag: Lebenszyklus und Timeline | `src/components/dashboard/MietvertragDetail.tsx` |
-| Alternative Kuendigungsformulare | Mietvertrag: Lebenszyklus und Timeline | `src/components/dashboard/termination/ManualTerminationForm.tsx` |
-| Alternative Einheiten- und Uebersichtsansichten | Mietvertrag: Lebenszyklus und Timeline | `src/components/dashboard/UnitManagementCard.tsx` |
-| Gewerbemietvertrag — Klauselwerk §§ 1–26 | Vertragserzeugung (Vorlage, Klauseln) | `src/utils/mietvertrag/gewerbeKlauseln.ts:114` |
-| Gewerbevertrag als PDF | Vertragserzeugung (Vorlage, Klauseln) | `src/utils/mietvertrag/nebenvertragPdfGenerator.ts:38` |
-| Stellplatz-/Garagenmietvertrag | Vertragserzeugung (Vorlage, Klauseln) | `src/utils/mietvertrag/nebenvertraege.ts:68` |
-| Nutzungsvereinbarung Einbaukueche (Leihe §§ 598 ff. BGB) | Vertragserzeugung (Vorlage, Klauseln) | `src/utils/mietvertrag/nebenvertraege.ts:183` |
-| Hinweise vor Erzeugung eines Nebenvertrags | Vertragserzeugung (Vorlage, Klauseln) | `src/utils/mietvertrag/nebenvertraege.ts:268` |
-| Externer Webhook fuer Vertrags-PDF-Extraktion | Vertragserzeugung (Vorlage, Klauseln) | `src/services/contractPdfWebhookService.ts:1` |
-| Pflegeoberflaeche fuer Nichtmiete-Regeln | Zahlungen: Import, Zuordnung, Korrektur | `src/components/controlboard/NichtmieteRegelnManager.tsx:40` |
-| Eigener Dialog zum Rueckgaengigmachen einer Aufteilung | Zahlungen: Import, Zuordnung, Korrektur | `src/components/dashboard/PaymentUndoSplitModal.tsx:19` |
-| Objektuebergreifende Zahlungsuebersicht | Zahlungen: Import, Zuordnung, Korrektur | `src/components/dashboard/ZahlungenUebersicht.tsx:45` |
-| Fortschrittsanzeige des CSV-Imports | Zahlungen: Import, Zuordnung, Korrektur | `src/hooks/useCsvUploadProgress.ts:12 und src/components/chatb…` |
-| Direkte Persistenz in der Edge Function (dryRun=false) | Zahlungen: Import, Zuordnung, Korrektur | `supabase/functions/process-payments/index.ts:1637` |
-| Summe der Ruecklastschrift-Gebuehren | Zahlungen: Import, Zuordnung, Korrektur | `src/utils/rueckstandsberechnung.ts:115` |
-| Vorauszahlungs-Verschiebung auf den naechsten Forderungsmonat | Forderungen, Rückstände, Verzugszinsen | `src/utils/rueckstandsberechnung.ts:25-70` |
-| Faelligkeits-Ampel je Forderung | Forderungen, Rückstände, Verzugszinsen | `src/components/dashboard/FaelligkeitsIndicator.tsx:13-72` |
-| Zweite Mahnungsstrecke ueber die Zahlungshistorie | Forderungen, Rückstände, Verzugszinsen | `src/components/dashboard/PaymentHistory.tsx:78-193` |
-| Kopfzeile und Einzelzeile der Rueckstandsliste (Altstand) | Forderungen, Rückstände, Verzugszinsen | `src/components/dashboard/FehlendeMietzahlungenHeader.tsx:10 u…` |
-| Ruecklastschrift-Gebuehren summieren | Forderungen, Rückstände, Verzugszinsen | `src/utils/rueckstandsberechnung.ts:116-120` |
-| Zweite, aeltere Mahnungsoberflaeche mit serverseitigem PDF | Mahnwesen und Kündigung | `src/components/dashboard/MahnungVorschauModal.tsx:23 und supa…` |
-| Zahlungshistorie mit Mahnstufenblock | Mahnwesen und Kündigung | `src/components/dashboard/PaymentHistory.tsx:18` |
-| Sammellauf fuer abgelaufene gekuendigte Vertraege | Mahnwesen und Kündigung | `src/integrations/supabase/types.ts:2870 update_expired_termin…` |
-| Kuendigungs-Webhook an Fremdsysteme | Mahnwesen und Kündigung | `src/services/terminationWebhookService.ts:11` |
-| Aeltere Kuendigungsformulare (Einzelkomponenten) | Mahnwesen und Kündigung | `src/components/dashboard/termination/ManualTerminationForm.ts…` |
-| Zweite Kuendigungsoberflaeche in der Vertragsdetailseite | Mahnwesen und Kündigung | `src/components/dashboard/MietvertragDetailView.tsx:490` |
-| Uebergabe-Einstieg direkt an Einheit oder Vertrag | Übergabe und Rücknahme | `src/components/dashboard/handover/UebergabeButton.tsx:1-146` |
-| Sammeluebergabe verbundener Vertraege | Übergabe und Rücknahme | `src/components/dashboard/handover/UebergabeContractList.tsx:2…` |
-| Serverseitige Protokollerzeugung | Übergabe und Rücknahme | `supabase/functions/generate-uebergabe-pdf/index.ts:1-401` |
-| Schluesselwerte je Einheit und Kostenart (nebenkosten_anteile) | Betriebskostenabrechnung | `Tabelle nebenkosten_anteile` |
-| Verteilung einer Zahlung auf Einheiten (nebenkosten_zahlungen) | Betriebskostenabrechnung | `Tabelle nebenkosten_zahlungen` |
-| Zeitanteilsberechnung in der Datenbank (calculate_zeitanteil) | Betriebskostenabrechnung | `src/integrations/supabase/types.ts:2448` |
-| Spalte "naechste moegliche Erhoehung" in der alten Mietuebersicht | Mieterhöhung und Marktdaten | `src/components/dashboard/MietUebersichtModal.tsx:749-767` |
-| Mieterhoehungs-Karte in der Vertragsdetailansicht | Mieterhöhung und Marktdaten | `src/components/dashboard/MieterhöhungManagement.tsx:19` |
-| Edge Function generate-rent-increase-pdf | Mieterhöhung und Marktdaten | `supabase/functions/generate-rent-increase-pdf/index.ts:19` |
-| Edge Function send-rent-increase-notification | Mieterhöhung und Marktdaten | `supabase/functions/send-rent-increase-notification/index.ts:27` |
-| Tilgungsplan-Import per KI (Volksbank-Text) | Darlehen und Versicherungen | `supabase/functions/process-tilgungsplan-ocr/index.ts:50-204` |
-| Tilgungshistorie je Darlehen | Darlehen und Versicherungen | `Tabelle darlehen_zahlungen` |
-| Dokumentzuordnung je einzelner Police | Darlehen und Versicherungen | `src/components/dashboard/ImmobilienVersicherungenTab.tsx:241-…` |
-| Alte Dokumentenliste (Vertragsdetail) | Dokumente, Storage, OCR | `src/components/dashboard/DocumentsList.tsx:14` |
-| Sammel-Download-Dialog fuer Vertragsdokumente | Dokumente, Storage, OCR | `src/components/dashboard/DokumentenModal.tsx:43` |
-| Zweite Vertragsdokumenten-Verwaltung | Dokumente, Storage, OCR | `src/components/dashboard/MietvertragDocumentsManagement.tsx:35` |
-| Kuendigung per Dokumentenupload (Einzelkomponente) | Dokumente, Storage, OCR | `src/components/dashboard/termination/DocumentUploadTerminatio…` |
-| Manuelle Kuendigungserfassung (Einzelkomponente) | Dokumente, Storage, OCR | `src/components/dashboard/termination/ManualTerminationForm.ts…` |
-| Serverseitige PDF-Erzeugung fuer Mahnung, Mieterhoehung und Uebergabe | Dokumente, Storage, OCR | `supabase/functions/generate-mahnung-pdf/index.ts:310` |
-| OCR-Servicefassade | Dokumente, Storage, OCR | `src/services/ocrProcessingService.ts:19` |
-| Tilgungsplan per KI auslesen | Dokumente, Storage, OCR | `supabase/functions/process-tilgungsplan-ocr/index.ts:36` |
-| Vertrags-PDF an externen Webhook | Dokumente, Storage, OCR | `src/services/contractPdfWebhookService.ts:1 und contractWebho…` |
-| Entwicklungsstatus-Board (Devboard) mit Fortschrittstabelle | Aufgaben, Benachrichtigungen, Meldungen | `src/components/devboard/DevStatusBoard.tsx:83-` |
-| Devboard-Ticketdialog, -karte und -kommentare | Aufgaben, Benachrichtigungen, Meldungen | `src/components/devboard/DevTicketModal.tsx` |
-| Navigationsschalter showDevBoard | Aufgaben, Benachrichtigungen, Meldungen | `src/hooks/useNavigationState.ts:14 und :30` |
-| Nutzungsstatistik user_activities | Aufgaben, Benachrichtigungen, Meldungen | `src/integrations/supabase/types.ts:1988` |
-| Objektuebergreifende Zahlungssicht | Zugang, Rollen, Assistent, Auswertungen | `src/components/dashboard/ZahlungenUebersicht.tsx:45` |
-| WhatsApp-Nachrichten-Ansicht | Zugang, Rollen, Assistent, Auswertungen | `src/components/dashboard/WhatsappNachrichten.tsx:33` |
-| Mietuebersicht (Nur-Lese-Fassung) | Zugang, Rollen, Assistent, Auswertungen | `src/components/dashboard/MietUebersichtModal.tsx:34` |
-| Dashboard-Seitenleiste und Filterleiste | Zugang, Rollen, Assistent, Auswertungen | `src/components/dashboard/DashboardSidebar.tsx` |
+| Pflege der Nichtmiete-Regeln | `src/components/controlboard/NichtmieteRegelnManager.tsx` | Ohne sie sind die Regeln der Zahlungszuordnung nur per SQL änderbar |
+| Aufteilung rückgängig machen | `src/components/dashboard/PaymentUndoSplitModal.tsx` | Eigener Dialog für einen Vorgang, der sonst nur umständlich geht |
+| Objektübergreifende Zahlungssicht | `src/components/dashboard/ZahlungenUebersicht.tsx` | Vollständige Ansicht ohne Navigationseintrag |
+| WhatsApp-Posteingang | `src/components/dashboard/WhatsappNachrichten.tsx` | Die Tabelle wird von außen befüllt; die Nachrichten sind sonst unsichtbar |
+| Übergabe-Einstieg an Einheit/Vertrag | `src/components/dashboard/handover/UebergabeButton.tsx` | Direkter Weg in die Übergabe samt Freigaberegel |
+| Gewerbe-Klauselwerk §§ 1–26 | `src/utils/mietvertrag/gewerbeKlauseln.ts` | Siehe offene-punkte.md D3 — Gewerbeverträge bekommen sonst Wohnraumklauseln |
+| Stellplatz- und Küchen-Nebenverträge | `src/utils/mietvertrag/nebenvertraege.ts` | Fertig und getestet, ohne UI-Einstieg |
+| Generator für Gewerbe-/Nebenverträge | `src/utils/mietvertrag/nebenvertragPdfGenerator.ts` | Gehört zu den beiden Vorgenannten |

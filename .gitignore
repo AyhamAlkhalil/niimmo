@@ -32,3 +32,8 @@ supabase/.temp/
 *.docx
 *.doc
 .tmp/
+
+# Zugangsdaten bleiben lokal (siehe .env.example)
+.env
+.env.local
+.env.*.local
