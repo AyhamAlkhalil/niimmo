@@ -11,7 +11,6 @@ interface NavigationState {
   showControlboard: boolean;
   showUebergabe: boolean;
   showDarlehen: boolean;
-  showDevBoard: boolean;
   showAufgabenBoard: boolean;
   /** Aus einer Benachrichtigung heraus direkt zu oeffnende Aufgabe. */
   selectedAufgabe: string | null;
@@ -27,7 +26,6 @@ const defaultState: NavigationState = {
   showControlboard: false,
   showUebergabe: false,
   showDarlehen: false,
-  showDevBoard: false,
   showAufgabenBoard: false,
   selectedAufgabe: null,
   navigationSource: "dashboard",
