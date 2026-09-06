@@ -275,6 +275,12 @@ export const TerminationDialog = ({
         .update({
           status: 'gekuendigt',
           kuendigungsdatum,
+          // ende_datum ist die fuehrende Quelle des Vertragsendes
+          // (utils/contractUtils.ts getVertragsende). Der Upload-Weg unten
+          // schrieb es immer mit, dieser Weg nicht -- damit standen Karte und
+          // Vertragsdetails wieder auf verschiedenen Aussagen, und jede
+          // Auswertung ueber ende_datum uebersah manuell gekuendigte Vertraege.
+          ende_datum: kuendigungsdatum,
           aktualisiert_am: new Date().toISOString()
         })
         .eq('id', vertragId);

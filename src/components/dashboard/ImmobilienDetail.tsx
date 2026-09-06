@@ -91,20 +91,15 @@ export const ImmobilienDetail = ({
         .eq('immobilie_id', immobilieId);
       
       if (error) throw error;
-      
-      // Group units by their ID's last 2 digits and keep only the newest
-      const unitsByLastDigits = (data || []).reduce((acc, unit: any) => {
-        const lastTwoDigits = unit.id.slice(-2);
-        if (!acc[lastTwoDigits] || new Date(unit.erstellt_am) > new Date(acc[lastTwoDigits].erstellt_am)) {
-          acc[lastTwoDigits] = unit;
-        }
-        return acc;
-      }, {} as Record<string, any>);
-      
-      const uniqueUnits = Object.values(unitsByLastDigits);
-      
-      // Use centralized sorting utility
-      return sortUnitsByNumber(uniqueUnits);
+
+      // Hier stand bis zum 06.09.2026 eine Gruppierung nach den letzten zwei
+      // Zeichen der UUID, die je Gruppe nur die neueste Einheit behielt. Da es
+      // nur 256 solcher Gruppen gibt, kollidierten schon bei 20 Einheiten in
+      // einem Haus zwei mit rund 50 Prozent Wahrscheinlichkeit -- die aeltere
+      // verschwand dann lautlos samt Vertrag aus Detailansicht, Suche und
+      // Kuendigung. Ein fachlicher Grund fuer die Gruppierung war nicht
+      // erkennbar; die Eindeutigkeit sichert bereits der Primaerschluessel.
+      return sortUnitsByNumber(data || []);
     }
   });
   const {

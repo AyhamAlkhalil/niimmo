@@ -773,6 +773,15 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     
     // Combine ALL: selected (with assignment) + unselected (without) + Nichtmiete
     const allResultsToSave = [...selectedToApply, ...unselected, ...nichtmieteResults];
+
+    // Bis zum 06.09.2026 wurde `error` an drei Stellen destrukturiert und nie
+    // gelesen. Scheiterte eine Zeile an RLS oder einem Constraint, lief die
+    // Schleife weiter, das Protokoll meldete "verarbeitet" und die Oberflaeche
+    // Erfolg -- die Zahlung fehlte dauerhaft, der Rueckstand des Mieters war zu
+    // hoch, und die Ursache war nicht mehr auffindbar.
+    const fehler: Array<{ zeile: string; grund: string }> = [];
+    const bezeichne = (r: any) =>
+      `${r.buchungsdatum ?? '?'} · ${r.betrag ?? '?'} € · ${(r.verwendungszweck ?? '').slice(0, 40) || 'ohne Verwendungszweck'}`;
     
     // Insert/update all payments
     for (const result of allResultsToSave) {
@@ -799,7 +808,13 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         query = query.is('verwendungszweck', null);
       }
       
-      const { data: existingRows } = await query.limit(1);
+      const { data: existingRows, error: sucheError } = await query.limit(1);
+      if (sucheError) {
+        // Ohne belastbare Duplikatpruefung darf nicht geschrieben werden --
+        // sonst entstehen Doppelbuchungen.
+        fehler.push({ zeile: bezeichne(result), grund: `Duplikatprüfung fehlgeschlagen: ${sucheError.message}` });
+        continue;
+      }
       const existing = existingRows?.[0] || null;
       
       if (existing) {
@@ -823,7 +838,12 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           .from('zahlungen')
           .update(updatePayload)
           .eq('id', existing.id);
-        
+
+        if (error) {
+          fehler.push({ zeile: bezeichne(result), grund: `Aktualisieren fehlgeschlagen: ${error.message}` });
+          continue;
+        }
+
         
         // Auto-fill IBAN on contract if empty
         if (result.mietvertrag_id && result.iban) {
@@ -855,7 +875,12 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             immobilie_id: result.immobilie_id || null,
             kategorie: result.kategorie as any || null,
           });
-        
+
+        if (error) {
+          fehler.push({ zeile: bezeichne(result), grund: `Speichern fehlgeschlagen: ${error.message}` });
+          continue;
+        }
+
         
         // Auto-fill IBAN on contract if empty
         if (result.mietvertrag_id && result.iban) {
@@ -875,6 +900,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       }
     }
     
+    const gespeichert = allResultsToSave.length - fehler.length;
+
     if (csvFile) {
       const buchungsdaten = allResultsToSave
         .map(r => r.buchungsdatum)
@@ -883,10 +910,24 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       await supabase.from('csv_uploads').insert({
         dateiname: csvFile.name,
         dateigroe_bytes: csvFile.size,
-        anzahl_datensaetze: allResultsToSave.length,
-        status: 'verarbeitet',
+        // Nur zaehlen, was wirklich in der Datenbank steht.
+        anzahl_datensaetze: gespeichert,
+        status: fehler.length > 0 ? 'teilweise_fehlgeschlagen' : 'verarbeitet',
         zeitraum_von: buchungsdaten[0] ?? null,
         zeitraum_bis: buchungsdaten.at(-1) ?? null,
+      });
+    }
+
+    if (fehler.length > 0) {
+      console.error('[CSV-Import] Nicht gespeicherte Zeilen:', fehler);
+      toast({
+        title: `${fehler.length} von ${allResultsToSave.length} Zahlungen nicht gespeichert`,
+        description:
+          `${gespeichert} Zahlungen wurden übernommen. Nicht gespeichert wurden: ` +
+          fehler.slice(0, 3).map((f) => f.zeile).join(' · ') +
+          (fehler.length > 3 ? ` und ${fehler.length - 3} weitere` : '') +
+          '. Diese Zahlungen fehlen im Bestand — der Rückstand der betroffenen Mieter ist dadurch zu hoch.',
+        variant: 'destructive',
       });
     }
 
@@ -903,6 +944,10 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     queryClient.invalidateQueries({ queryKey: ['unzugeordnete-nebenkosten'] });
     queryClient.invalidateQueries({ queryKey: ['zugeordnete-nebenkosten'] });
     queryClient.invalidateQueries({ queryKey: ['nebenkosten-klassifizierungen-cached'] });
+
+    // Der Aufrufer meldete bisher unabhaengig vom Ergebnis Erfolg. Er braucht
+    // die tatsaechlichen Zahlen.
+    return { gesamt: allResultsToSave.length, gespeichert, fehler };
   };
 
   const handleAssignPayment = (payment: any) => {

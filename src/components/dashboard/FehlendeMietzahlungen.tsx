@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Euro, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, Filter, Search, X } from "lucide-react";
+import { Loader2, AlertTriangle, Euro, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, Filter, Search, X } from "lucide-react";
 import { useRueckstaende } from "@/hooks/useRueckstaende";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -186,7 +186,11 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                 <h2 className="text-sm sm:text-lg font-semibold text-gray-800">Rückstände & Guthaben</h2>
                 <div className="flex items-center gap-1">
                   <p className="text-xs sm:text-sm text-gray-600 truncate">
-                    {fehlendeMietzahlungen?.length || 0} Vertrag{(fehlendeMietzahlungen?.length || 0) !== 1 ? 'e' : ''}
+                    {error
+                      ? 'nicht geladen'
+                      : isLoading
+                      ? 'wird geladen …'
+                      : `${fehlendeMietzahlungen?.length || 0} Vertrag${(fehlendeMietzahlungen?.length || 0) !== 1 ? 'e' : ''}`}
                   </p>
                   <TooltipProvider>
                     <Tooltip>
@@ -486,6 +490,30 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                   </div>
                 </div>
               </div>
+            </div>
+          ) : error ? (
+            /* Bis zum 06.09.2026 zeigte diese Ansicht bei jedem Abfragefehler
+               den gruenen Erfolgszustand "Alle Mietvertraege sind ausgeglichen".
+               isLoading und error wurden zwar entnommen, aber nie gerendert --
+               ein Ausfall sah damit aus wie Entwarnung. */
+            <div className="text-center py-8">
+              <div className="p-6 bg-destructive/10 rounded-lg border border-destructive/30 inline-block max-w-md">
+                <div className="flex flex-col items-center gap-2">
+                  <div className="p-3 bg-destructive/15 rounded-full">
+                    <AlertTriangle className="h-6 w-6 text-destructive" />
+                  </div>
+                  <p className="text-destructive font-medium text-lg">Rückstände konnten nicht geladen werden</p>
+                  <p className="text-destructive/80 text-sm">
+                    Die Zahlen unten fehlen — nicht, weil alles ausgeglichen ist, sondern weil die Abfrage
+                    fehlgeschlagen ist. Bitte die Seite neu laden.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : isLoading ? (
+            <div className="text-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">Rückstände werden geladen …</p>
             </div>
           ) : (
             <div className="text-center py-8 animate-fade-in">

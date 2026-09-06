@@ -83,7 +83,10 @@ interface PaymentAssignmentResultsModalProps {
   results: ProcessedPayment[];
   duplicates: DuplicatePayment[];
   stats: Stats;
-  onApply: (selectedResults: ProcessedPayment[]) => Promise<void>;
+  /** Liefert zurueck, wie viele Zeilen tatsaechlich gespeichert wurden. */
+  onApply: (selectedResults: ProcessedPayment[]) => Promise<
+    { gesamt: number; gespeichert: number; fehler: Array<{ zeile: string; grund: string }> } | void
+  >;
 }
 
 export function PaymentAssignmentResultsModal({
@@ -296,11 +299,16 @@ export function PaymentAssignmentResultsModal({
   const handleApply = async () => {
     setIsApplying(true);
     try {
-      await onApply(selectedResults);
-      toast({
-        title: "Zuordnungen übernommen",
-        description: `${selectedWithAssignment.length} Zahlungen wurden erfolgreich zugeordnet.`,
-      });
+      const ergebnis = (await onApply(selectedResults)) || undefined;
+      // onApply meldet Fehlschlaege bereits selbst. Hier darf deshalb nur dann
+      // Erfolg stehen, wenn wirklich alles gespeichert wurde.
+      const fehlgeschlagen = ergebnis && 'fehler' in ergebnis ? ergebnis.fehler.length : 0;
+      if (fehlgeschlagen === 0) {
+        toast({
+          title: "Zuordnungen übernommen",
+          description: `${ergebnis && 'gespeichert' in ergebnis ? ergebnis.gespeichert : selectedWithAssignment.length} Zahlungen wurden gespeichert.`,
+        });
+      }
       onOpenChange(false);
       await queryClient.invalidateQueries({ queryKey: ['unassigned-payments'] });
       await queryClient.invalidateQueries({ queryKey: ['zahlungen'] });
