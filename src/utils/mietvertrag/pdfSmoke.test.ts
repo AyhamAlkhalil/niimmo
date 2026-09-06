@@ -89,7 +89,7 @@ const VERMIETER: MietvertragDaten['vermieter'] = {
   vertretungArt: 'gesamt',
   registergericht: 'Amtsgericht Hildesheim',
   handelsregister: 'HRB 208111',
-  steuernummer: '16/204/50884',
+  steuernummer: '16/204/50864',
   ustId: null,
   telefon: '05138 - 600 72 72',
   fax: null,

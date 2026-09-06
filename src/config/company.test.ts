@@ -22,7 +22,7 @@ describe('Firmenstammdaten', () => {
 
   it('nennt keine der früher kursierenden Falschangaben', () => {
     const alles = JSON.stringify({ ...COMPANY, rechtliches: COMPANY.rechtliches });
-    for (const falsch of ['Egerstorff', '33119', '208151', 'Nilmmo', 'Egonstraße']) {
+    for (const falsch of ['Egerstorff', '33119', '208151', '50884', 'Nilmmo', 'Egonstraße']) {
       expect(alles).not.toContain(falsch);
     }
   });
@@ -59,7 +59,7 @@ describe('Generatoren enthalten keine Firmendaten als Literal', () => {
     'Egestorffstraße 11',
     '31319 Sehnde',
     'HRB 208111',
-    '16/204/50884',
+    '16/204/50864',
     'Ayhan Yeyrek',
     'IHK Hannover',
     'info@niimmo.de',

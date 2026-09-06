@@ -57,12 +57,13 @@ export const COMPANY = {
   },
 
   /**
-   * Steuernummer laut den bisher versendeten Mahnungen, Kündigungen,
-   * Übergabeprotokollen und Erhöhungsschreiben. Die abweichende Fassung
-   * 16/204/50864 stand nur in dieser Datei und in Testdaten.
-   * TODO: vom Kunden gegen den Steuerbescheid bestätigen lassen.
+   * Vom Kunden am 06.09.2026 bestätigt. Dieselbe Nummer steht in der Tabelle
+   * `vermieter` und damit in allen erzeugten Mietverträgen. Die abweichende
+   * Fassung 16/204/50884 stand in den vier Briefgeneratoren und ging damit auf
+   * Mahnungen, Kündigungen, Übergabeprotokollen und Erhöhungsschreiben hinaus —
+   * sie ist falsch und darf nicht zurückkehren.
    */
-  steuernummer: "16/204/50884",
+  steuernummer: "16/204/50864",
 
   gewerbeerlaubnis: {
     grundlage: "Gewerbeerlaubnis nach § 34c GewO",
