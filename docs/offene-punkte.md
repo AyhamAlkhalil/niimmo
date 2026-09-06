@@ -12,6 +12,9 @@ Dieses Dokument ordnet und priorisiert. Die vollständige Liste zum Abarbeiten s
 **Erledigt:** A1–A3 und A5 (Zugriffsschutz), B1–B5 (rechtlich fehlerhafte Schreiben), C1, C2, C4, C7
 (stille Datenfehler) sowie F (toter Code). Sieben Commits, alle Tests grün.
 
+Die Mieterhöhung hat seit dem 06.09.2026 einen Haken „Der Mieter hat der Erhöhung zugestimmt": Ist er gesetzt,
+wird die Vertragsmiete sofort geändert; ohne ihn bleibt sie stehen, bis die Zustimmung vorliegt.
+
 **Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
 Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).

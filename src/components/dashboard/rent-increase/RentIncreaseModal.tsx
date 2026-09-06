@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, TrendingUp, Download, Eye, Save, Info, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
@@ -41,6 +42,7 @@ interface RentIncreaseModalProps {
 
 export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreaseModalProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { vpi: aktuellerVpi } = useAktuellerVpi();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
@@ -60,6 +62,9 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // § 558a Abs. 2 BGB: ohne Begründungsmittel ist das Verlangen unwirksam.
   const [begruendungsart, setBegruendungsart] = useState<BegruendungsArt>("mietspiegel");
   const [begruendungText, setBegruendungText] = useState("");
+  // Liegt die Zustimmung des Mieters bereits vor, darf die Vertragsmiete
+  // sofort geändert werden (§ 558b Abs. 1 BGB).
+  const [mieterHatZugestimmt, setMieterHatZugestimmt] = useState(false);
 
   // § 558 Abs. 3 BGB: 15 % bei angespanntem Markt, sonst 20 % in drei Jahren.
   const kappungsgrenze = kappungsgrenzeProzent(istAngespannt);
@@ -68,6 +73,10 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     ? ((parseFloat(neueKaltmiete) - contractData.current_kaltmiete) / contractData.current_kaltmiete * 100)
     : 0;
   const ueberKappung = erhoehungProzent > kappungsgrenze;
+  // § 558b Abs. 1 BGB: geschuldet ab Beginn des dritten Kalendermonats nach
+  // Zugang. Wer heute erfasst, setzt die Miete also in der Regel zu früh.
+  const wirksamAbDatum = wirksamAb(new Date());
+  const erhoehungGiltSpaeter = wirksamAbDatum > new Date();
 
   // Fetch ist_angespannt from immobilien
   useEffect(() => {
@@ -96,6 +105,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       setEinheitBezeichnung("WE");
       setBegruendungsart("mietspiegel");
       setBegruendungText("");
+      setMieterHatZugestimmt(false);
     }
   }, [isOpen, contractData]);
 
@@ -217,16 +227,19 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         mietvertrag_id: contractData.mietvertrag_id,
       });
 
-      // Die Miete am Vertrag bleibt unverändert: Nach § 558 BGB wird sie erst
-      // mit der Zustimmung des Mieters und frühestens ab dem dritten
-      // Kalendermonat nach Zugang geschuldet. Bis dahin steht das Verlangen
-      // als eigener Vorgang. Wer hier wieder mietvertrag.kaltmiete setzt,
-      // erzeugt Mahnungen gegen Mieter, die korrekt zahlen.
+      // Ohne Zustimmung bleibt die Vertragsmiete unverändert: Nach § 558 BGB
+      // erhöht der Vermieter nicht einseitig, und selbst mit Zustimmung ist die
+      // erhöhte Miete erst ab dem dritten Kalendermonat nach Zugang geschuldet
+      // (§ 558b Abs. 1 BGB). Wer sie zu früh setzt, erzeugt Mahnungen gegen
+      // Mieter, die korrekt zahlen — genau das passierte bis zum 06.09.2026.
+      const heuteIso = new Date().toISOString().split('T')[0];
       const wirksamDatum = wirksamAb(new Date());
+      const wirksamIso = wirksamDatum.toISOString().split('T')[0];
+
       const { error: vorgangError } = await supabase.from('mieterhoehungen').insert({
         mietvertrag_id: contractData.mietvertrag_id,
-        verlangt_am: new Date().toISOString().split('T')[0],
-        wirksam_ab: wirksamDatum.toISOString().split('T')[0],
+        verlangt_am: heuteIso,
+        wirksam_ab: wirksamIso,
         alte_kaltmiete: contractData.current_kaltmiete,
         alte_betriebskosten: contractData.current_betriebskosten,
         neue_kaltmiete: parseFloat(neueKaltmiete),
@@ -234,13 +247,41 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         begruendungsart,
         begruendung_text: begruendungText.trim(),
         dokument_pfad: filePath,
+        status: mieterHatZugestimmt ? 'wirksam' : 'verlangt',
+        zugestimmt_am: mieterHatZugestimmt ? heuteIso : null,
       });
       if (vorgangError) throw vorgangError;
 
-      toast({
-        title: "Erhöhungsverlangen gespeichert",
-        description: `Die Miete am Vertrag bleibt unverändert. Sie ist erst nach Zustimmung des Mieters anzupassen, frühestens zum ${wirksamDatum.toLocaleDateString('de-DE')}.`,
-      });
+      if (mieterHatZugestimmt) {
+        const { error: mieteError } = await supabase.from('mietvertrag').update({
+          kaltmiete: parseFloat(neueKaltmiete),
+          betriebskosten: parseFloat(neueBetriebskosten) || 0,
+          letzte_mieterhoehung_am: heuteIso,
+          aktualisiert_am: new Date().toISOString(),
+        }).eq('id', contractData.mietvertrag_id);
+
+        if (mieteError) {
+          toast({
+            title: "Schreiben gespeichert, Miete nicht geändert",
+            description: `Der Vorgang ist erfasst, die Vertragsmiete steht aber weiter auf dem alten Wert: ${mieteError.message}`,
+            variant: "destructive",
+          });
+        } else {
+          queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
+          queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
+          toast({
+            title: "Miete erhöht",
+            description: erhoehungGiltSpaeter
+              ? `Die Vertragsmiete steht jetzt auf ${parseFloat(neueKaltmiete).toFixed(2)} € kalt. Achtung: Geschuldet ist sie erst ab ${wirksamDatum.toLocaleDateString('de-DE')} — bis dahin kann das System zu viel Soll ausweisen.`
+              : `Die Vertragsmiete steht jetzt auf ${parseFloat(neueKaltmiete).toFixed(2)} € kalt.`,
+          });
+        }
+      } else {
+        toast({
+          title: "Erhöhungsverlangen gespeichert",
+          description: `Die Miete am Vertrag bleibt unverändert. Sobald der Mieter zustimmt, hier erneut öffnen und den Haken setzen — frühestens geschuldet ist sie zum ${wirksamDatum.toLocaleDateString('de-DE')}.`,
+        });
+      }
       onClose();
     } catch (err: any) {
       toast({ title: "Fehler", description: err.message || "Speichern fehlgeschlagen.", variant: "destructive" });
@@ -420,6 +461,32 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                     {!begruendungText.trim() && (
                       <p className="text-xs text-destructive">
                         Ohne Begründung ist das Erhöhungsverlangen formunwirksam — es wird kein Schreiben erzeugt.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 rounded border border-border p-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={mieterHatZugestimmt}
+                        onChange={(e) => setMieterHatZugestimmt(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                      />
+                      <span className="text-xs">
+                        <span className="font-medium">Der Mieter hat der Erhöhung zugestimmt</span>
+                        <span className="block text-muted-foreground">
+                          Dann wird die Kaltmiete beim Speichern sofort im Vertrag geändert. Ohne Haken bleibt
+                          sie stehen, bis die Zustimmung vorliegt.
+                        </span>
+                      </span>
+                    </label>
+                    {mieterHatZugestimmt && erhoehungGiltSpaeter && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                        Geschuldet ist die erhöhte Miete erst ab{' '}
+                        <strong>{wirksamAbDatum.toLocaleDateString('de-DE')}</strong> (§ 558b Abs. 1 BGB).
+                        Wenn Sie jetzt ändern, weist das System bis dahin ein zu hohes Soll aus — der Mieter
+                        erscheint als säumig und wird gemahnt.
                       </p>
                     )}
                   </div>

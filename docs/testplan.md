@@ -126,11 +126,13 @@ Einstieg: Dashboard → Mieterhöhung
 - [ ] Begründungsart wählen, Text erfassen → PDF entsteht mit Begründungsabschnitt
 - [ ] ⚠️ Brieftext prüfen: verlangt **Zustimmung**, behauptet keine einseitige Erhöhung, sagt nicht
       „Schweigen gilt als Zustimmung"
-- [ ] ⚠️ Nach dem Speichern: **Kaltmiete am Vertrag ist unverändert** — das ist jetzt so gewollt
-- [ ] 🔒 Zustimmung erfassen und Erhöhung wirksam setzen → **fehlt noch**, Oberfläche ist nicht gebaut
+- [ ] ⚠️ **Ohne Haken** speichern → Kaltmiete am Vertrag bleibt unverändert
+- [ ] ⚠️ **Mit Haken „Der Mieter hat der Erhöhung zugestimmt"** → Kaltmiete steht sofort auf dem neuen Wert
+- [ ] ⚠️ Haken setzen, während das Wirksamkeitsdatum in der Zukunft liegt → gelber Warnhinweis erscheint
 
-> Der Vorgang liegt in der neuen Tabelle `mieterhoehungen`. Bis die Oberfläche da ist, muss die Miete nach
-> Zustimmung von Hand am Vertrag angepasst werden.
+> Beide Wege legen einen Vorgang in `mieterhoehungen` an — ohne Haken mit Status `verlangt`, mit Haken
+> `wirksam`. Der Warnhinweis ist bewusst keine Sperre: Die erhöhte Miete ist erst ab dem dritten
+> Kalendermonat nach Zugang geschuldet, aber wann Sie den Vertrag anpassen, entscheiden Sie.
 
 ## 9. Kündigung und Auszug
 

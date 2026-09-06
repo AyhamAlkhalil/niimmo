@@ -82,18 +82,34 @@ describe('Der Brieftext bildet die Rechtslage ab', () => {
   });
 });
 
-describe('Das Erhöhungsmodal ändert die Miete nicht sofort', () => {
+describe('Das Erhöhungsmodal ändert die Miete nur mit Zustimmung', () => {
   const quelle = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
 
   it('schreibt das Verlangen als Vorgang', () => {
     expect(quelle).toContain("from('mieterhoehungen')");
   });
 
-  it('schreibt beim Speichern nicht in die Tabelle mietvertrag', () => {
-    // Die sofortige Mietänderung erzeugte drei Monate lang ein zu hohes Soll
-    // und damit Mahnungen gegen Mieter, die korrekt zahlten. Lesend darf der
-    // Vertrag vorkommen — geschrieben werden darf er hier nicht.
-    expect(quelle).not.toMatch(/from\(['"]mietvertrag['"]\)[\s\S]{0,80}\.update\(/);
-    expect(quelle).not.toMatch(/letzte_mieterhoehung_am:\s*new Date/);
+  it('kennt einen Haken für die Zustimmung des Mieters', () => {
+    expect(quelle).toContain('mieterHatZugestimmt');
+    expect(quelle).toContain('Der Mieter hat der Erhöhung zugestimmt');
+  });
+
+  it('ändert die Vertragsmiete ausschließlich innerhalb dieses Hakens', () => {
+    // Bis zum 06.09.2026 wurde die Miete bedingungslos gesetzt — drei Monate
+    // lang stand damit ein zu hohes Soll, und der Mahnlauf traf Mieter, die
+    // korrekt zahlten. Der Schreibzugriff darf nur im Zweig der Zustimmung
+    // stehen.
+    const schreibstelle = quelle.search(/from\(['"]mietvertrag['"]\)[\s\S]{0,40}\.update\(/);
+    expect(schreibstelle, 'kein Schreibzugriff auf mietvertrag gefunden').toBeGreaterThan(-1);
+
+    const bedingung = quelle.lastIndexOf('if (mieterHatZugestimmt)', schreibstelle);
+    expect(bedingung, 'der Schreibzugriff steht außerhalb der Zustimmungsprüfung').toBeGreaterThan(-1);
+    // Die Bedingung muss unmittelbar davor stehen, nicht irgendwo weiter oben.
+    expect(schreibstelle - bedingung).toBeLessThan(400);
+  });
+
+  it('warnt, wenn die Erhöhung erst später geschuldet ist', () => {
+    expect(quelle).toContain('erhoehungGiltSpaeter');
+    expect(quelle).toContain('558b Abs. 1 BGB');
   });
 });
