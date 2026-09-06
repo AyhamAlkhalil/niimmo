@@ -6,11 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, TrendingUp, Download, Eye, Save, Info, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { generateMieterhoehungPdf, type MieterhoehungPdfData } from "@/utils/mieterhoehungPdfGenerator";
+import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
+import { kappungsgrenzeProzent, maximaleKaltmiete, wirksamAb } from '@/utils/mieterhoehungRegeln';
 
 interface RentIncreaseModalProps {
   isOpen: boolean;
@@ -54,10 +57,13 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const [mieterPlzOrt, setMieterPlzOrt] = useState("");
   const [einheitBezeichnung, setEinheitBezeichnung] = useState("WE");
   const [istAngespannt, setIstAngespannt] = useState(false);
+  // § 558a Abs. 2 BGB: ohne Begründungsmittel ist das Verlangen unwirksam.
+  const [begruendungsart, setBegruendungsart] = useState<BegruendungsArt>("mietspiegel");
+  const [begruendungText, setBegruendungText] = useState("");
 
-  // Kappungsgrenze: 20% (angespannt) oder 30% (normal) in 36 Monaten (§558 BGB)
-  const kappungsgrenze = istAngespannt ? 20 : 30;
-  const maxKaltmiete = contractData ? contractData.current_kaltmiete * (1 + kappungsgrenze / 100) : 0;
+  // § 558 Abs. 3 BGB: 15 % bei angespanntem Markt, sonst 20 % in drei Jahren.
+  const kappungsgrenze = kappungsgrenzeProzent(istAngespannt);
+  const maxKaltmiete = contractData ? maximaleKaltmiete(contractData.current_kaltmiete, istAngespannt) : 0;
   const erhoehungProzent = contractData && contractData.current_kaltmiete > 0
     ? ((parseFloat(neueKaltmiete) - contractData.current_kaltmiete) / contractData.current_kaltmiete * 100)
     : 0;
@@ -88,6 +94,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         ? contractData.immobilie_adresse.split(',').slice(1).join(',').trim()
         : '');
       setEinheitBezeichnung("WE");
+      setBegruendungsart("mietspiegel");
+      setBegruendungText("");
     }
   }, [isOpen, contractData]);
 
@@ -102,8 +110,9 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     const heute = new Date();
     const datumStr = heute.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
-    const wirksamDate = new Date();
-    wirksamDate.setMonth(wirksamDate.getMonth() + 3);
+    // § 558b Abs. 1 BGB: Beginn des dritten Kalendermonats nach Zugang,
+    // nicht schlicht "heute + 3 Monate".
+    const wirksamDate = wirksamAb(heute);
     const wirksamStr = wirksamDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
     return {
@@ -121,6 +130,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       neueBetriebskosten: parseFloat(neueBetriebskosten) || 0,
       datum: datumStr,
       wirksamDatum: wirksamStr,
+      begruendungsart,
+      begruendungText,
     };
   }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten]);
 
@@ -206,14 +217,30 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         mietvertrag_id: contractData.mietvertrag_id,
       });
 
-      // Update contract with new rent values
-      await supabase.from('mietvertrag').update({
-        kaltmiete: parseFloat(neueKaltmiete) || contractData.current_kaltmiete,
-        betriebskosten: parseFloat(neueBetriebskosten) || contractData.current_betriebskosten,
-        letzte_mieterhoehung_am: new Date().toISOString().split('T')[0],
-      }).eq('id', contractData.mietvertrag_id);
+      // Die Miete am Vertrag bleibt unverändert: Nach § 558 BGB wird sie erst
+      // mit der Zustimmung des Mieters und frühestens ab dem dritten
+      // Kalendermonat nach Zugang geschuldet. Bis dahin steht das Verlangen
+      // als eigener Vorgang. Wer hier wieder mietvertrag.kaltmiete setzt,
+      // erzeugt Mahnungen gegen Mieter, die korrekt zahlen.
+      const wirksamDatum = wirksamAb(new Date());
+      const { error: vorgangError } = await supabase.from('mieterhoehungen').insert({
+        mietvertrag_id: contractData.mietvertrag_id,
+        verlangt_am: new Date().toISOString().split('T')[0],
+        wirksam_ab: wirksamDatum.toISOString().split('T')[0],
+        alte_kaltmiete: contractData.current_kaltmiete,
+        alte_betriebskosten: contractData.current_betriebskosten,
+        neue_kaltmiete: parseFloat(neueKaltmiete),
+        neue_betriebskosten: parseFloat(neueBetriebskosten) || 0,
+        begruendungsart,
+        begruendung_text: begruendungText.trim(),
+        dokument_pfad: filePath,
+      });
+      if (vorgangError) throw vorgangError;
 
-      toast({ title: "Gespeichert", description: "Mieterhöhung wurde gespeichert und Vertrag aktualisiert." });
+      toast({
+        title: "Erhöhungsverlangen gespeichert",
+        description: `Die Miete am Vertrag bleibt unverändert. Sie ist erst nach Zustimmung des Mieters anzupassen, frühestens zum ${wirksamDatum.toLocaleDateString('de-DE')}.`,
+      });
       onClose();
     } catch (err: any) {
       toast({ title: "Fehler", description: err.message || "Speichern fehlgeschlagen.", variant: "destructive" });
@@ -241,12 +268,12 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                 {istAngespannt ? (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 border border-orange-300">
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Angespannter Markt · </span>Kappung 20%
+                    <span className="hidden sm:inline">Angespannter Markt · </span>Kappung {kappungsgrenze}%
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-300">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    <span className="hidden sm:inline">Normaler Markt · </span>Kappung 30%
+                    <span className="hidden sm:inline">Normaler Markt · </span>Kappung {kappungsgrenze}%
                   </span>
                 )}
               </div>
@@ -362,6 +389,39 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                         className="h-8 text-sm"
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold">
+                      Begründung nach § 558a BGB <span className="text-destructive">*</span>
+                    </Label>
+                    <Select value={begruendungsart} onValueChange={(v) => setBegruendungsart(v as BegruendungsArt)}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(BEGRUENDUNGS_BEZEICHNUNG).map(([wert, text]) => (
+                          <SelectItem key={wert} value={wert}>{text}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Textarea
+                      value={begruendungText}
+                      onChange={(e) => setBegruendungText(e.target.value)}
+                      placeholder={
+                        begruendungsart === 'vergleichswohnungen'
+                          ? 'Drei vergleichbare Wohnungen mit Anschrift, Lage, Größe und Miete benennen.'
+                          : begruendungsart === 'mietspiegel'
+                          ? 'Mietspiegel und Feld benennen, z. B. „Mietspiegel Sehnde 2025, Feld C3: 8,10–9,40 €/m²".'
+                          : 'Fundstelle des Begründungsmittels angeben, die der Mieter nachprüfen kann.'
+                      }
+                      className="text-sm min-h-[72px]"
+                    />
+                    {!begruendungText.trim() && (
+                      <p className="text-xs text-destructive">
+                        Ohne Begründung ist das Erhöhungsverlangen formunwirksam — es wird kein Schreiben erzeugt.
+                      </p>
+                    )}
                   </div>
 
                   {/* Kappungsgrenze Hinweis */}

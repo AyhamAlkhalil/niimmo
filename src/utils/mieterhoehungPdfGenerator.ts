@@ -23,7 +23,29 @@ export interface MieterhoehungPdfData {
   // Datum
   datum: string;
   wirksamDatum: string;
+
+  /**
+   * Begründung nach § 558a Abs. 2 BGB. Ohne sie ist das Erhöhungsverlangen
+   * formunwirksam — der Generator verweigert dann das PDF.
+   */
+  begruendungsart: BegruendungsArt;
+  /** Der Begründungstext, den der Mieter nachprüfen kann. */
+  begruendungText: string;
 }
+
+/** Die vier zulässigen Begründungsmittel des § 558a Abs. 2 BGB. */
+export type BegruendungsArt =
+  | 'mietspiegel'
+  | 'mietdatenbank'
+  | 'gutachten'
+  | 'vergleichswohnungen';
+
+export const BEGRUENDUNGS_BEZEICHNUNG: Record<BegruendungsArt, string> = {
+  mietspiegel: 'Mietspiegel (§ 558a Abs. 2 Nr. 1 BGB)',
+  mietdatenbank: 'Auskunft aus einer Mietdatenbank (§ 558a Abs. 2 Nr. 2 BGB)',
+  gutachten: 'Sachverständigengutachten (§ 558a Abs. 2 Nr. 3 BGB)',
+  vergleichswohnungen: 'Entsprechende Entgelte für einzelne vergleichbare Wohnungen (§ 558a Abs. 2 Nr. 4 BGB)',
+};
 
 // Load logo as base64 - cached
 let logoBase64Cache: string | null = null;
@@ -46,7 +68,35 @@ async function loadLogo(): Promise<string | null> {
   }
 }
 
+/**
+ * Ein Erhöhungsverlangen ohne Begründung ist nach § 558a Abs. 1 BGB unwirksam.
+ * Wie beim Mietvertrag gilt: Der Generator rät nichts — fehlt die Begründung,
+ * entsteht kein PDF, statt ein formunwirksames Schreiben zu erzeugen.
+ */
+export function pruefeErhoehungsdaten(data: MieterhoehungPdfData): string[] {
+  const fehlt: string[] = [];
+  if (!data.begruendungsart) {
+    fehlt.push('Es ist kein Begründungsmittel nach § 558a Abs. 2 BGB gewählt.');
+  }
+  if (!data.begruendungText?.trim()) {
+    fehlt.push('Die Begründung ist leer. Der Mieter muss sie nachprüfen können.');
+  }
+  if (!(data.neueKaltmiete > data.aktuelleKaltmiete)) {
+    fehlt.push('Die neue Kaltmiete liegt nicht über der bisherigen.');
+  }
+  if (!data.wirksamDatum) {
+    fehlt.push('Es fehlt das Datum, ab dem die erhöhte Miete geschuldet wird.');
+  }
+  return fehlt;
+}
+
 export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Promise<Blob> {
+  const fehlt = pruefeErhoehungsdaten(data);
+  if (fehlt.length > 0) {
+    throw new Error(
+      'Das Erhöhungsverlangen kann nicht erzeugt werden:\n' + fehlt.map((f) => `• ${f}`).join('\n')
+    );
+  }
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = 210;
   const marginLeft = 25;
@@ -171,7 +221,7 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   const subjectLine1 = `MV – ${data.immobilieAdresse}, ${data.einheitBezeichnung}`;
   doc.text(subjectLine1, marginLeft, y);
   y += 6;
-  doc.text('Mieterhöhung gemäß § 558 BGB', marginLeft, y);
+  doc.text('Zustimmung zur Mieterhöhung nach § 558 BGB', marginLeft, y);
   
   // ============ BODY TEXT ============
   y += 12;
@@ -184,11 +234,11 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   
   const lineHeight = 5;
   
-  const introText = `hiermit erhöhen wir die Miete für die von Ihnen gemietete Wohnung in ${data.immobilieName}, ${data.immobilieAdresse}, ${data.einheitBezeichnung}, zum ${data.wirksamDatum}.`;
+  const introText = `für die von Ihnen gemietete Wohnung in ${data.immobilieName}, ${data.immobilieAdresse}, ${data.einheitBezeichnung}, verlangen wir hiermit Ihre Zustimmung zu einer Erhöhung der Nettokaltmiete bis zur ortsüblichen Vergleichsmiete (§ 558 BGB). Bei Ihrer Zustimmung schulden Sie die erhöhte Miete ab dem ${data.wirksamDatum}.`;
   y = drawJustifiedText(introText, marginLeft, y, contentWidth, lineHeight);
   y += 3;
   
-  doc.text('Die Mieterhöhung stellt sich wie folgt dar:', marginLeft, y);
+  doc.text('Die verlangte Erhöhung stellt sich wie folgt dar:', marginLeft, y);
   y += 8;
   
   // ============ TABLE ============
@@ -263,12 +313,21 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   doc.setFont('helvetica', 'normal');
   
   checkPageBreak(20);
-  const continuationText = `Die erhöhte Miete wird zum ${data.wirksamDatum} fällig. Wir bitten Sie, Ihre Zahlungen entsprechend anzupassen.`;
-  y = drawJustifiedText(continuationText, marginLeft, y, contentWidth, lineHeight);
+  // ============ BEGRUENDUNG (§ 558a Abs. 2 BGB) ============
+  checkPageBreak(30);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Begründung', marginLeft, y);
+  doc.setFont('helvetica', 'normal');
+  y += 6;
+  y = drawJustifiedText(
+    `Wir stützen unser Verlangen auf folgendes Begründungsmittel: ${BEGRUENDUNGS_BEZEICHNUNG[data.begruendungsart]}.`,
+    marginLeft, y, contentWidth, lineHeight);
+  y += 2;
+  y = drawJustifiedText(data.begruendungText, marginLeft, y, contentWidth, lineHeight);
   y += 4;
-  
-  checkPageBreak(25);
-  const legalText = 'Gemäß § 558b BGB haben Sie das Recht, der Mieterhöhung bis zum Ende des zweiten Kalendermonats nach dem Zugang dieses Erhöhungsverlangens zu widersprechen. Sofern Sie nicht widersprechen, gilt Ihre Zustimmung als erteilt.';
+
+  checkPageBreak(30);
+  const legalText = `Sie haben Zeit, dieses Verlangen bis zum Ablauf des zweiten Kalendermonats nach seinem Zugang zu prüfen (§ 558b Abs. 2 BGB). Stimmen Sie zu, schulden Sie die erhöhte Miete ab dem ${data.wirksamDatum}; wir bitten Sie, Ihre Zahlungen dann entsprechend anzupassen. Ihre Zustimmung können Sie uns schriftlich oder in Textform erklären. Erteilen Sie sie nicht, bleibt es bei der bisherigen Miete — wir können die Zustimmung dann innerhalb von drei weiteren Monaten gerichtlich geltend machen (§ 558b Abs. 2 Satz 2 BGB).`;
   y = drawJustifiedText(legalText, marginLeft, y, contentWidth, lineHeight);
   y += 4;
   
