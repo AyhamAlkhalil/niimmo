@@ -45,9 +45,22 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
   const authClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
-  const { error: authError } = await authClient.auth.getUser();
-  if (authError) {
+  const { data: userData, error: authError } = await authClient.auth.getUser();
+  if (authError || !userData?.user?.id) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  // Diese Funktion verschickt Post an Mieter und Versorger und haengt Dateien
+  // aus dem Dokumenten-Bucket an. Die Empfaenger koennen Dritte sein (Strom,
+  // Gas, Wasser), lassen sich also nicht gegen eine Liste pruefen -- umso
+  // wichtiger ist, dass nur die Verwaltung sie aufrufen kann.
+  const rollenClient = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+  const { data: istAdmin, error: rolleError } = await rollenClient.rpc('is_admin', { _user_id: userData.user.id });
+  if (rolleError || istAdmin !== true) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {
@@ -66,7 +79,7 @@ serve(async (req) => {
     const smtpUser = Deno.env.get("UEBERGABE_SMTP_USER") || Deno.env.get("MAHNUNG_SMTP_USER") || Deno.env.get("SMTP_USER");
     const smtpPass = Deno.env.get("UEBERGABE_SMTP_PASS") || Deno.env.get("MAHNUNG_SMTP_PASS") || Deno.env.get("SMTP_PASS");
     const smtpFromEmail = Deno.env.get("UEBERGABE_SMTP_FROM_EMAIL") || Deno.env.get("MAHNUNG_SMTP_FROM_EMAIL") || Deno.env.get("SMTP_FROM_EMAIL") || "mahnung@niimmo.de";
-    const smtpFromName = Deno.env.get("UEBERGABE_SMTP_FROM_NAME") || Deno.env.get("MAHNUNG_SMTP_FROM_NAME") || Deno.env.get("SMTP_FROM_NAME") || "NilImmo Hausverwaltung";
+    const smtpFromName = Deno.env.get("UEBERGABE_SMTP_FROM_NAME") || Deno.env.get("MAHNUNG_SMTP_FROM_NAME") || Deno.env.get("SMTP_FROM_NAME") || "NiImmo Hausverwaltung";
 
     if (!smtpHost || !smtpUser || !smtpPass || !smtpFromEmail) {
       throw new Error("SMTP-Konfiguration unvollständig. Bitte UEBERGABE_SMTP_* oder MAHNUNG_SMTP_* Secrets konfigurieren.");
@@ -75,6 +88,15 @@ serve(async (req) => {
     // Load PDF attachment if path provided
     let pdfBuffer: Buffer | null = null;
     if (pdfPath) {
+      // Der Pfad kam ungeprueft aus dem Request und wurde mit Service-Role
+      // geladen -- damit liess sich jede Datei des Buckets an eine frei
+      // gewaehlte Adresse schicken. Uebergabeprotokolle liegen ausschliesslich
+      // unter uebergabeprotokolle/.
+      if (!pdfPath.startsWith('uebergabeprotokolle/')) {
+        return new Response(
+          JSON.stringify({ error: 'Als Anhang sind nur Übergabeprotokolle zulässig.' }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
       const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       console.log('Loading PDF from storage:', pdfPath);
       const { data: fileData, error: fileError } = await supabase.storage
@@ -82,7 +104,12 @@ serve(async (req) => {
         .download(pdfPath);
 
       if (fileError) {
+        // Nicht verschlucken: Sonst geht die Mail ohne Protokoll hinaus und
+        // meldet trotzdem Erfolg.
         console.error('PDF download error:', fileError);
+        return new Response(
+          JSON.stringify({ error: 'Das Übergabeprotokoll konnte nicht geladen werden. Es wurde nichts versendet.' }),
+          { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } else if (fileData) {
         const arrayBuffer = await fileData.arrayBuffer();
         pdfBuffer = Buffer.from(arrayBuffer);

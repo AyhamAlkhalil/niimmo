@@ -135,14 +135,27 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
   const authClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
-  const { error: authError } = await authClient.auth.getUser();
-  if (authError) {
+  const { data: userData, error: authError } = await authClient.auth.getUser();
+  // Beides pruefen: Ein fehlender Nutzer ohne Fehlerobjekt kam sonst durch.
+  if (authError || !userData?.user?.id) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  // Diese Funktion verschickt Post an Mieter und aendert die Mahnstufe --
+  // das ist Verwaltungsarbeit und keine Hausmeistertaetigkeit.
+  const rollenClient = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  );
+  const { data: istAdmin, error: rolleError } = await rollenClient.rpc('is_admin', { _user_id: userData.user.id });
+  if (rolleError || istAdmin !== true) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {
     const data: MahnungEmailRequest = await req.json();
-    console.log('Mahnung E-Mail wird versendet:', { recipient: data.recipientEmail, mahnstufe: data.mahnstufe });
+    // Keine Mieternamen, Mailadressen oder Betraege ins Protokoll -- nur IDs.
+    console.log('Mahnung wird versendet:', { mietvertragId: data.mietvertragId });
 
     // SMTP config
     const smtpHost = Deno.env.get("MAHNUNG_SMTP_HOST") || Deno.env.get("SMTP_HOST");
@@ -150,7 +163,7 @@ serve(async (req) => {
     const smtpUser = Deno.env.get("MAHNUNG_SMTP_USER") || Deno.env.get("SMTP_USER");
     const smtpPass = Deno.env.get("MAHNUNG_SMTP_PASS") || Deno.env.get("SMTP_PASS");
     const smtpFromEmail = Deno.env.get("MAHNUNG_SMTP_FROM_EMAIL") || Deno.env.get("SMTP_FROM_EMAIL") || "mahnung@niimmo.de";
-    const smtpFromName = Deno.env.get("MAHNUNG_SMTP_FROM_NAME") || Deno.env.get("SMTP_FROM_NAME") || "NilImmo Hausverwaltung";
+    const smtpFromName = Deno.env.get("MAHNUNG_SMTP_FROM_NAME") || Deno.env.get("SMTP_FROM_NAME") || "NiImmo Hausverwaltung";
 
     if (!smtpHost || !smtpUser || !smtpPass || !smtpFromEmail) {
       throw new Error("SMTP-Konfiguration für Mahnungen unvollständig. Bitte MAHNUNG_SMTP_* Secrets konfigurieren.");
@@ -161,6 +174,50 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    if (!data.mietvertragId) {
+      return new Response(JSON.stringify({ error: 'mietvertragId fehlt' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Der Storage-Pfad kam ungeprueft aus dem Request und wurde mit
+    // Service-Role geladen: Damit liess sich jede Datei des Buckets an eine
+    // frei gewaehlte Adresse schicken. Er muss zu diesem Vertrag gehoeren.
+    if (data.pdfPath && !data.pdfPath.startsWith(`mahnungen/${data.mietvertragId}/`)) {
+      console.error('Pfad gehoert nicht zum Vertrag');
+      return new Response(JSON.stringify({ error: 'Der Anhang gehört nicht zu diesem Mietvertrag.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Ebenso die Empfaengeradresse: Sie muss an einem Mieter dieses Vertrags
+    // hinterlegt sein, statt aus dem Request zu stammen.
+    const { data: vertragsMieter, error: mieterError } = await supabase
+      .from('mietvertrag_mieter')
+      .select('mieter(hauptmail, weitere_mails)')
+      .eq('mietvertrag_id', data.mietvertragId);
+
+    if (mieterError) {
+      console.error('Mieter des Vertrags nicht lesbar');
+      return new Response(JSON.stringify({ error: 'Empfänger konnte nicht geprüft werden.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    const erlaubteAdressen = new Set<string>();
+    for (const zeile of vertragsMieter ?? []) {
+      const m = (zeile as Record<string, { hauptmail?: string | null; weitere_mails?: string | null }>).mieter;
+      if (m?.hauptmail) erlaubteAdressen.add(m.hauptmail.trim().toLowerCase());
+      for (const weitere of (m?.weitere_mails ?? '').split(/[,;\s]+/)) {
+        if (weitere.includes('@')) erlaubteAdressen.add(weitere.trim().toLowerCase());
+      }
+    }
+
+    const empfaenger = (data.recipientEmail ?? '').trim().toLowerCase();
+    if (!erlaubteAdressen.has(empfaenger)) {
+      console.error('Empfaenger gehoert nicht zum Vertrag');
+      return new Response(
+        JSON.stringify({ error: 'Die Empfängeradresse ist an diesem Mietvertrag nicht hinterlegt. Bitte zuerst in den Mieterdaten eintragen.' }),
+        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     let pdfBuffer: Buffer | null = null;
     let pdfFilename = `Mahnung_Stufe${data.mahnstufe}_${new Date().toISOString().split('T')[0]}.pdf`;
     if (data.pdfPath) {
@@ -170,7 +227,13 @@ serve(async (req) => {
         .download(data.pdfPath);
 
       if (fileError) {
+        // Frueher nur geloggt: Der Mieter bekam dann eine Mahnungs-Mail ohne
+        // das Mahnschreiben, die Antwort meldete trotzdem Erfolg, und die
+        // Mahnstufe stieg. Ohne Anhang wird nicht versendet.
         console.error('PDF download error:', fileError);
+        return new Response(
+          JSON.stringify({ error: 'Das Mahnschreiben konnte nicht geladen werden. Es wurde nichts versendet und die Mahnstufe nicht erhöht.' }),
+          { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } else if (fileData) {
         const arrayBuffer = await fileData.arrayBuffer();
         pdfBuffer = Buffer.from(arrayBuffer);
@@ -215,15 +278,24 @@ serve(async (req) => {
     }
 
     await transporter.sendMail(mailOptions);
-    console.log('Mahnung E-Mail erfolgreich versendet an:', data.recipientEmail);
 
-    // Log to system_logs
+    // Erst nach erfolgreichem Versand: Die neue Mahnstufe kam frueher aus dem
+    // Request -- damit konnte jeder Aufrufer jeden Vertrag unmittelbar auf
+    // Stufe 3 setzen und die Regel umgehen, dass die Stufe nur durch
+    // tatsaechlichen Versand steigt. Sie wird jetzt aus dem gespeicherten
+    // Stand abgeleitet.
+    const { data: vertragStand } = await supabase
+      .from('mietvertrag')
+      .select('mahnstufe')
+      .eq('id', data.mietvertragId)
+      .maybeSingle();
+    const neueMahnstufe = Math.min((Number(vertragStand?.mahnstufe) || 0) + 1, 3);
+
+    console.log('Mahnung versendet:', { mietvertragId: data.mietvertragId, mahnstufe: neueMahnstufe });
     await supabase.from('system_logs').insert({
-      message: `Mahnung Stufe ${data.mahnstufe} per E-Mail versendet an ${data.recipientName} (${data.recipientEmail}). Gesamtbetrag: ${data.gesamtbetrag.toFixed(2)}€. Objekt: ${data.immobilieName}`
+      message: `Mahnung Stufe ${neueMahnstufe} per E-Mail versendet (Mietvertrag ${data.mietvertragId}).`
     });
 
-    // Update mahnstufe on contract
-    const neueMahnstufe = Math.min(data.mahnstufe, 3);
     await supabase.from('mietvertrag').update({
       mahnstufe: neueMahnstufe,
       letzte_mahnung_am: new Date().toISOString(),
