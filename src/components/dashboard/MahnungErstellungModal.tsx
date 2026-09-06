@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,7 @@ export function MahnungErstellungModal({
 }: MahnungErstellungModalProps) {
   const { toast } = useToast();
   const { perioden, fromDB } = useBasiszinsPerioden();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [step, setStep] = useState<'edit' | 'email'>('edit');
@@ -357,9 +359,45 @@ export function MahnungErstellungModal({
 
       if (error) throw error;
 
+      // Ab Stufe 3 enthaelt das Schreiben eine fristlose Kuendigung nach
+      // §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB. Bis zum 06.09.2026 blieb der
+      // Vertrag danach 'aktiv': Die Sollstellung lief weiter, das Dashboard
+      // zaehlte die Einheit als vermietet, und keine Auswertung kannte den
+      // Vorgang. Wer kuendigt, muss den Vertrag auch beenden.
+      if (mahnstufe >= 3) {
+        const heuteIso = new Date().toISOString().split('T')[0];
+        const raeumungsfrist = new Date();
+        raeumungsfrist.setDate(raeumungsfrist.getDate() + (parseInt(raeumungsfristTage) || 14));
+        const raeumung = raeumungsfrist.toISOString().split('T')[0];
+        const { error: statusError } = await supabase
+          .from('mietvertrag')
+          .update({
+            status: 'gekuendigt',
+            kuendigungsdatum: heuteIso,
+            // ende_datum ist die fuehrende Quelle des Vertragsendes
+            // (utils/contractUtils.ts) und muss deshalb mitgeschrieben werden.
+            ende_datum: raeumung,
+            aktualisiert_am: new Date().toISOString(),
+          })
+          .eq('id', contractData.mietvertrag_id);
+
+        if (statusError) {
+          toast({
+            title: "Mahnung versendet, Vertragsstatus nicht gesetzt",
+            description: `Das Kuendigungsschreiben ist raus, der Vertrag steht aber weiter auf aktiv: ${statusError.message}. Bitte den Status von Hand auf "gekuendigt" setzen.`,
+            variant: "destructive",
+          });
+        } else {
+          queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
+          queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
+        }
+      }
+
       toast({
         title: "E-Mail versendet",
-        description: `Mahnung Stufe ${mahnstufe} wurde an ${emailRecipient} versendet.`,
+        description: mahnstufe >= 3
+          ? `Mahnung Stufe ${mahnstufe} mit fristloser Kündigung wurde an ${emailRecipient} versendet. Der Vertrag steht jetzt auf "gekündigt".`
+          : `Mahnung Stufe ${mahnstufe} wurde an ${emailRecipient} versendet.`,
       });
       onClose();
     } catch (err) {
@@ -921,9 +959,21 @@ export function MahnungErstellungModal({
       <AlertDialog open={showConfirmSend} onOpenChange={setShowConfirmSend}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Mahnung versenden?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {mahnstufe >= 3 ? 'Fristlose Kündigung versenden?' : 'Mahnung versenden?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Die Mahnung wird an {emailRecipient} versendet. Dies kann nicht rückgängig gemacht werden.
+              {mahnstufe >= 3 ? (
+                <>
+                  Dieses Schreiben kündigt das Mietverhältnis <strong>außerordentlich fristlos</strong>
+                  {' '}(§§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB). Mit dem Versand wird der Vertrag
+                  auf „gekündigt" gesetzt und das Vertragsende auf das Ende der Räumungsfrist
+                  ({raeumungsfristTage} Tage) datiert. Der Versand an {emailRecipient} kann nicht
+                  rückgängig gemacht werden.
+                </>
+              ) : (
+                <>Die Mahnung wird an {emailRecipient} versendet. Dies kann nicht rückgängig gemacht werden.</>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
