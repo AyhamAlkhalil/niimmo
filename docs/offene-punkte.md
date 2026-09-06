@@ -234,12 +234,15 @@ lebenden Dialog übernommen (C7).
 
 - **Der Live-Datenbestand.** Alle Aussagen über Datenmengen stammen aus früheren Sitzungen und sind im Repo nicht
   belegbar. Vor Entscheidungen per SQL zählen.
-- **RLS-Policies im Detail** — nur an der Live-Datenbank prüfbar. A1 und A2 sind dort zu verifizieren, bevor
-  gehandelt wird.
+- ~~**RLS-Policies im Detail**~~ — am 06.09.2026 an der Live-Datenbank geprüft und geschlossen (A1, A2).
 - **Cron-Jobs** stehen in `cron.job`, nicht im Repo. Welche Turnusläufe tatsächlich aktiv sind, ist offen.
 - **Realtime-Publikation:** `useRealtimeUpdates` abonniert vier Tabellen; ob sie in `supabase_realtime` liegen,
   ist unbelegt (Notiz vom 03.09.2026: nur `benachrichtigungen` und `dev_tickets`).
-- **Lovable-Deployment:** Warum Pushes nicht veröffentlicht wurden, ist ungeklärt.
+- **Lovable-Deployment:** Weiterhin ungeklärt. Nach dem Push vom 06.09.2026 war der Asset-Hash fünf Minuten
+  später unverändert — ein Push veröffentlicht nichts, es braucht *Share → Publish* in Lovable.
+- **Geklärt am 06.09.2026:** `dashboard.niimmo.de` ist live (HTTP 200) und liefert dieselbe Anwendung wie
+  `immobilien-blick-dashboard.lovable.app` — identischer Asset-Hash. Beide sind produktiv, die Preview-Adresse
+  antwortet mit 401.
 - **Der Lückenprüfer der Bestandsaufnahme** lief nicht zu Ende (Session-Limit). Seine Hauptfrage — nicht erfasster
   und verwaister Code — ist über die Erreichbarkeitsanalyse beantwortet, eine zweite Durchsicht der Edge Functions
   und Tabellen auf unerfasste Fähigkeiten steht aber noch aus.
