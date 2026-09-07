@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Upload, Search, FileText, Calendar, Bot, Euro, Building2, Home, User, Edit2, X, AlertTriangle, ChevronDown, ChevronRight, Maximize2, Minimize2, SlidersHorizontal } from "lucide-react";
+import { useCallback, useState } from "react";
+import { AlertTriangle, ArrowLeft, Bot, Building2, Euro, FileText, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,21 +9,19 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
-import { de } from "date-fns/locale";
 import { AssignPaymentDialog } from "./AssignPaymentDialog";
 import { PaymentAssignmentResultsModal } from "./PaymentAssignmentResultsModal";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { NebenkostenZuordnungTab } from "./NebenkostenZuordnungTab";
 import { LastUploadReviewModal } from "./LastUploadReviewModal";
 import { ZahlungsAnomalienBanner } from "./ZahlungsAnomalienBanner";
+import { PaymentKategorieEditor } from "./PaymentKategorieEditor";
+import { SprungZiel, ZahlungenArbeitsplatz } from "./ZahlungenArbeitsplatz";
+import { ZahlungZeile, formatEuro, formatIsoDatum } from "@/utils/zahlungenAnsicht";
+import { Zuordnungsvorschlag, vorschlagsSchluessel } from "@/utils/zuordnungsvorschlaege";
 
 /**
  * Robuster Betragsparser für deutsche und englische Formate:
@@ -74,26 +72,9 @@ function parseAmountRobust(raw: string | number): number {
   if (isNaN(val)) return 0;
   return negative ? -val : val;
 }
-import { PaymentKategorieEditor } from "./PaymentKategorieEditor";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface PaymentManagementProps {
   onBack: () => void;
-}
-
-interface ProcessedPayment {
-  buchungsdatum: string;
-  betrag: number;
-  iban: string;
-  verwendungszweck: string;
-  empfaengername?: string;
-  mietvertrag_id: string | null;
-  immobilie_id?: string | null;
-  kategorie: string;
-  zuordnungsgrund: string;
-  confidence: number;
-  mieter_name?: string;
-  immobilie_name?: string;
 }
 
 interface AIAssignmentStats {
@@ -121,11 +102,21 @@ interface DuplicatePayment {
   existingId: string;
 }
 
-interface ZahlungWithDetails {
+/** Eine Zeile aus der CSV, so wie sie an process-payments geht. */
+interface CsvZahlung {
+  buchungsdatum: string;
+  wertstellungsdatum?: string;
+  betrag: number;
+  iban: string;
+  verwendungszweck: string;
+  empfaengername: string;
+}
+
+/** Rohform der Zahlungsabfrage mit den eingebetteten Bezügen. */
+interface ZahlungRoh {
   id: string;
   betrag: number;
   buchungsdatum: string;
-  buchungsdatum_formatted: string; // vorberechnet: "dd.MM.yyyy"
   verwendungszweck: string | null;
   empfaengername: string | null;
   iban: string | null;
@@ -133,45 +124,80 @@ interface ZahlungWithDetails {
   kategorie: string | null;
   mietvertrag_id: string | null;
   immobilie_id: string | null;
-  immobilie_name: string | null;
-  immobilie_adresse: string | null;
-  einheit_id: string | null;
-  einheit_typ: string | null;
-  mieter_name: string | null;
+  immobilien: { name: string | null; adresse: string | null } | null;
+  mietvertrag: {
+    einheiten: {
+      id: string;
+      einheitentyp: string | null;
+      etage: string | null;
+      immobilien: { name: string | null; adresse: string | null } | null;
+    } | null;
+    mietvertrag_mieter: Array<{ mieter: { vorname: string | null; nachname: string | null } | null }> | null;
+  } | null;
 }
 
-// Einmal instanziieren statt bei jedem Render neu
-const EUR_FORMATTER = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+/** Eine offene Mietzahlung im Reiter „Nicht zugeordnet" — nur die Felder, die dort gezeigt werden. */
+interface ZahlungOffen {
+  id: string;
+  betrag: number;
+  buchungsdatum: string;
+  verwendungszweck: string | null;
+  empfaengername: string | null;
+  iban: string | null;
+  zugeordneter_monat: string | null;
+  kategorie: string | null;
+  immobilie_id: string | null;
+}
+
+/**
+ * Liest eine wachsende Tabelle seitenweise. PostgREST liefert still höchstens
+ * 1000 Zeilen; ohne Schleife rechnet die Ansicht mit einem Bruchteil der Daten
+ * (docs/architektur.md §4).
+ */
+async function alleSeiten<T>(
+  seite: (von: number, bis: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<T[]> {
+  const alle: T[] = [];
+  const groesse = 1000;
+  for (let von = 0; ; von += groesse) {
+    const { data, error } = await seite(von, von + groesse - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    alle.push(...data);
+    if (data.length < groesse) break;
+  }
+  return alle;
+}
+
+/** Was der Zuordnungsdialog über eine bestehende Zahlung wissen muss. */
+interface ZuordnungsZahlung {
+  id: string;
+  betrag: number;
+  buchungsdatum: string;
+  empfaengername?: string;
+  iban?: string;
+  verwendungszweck?: string;
+  kategorie?: string;
+}
 
 export function PaymentManagement({ onBack }: PaymentManagementProps) {
   const [activeTab, setActiveTab] = useState("upload");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedPayment, setSelectedPayment] = useState<any>(null);
+  const [selectedPayment, setSelectedPayment] = useState<ZuordnungsZahlung | null>(null);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  
+
   // AI Assignment Results State
-  const [aiResults, setAiResults] = useState<ProcessedPayment[]>([]);
+  const [aiResults, setAiResults] = useState<Zuordnungsvorschlag[]>([]);
   const [aiDuplicates, setAiDuplicates] = useState<DuplicatePayment[]>([]);
   const [aiStats, setAiStats] = useState<AIAssignmentStats | null>(null);
   const [resultsModalOpen, setResultsModalOpen] = useState(false);
   const [lastUploadReviewOpen, setLastUploadReviewOpen] = useState(false);
-  // Zahlungsübersicht State
-  const [selectedZahlungId, setSelectedZahlungId] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<'datum-desc' | 'datum-asc' | 'betrag-desc' | 'betrag-asc' | 'status' | 'kategorie'>('datum-desc');
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({ from: undefined, to: undefined });
-  const [selectedKategorie, setSelectedKategorie] = useState<string | null>(null);
-  const [showOnlyZugeordnet, setShowOnlyZugeordnet] = useState(false);
-  const [showOnlyNichtZugeordnet, setShowOnlyNichtZugeordnet] = useState(false);
-  const [allPaymentsSearchTerm, setAllPaymentsSearchTerm] = useState("");
-  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
-  const [filtersCollapsed, setFiltersCollapsed] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [sprungZiel, setSprungZiel] = useState<SprungZiel | null>(null);
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  // Removed progress bar - using simple toast instead
 
   // Fetch CSV upload history (last 10)
   const { data: uploadHistory } = useQuery({
@@ -191,65 +217,53 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   const lastUpload = uploadHistory?.[0] ?? null;
 
   // Fetch unassigned payments (for the "Nicht zugeordnete" tab)
-  const { data: unassignedPayments, isLoading: unassignedLoading } = useQuery({
+  const { data: unassignedPayments, isLoading: unassignedLoading, isError: unassignedError } = useQuery({
     queryKey: ['unassigned-payments'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('zahlungen')
-        .select('*')
-        .is('mietvertrag_id', null)
-        .in('kategorie', ['Miete', 'Mietkaution', 'Rücklastschrift', 'Betriebskostenabrechnung'])
-        .order('buchungsdatum', { ascending: false });
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      alleSeiten<ZahlungOffen>((von, bis) =>
+        supabase
+          .from('zahlungen')
+          .select('id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, zugeordneter_monat, kategorie, immobilie_id')
+          .is('mietvertrag_id', null)
+          .in('kategorie', ['Miete', 'Mietkaution', 'Rücklastschrift', 'Betriebskostenabrechnung'])
+          .order('buchungsdatum', { ascending: false })
+          .range(von, bis)
+      ),
   });
 
-  // Fetch ALL payments - lightweight, no joins (for the "Alle Zahlungen" tab)
+  // Alle Zahlungen mit Vertrags- und Objektbezug, seitenweise (PostgREST liefert still nur 1000 Zeilen).
   const { data: allPayments, isLoading: allPaymentsLoading, isError: allPaymentsError } = useQuery({
     queryKey: ['zahlungen-overview'],
-    queryFn: async () => {
-      const allData: any[] = [];
-      let from = 0;
-      const pageSize = 1000;
-      
-      while (true) {
-        const { data, error } = await supabase
+    queryFn: async (): Promise<ZahlungZeile[]> => {
+      const allData = await alleSeiten<ZahlungRoh>((von, bis) =>
+        supabase
           .from('zahlungen')
           .select(`
-            *,
+            id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, zugeordneter_monat, kategorie, mietvertrag_id, immobilie_id,
             immobilien:immobilie_id (name, adresse),
             mietvertrag:mietvertrag_id (
-              einheiten:einheit_id (id, einheitentyp, immobilien:immobilie_id (name, adresse)),
+              einheiten:einheit_id (id, einheitentyp, etage, immobilien:immobilie_id (name, adresse)),
               mietvertrag_mieter (mieter:mieter_id (vorname, nachname))
             )
           `)
           .order('buchungsdatum', { ascending: false })
-          .range(from, from + pageSize - 1);
+          .range(von, bis)
+          .then((antwort) => ({ data: antwort.data as unknown as ZahlungRoh[] | null, error: antwort.error }))
+      );
 
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        allData.push(...data);
-        if (data.length < pageSize) break;
-        from += pageSize;
-      }
-
-      return allData.map((zahlung: any): ZahlungWithDetails => {
+      return allData.map((zahlung): ZahlungZeile => {
         const directImmo = zahlung.immobilien;
         const mv = zahlung.mietvertrag;
         const einheit = mv?.einheiten;
         const mvImmo = einheit?.immobilien;
         const mieterName = mv?.mietvertrag_mieter
-          ?.map((mm: any) => `${mm.mieter?.vorname || ''} ${mm.mieter?.nachname || ''}`.trim())
+          ?.map((mm) => `${mm.mieter?.vorname || ''} ${mm.mieter?.nachname || ''}`.trim())
           .filter(Boolean).join(', ') || null;
-        // ISO "yyyy-MM-dd" → "dd.MM.yyyy" ohne Date-Objekt
-        const [y, m, d] = (zahlung.buchungsdatum || '').split('-');
         return {
           id: zahlung.id,
           betrag: zahlung.betrag,
           buchungsdatum: zahlung.buchungsdatum,
-          buchungsdatum_formatted: d && m && y ? `${d}.${m}.${y}` : zahlung.buchungsdatum,
+          buchungsdatum_formatted: formatIsoDatum(zahlung.buchungsdatum),
           verwendungszweck: zahlung.verwendungszweck,
           empfaengername: zahlung.empfaengername,
           iban: zahlung.iban,
@@ -261,90 +275,18 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           immobilie_adresse: mvImmo?.adresse || directImmo?.adresse || null,
           einheit_id: einheit?.id || null,
           einheit_typ: einheit?.einheitentyp || null,
+          einheit_etage: einheit?.etage || null,
           mieter_name: mieterName,
         };
       });
     },
   });
 
-  // Server-side search for tenant/property names (not available in lazy-loaded local data)
-  const [serverSearchIds, setServerSearchIds] = useState<Set<string> | null>(null);
-  const [isServerSearching, setIsServerSearching] = useState(false);
-  const searchSeqRef = useRef(0);
-
-  const performServerSearch = useCallback(async (term: string) => {
-    if (!term || term.length < 2) {
-      setServerSearchIds(null);
-      return;
-    }
-    const seq = ++searchSeqRef.current;
-    setIsServerSearching(true);
-    try {
-      // Search by tenant name via mietvertrag_mieter join
-      const { data: mieterMatches } = await supabase
-        .from('mieter')
-        .select('id, vorname, nachname')
-        .or(`vorname.ilike.%${term}%,nachname.ilike.%${term}%`);
-
-      const contractPaymentIds = new Set<string>();
-      if (mieterMatches && mieterMatches.length > 0) {
-        const mieterIds = mieterMatches.map(m => m.id);
-        const { data: mmLinks } = await supabase
-          .from('mietvertrag_mieter')
-          .select('mietvertrag_id')
-          .in('mieter_id', mieterIds);
-
-        if (mmLinks && mmLinks.length > 0) {
-          const contractIds = mmLinks.map(l => l.mietvertrag_id);
-          const { data: zahlungen } = await supabase
-            .from('zahlungen')
-            .select('id')
-            .in('mietvertrag_id', contractIds);
-          zahlungen?.forEach(z => contractPaymentIds.add(z.id));
-        }
-      }
-
-      // Search by property name/address
-      const { data: immobilienMatches } = await supabase
-        .from('immobilien')
-        .select('id')
-        .or(`name.ilike.%${term}%,adresse.ilike.%${term}%`);
-
-      if (immobilienMatches && immobilienMatches.length > 0) {
-        const immIds = immobilienMatches.map(i => i.id);
-        const { data: zahlungen } = await supabase
-          .from('zahlungen')
-          .select('id')
-          .in('immobilie_id', immIds);
-        zahlungen?.forEach(z => contractPaymentIds.add(z.id));
-      }
-
-      // Veraltete Antwort verwerfen (Race Condition)
-      if (seq !== searchSeqRef.current) return;
-      setServerSearchIds(contractPaymentIds);
-    } catch (err) {
-      if (seq === searchSeqRef.current) setServerSearchIds(null);
-    } finally {
-      if (seq === searchSeqRef.current) setIsServerSearching(false);
-    }
-  }, []);
-
-  // Debounced server search
-  useEffect(() => {
-    const term = allPaymentsSearchTerm.trim().toLowerCase();
-    if (!term || term.length < 2) {
-      setServerSearchIds(null);
-      return;
-    }
-    const timer = setTimeout(() => performServerSearch(term), 300);
-    return () => clearTimeout(timer);
-  }, [allPaymentsSearchTerm, performServerSearch]);
-
   // Filter for unassigned payments (simple table)
   const filteredUnassignedPayments = unassignedPayments?.filter(payment => {
     if (!searchTerm) return true;
     const search = searchTerm.toLowerCase().trim();
-    
+
     return (
       payment.iban?.toLowerCase().includes(search) ||
       payment.empfaengername?.toLowerCase().includes(search) ||
@@ -352,269 +294,15 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       payment.kategorie?.toLowerCase().includes(search) ||
       payment.zugeordneter_monat?.toLowerCase().includes(search) ||
       payment.betrag?.toString().includes(search) ||
-      format(new Date(payment.buchungsdatum), 'dd.MM.yyyy').includes(search)
+      formatIsoDatum(payment.buchungsdatum).includes(search)
     );
   });
 
-  // Filtering and sorting for all payments
-  const uniqueKategorien = useMemo(
-    () => allPayments
-      ? Array.from(new Set(allPayments.map(z => z.kategorie || 'Keine Kategorie'))).sort()
-      : [],
-    [allPayments]
-  );
-
-  const filteredAllPayments = useMemo(() => {
-    if (!allPayments) return [];
-    
-    return allPayments.filter((zahlung) => {
-      // Search filter
-      if (allPaymentsSearchTerm) {
-        const search = allPaymentsSearchTerm.toLowerCase().trim();
-        
-        // If server search has completed, use ONLY server results for tenant/property matching
-        // This prevents partial string matches on unrelated fields from polluting results
-        if (serverSearchIds !== null) {
-          // Server search done: match if server found this payment OR if direct payment fields match exactly
-          const serverMatch = serverSearchIds.has(zahlung.id);
-          const directFieldMatch = (
-            zahlung.verwendungszweck?.toLowerCase().includes(search) ||
-            zahlung.empfaengername?.toLowerCase().includes(search) ||
-            zahlung.iban?.toLowerCase().includes(search) ||
-            zahlung.kategorie?.toLowerCase().includes(search) ||
-            zahlung.immobilie_name?.toLowerCase().includes(search) ||
-            zahlung.immobilie_adresse?.toLowerCase().includes(search)
-          );
-          const betragMatch = zahlung.betrag?.toString().includes(search);
-          const dateMatch = zahlung.buchungsdatum_formatted.includes(search);
-
-          if (!serverMatch && !directFieldMatch && !betragMatch && !dateMatch) return false;
-        } else {
-          // Server search not yet done or term too short: use local fields only
-          const textMatch = (
-            zahlung.verwendungszweck?.toLowerCase().includes(search) ||
-            zahlung.empfaengername?.toLowerCase().includes(search) ||
-            zahlung.iban?.toLowerCase().includes(search) ||
-            zahlung.mieter_name?.toLowerCase().includes(search) ||
-            zahlung.immobilie_name?.toLowerCase().includes(search) ||
-            zahlung.immobilie_adresse?.toLowerCase().includes(search) ||
-            zahlung.kategorie?.toLowerCase().includes(search) ||
-            zahlung.zugeordneter_monat?.toLowerCase().includes(search)
-          );
-          const betragMatch = zahlung.betrag?.toString().includes(search);
-          const dateMatch = zahlung.buchungsdatum_formatted.includes(search);
-
-          if (!textMatch && !betragMatch && !dateMatch) return false;
-        }
-      }
-      
-      if (selectedKategorie) {
-        const zahlungKategorie = zahlung.kategorie || 'Keine Kategorie';
-        if (zahlungKategorie !== selectedKategorie) return false;
-      }
-
-      if (showOnlyZugeordnet && !zahlung.mietvertrag_id && !zahlung.immobilie_id) return false;
-      if (showOnlyNichtZugeordnet && (zahlung.mietvertrag_id || zahlung.immobilie_id)) return false;
-
-      if (!dateRange.from && !dateRange.to) return true;
-
-      // ISO "yyyy-MM-dd" lokal konstruieren (new Date("yyyy-MM-dd") parst als UTC → Timezone-Bug)
-      const [zy, zm, zd] = zahlung.buchungsdatum.split('-').map(Number);
-      const zahlungTime = new Date(zy, zm - 1, zd).getTime();
-
-      if (dateRange.from && dateRange.to) {
-        const df = dateRange.from;
-        const dt = dateRange.to;
-        const fromTime = new Date(df.getFullYear(), df.getMonth(), df.getDate()).getTime();
-        const toTime = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 23, 59, 59, 999).getTime();
-        return zahlungTime >= fromTime && zahlungTime <= toTime;
-      }
-
-      if (dateRange.from) {
-        const df = dateRange.from;
-        const fromTime = new Date(df.getFullYear(), df.getMonth(), df.getDate()).getTime();
-        return zahlungTime >= fromTime;
-      }
-
-      if (dateRange.to) {
-        const dt = dateRange.to;
-        const toTime = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 23, 59, 59, 999).getTime();
-        return zahlungTime <= toTime;
-      }
-
-      return true;
-    });
-  }, [allPayments, allPaymentsSearchTerm, selectedKategorie, showOnlyZugeordnet, showOnlyNichtZugeordnet, dateRange, serverSearchIds]);
-
-  const sortedAllPayments = useMemo(() => {
-    return [...filteredAllPayments].sort((a, b) => {
-      switch (sortBy) {
-        case 'datum-desc':
-          return b.buchungsdatum.localeCompare(a.buchungsdatum);
-        case 'datum-asc':
-          return a.buchungsdatum.localeCompare(b.buchungsdatum);
-        case 'betrag-desc':
-          return b.betrag - a.betrag;
-        case 'betrag-asc':
-          return a.betrag - b.betrag;
-        case 'status': {
-          const aAssigned = a.mietvertrag_id || a.immobilie_id ? 1 : 0;
-          const bAssigned = b.mietvertrag_id || b.immobilie_id ? 1 : 0;
-          return bAssigned - aAssigned;
-        }
-        case 'kategorie': {
-          const katA = a.kategorie || 'Keine Kategorie';
-          const katB = b.kategorie || 'Keine Kategorie';
-          return katA.localeCompare(katB);
-        }
-        default:
-          return 0;
-      }
-    });
-  }, [filteredAllPayments, sortBy]);
-
-  // Group payments by year and month for better overview
-  const paymentsByYearMonth = useMemo(() => {
-    const yearGroups: { [year: string]: { months: { monthKey: string; label: string; payments: ZahlungWithDetails[]; total: number }[] } } = {};
-    
-    sortedAllPayments.forEach((zahlung) => {
-      // ISO "yyyy-MM-dd" direkt aufsplitten — kein Date-Objekt nötig
-      const [year, monthNum] = zahlung.buchungsdatum.split('-');
-      const monthKey = `${year}-${monthNum}`;
-      const monthLabel = format(new Date(parseInt(year, 10), parseInt(monthNum, 10) - 1, 1), 'MMMM', { locale: de });
-      
-      if (!yearGroups[year]) {
-        yearGroups[year] = { months: [] };
-      }
-      
-      let monthGroup = yearGroups[year].months.find(m => m.monthKey === monthKey);
-      if (!monthGroup) {
-        monthGroup = { monthKey, label: monthLabel, payments: [], total: 0 };
-        yearGroups[year].months.push(monthGroup);
-      }
-      monthGroup.payments.push(zahlung);
-      monthGroup.total += zahlung.betrag;
-    });
-    
-    // Sort years and months
-    const sortedYears = Object.keys(yearGroups).sort((a, b) => 
-      sortBy === 'datum-asc' ? a.localeCompare(b) : b.localeCompare(a)
-    );
-    
-    return sortedYears.map(year => {
-      const months = yearGroups[year].months.sort((a, b) => 
-        sortBy === 'datum-asc' ? a.monthKey.localeCompare(b.monthKey) : b.monthKey.localeCompare(a.monthKey)
-      );
-      return {
-        year,
-        months,
-        total: months.reduce((sum, m) => sum + m.total, 0),
-        count: months.reduce((sum, m) => sum + m.payments.length, 0)
-      };
-    });
-  }, [sortedAllPayments, sortBy]);
-
-  const toggleMonth = (monthKey: string) => {
-    setCollapsedMonths(prev => {
-      const next = new Set(prev);
-      if (next.has(monthKey)) {
-        next.delete(monthKey);
-      } else {
-        next.add(monthKey);
-      }
-      return next;
-    });
-  };
-
-  // Alle Monate beim ersten Laden einklappen (nur einmalig)
-  const collapsedInitializedRef = useRef(false);
-  const allMonthKeysString = useMemo(
-    () => paymentsByYearMonth.flatMap(y => y.months.map(m => m.monthKey)).join(','),
-    [paymentsByYearMonth]
-  );
-  useEffect(() => {
-    if (!collapsedInitializedRef.current && allMonthKeysString) {
-      collapsedInitializedRef.current = true;
-      setCollapsedMonths(new Set(allMonthKeysString.split(',').filter(Boolean)));
-    }
-  }, [allMonthKeysString]);
-
-  useEffect(() => {
-    if (!isFullscreen) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setIsFullscreen(false); };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [isFullscreen]);
-
-  // Springt vom Zahlungs-Anomalien-Banner zur betroffenen Zahlung im "Alle Zahlungen"-Tab:
-  // Tab wechseln, blockierende Filter zurücksetzen, Monat aufklappen und Karte highlighten/scrollen.
+  // Springt vom Zahlungs-Anomalien-Banner zur betroffenen Zahlung im Reiter "Alle Zahlungen".
   const handleNavigateToZahlung = useCallback((zahlungId: string, buchungsdatum: string | null) => {
     setActiveTab('alle');
-    setAllPaymentsSearchTerm('');
-    setSelectedKategorie(null);
-    setShowOnlyZugeordnet(false);
-    setShowOnlyNichtZugeordnet(false);
-    setDateRange({ from: undefined, to: undefined });
-
-    if (buchungsdatum) {
-      const [year, monthNum] = buchungsdatum.split('-');
-      const monthKey = `${year}-${monthNum}`;
-      setCollapsedMonths(prev => {
-        if (!prev.has(monthKey)) return prev;
-        const next = new Set(prev);
-        next.delete(monthKey);
-        return next;
-      });
-    } else {
-      // Datum unbekannt (Zahlung nicht mehr auffindbar/verwaist) — alle
-      // Monate aufklappen statt gar keinen, sonst bleibt die Karte in
-      // einem zugeklappten Monat versteckt und der Sprung wirkt wirkungslos.
-      setCollapsedMonths(new Set());
-    }
-
-    setSelectedZahlungId(zahlungId);
-
-    // Erst nach dem nächsten Render (Tab-Wechsel + Monat aufgeklappt) scrollen.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-zahlung-id="${zahlungId}"]`);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else {
-          toast({
-            title: "Zahlung nicht gefunden",
-            description: "Diese Zahlung ist in der aktuellen Liste nicht (mehr) auffindbar.",
-            variant: "destructive",
-          });
-        }
-      });
-    });
-  }, [toast]);
-
-  const allPaymentsById = useMemo(
-    () => new Map(allPayments?.map(z => [z.id, z])),
-    [allPayments]
-  );
-  const selectedZahlung = selectedZahlungId ? allPaymentsById.get(selectedZahlungId) : undefined;
-
-  const formatBetrag = useCallback((betrag: number) => EUR_FORMATTER.format(betrag), []);
-
-  const formatDatum = useCallback((datum: string) => {
-    const [y, m, d] = datum.split('-');
-    return d && m && y ? `${d}.${m}.${y}` : datum;
+    setSprungZiel({ zahlungId, buchungsdatum, nonce: Date.now() });
   }, []);
-
-  const getEinheitNr = (einheitId: string | null) => {
-    if (!einheitId) return 'N/A';
-    return einheitId.slice(-2);
-  };
-
-  const getDateRangeDuration = () => {
-    if (!dateRange.from || !dateRange.to) return null;
-    const diffTime = Math.abs(dateRange.to.getTime() - dateRange.from.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-    return diffDays;
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -627,24 +315,24 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     }
   };
 
-  const parseCsvToPayments = async (file: File): Promise<any[]> => {
+  const parseCsvToPayments = async (file: File): Promise<CsvZahlung[]> => {
     const text = await file.text();
     const lines = text.split('\n').filter(line => line.trim());
-    
+
     if (lines.length < 2) return [];
-    
+
     const headers = lines[0].split(';').map(h => h.trim().replace(/"/g, ''));
-    const payments: any[] = [];
-    
+    const payments: CsvZahlung[] = [];
+
     for (let i = 1; i < lines.length; i++) {
       const values = lines[i].split(';').map(v => v.trim().replace(/"/g, ''));
       if (values.length < headers.length) continue;
-      
+
       const row: Record<string, string> = {};
       headers.forEach((header, idx) => {
         row[header] = values[idx] || '';
       });
-      
+
       const buchungsdatumRaw = row["Buchungstag"] || row["Buchungsdatum"] || row["Datum"];
       const wertstellungsdatumRaw = row["Wertstellung"] || row["Wertstellungstag"] || row["Valuta"] || row["Valutadatum"];
       const betrag = row["Betrag"] || row["Umsatz"];
@@ -672,27 +360,27 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     return payments;
   };
 
-  const enrichResults = async (results: ProcessedPayment[]): Promise<ProcessedPayment[]> => {
+  const enrichResults = async (results: Zuordnungsvorschlag[]): Promise<Zuordnungsvorschlag[]> => {
     const contractIds = results.filter(r => r.mietvertrag_id).map(r => r.mietvertrag_id as string);
     if (contractIds.length === 0) return results;
-    
+
     const { data: contracts } = await supabase
       .from('mietvertrag')
       .select(`id, einheiten!inner (etage, immobilien!inner (name)), mietvertrag_mieter (mieter (vorname, nachname))`)
       .in('id', contractIds);
-    
-    const contractMap = new Map();
-    contracts?.forEach((c: any) => {
-      const mieterNames = c.mietvertrag_mieter?.map((mm: any) => 
+
+    const contractMap = new Map<string, { mieter_name: string; immobilie_name: string }>();
+    contracts?.forEach((c) => {
+      const mieterNames = c.mietvertrag_mieter?.map((mm) =>
         `${mm.mieter?.vorname || ''} ${mm.mieter?.nachname || ''}`.trim()
       ).filter(Boolean).join(', ');
-      
+
       contractMap.set(c.id, {
         mieter_name: mieterNames || 'Unbekannt',
         immobilie_name: `${c.einheiten?.immobilien?.name || ''} ${c.einheiten?.etage || ''}`.trim()
       });
     });
-    
+
     return results.map(r => ({
       ...r,
       mieter_name: r.mietvertrag_id ? contractMap.get(r.mietvertrag_id)?.mieter_name : undefined,
@@ -712,65 +400,82 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     }
 
     setIsUploading(true);
-    
+
     try {
       const payments = await parseCsvToPayments(csvFile);
-      
+
       if (payments.length === 0) {
         throw new Error("Keine gültigen Zahlungen in der CSV gefunden");
       }
-      
-      // Single toast for loading state
-      const loadingToastId = toast({ 
-        title: "CSV wird verarbeitet...", 
+
+      toast({
+        title: "CSV wird verarbeitet...",
         description: `${payments.length} Zahlungen werden analysiert.`,
         duration: 60000 // Keep visible during processing
       });
-      
+
       const { data: result, error } = await supabase.functions.invoke('process-payments', {
         body: { payments, dryRun: true }
       });
-      
+
       if (error) throw error;
-      
+
       if (!result.success) {
         throw new Error(result.error || "AI-Verarbeitung fehlgeschlagen");
       }
-      
+
       const enrichedResults = await enrichResults(result.results);
-      
+
       setAiResults(enrichedResults);
       setAiDuplicates(result.duplicates || []);
       setAiStats(result.stats);
       setResultsModalOpen(true);
-      
-      // Success toast replaces loading toast
-      toast({ 
-        title: "✓ CSV erfolgreich verarbeitet", 
+
+      toast({
+        title: "CSV verarbeitet",
         description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.`,
         duration: 4000
       });
-      
-    } catch (error: any) {
-      toast({ title: "Fehler bei der Verarbeitung", description: error.message || "Die CSV-Datei konnte nicht verarbeitet werden.", variant: "destructive" });
+
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Die CSV-Datei konnte nicht verarbeitet werden.";
+      toast({ title: "Fehler bei der Verarbeitung", description: message, variant: "destructive" });
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleApplyAssignments = async (selectedResults?: any[]) => {
+  const handleApplyAssignments = async (selectedResults?: Zuordnungsvorschlag[]) => {
     // Selected results now include all categories the user chose (Miete, Mietkaution, Rücklastschrift, etc.)
     const selectedToApply = selectedResults || aiResults.filter(r => r.kategorie !== "Nichtmiete");
-    const selectedIds = new Set(selectedToApply.map((r: any) => `${r.buchungsdatum}_${r.betrag}_${r.iban || ''}_${(r.verwendungszweck || '').slice(0, 50)}`));
-    
+
+    // Der Schluessel ist inhaltsbasiert (Tag, Betrag, IBAN, 50 Zeichen Verwendungszweck).
+    // Zwei Buchungen mit gleichem Schluessel im selben Import: Bis zum 07.09.2026 galt
+    // die zweite als "gewaehlt", sobald die erste gewaehlt war, und fiel beim
+    // Uebernehmen stillschweigend weg. Deshalb wird je Schluessel gezaehlt.
+    const gewaehltJeSchluessel = new Map<string, number>();
+    for (const r of selectedToApply) {
+      const schluessel = vorschlagsSchluessel(r);
+      gewaehltJeSchluessel.set(schluessel, (gewaehltJeSchluessel.get(schluessel) ?? 0) + 1);
+    }
+
     // Nichtmiete payments are always saved (not shown in modal selection)
     const nichtmieteResults = aiResults.filter(r => r.kategorie === "Nichtmiete");
-    
+
     // Unselected non-Nichtmiete payments should ALSO be saved, but without mietvertrag_id
     const unselected = aiResults
-      .filter(r => r.kategorie !== "Nichtmiete" && !selectedIds.has(`${r.buchungsdatum}_${r.betrag}_${r.iban || ''}_${(r.verwendungszweck || '').slice(0, 50)}`))
+      .filter(r => {
+        if (r.kategorie === "Nichtmiete") return false;
+        const schluessel = vorschlagsSchluessel(r);
+        const offen = gewaehltJeSchluessel.get(schluessel) ?? 0;
+        if (offen > 0) {
+          gewaehltJeSchluessel.set(schluessel, offen - 1);
+          return false;
+        }
+        return true;
+      })
       .map(r => ({ ...r, mietvertrag_id: null }));
-    
+
     // Combine ALL: selected (with assignment) + unselected (without) + Nichtmiete
     const allResultsToSave = [...selectedToApply, ...unselected, ...nichtmieteResults];
 
@@ -780,34 +485,34 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     // Erfolg -- die Zahlung fehlte dauerhaft, der Rueckstand des Mieters war zu
     // hoch, und die Ursache war nicht mehr auffindbar.
     const fehler: Array<{ zeile: string; grund: string }> = [];
-    const bezeichne = (r: any) =>
+    const bezeichne = (r: Zuordnungsvorschlag) =>
       `${r.buchungsdatum ?? '?'} · ${r.betrag ?? '?'} € · ${(r.verwendungszweck ?? '').slice(0, 40) || 'ohne Verwendungszweck'}`;
-    
+
     // Insert/update all payments
     for (const result of allResultsToSave) {
       // First, check if this payment already exists
       // Use buchungsdatum + betrag + iban + verwendungszweck for reliable matching
       const ibanValue = result.iban?.trim() || null;
       const vzValue = result.verwendungszweck?.trim() || null;
-      
+
       let query = supabase
         .from('zahlungen')
         .select('id, kategorie, mietvertrag_id')
         .eq('buchungsdatum', result.buchungsdatum)
         .eq('betrag', result.betrag);
-      
+
       if (ibanValue) {
         query = query.eq('iban', ibanValue);
       } else {
         query = query.is('iban', null);
       }
-      
+
       if (vzValue) {
         query = query.eq('verwendungszweck', vzValue);
       } else {
         query = query.is('verwendungszweck', null);
       }
-      
+
       const { data: existingRows, error: sucheError } = await query.limit(1);
       if (sucheError) {
         // Ohne belastbare Duplikatpruefung darf nicht geschrieben werden --
@@ -816,24 +521,24 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         continue;
       }
       const existing = existingRows?.[0] || null;
-      
+
       if (existing) {
         // Payment exists - only update if not already manually categorized
         // Don't overwrite manually set categories like "Nebenkosten" unless user explicitly corrected
         const isManuallySet = existing.kategorie === 'Nebenkosten' && result.kategorie !== 'Nebenkosten';
         const hasExistingAssignment = existing.mietvertrag_id && !result.mietvertrag_id;
-        
+
         if (isManuallySet || hasExistingAssignment) {
           continue;
         }
-        
+
         // Build update payload - NEVER overwrite zugeordneter_monat (let DB trigger handle it)
-        const updatePayload: Record<string, any> = {
+        const updatePayload = {
           mietvertrag_id: result.mietvertrag_id,
-          kategorie: result.kategorie as any,
+          kategorie: result.kategorie as never,
           immobilie_id: result.immobilie_id || null,
         };
-        
+
         const { error } = await supabase
           .from('zahlungen')
           .update(updatePayload)
@@ -844,7 +549,6 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           continue;
         }
 
-        
         // Auto-fill IBAN on contract if empty
         if (result.mietvertrag_id && result.iban) {
           const { data: contract } = await supabase
@@ -873,7 +577,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             empfaengername: result.empfaengername?.trim() || null,
             mietvertrag_id: result.mietvertrag_id || null,
             immobilie_id: result.immobilie_id || null,
-            kategorie: result.kategorie as any || null,
+            kategorie: (result.kategorie as never) || null,
           });
 
         if (error) {
@@ -881,7 +585,6 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           continue;
         }
 
-        
         // Auto-fill IBAN on contract if empty
         if (result.mietvertrag_id && result.iban) {
           const { data: contract } = await supabase
@@ -899,7 +602,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         }
       }
     }
-    
+
     const gespeichert = allResultsToSave.length - fehler.length;
 
     if (csvFile) {
@@ -950,681 +653,298 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     return { gesamt: allResultsToSave.length, gespeichert, fehler };
   };
 
-  const handleAssignPayment = (payment: any) => {
-    setSelectedPayment(payment);
+  const oeffneZuordnung = useCallback((zahlung: ZahlungZeile | ZuordnungsZahlung) => {
+    setSelectedPayment({
+      id: zahlung.id,
+      betrag: zahlung.betrag,
+      buchungsdatum: zahlung.buchungsdatum,
+      empfaengername: zahlung.empfaengername || undefined,
+      iban: zahlung.iban || undefined,
+      verwendungszweck: zahlung.verwendungszweck || undefined,
+      kategorie: zahlung.kategorie || undefined,
+    });
     setAssignDialogOpen(true);
-  };
+  }, []);
 
-  const handleAssignFromDetails = () => {
-    if (selectedZahlung) {
-      setSelectedPayment({
-        id: selectedZahlung.id,
-        betrag: selectedZahlung.betrag,
-        buchungsdatum: selectedZahlung.buchungsdatum,
-        empfaengername: selectedZahlung.empfaengername || undefined,
-        iban: selectedZahlung.iban || undefined,
-        verwendungszweck: selectedZahlung.verwendungszweck || undefined,
-        kategorie: selectedZahlung.kategorie || undefined,
-      });
-      setAssignDialogOpen(true);
-    }
-  };
+  const tabKlasse = "flex items-center gap-1.5 px-2.5 text-xs sm:text-sm";
 
   return (
-    <div className="min-h-screen modern-dashboard-bg relative z-0">
-      <div className="container mx-auto px-4 py-4 sm:p-8 relative z-10">
-        {/* Header */}
-        <div className="mb-6">
-          <Button variant="outline" onClick={onBack} className="mb-4 bg-white/50 hover:bg-white/70">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Zurück zum Dashboard
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-dvh flex-col bg-background">
+      <header className="shrink-0 border-b bg-card">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4">
+          <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2 h-9">
+            <ArrowLeft className="h-4 w-4" />
+            Dashboard
           </Button>
-
-          <div className="glass-card p-6 rounded-2xl">
-            <h1 className="text-3xl font-sans font-bold text-gradient-red mb-2">
-              Zahlungsverwaltung
-            </h1>
-            <p className="text-gray-600 font-sans">
-              CSV-Upload, Zuordnung und Übersicht aller Zahlungen
-            </p>
+          <Separator orientation="vertical" className="hidden h-6 sm:block" />
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold leading-tight">Zahlungsverwaltung</h1>
+            <p className="hidden text-xs text-muted-foreground md:block">CSV-Import, Zuordnung und Übersicht aller Buchungen</p>
           </div>
-        </div>
-
-        <ZahlungsAnomalienBanner onNavigateToZahlung={handleNavigateToZahlung} />
-
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 bg-white/80">
-            <TabsTrigger value="upload" className="flex items-center gap-2">
+          <TabsList className="ml-auto h-9 w-full justify-start overflow-x-auto sm:w-auto">
+            <TabsTrigger value="upload" className={tabKlasse}>
               <Upload className="h-4 w-4" />
-              <span className="hidden sm:inline">CSV-Upload</span>
-              <span className="sm:hidden">Upload</span>
+              <span className="hidden sm:inline">CSV-Import</span>
+              <span className="sm:hidden">Import</span>
             </TabsTrigger>
-            <TabsTrigger value="alle" className="flex items-center gap-2">
+            <TabsTrigger value="alle" className={tabKlasse}>
               <Euro className="h-4 w-4" />
               <span className="hidden sm:inline">Alle Zahlungen</span>
               <span className="sm:hidden">Alle</span>
-              {allPayments && <Badge variant="secondary" className="ml-1 hidden sm:inline-flex">{allPayments.length}</Badge>}
+              {allPayments && <Badge variant="secondary" className="hidden px-1.5 tabular-nums sm:inline-flex">{allPayments.length.toLocaleString("de-DE")}</Badge>}
             </TabsTrigger>
-            <TabsTrigger value="unzugeordnet" className="flex items-center gap-2">
+            <TabsTrigger value="unzugeordnet" className={tabKlasse}>
               <AlertTriangle className="h-4 w-4" />
               <span className="hidden sm:inline">Nicht zugeordnet</span>
-              <span className="sm:hidden">N. zugeordnet</span>
+              <span className="sm:hidden">Offen</span>
               {unassignedPayments && unassignedPayments.length > 0 && (
-                <Badge variant="destructive" className="ml-1">{unassignedPayments.length}</Badge>
+                <Badge variant="destructive" className="px-1.5 tabular-nums">{unassignedPayments.length}</Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="nebenkosten" className="flex items-center gap-2">
+            <TabsTrigger value="nebenkosten" className={tabKlasse}>
               <Building2 className="h-4 w-4" />
               <span className="hidden sm:inline">Nebenkosten</span>
               <span className="sm:hidden">NK</span>
             </TabsTrigger>
           </TabsList>
+        </div>
+      </header>
 
-          {/* Tab 1: CSV Upload */}
-          <TabsContent value="upload">
-            <Card className="p-6 bg-white">
-              <div className="flex items-center gap-3 mb-4">
-                <Upload className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-semibold">CSV-Upload</h2>
+      <div className="shrink-0 px-3 pt-3 empty:hidden sm:px-4">
+        <ZahlungsAnomalienBanner onNavigateToZahlung={handleNavigateToZahlung} />
+      </div>
+
+      {/* Reiter 1: CSV-Import */}
+      <TabsContent value="upload" className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Upload className="h-4 w-4 text-primary" />
+                Bankbewegungen importieren
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="csv-file">Kontoumsätze (CSV)</Label>
+                <Input
+                  id="csv-file"
+                  type="file"
+                  accept=".csv"
+                  onChange={handleFileChange}
+                  disabled={isUploading}
+                  className="mt-2 cursor-pointer file:cursor-pointer"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {csvFile
+                    ? `Ausgewählt: ${csvFile.name} (${(csvFile.size / 1024).toFixed(1)} KB)`
+                    : "Die Datei wird geprüft und jede Buchung mit einem Zuordnungsvorschlag angezeigt, bevor etwas gespeichert wird."}
+                </p>
               </div>
 
-              <div className="space-y-4">
-                {uploadHistory && uploadHistory.length > 0 && (
-                  <Collapsible defaultOpen>
-                    <CollapsibleTrigger className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full group">
-                      <FileText className="h-4 w-4" />
-                      <span>Upload-Historie</span>
-                      <ChevronDown className="h-3.5 w-3.5 ml-auto group-data-[state=open]:rotate-180 transition-transform" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="mt-2 rounded-lg border overflow-hidden">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="bg-muted/40 hover:bg-muted/40">
-                              <TableHead className="text-xs py-2">Datei</TableHead>
-                              <TableHead className="text-xs py-2">Zeitraum</TableHead>
-                              <TableHead className="text-xs py-2 text-right">Anz.</TableHead>
-                              <TableHead className="text-xs py-2 text-right">Hochgeladen</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {uploadHistory.map((upload, idx) => (
-                              <TableRow
-                                key={upload.id}
-                                className={`text-xs ${idx === 0 ? 'cursor-pointer hover:bg-primary/5' : ''}`}
-                                onClick={idx === 0 ? () => setLastUploadReviewOpen(true) : undefined}
-                                title={idx === 0 ? 'Klicken um Zuordnungsergebnisse des letzten Uploads anzuzeigen' : undefined}
-                              >
-                                <TableCell className="py-2 font-medium max-w-[160px] truncate" title={upload.dateiname}>
-                                  {idx === 0 && <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary mr-1.5 mb-0.5" />}
-                                  {upload.dateiname}
-                                </TableCell>
-                                <TableCell className="py-2 text-muted-foreground">
-                                  {upload.zeitraum_von && upload.zeitraum_bis
-                                    ? `${format(new Date(upload.zeitraum_von), 'dd.MM.yy')} – ${format(new Date(upload.zeitraum_bis), 'dd.MM.yy')}`
-                                    : upload.zeitraum_von
-                                      ? format(new Date(upload.zeitraum_von), 'dd.MM.yy')
-                                      : '–'}
-                                </TableCell>
-                                <TableCell className="py-2 text-right text-muted-foreground">
-                                  {upload.anzahl_datensaetze ?? '–'}
-                                </TableCell>
-                                <TableCell className="py-2 text-right text-muted-foreground">
-                                  {upload.hochgeladen_am
-                                    ? format(new Date(upload.hochgeladen_am), 'dd.MM.yy HH:mm')
-                                    : '–'}
-                                  {idx === 0 && (
-                                    <span className="ml-1.5 text-primary font-medium">→</span>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                )}
+              <Button onClick={handleProcessCsv} disabled={!csvFile || isUploading} className="w-full">
+                <Bot className={cn("h-4 w-4", isUploading && "animate-pulse")} />
+                {isUploading ? "Zahlungen werden analysiert …" : "Zuordnungsvorschläge erstellen"}
+              </Button>
+            </CardContent>
+          </Card>
 
-                <div>
-                  <Label htmlFor="csv-file">Bankbewegungen (CSV)</Label>
-                  <Input
-                    id="csv-file"
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileChange}
-                    disabled={isUploading}
-                    className="mt-2 cursor-pointer file:cursor-pointer"
-                  />
-                  {csvFile && (
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Ausgewählt: {csvFile.name} ({(csvFile.size / 1024).toFixed(2)} KB)
-                    </p>
-                  )}
-                </div>
-
-                <Button onClick={handleProcessCsv} disabled={!csvFile || isUploading} className="w-full">
-                  {isUploading ? (
-                    <>
-                      <Bot className="mr-2 h-4 w-4 animate-pulse" />
-                      AI analysiert Zahlungen...
-                    </>
-                  ) : (
-                    <>
-                      <Bot className="mr-2 h-4 w-4" />
-                      Mit AI zuordnen
-                    </>
-                  )}
-                </Button>
-              </div>
-            </Card>
-          </TabsContent>
-
-          {/* Tab 2: Alle Zahlungen */}
-          <TabsContent value="alle">
-            <div className={cn(isFullscreen && "fixed inset-0 z-[100] bg-background flex flex-col")}>
-              {isFullscreen && (
-                <div className="flex items-center justify-between px-6 py-3 border-b bg-white shrink-0 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <Euro className="h-5 w-5 text-green-600" />
-                    <span className="font-semibold text-lg">Alle Zahlungen</span>
-                    {allPayments && <Badge variant="secondary">{allPayments.length}</Badge>}
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setIsFullscreen(false)} className="gap-1.5">
-                    <Minimize2 className="h-4 w-4" />
-                    Verkleinern
-                  </Button>
-                </div>
-              )}
-              <div className={cn("grid grid-cols-1 xl:grid-cols-2 gap-6", isFullscreen && "flex-1 p-4 overflow-hidden")}>
-              {/* Left: Zahlungsliste */}
-              <Card className={cn("flex flex-col overflow-hidden", isFullscreen ? "h-full" : "h-[calc(100vh-280px)] min-h-[400px]")}>
-                <CardHeader className="pb-3 shrink-0">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          <Euro className="h-5 w-5 text-green-600" />
-                          Zahlungen
-                        </CardTitle>
-                        <p className="text-sm text-gray-600">
-                          {sortedAllPayments?.length || 0} von {allPayments?.length || 0} Zahlungen
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Select value={sortBy} onValueChange={(value: any) => setSortBy(value)}>
-                          <SelectTrigger className="bg-white w-40">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="bg-white z-50">
-                            <SelectItem value="datum-desc">Datum ↓</SelectItem>
-                            <SelectItem value="datum-asc">Datum ↑</SelectItem>
-                            <SelectItem value="betrag-desc">Betrag ↓</SelectItem>
-                            <SelectItem value="betrag-asc">Betrag ↑</SelectItem>
-                            <SelectItem value="status">Zuordnung</SelectItem>
-                            <SelectItem value="kategorie">Kategorie</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant={filtersCollapsed ? "secondary" : "ghost"}
-                          size="icon"
-                          className="shrink-0 h-8 w-8"
-                          onClick={() => setFiltersCollapsed(v => !v)}
-                          title={filtersCollapsed ? "Filter einblenden" : "Filter ausblenden"}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                Import-Historie
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {uploadHistory && uploadHistory.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="h-9 text-xs">Datei</TableHead>
+                        <TableHead className="h-9 text-xs">Zeitraum</TableHead>
+                        <TableHead className="h-9 text-right text-xs">Buchungen</TableHead>
+                        <TableHead className="h-9 text-xs">Status</TableHead>
+                        <TableHead className="h-9 text-right text-xs">Hochgeladen</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {uploadHistory.map((upload, idx) => (
+                        <TableRow
+                          key={upload.id}
+                          className={cn("text-sm", idx === 0 && "cursor-pointer")}
+                          onClick={idx === 0 ? () => setLastUploadReviewOpen(true) : undefined}
+                          title={idx === 0 ? "Zuordnungsergebnis des letzten Imports anzeigen" : undefined}
                         >
-                          <SlidersHorizontal className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="shrink-0 h-9 w-9"
-                          onClick={() => setIsFullscreen(v => !v)}
-                          title={isFullscreen ? "Vollansicht beenden" : "Vollansicht öffnen"}
-                        >
-                          {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {!filtersCollapsed && (
-                      <>
-                        {/* Search */}
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            placeholder="Suchen (Name, IBAN, Verwendungszweck, Betrag...)"
-                            value={allPaymentsSearchTerm}
-                            onChange={(e) => setAllPaymentsSearchTerm(e.target.value)}
-                            className="pl-9 bg-white w-full"
-                          />
-                          {isServerSearching && (
-                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                              <div className="h-4 w-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Filters */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Select value={selectedKategorie || 'alle'} onValueChange={(v) => setSelectedKategorie(v === 'alle' ? null : v)}>
-                            <SelectTrigger className="bg-white w-40">
-                              <SelectValue placeholder="Kategorie" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-white z-50">
-                              <SelectItem value="alle">Alle Kategorien</SelectItem>
-                              <SelectItem value="Miete">Miete</SelectItem>
-                              <SelectItem value="Nebenkosten">Nebenkosten</SelectItem>
-                              <SelectItem value="Nichtmiete">Nichtmiete</SelectItem>
-                              <SelectItem value="Mietkaution">Mietkaution</SelectItem>
-                              <SelectItem value="Rücklastschrift">Rücklastschrift</SelectItem>
-                              <SelectItem value="Ignorieren">Ignorieren</SelectItem>
-                            </SelectContent>
-                          </Select>
-
-                          <div className="flex items-center gap-2">
-                            <Checkbox id="zugeordnet" checked={showOnlyZugeordnet} onCheckedChange={(c) => { setShowOnlyZugeordnet(!!c); if (c) setShowOnlyNichtZugeordnet(false); }} />
-                            <label htmlFor="zugeordnet" className="text-xs cursor-pointer">Zugeordnet</label>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Checkbox id="nicht-zugeordnet" checked={showOnlyNichtZugeordnet} onCheckedChange={(c) => { setShowOnlyNichtZugeordnet(!!c); if (c) setShowOnlyZugeordnet(false); }} />
-                            <label htmlFor="nicht-zugeordnet" className="text-xs cursor-pointer">Nicht zugeordnet</label>
-                          </div>
-
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" size="sm" className={cn("text-xs", dateRange.from && "bg-blue-50")}>
-                                <Calendar className="h-3 w-3 mr-1" />
-                                {dateRange.from && dateRange.to
-                                  ? `${format(dateRange.from, "dd.MM", { locale: de })} – ${format(dateRange.to, "dd.MM", { locale: de })}`
-                                  : "Zeitraum"}
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0 bg-white" align="start">
-                              <CalendarComponent
-                                mode="range"
-                                selected={{ from: dateRange.from, to: dateRange.to }}
-                                onSelect={(range: any) => setDateRange({ from: range?.from, to: range?.to })}
-                                numberOfMonths={2}
-                                initialFocus
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          {(dateRange.from || selectedKategorie || showOnlyZugeordnet || showOnlyNichtZugeordnet || allPaymentsSearchTerm) && (
-                            <Button variant="ghost" size="sm" title="Alle Filter zurücksetzen" onClick={() => {
-                              setDateRange({ from: undefined, to: undefined });
-                              setSelectedKategorie(null);
-                              setShowOnlyZugeordnet(false);
-                              setShowOnlyNichtZugeordnet(false);
-                              setAllPaymentsSearchTerm('');
-                            }}>
-                              <X className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="p-0 flex-1 overflow-hidden">
-                  {allPaymentsLoading ? (
-                    <div className="text-center py-12"><p className="text-muted-foreground">Lade Zahlungen...</p></div>
-                  ) : allPaymentsError ? (
-                    <div className="text-center py-12">
-                      <AlertTriangle className="h-10 w-10 text-destructive/40 mx-auto mb-3" />
-                      <p className="text-destructive font-medium">Zahlungen konnten nicht geladen werden</p>
-                      <p className="text-sm text-muted-foreground mt-1">Bitte Seite neu laden oder Verbindung prüfen.</p>
-                    </div>
-                  ) : paymentsByYearMonth && paymentsByYearMonth.length > 0 ? (
-                    <ScrollArea className="h-full">
-                      <div className="p-4 space-y-4">
-                        {paymentsByYearMonth.map((yearGroup) => (
-                          <div key={yearGroup.year} className="space-y-2">
-                            {/* Year Header */}
-                            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b pb-2">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="h-5 w-5 text-primary" />
-                                  <span className="font-bold text-lg">{yearGroup.year}</span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {yearGroup.count} Zahlungen
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {/* Months in this year */}
-                            <div className="space-y-2 pl-2">
-                              {yearGroup.months.map((monthGroup) => {
-                                const isCollapsed = collapsedMonths.has(monthGroup.monthKey);
-                                return (
-                                  <Collapsible 
-                                    key={monthGroup.monthKey} 
-                                    open={!isCollapsed}
-                                    onOpenChange={() => toggleMonth(monthGroup.monthKey)}
-                                  >
-                                    <CollapsibleTrigger className="w-full">
-                                      <div className="flex items-center justify-between bg-muted/60 hover:bg-muted rounded-lg px-3 py-2 cursor-pointer transition-colors">
-                                        <div className="flex items-center gap-2">
-                                          {isCollapsed ? (
-                                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                          ) : (
-                                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                          )}
-                                          <span className="font-semibold text-sm capitalize">{monthGroup.label}</span>
-                                          <Badge variant="secondary" className="text-xs">
-                                            {monthGroup.payments.length}
-                                          </Badge>
-                                        </div>
-                                      </div>
-                                    </CollapsibleTrigger>
-                                    <CollapsibleContent>
-                                      <div className="space-y-2 pt-2 pl-6">
-                                        {monthGroup.payments.map((zahlung) => {
-                                          return (
-                                          <Card
-                                            key={zahlung.id}
-                                            data-zahlung-id={zahlung.id}
-                                            className={cn(
-                                              "cursor-pointer transition-all hover:shadow-md",
-                                              selectedZahlungId === zahlung.id
-                                                ? 'ring-2 ring-primary bg-primary/5'
-                                                : 'hover:bg-muted/50'
-                                            )}
-                                            onClick={() => setSelectedZahlungId(zahlung.id)}
-                                          >
-                                            <CardContent className="p-3">
-                                              <div className="flex items-start justify-between gap-2">
-                                                <div className="flex-1 min-w-0">
-                                                  <div className="flex items-center gap-2 mb-1">
-                                                    <span className="text-xs text-muted-foreground">{formatDatum(zahlung.buchungsdatum)}</span>
-                                                  </div>
-                                                  <p className="text-sm font-medium truncate">
-                                                    {zahlung.empfaengername
-                                                      ? `${zahlung.betrag < 0 ? 'An' : 'Von'}: ${zahlung.empfaengername}`
-                                                      : <span className="text-muted-foreground italic">Kein Empfänger/Absender</span>
-                                                    }
-                                                  </p>
-                                                  <p className={cn(
-                                                    "text-lg font-bold",
-                                                    zahlung.betrag < 0 ? 'text-destructive' : 'text-green-600'
-                                                  )}>
-                                                    {formatBetrag(zahlung.betrag)}
-                                                  </p>
-                                                  {zahlung.verwendungszweck && (
-                                                    <p className="text-xs text-muted-foreground truncate mt-1">{zahlung.verwendungszweck}</p>
-                                                  )}
-                                                </div>
-                                                <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                                  <PaymentKategorieEditor
-                                                    paymentId={zahlung.id}
-                                                    currentKategorie={zahlung.kategorie}
-                                                    currentImmobilieId={zahlung.immobilie_id}
-                                                    compact
-                                                  />
-                                                  {(zahlung.mietvertrag_id || zahlung.immobilie_id) && (
-                                                    <Badge className="bg-green-600 text-xs">✓ Zugeordnet</Badge>
-                                                  )}
-                                                </div>
-                                              </div>
-                                            </CardContent>
-                                          </Card>
-                                          );
-                                        })}
-                                      </div>
-                                    </CollapsibleContent>
-                                  </Collapsible>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  ) : (
-                    <div className="text-center py-12">
-                      <Euro className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-                      <p className="text-muted-foreground">Keine Zahlungen gefunden</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Right: Details */}
-              <Card className={cn("flex flex-col overflow-hidden", isFullscreen ? "h-full" : "h-[calc(100vh-280px)]")}>
-                <CardHeader className="pb-3 shrink-0">
-                  <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-blue-600" />
-                    Details & Zuordnung
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex-1 overflow-hidden">
-                  {selectedZahlung ? (
-                    <ScrollArea className="h-full">
-                      <div className="space-y-6">
-                        <div>
-                          <h3 className="font-semibold text-gray-900 mb-3">Zahlungsdetails</h3>
-                          <div className="space-y-3 bg-gray-50 rounded-lg p-4">
-                            <div className="flex justify-between">
-                              <span className="text-sm text-gray-600">Buchungsdatum:</span>
-                              <span className="text-sm font-medium">{formatDatum(selectedZahlung.buchungsdatum)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-sm text-gray-600">Betrag:</span>
-                              <span className={`text-sm font-bold ${selectedZahlung.betrag < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                                {formatBetrag(selectedZahlung.betrag)}
+                          <TableCell className="py-2 font-medium">
+                            <span className="flex items-center gap-2">
+                              <span className="max-w-[26rem] truncate" title={upload.dateiname}>{upload.dateiname}</span>
+                              {idx === 0 && <span className="shrink-0 text-xs font-normal text-primary">Ergebnis ansehen</span>}
+                            </span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap py-2 text-muted-foreground tabular-nums">
+                            {upload.zeitraum_von && upload.zeitraum_bis
+                              ? `${formatIsoDatum(upload.zeitraum_von)} – ${formatIsoDatum(upload.zeitraum_bis)}`
+                              : upload.zeitraum_von
+                                ? formatIsoDatum(upload.zeitraum_von)
+                                : '–'}
+                          </TableCell>
+                          <TableCell className="py-2 text-right text-muted-foreground tabular-nums">
+                            {upload.anzahl_datensaetze ?? '–'}
+                          </TableCell>
+                          <TableCell className="py-2">
+                            {upload.status === 'teilweise_fehlgeschlagen' ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-destructive">
+                                <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                                teilweise fehlgeschlagen
                               </span>
-                            </div>
-                            {selectedZahlung.zugeordneter_monat && (
-                              <div className="flex justify-between">
-                                <span className="text-sm text-gray-600">Monat:</span>
-                                <span className="text-sm font-medium">{(() => {
-                                  const raw = (selectedZahlung.zugeordneter_monat || '').slice(0, 7);
-                                  if (!raw || raw.length < 7) return selectedZahlung.zugeordneter_monat;
-                                  const [y, m] = raw.split('-');
-                                  return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString('de-DE', { year: 'numeric', month: 'long' });
-                                })()}</span>
-                              </div>
-                            )}
-                            {selectedZahlung.kategorie && (
-                              <div className="flex justify-between items-start">
-                                <span className="text-sm text-gray-600">Kategorie:</span>
-                                <div onClick={(e) => e.stopPropagation()}>
-                                  <PaymentKategorieEditor
-                                    paymentId={selectedZahlung.id}
-                                    currentKategorie={selectedZahlung.kategorie}
-                                    currentImmobilieId={selectedZahlung.immobilie_id}
-                                    compact
-                                  />
-                                </div>
-                              </div>
-                            )}
-                            {selectedZahlung.empfaengername && (
-                              <div className="flex justify-between">
-                                <span className="text-sm text-gray-600">Empfänger:</span>
-                                <span className="text-sm font-medium">{selectedZahlung.empfaengername}</span>
-                              </div>
-                            )}
-                            {selectedZahlung.iban && (
-                              <div className="flex justify-between">
-                                <span className="text-sm text-gray-600">IBAN:</span>
-                                <span className="text-xs font-mono">{selectedZahlung.iban}</span>
-                              </div>
-                            )}
-                            {selectedZahlung.verwendungszweck && (
-                              <div>
-                                <span className="text-sm text-gray-600 block mb-1">Verwendungszweck:</span>
-                                <p className="text-sm font-medium bg-white p-2 rounded border">{selectedZahlung.verwendungszweck}</p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <Separator />
-
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-semibold text-gray-900">Zuordnung</h3>
-                            <Button onClick={handleAssignFromDetails} size="sm" variant="outline" className="gap-2">
-                              <Edit2 className="h-4 w-4" />
-                              {selectedZahlung.mietvertrag_id || selectedZahlung.immobilie_id ? 'Ändern' : 'Zuordnen'}
-                            </Button>
-                          </div>
-
-                          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                            {selectedZahlung.mietvertrag_id ? (
-                              <div className="space-y-3">
-                                <Badge variant="secondary" className="text-xs">Mietvertrag</Badge>
-                                <div className="flex items-start gap-3">
-                                  <Building2 className="h-5 w-5 text-blue-600 mt-0.5" />
-                                  <div>
-                                    <p className="font-semibold">{selectedZahlung.immobilie_name}</p>
-                                    <p className="text-sm text-gray-600">{selectedZahlung.immobilie_adresse}</p>
-                                  </div>
-                                </div>
-                                {selectedZahlung.einheit_typ && (
-                                  <div className="flex items-center gap-3">
-                                    <Home className="h-5 w-5 text-blue-600" />
-                                    <p className="font-medium">{selectedZahlung.einheit_typ} - {getEinheitNr(selectedZahlung.einheit_id)}</p>
-                                  </div>
-                                )}
-                                {selectedZahlung.mieter_name && (
-                                  <div className="flex items-center gap-3">
-                                    <User className="h-5 w-5 text-blue-600" />
-                                    <p className="font-medium">{selectedZahlung.mieter_name}</p>
-                                  </div>
-                                )}
-                              </div>
-                            ) : selectedZahlung.immobilie_id ? (
-                              <div className="space-y-3">
-                                <Badge variant="secondary" className="text-xs">Immobilie</Badge>
-                                <div className="flex items-start gap-3">
-                                  <Building2 className="h-5 w-5 text-blue-600 mt-0.5" />
-                                  <div>
-                                    <p className="font-semibold">{selectedZahlung.immobilie_name}</p>
-                                    <p className="text-sm text-gray-600">{selectedZahlung.immobilie_adresse}</p>
-                                  </div>
-                                </div>
-                              </div>
                             ) : (
-                              <div className="text-center py-4">
-                                <Home className="h-12 w-12 text-orange-300 mx-auto mb-2" />
-                                <p className="text-orange-700 font-medium mb-1">Nicht zugeordnet</p>
-                                <p className="text-sm text-orange-600">Klicken Sie auf "Zuordnen" um diese Zahlung zuzuweisen</p>
-                              </div>
+                              <span className="text-xs text-muted-foreground">{upload.status ?? '–'}</span>
                             )}
-                          </div>
-                        </div>
-                      </div>
-                    </ScrollArea>
-                  ) : (
-                    <div className="text-center py-12">
-                      <Building2 className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-600 font-medium mb-1">Keine Zahlung ausgewählt</p>
-                      <p className="text-sm text-gray-500">Wählen Sie eine Zahlung aus der Liste</p>
-                    </div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap py-2 text-right text-muted-foreground tabular-nums">
+                            {upload.hochgeladen_am ? format(new Date(upload.hochgeladen_am), 'dd.MM.yyyy HH:mm') : '–'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="px-6 pb-6 text-sm text-muted-foreground">Noch kein Import durchgeführt.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </TabsContent>
+
+      {/* Reiter 2: Alle Zahlungen */}
+      <TabsContent value="alle" className="mt-0 min-h-0 flex-1">
+        <ZahlungenArbeitsplatz
+          zahlungen={allPayments}
+          laedt={allPaymentsLoading}
+          fehler={allPaymentsError}
+          onZuordnen={oeffneZuordnung}
+          sprungZiel={sprungZiel}
+        />
+      </TabsContent>
+
+      {/* Reiter 3: Nicht zugeordnete Mietzahlungen */}
+      <TabsContent value="unzugeordnet" className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  Nicht zugeordnete Mietzahlungen
+                  {unassignedPayments && (
+                    <span className="text-sm font-normal text-muted-foreground tabular-nums">({filteredUnassignedPayments?.length || 0})</span>
                   )}
-                </CardContent>
-              </Card>
+                </CardTitle>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Als Miete, Mietkaution, Rücklastschrift oder BKA erkannt, aber ohne Mietvertrag — der Rückstand der Mieter stimmt erst nach der Zuordnung.
+                </p>
+              </div>
+              <div className="relative w-full shrink-0 sm:w-72">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input
+                  placeholder="Suchen …"
+                  aria-label="Nicht zugeordnete Zahlungen durchsuchen"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-9 pl-8"
+                />
               </div>
             </div>
-          </TabsContent>
-
-          {/* Tab 3: Nicht zugeordnete Mietzahlungen */}
-          <TabsContent value="unzugeordnet">
-            <Card className="p-4 sm:p-6 bg-white">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <AlertTriangle className="h-5 w-5 text-orange-500 shrink-0" />
-                  <h2 className="text-base sm:text-xl font-semibold truncate">
-                    Nicht zugeordnete Mietzahlungen
-                    {unassignedPayments && (
-                      <span className="ml-2 text-sm text-muted-foreground">({filteredUnassignedPayments?.length || 0})</span>
-                    )}
-                  </h2>
-                </div>
-                <div className="relative w-full sm:w-80 shrink-0">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Suchen..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {unassignedLoading ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">Lade Zahlungen …</p>
+            ) : unassignedError ? (
+              <div className="p-8 text-center">
+                <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-destructive" aria-hidden="true" />
+                <p className="font-medium text-destructive">Zahlungen konnten nicht geladen werden</p>
               </div>
-
-              <p className="text-sm text-muted-foreground mb-4">
-                Diese Zahlungen wurden als Miete, Mietkaution oder Rücklastschrift erkannt, konnten aber keinem Mietvertrag zugeordnet werden.
+            ) : filteredUnassignedPayments?.length === 0 ? (
+              <p className="p-8 text-center text-sm text-muted-foreground">
+                {searchTerm ? "Keine Zahlung entspricht der Suche." : "Alle Mietzahlungen sind zugeordnet."}
               </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="h-9 whitespace-nowrap text-xs">Datum</TableHead>
+                      <TableHead className="h-9 whitespace-nowrap text-right text-xs">Betrag</TableHead>
+                      <TableHead className="hidden h-9 text-xs sm:table-cell">IBAN</TableHead>
+                      <TableHead className="h-9 text-xs">Von / An</TableHead>
+                      <TableHead className="hidden h-9 text-xs md:table-cell">Verwendungszweck</TableHead>
+                      <TableHead className="h-9 text-xs">Kategorie</TableHead>
+                      <TableHead className="h-9 text-right text-xs">Aktion</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredUnassignedPayments?.map((payment) => (
+                      <TableRow key={payment.id} className="text-sm">
+                        <TableCell className="whitespace-nowrap py-2 tabular-nums">{formatIsoDatum(payment.buchungsdatum)}</TableCell>
+                        <TableCell className={cn("whitespace-nowrap py-2 text-right font-medium tabular-nums", payment.betrag < 0 ? "text-destructive" : "text-success")}>
+                          {formatEuro(payment.betrag)}
+                        </TableCell>
+                        <TableCell className="hidden py-2 font-mono text-xs sm:table-cell">{payment.iban || '–'}</TableCell>
+                        <TableCell className="max-w-[10rem] truncate py-2" title={payment.empfaengername ?? undefined}>{payment.empfaengername || '–'}</TableCell>
+                        <TableCell className="hidden max-w-xs truncate py-2 text-muted-foreground md:table-cell" title={payment.verwendungszweck ?? undefined}>{payment.verwendungszweck || '–'}</TableCell>
+                        <TableCell className="py-2">
+                          <PaymentKategorieEditor
+                            paymentId={payment.id}
+                            currentKategorie={payment.kategorie}
+                            currentImmobilieId={payment.immobilie_id}
+                            onUpdate={() => {
+                              queryClient.invalidateQueries({ queryKey: ['unassigned-payments'] });
+                              queryClient.invalidateQueries({ queryKey: ['zahlungen-overview'] });
+                            }}
+                            compact
+                          />
+                        </TableCell>
+                        <TableCell className="py-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() =>
+                              oeffneZuordnung({
+                                id: payment.id,
+                                betrag: payment.betrag,
+                                buchungsdatum: payment.buchungsdatum,
+                                empfaengername: payment.empfaengername ?? undefined,
+                                iban: payment.iban ?? undefined,
+                                verwendungszweck: payment.verwendungszweck ?? undefined,
+                                kategorie: payment.kategorie ?? undefined,
+                              })
+                            }
+                          >
+                            Zuordnen
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
 
-              <ScrollArea className="h-[500px]">
-                {unassignedLoading ? (
-                  <div className="p-8 text-center text-muted-foreground">Lade Zahlungen...</div>
-                ) : filteredUnassignedPayments?.length === 0 ? (
-                  <div className="p-8 text-center text-muted-foreground">
-                    <AlertTriangle className="h-12 w-12 text-green-300 mx-auto mb-3" />
-                    <p className="text-green-700 font-medium">Alle Mietzahlungen sind zugeordnet!</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="whitespace-nowrap">Buchungsdatum</TableHead>
-                          <TableHead className="text-right whitespace-nowrap">Betrag</TableHead>
-                          <TableHead className="hidden sm:table-cell">IBAN</TableHead>
-                          <TableHead>Empfänger</TableHead>
-                          <TableHead className="hidden md:table-cell">Verwendungszweck</TableHead>
-                          <TableHead>Kategorie</TableHead>
-                          <TableHead className="text-right">Aktion</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredUnassignedPayments?.map((payment) => (
-                          <TableRow key={payment.id}>
-                            <TableCell className="whitespace-nowrap">{format(new Date(payment.buchungsdatum), 'dd.MM.yyyy')}</TableCell>
-                            <TableCell className={`text-right font-semibold whitespace-nowrap ${payment.betrag < 0 ? 'text-destructive' : 'text-green-600'}`}>
-                              {payment.betrag.toFixed(2)} €
-                            </TableCell>
-                            <TableCell className="font-mono text-xs hidden sm:table-cell">{payment.iban || '-'}</TableCell>
-                            <TableCell className="max-w-[120px] truncate">{payment.empfaengername || '-'}</TableCell>
-                            <TableCell className="max-w-xs truncate hidden md:table-cell">{payment.verwendungszweck || '-'}</TableCell>
-                            <TableCell>
-                              <PaymentKategorieEditor
-                                paymentId={payment.id}
-                                currentKategorie={payment.kategorie}
-                                currentImmobilieId={payment.immobilie_id}
-                                onUpdate={() => {
-                                  queryClient.invalidateQueries({ queryKey: ['unassigned-payments'] });
-                                  queryClient.invalidateQueries({ queryKey: ['zahlungen-overview'] });
-                                }}
-                                compact
-                              />
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <Button size="sm" variant="outline" onClick={() => handleAssignPayment(payment)}>
-                                Zuweisen
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </ScrollArea>
-            </Card>
-          </TabsContent>
-
-          {/* Tab 4: Nebenkosten (Nichtmiete-Zahlungen) */}
-          <TabsContent value="nebenkosten">
-            <Card className="p-6 bg-white">
-              <NebenkostenZuordnungTab />
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
+      {/* Reiter 4: Nebenkosten (Nichtmiete-Zahlungen) */}
+      <TabsContent value="nebenkosten" className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+        <Card>
+          <CardContent className="p-4 sm:p-6">
+            <NebenkostenZuordnungTab />
+          </CardContent>
+        </Card>
+      </TabsContent>
 
       {/* Assign Payment Dialog */}
       <AssignPaymentDialog
@@ -1647,6 +967,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           results={aiResults}
           duplicates={aiDuplicates}
           stats={aiStats}
+          dateiname={csvFile?.name}
           onApply={handleApplyAssignments}
         />
       )}
@@ -1659,6 +980,6 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           upload={lastUpload}
         />
       )}
-    </div>
+    </Tabs>
   );
 }

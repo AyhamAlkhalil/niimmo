@@ -27,16 +27,38 @@ const DialogOverlay = React.forwardRef<
 ))
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
+/**
+ * Feste Groessenstufen (07.09.2026, docs/architektur.md §5): Bis dahin trug
+ * jeder Dialog seine eigene Geometrie (31 Varianten). `vollbild` fuellt den
+ * Bildschirm bis auf einen Rand und hat kein eigenes Padding -- der Inhalt
+ * bringt Kopf-, Arbeits- und Fussbereich selbst mit. Ohne `size` bleibt alles
+ * wie bisher (max-w-lg, zentriert).
+ */
+type DialogGroesse = "sm" | "md" | "lg" | "vollbild"
+
+const DIALOG_BREITEN: Record<Exclude<DialogGroesse, "vollbild">, string> = {
+  sm: "max-w-md",
+  md: "max-w-2xl",
+  lg: "max-w-5xl",
+}
+
+const ZENTRIERT =
+  "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg"
+
+const VOLLBILD =
+  "fixed inset-2 md:inset-4 z-50 flex flex-col overflow-hidden rounded-lg border bg-background shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { size?: DialogGroesse }
+>(({ className, children, size, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        size === "vollbild" ? VOLLBILD : ZENTRIERT,
+        size && size !== "vollbild" ? DIALOG_BREITEN[size] : undefined,
         className
       )}
       {...props}

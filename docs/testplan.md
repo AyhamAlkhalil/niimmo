@@ -86,10 +86,22 @@ Einstieg: Dashboard → „Übergabe"
 Einstieg: Controlboard
 
 - [ ] CSV-Datei hochladen → Zuordnungsvorschläge erscheinen
+- [ ] ⚠️ **Prüfmaske im Vollbild**: eine Zeile je Buchung; Sichten „Offen" / „Unsicher" / „Geändert" zeigen nur die
+      passenden Zeilen; „Nächster Prüffall" springt zur nächsten offenen oder unsicheren Buchung
+- [ ] ⚠️ Zeile anklicken → rechts Verwendungszweck, Begründung, Kategorie und Vertragsliste; Vertrag dort wählen →
+      Zeile wird „Geändert" und ist gewählt; „Zuordnung entfernen" → Zeile wird „Offen"
+- [ ] ⚠️ Pfeiltasten blättern, Leertaste wählt ab/an; Kategorie „Nebenkosten" schaltet die Liste auf Objekte um
 - [ ] Vorschläge prüfen, einzelne umsetzen, andere abwählen
 - [ ] Übernehmen → ⚠️ **Meldung muss die tatsächliche Zahl nennen**
 - [ ] ⚠️ Fehlerfall provozieren (z. B. Import ohne Adminrechte) → **muss jetzt eine rote Meldung geben**,
       nicht mehr „erfolgreich"
+- [ ] ⚠️ **Alle Zahlungen**: Tabelle in voller Breite, rund 25 Buchungen je Bildschirm; Klick auf Datum / Betrag /
+      Kategorie / Zuordnung sortiert; Monatszeile zeigt Anzahl und Summe und klappt ein
+- [ ] ⚠️ Suche „1.250,50" und „1250,5" finden dieselbe Buchung; „Nicht zugeordnet" + Zeitraum „Letzter Monat";
+      Trefferzahl und Summe in der Leiste stimmen; „Filter zurücksetzen"
+- [ ] ⚠️ ↑ ↓ wechselt die Zeile, Enter öffnet „Zahlung zuordnen"; Detailspalte ausblenden, Vollbild ein/aus (Esc)
+- [ ] ⚠️ Anomalien-Banner → „Zur Zahlung springen" markiert die Zeile in der Tabelle
+- [ ] ⚠️ Schmales Fenster (< 1024 px): Zeile antippen öffnet die Details als Einschub von rechts
 - [ ] Zahlung manuell einem Vertrag zuordnen
 - [ ] Zahlung auf Nebenkosten umbuchen → verschwindet aus der Vertrags-Timeline, taucht am Objekt auf
 - [ ] Zahlung aufteilen und wieder zusammenführen

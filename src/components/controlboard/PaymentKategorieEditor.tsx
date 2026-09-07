@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { KATEGORIE_PUNKT_KLASSEN, KATEGORIE_TON_KLASSEN, ZAHLUNG_KATEGORIEN, kategorieTon } from "@/utils/zahlungKategorie";
 
 interface PaymentKategorieEditorProps {
   paymentId: string;
@@ -14,15 +15,7 @@ interface PaymentKategorieEditorProps {
   compact?: boolean;
 }
 
-const KATEGORIEN = [
-  { value: "Miete", label: "Miete", color: "bg-green-100 text-green-800 border-green-200" },
-  { value: "Nebenkosten", label: "Nebenkosten", color: "bg-blue-100 text-blue-800 border-blue-200" },
-  { value: "Nichtmiete", label: "Nichtmiete", color: "bg-gray-100 text-gray-800 border-gray-200" },
-  { value: "Mietkaution", label: "Mietkaution", color: "bg-purple-100 text-purple-800 border-purple-200" },
-  { value: "Rücklastschrift", label: "Rücklastschrift", color: "bg-red-100 text-red-800 border-red-200" },
-  { value: "Ignorieren", label: "Ignorieren", color: "bg-orange-100 text-orange-800 border-orange-200" },
-  { value: "Betriebskostenabrechnung", label: "BKA (Mieter)", color: "bg-amber-100 text-amber-800 border-amber-200" },
-];
+// Bezeichnungen und Farbrollen kommen seit dem 07.09.2026 aus utils/zahlungKategorie.ts.
 
 export function PaymentKategorieEditor({ 
   paymentId, 
@@ -128,9 +121,7 @@ export function PaymentKategorieEditor({
     });
   };
 
-  const getKategorieColor = (kat: string) => {
-    return KATEGORIEN.find(k => k.value === kat)?.color || "bg-gray-100 text-gray-800";
-  };
+  const getKategorieColor = (kat: string) => KATEGORIE_TON_KLASSEN[kat ? kategorieTon(kat) : "muted"];
 
   if (compact) {
     return (
@@ -142,11 +133,11 @@ export function PaymentKategorieEditor({
           )}>
             <SelectValue placeholder="Kategorie" />
           </SelectTrigger>
-          <SelectContent className="bg-white z-50">
-            {KATEGORIEN.map((kat) => (
-              <SelectItem key={kat.value} value={kat.value}>
+          <SelectContent>
+            {ZAHLUNG_KATEGORIEN.map((kat) => (
+              <SelectItem key={kat.wert} value={kat.wert}>
                 <div className="flex items-center gap-2">
-                  <div className={cn("w-2 h-2 rounded-full", kat.color.split(" ")[0])} />
+                  <div className={cn("w-2 h-2 rounded-full", KATEGORIE_PUNKT_KLASSEN[kat.ton])} />
                   {kat.label}
                 </div>
               </SelectItem>
@@ -172,11 +163,11 @@ export function PaymentKategorieEditor({
           )}>
             <SelectValue placeholder="Kategorie wählen..." />
           </SelectTrigger>
-          <SelectContent className="bg-white z-50">
-            {KATEGORIEN.map((kat) => (
-              <SelectItem key={kat.value} value={kat.value}>
+          <SelectContent>
+            {ZAHLUNG_KATEGORIEN.map((kat) => (
+              <SelectItem key={kat.wert} value={kat.wert}>
                 <div className="flex items-center gap-2">
-                  <div className={cn("w-3 h-3 rounded-full", kat.color.split(" ")[0])} />
+                  <div className={cn("w-3 h-3 rounded-full", KATEGORIE_PUNKT_KLASSEN[kat.ton])} />
                   {kat.label}
                 </div>
               </SelectItem>

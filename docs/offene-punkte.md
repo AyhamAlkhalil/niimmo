@@ -15,6 +15,15 @@ Dieses Dokument ordnet und priorisiert. Die vollständige Liste zum Abarbeiten s
 Die Mieterhöhung hat seit dem 06.09.2026 einen Haken „Der Mieter hat der Erhöhung zugestimmt": Ist er gesetzt,
 wird die Vertragsmiete sofort geändert; ohne ihn bleibt sie stehen, bis die Zustimmung vorliegt.
 
+**07.09.2026 — Zahlungsverwaltung neu aufgebaut** (Version 1.4.0): Die Übersicht „Alle Zahlungen" ist eine Tabelle
+in voller Breite mit Detailspalte (Befund „Der Massenarbeitsplatz der Buchhaltung ist eine Kartenliste" erledigt), die
+Prüfmaske nach dem CSV-Import läuft im Vollbild mit einer Zeile je Buchung und Korrektur in der Detailspalte. Dabei
+erledigt: die Query-Key-Kollision `contracts-for-assignment` (Prüfmaske hat jetzt `zuordnung-vertraege-auswahl`) und
+die unsanitisierte Suchbegriff-Interpolation der Zahlungssuche (die Serversuche entfiel, alle Felder liegen lokal
+vor). Bei der Übernahme werden Buchungen mit gleichem Schlüssel (Tag, Betrag, IBAN, Textanfang) jetzt gezählt statt
+verschluckt; ein Objektbezug aus einem Nebenkosten-Vorschlag wird beim Kategoriewechsel abgeräumt. Unverändert und weiter offen: die Übernahme-Logik selbst (IBAN-Anker, kein Import-Undo, CSV-Parser ohne
+Anführungszeichen, Zeichenkodierung) — siehe befundliste.md.
+
 **Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
 Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).

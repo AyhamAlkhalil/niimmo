@@ -92,15 +92,17 @@ eine austauschbare „Modern-SaaS"-Optik, während die Eigenschaften eines Fachp
 **Regeln für neue Oberfläche:**
 
 - **Farben nur über Rollen.** Außerhalb von `components/ui/` keine Klassen der Form `text-/bg-/border-<Palette>-<Zahl>`.
-  Verbindlich sind `primary`, `muted`, `destructive`, `border`, `foreground` usw.
+  Verbindlich sind `primary`, `muted`, `destructive`, `border`, `foreground` usw.; seit dem 07.09.2026 auch `success`
+  (eingegangen, zugeordnet) und `warning` (offen). Kategoriefarben kommen aus `utils/zahlungKategorie.ts`.
 - **Statusfarben aus einer Quelle.** Für `aktiv`/`gekuendigt`/`beendet` genau eine Zuordnung, zentral abgelegt.
   Heute gibt es fünf konkurrierende, und die dafür angelegten `.status-badge-*`-Klassen werden nirgends benutzt.
 - **Ein Kartentyp: die shadcn-`Card`.** `glass-card`, `metric-card`, `elegant-card` und handgebaute
   `bg-white`-Container werden nicht neu verwendet.
-- **Dialoge nutzen feste Größenstufen** (S / M / L / Vollbild). Keine neuen `max-w-[95vw] w-[1400px]`-Rezepte.
+- **Dialoge nutzen feste Größenstufen** (S / M / L / Vollbild) — seit dem 07.09.2026 als `size`-Prop von
+  `DialogContent` (`sm` / `md` / `lg` / `vollbild`). Keine neuen `max-w-[95vw] w-[1400px]`-Rezepte.
 - **Wo Masse anfällt, gehört eine Tabelle hin** — mit ausgerichteten Betragsspalten (`tabular-nums`), sortierbaren
-  Kopfzeilen und Tastaturnavigation. Die Zahlungszuordnung ist heute eine Kartenliste; das ist der Arbeitsplatz
-  der Buchhaltung.
+  Kopfzeilen und Tastaturnavigation. Muster seit dem 07.09.2026: die Zahlungsübersicht (`ZahlungenTabelle.tsx`,
+  `ZahlungenArbeitsplatz.tsx`) — Tabelle in voller Breite, schmale Detailspalte, Fachlogik in `utils/zahlungenAnsicht.ts`.
 - **Schriftgrößen aus der Skala** (`text-xs` aufwärts). Keine `text-[9px]`-Werte; Dichte entsteht über Zeilenhöhe
   und Spaltenführung, nicht über kleinere Schrift.
 - **Jede Ansicht behandelt drei Zustände: lädt, Fehler, leer.** Heute behandeln 155 Stellen `isLoading` und genau

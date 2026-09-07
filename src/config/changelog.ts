@@ -37,6 +37,49 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.4.0",
+    datum: "2026-09-07",
+    schwerpunkt: "Zahlungsverwaltung: Übersicht und Import-Prüfung neu aufgebaut",
+    aenderungen: [
+      {
+        art: "verbessert",
+        titel: "Alle Zahlungen als Tabelle in voller Breite",
+        detail:
+          "Bisher stand links eine Kartenliste mit sechs bis sieben Buchungen je Bildschirm, rechts blieb die Hälfte leer. Jetzt füllt eine Tabelle den Bildschirm — rund 25 Buchungen auf einen Blick, sortierbar per Klick auf Datum, Betrag, Kategorie oder Zuordnung, mit Zwischensumme je Monat und einer schmalen Detailspalte rechts, die sich ausblenden lässt. Pfeiltasten blättern durch die Zeilen, Enter öffnet die Zuordnung, ein Knopf schaltet in den Vollbildmodus.",
+      },
+      {
+        art: "neu",
+        titel: "Filter nach Zuordnung, Zeitraum-Vorgaben und bessere Suche",
+        detail:
+          "„Alle / Zugeordnet / Nicht zugeordnet\" mit einem Klick, der Zeitraum über Vorgaben wie „Letzter Monat\" oder „Dieses Jahr\". Buchungen, die einen Mietvertrag brauchen und keinen haben, sind in der Tabelle als „Offen\" markiert. Die Suche findet Beträge auch als „1.250,50\" oder „1250,5\" und zeigt die Summe der gefundenen Buchungen an.",
+      },
+      {
+        art: "verbessert",
+        titel: "Prüfung der Zuordnungsvorschläge nach dem CSV-Import im Vollbild",
+        detail:
+          "Jede Buchung steht in einer Zeile; vorher brach der Verwendungszweck auf mehrere Zeilen um und die Liste wurde lang. Über „Offen\", „Unsicher\" und „Geändert\" lassen sich nur die Fälle einblenden, die Aufmerksamkeit brauchen; „Nächster Prüffall\" springt direkt dorthin. Die Korrektur — Mietvertrag oder Objekt wählen — geschieht in der Spalte rechts, ohne ein zweites Fenster. Was gespeichert wird, ist unverändert.",
+      },
+      {
+        art: "behoben",
+        titel: "Objektbezug blieb beim Kategoriewechsel stehen",
+        detail:
+          "Wurde in der Import-Prüfung ein als Nebenkosten vorgeschlagener Umsatz auf Miete umgestellt, ohne einen Vertrag zu wählen, blieb das Objekt unsichtbar am Datensatz hängen. Eine Zahlung darf aber entweder am Vertrag oder am Objekt hängen, sonst zählt sie doppelt. Der Objektbezug wird jetzt abgeräumt.",
+      },
+      {
+        art: "behoben",
+        titel: "Gleichartige Buchungen am selben Tag fielen beim Übernehmen weg",
+        detail:
+          "Zwei Umsätze mit gleichem Tag, Betrag, Konto und Textanfang galten als eine Buchung. War nur eine davon gewählt, wurde die zweite beim Übernehmen stillschweigend verworfen. Jetzt werden beide gespeichert.",
+      },
+      {
+        art: "behoben",
+        titel: "Zuordnungsdialog und Import-Prüfung teilten sich eine Vertragsliste",
+        detail:
+          "Welche Verträge im Zuordnungsdialog erschienen, hing davon ab, welches Fenster zuerst geladen hatte; beendete Verträge fehlten dann. Beide Listen sind jetzt getrennt, und die Import-Prüfung bietet auch beendete Verträge an — für Zahlungen, die nach dem Auszug eingehen.",
+      },
+    ],
+  },
+  {
     version: "1.3.0",
     datum: "2026-09-04",
     schwerpunkt: "Mietvertrag: Betriebskosten im Vertrag ausweisen",
