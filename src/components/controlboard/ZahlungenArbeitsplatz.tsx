@@ -119,7 +119,9 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
     });
   }, []);
 
-  // Sprung vom Anomalien-Banner: Filter weg, Monat auf, Zeile markieren und hinscrollen.
+  // Sprung vom Anomalien-Banner: Filter weg, Monat auf, Zeile markieren; die
+  // Tabelle scrollt selbst hin (gefenstert — die Zeile steht erst dann im DOM).
+  const [sprung, setSprung] = useState<{ id: string; nonce: number } | null>(null);
   useEffect(() => {
     if (!sprungZiel) return;
     setFilter(LEERER_FILTER);
@@ -136,21 +138,20 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
       setEingeklappt(new Set());
     }
     setAusgewaehltId(sprungZiel.zahlungId);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-zahlung-id="${sprungZiel.zahlungId}"]`);
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        } else {
-          toast({
-            title: "Zahlung nicht gefunden",
-            description: "Diese Zahlung ist in der aktuellen Liste nicht (mehr) auffindbar.",
-            variant: "destructive",
-          });
-        }
+    setSprung({ id: sprungZiel.zahlungId, nonce: sprungZiel.nonce });
+  }, [sprungZiel]);
+
+  const handleSprungErgebnis = useCallback(
+    (gefunden: boolean) => {
+      if (gefunden) return;
+      toast({
+        title: "Zahlung nicht gefunden",
+        description: "Diese Zahlung ist in der aktuellen Liste nicht (mehr) auffindbar.",
+        variant: "destructive",
       });
-    });
-  }, [sprungZiel, toast]);
+    },
+    [toast]
+  );
 
   useEffect(() => {
     if (!vollbild) return;
@@ -203,6 +204,8 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
       onOeffnen={onZuordnen}
       eingeklappt={eingeklappt}
       onMonatToggle={monatUmschalten}
+      sprung={sprung}
+      onSprungErgebnis={handleSprungErgebnis}
     />
   );
 

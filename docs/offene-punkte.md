@@ -24,6 +24,19 @@ vor). Bei der Übernahme werden Buchungen mit gleichem Schlüssel (Tag, Betrag, 
 verschluckt; ein Objektbezug aus einem Nebenkosten-Vorschlag wird beim Kategoriewechsel abgeräumt. Unverändert und weiter offen: die Übernahme-Logik selbst (IBAN-Anker, kein Import-Undo, CSV-Parser ohne
 Anführungszeichen, Zeichenkodierung) — siehe befundliste.md.
 
+**Performance der Zahlungen (07.09.2026, gemessen):** Die erste Tabellenfassung zeichnete alle 3500 Zeilen auf
+einmal — 37.000 DOM-Knoten, 7,9 s bis zur Anzeige und 5,8 s je Sortierung auf einem vierfach gedrosselten Rechner.
+Seitdem ist die Tabelle gefenstert (nur sichtbare Zeilen im DOM: 560 Knoten, 0,7 s bzw. 0,16 s), die vier Seiten
+der Übersicht laden gleichzeitig, die Zahlungsabfragen gelten zwei Minuten als frisch, und die Übernahme fragt
+bestehende Buchungen und Bankverbindungen einmal je Import ab statt je Zeile (vorher ~150 ms je Buchung,
+`utils/zahlungenUebernahme.ts`). Weiter offen: (1) Die Realtime-Publikation `supabase_realtime` enthält nur
+`benachrichtigungen` und `dev_tickets` — `useRealtimeUpdates` bekommt für Zahlungen, Forderungen, Verträge und
+Mieter nie ein Ereignis; frische Daten kommen allein über die expliziten Invalidierungen. (2) Die KI-Warteschlange
+in `process-payments` läuft sequenziell (ein Gateway-Aufruf nach dem anderen) — bei vielen ungeklärten Buchungen
+wartet die Buchhaltung entsprechend lange; begrenzte Parallelität wäre eine Änderung an der Edge Function
+(Planner-Entscheidung, Deploy per MCP). (3) Chunk-Inserts bei der Übernahme wären nochmals schneller, ändern aber
+die Fehlerzuordnung je Zeile.
+
 **Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
 Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).

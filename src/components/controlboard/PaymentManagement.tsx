@@ -22,6 +22,16 @@ import { PaymentKategorieEditor } from "./PaymentKategorieEditor";
 import { SprungZiel, ZahlungenArbeitsplatz } from "./ZahlungenArbeitsplatz";
 import { ZahlungZeile, formatEuro, formatIsoDatum } from "@/utils/zahlungenAnsicht";
 import { Zuordnungsvorschlag, vorschlagsSchluessel } from "@/utils/zuordnungsvorschlaege";
+import {
+  BestehendeIndex,
+  BestehendeZahlung,
+  bestehendeIndexieren,
+  bestehendeVormerken,
+  buchungstageVon,
+  findeBestehende,
+  normalisiereWert,
+  vertragsIdsMitIban,
+} from "@/utils/zahlungenUebernahme";
 
 /**
  * Robuster Betragsparser für deutsche und englische Formate:
@@ -149,25 +159,60 @@ interface ZahlungOffen {
   immobilie_id: string | null;
 }
 
+interface Seite<T> {
+  data: T[] | null;
+  error: { message: string } | null;
+  count?: number | null;
+}
+
 /**
  * Liest eine wachsende Tabelle seitenweise. PostgREST liefert still höchstens
  * 1000 Zeilen; ohne Schleife rechnet die Ansicht mit einem Bruchteil der Daten
  * (docs/architektur.md §4).
+ *
+ * Die erste Seite bringt die Gesamtzahl mit (`count: 'exact'`), alle weiteren
+ * Seiten laufen gleichzeitig. Bis zum 07.09.2026 liefen die vier Seiten der
+ * Übersicht nacheinander — jede wartete auf die vorige.
  */
-async function alleSeiten<T>(
-  seite: (von: number, bis: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
-): Promise<T[]> {
-  const alle: T[] = [];
+async function alleSeiten<T>(seite: (von: number, bis: number, mitZaehlung: boolean) => PromiseLike<Seite<T>>): Promise<T[]> {
   const groesse = 1000;
-  for (let von = 0; ; von += groesse) {
-    const { data, error } = await seite(von, von + groesse - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    alle.push(...data);
-    if (data.length < groesse) break;
+  const erste = await seite(0, groesse - 1, true);
+  if (erste.error) throw erste.error;
+  const alle: T[] = [...(erste.data ?? [])];
+  if (alle.length < groesse) return alle;
+
+  const gesamt = typeof erste.count === 'number' ? erste.count : null;
+  if (gesamt === null) {
+    // Ohne Gesamtzahl bleibt nur der Reihe nach.
+    for (let von = groesse; ; von += groesse) {
+      const { data, error } = await seite(von, von + groesse - 1, false);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      alle.push(...data);
+      if (data.length < groesse) break;
+    }
+    return alle;
+  }
+
+  const weitere: Promise<Seite<T>>[] = [];
+  for (let von = groesse; von < gesamt; von += groesse) {
+    weitere.push(Promise.resolve(seite(von, von + groesse - 1, false)));
+  }
+  for (const antwort of await Promise.all(weitere)) {
+    if (antwort.error) throw antwort.error;
+    alle.push(...(antwort.data ?? []));
   }
   return alle;
 }
+
+/**
+ * Wie lange die Zahlungsdaten als frisch gelten. Mit dem Standard (0) lud jeder
+ * Fensterwechsel alle 3505 Zahlungen samt Bezügen neu. Änderungen aus dieser
+ * Anwendung invalidieren die Abfragen ausdrücklich; die Realtime-Publikation
+ * enthält zahlungen nicht (Stand 07.09.2026), sodass nur diese Invalidierungen
+ * und dieser Zeitraum die Aktualität für andere Nutzer bestimmen.
+ */
+const CACHE_ZEIT = 2 * 60 * 1000;
 
 /** Was der Zuordnungsdialog über eine bestehende Zahlung wissen muss. */
 interface ZuordnungsZahlung {
@@ -219,11 +264,14 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   // Fetch unassigned payments (for the "Nicht zugeordnete" tab)
   const { data: unassignedPayments, isLoading: unassignedLoading, isError: unassignedError } = useQuery({
     queryKey: ['unassigned-payments'],
+    staleTime: CACHE_ZEIT,
     queryFn: () =>
-      alleSeiten<ZahlungOffen>((von, bis) =>
+      alleSeiten<ZahlungOffen>((von, bis, mitZaehlung) =>
         supabase
           .from('zahlungen')
-          .select('id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, zugeordneter_monat, kategorie, immobilie_id')
+          .select('id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, zugeordneter_monat, kategorie, immobilie_id', {
+            count: mitZaehlung ? 'exact' : undefined,
+          })
           .is('mietvertrag_id', null)
           .in('kategorie', ['Miete', 'Mietkaution', 'Rücklastschrift', 'Betriebskostenabrechnung'])
           .order('buchungsdatum', { ascending: false })
@@ -234,21 +282,25 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   // Alle Zahlungen mit Vertrags- und Objektbezug, seitenweise (PostgREST liefert still nur 1000 Zeilen).
   const { data: allPayments, isLoading: allPaymentsLoading, isError: allPaymentsError } = useQuery({
     queryKey: ['zahlungen-overview'],
+    staleTime: CACHE_ZEIT,
     queryFn: async (): Promise<ZahlungZeile[]> => {
-      const allData = await alleSeiten<ZahlungRoh>((von, bis) =>
+      const allData = await alleSeiten<ZahlungRoh>((von, bis, mitZaehlung) =>
         supabase
           .from('zahlungen')
-          .select(`
+          .select(
+            `
             id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, zugeordneter_monat, kategorie, mietvertrag_id, immobilie_id,
             immobilien:immobilie_id (name, adresse),
             mietvertrag:mietvertrag_id (
               einheiten:einheit_id (id, einheitentyp, etage, immobilien:immobilie_id (name, adresse)),
               mietvertrag_mieter (mieter:mieter_id (vorname, nachname))
             )
-          `)
+          `,
+            { count: mitZaehlung ? 'exact' : undefined }
+          )
           .order('buchungsdatum', { ascending: false })
           .range(von, bis)
-          .then((antwort) => ({ data: antwort.data as unknown as ZahlungRoh[] | null, error: antwort.error }))
+          .then((antwort) => ({ data: antwort.data as unknown as ZahlungRoh[] | null, error: antwort.error, count: antwort.count }))
       );
 
       return allData.map((zahlung): ZahlungZeile => {
@@ -489,38 +541,70 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       `${r.buchungsdatum ?? '?'} · ${r.betrag ?? '?'} € · ${(r.verwendungszweck ?? '').slice(0, 40) || 'ohne Verwendungszweck'}`;
 
     // Insert/update all payments
-    for (const result of allResultsToSave) {
+    //
+    // Vorabfragen statt Einzelabfragen je Zeile (07.09.2026): Bestehende Buchungen
+    // der betroffenen Tage und die Bankverbindungen der betroffenen Vertraege werden
+    // einmal geladen; der Abgleich je Zeile laeuft mit denselben Regeln im Speicher
+    // (utils/zahlungenUebernahme.ts). Entscheidung je Zeile und Reihenfolge der
+    // Schreibvorgaenge sind unveraendert. Gemessen waren es vorher 150 ms je Buchung
+    // bei vier Datenbankrunden, davon zwei reine Nachfragen.
+    let bestehende: BestehendeIndex = new Map();
+    let vorabfrageOk = true;
+    try {
+      const tage = buchungstageVon(allResultsToSave);
+      const zeilen =
+        tage.length === 0
+          ? []
+          : await alleSeiten<BestehendeZahlung>((von, bis, mitZaehlung) =>
+              supabase
+                .from('zahlungen')
+                .select('id, kategorie, mietvertrag_id, buchungsdatum, betrag, iban, verwendungszweck', { count: mitZaehlung ? 'exact' : undefined })
+                .in('buchungsdatum', tage)
+                .range(von, bis)
+            );
+      bestehende = bestehendeIndexieren(zeilen);
+    } catch (e: unknown) {
+      // Ohne belastbare Duplikatpruefung darf nicht geschrieben werden --
+      // sonst entstehen Doppelbuchungen.
+      vorabfrageOk = false;
+      const grund = e instanceof Error ? e.message : String(e);
+      for (const result of allResultsToSave) {
+        fehler.push({ zeile: bezeichne(result), grund: `Duplikatprüfung fehlgeschlagen: ${grund}` });
+      }
+    }
+
+    // Bankverbindungen der Vertraege, die eine bekommen koennten. Liefert die
+    // Abfrage nichts, unterbleibt der Nachtrag -- wie frueher bei leerer Einzelabfrage.
+    const bankkonten = new Map<string, string | null>();
+    if (vorabfrageOk) {
+      const vertragsIds = vertragsIdsMitIban(allResultsToSave);
+      if (vertragsIds.length > 0) {
+        const { data: vertraege } = await supabase.from('mietvertrag').select('id, bankkonto_mieter').in('id', vertragsIds);
+        vertraege?.forEach((v) => bankkonten.set(v.id, v.bankkonto_mieter));
+      }
+    }
+
+    // Auto-fill IBAN on contract if empty
+    const ibanNachtragen = async (mietvertragId: string, iban: string) => {
+      if (!bankkonten.has(mietvertragId) || bankkonten.get(mietvertragId)) return;
+      const { error } = await supabase
+        .from('mietvertrag')
+        .update({ bankkonto_mieter: iban })
+        .eq('id', mietvertragId);
+      if (!error) bankkonten.set(mietvertragId, iban);
+    };
+
+    for (const result of vorabfrageOk ? allResultsToSave : []) {
       // First, check if this payment already exists
       // Use buchungsdatum + betrag + iban + verwendungszweck for reliable matching
-      const ibanValue = result.iban?.trim() || null;
-      const vzValue = result.verwendungszweck?.trim() || null;
-
-      let query = supabase
-        .from('zahlungen')
-        .select('id, kategorie, mietvertrag_id')
-        .eq('buchungsdatum', result.buchungsdatum)
-        .eq('betrag', result.betrag);
-
-      if (ibanValue) {
-        query = query.eq('iban', ibanValue);
-      } else {
-        query = query.is('iban', null);
-      }
-
-      if (vzValue) {
-        query = query.eq('verwendungszweck', vzValue);
-      } else {
-        query = query.is('verwendungszweck', null);
-      }
-
-      const { data: existingRows, error: sucheError } = await query.limit(1);
-      if (sucheError) {
-        // Ohne belastbare Duplikatpruefung darf nicht geschrieben werden --
-        // sonst entstehen Doppelbuchungen.
-        fehler.push({ zeile: bezeichne(result), grund: `Duplikatprüfung fehlgeschlagen: ${sucheError.message}` });
-        continue;
-      }
-      const existing = existingRows?.[0] || null;
+      const ibanValue = normalisiereWert(result.iban);
+      const vzValue = normalisiereWert(result.verwendungszweck);
+      const existing = findeBestehende(bestehende, {
+        buchungsdatum: result.buchungsdatum,
+        betrag: result.betrag,
+        iban: ibanValue,
+        verwendungszweck: vzValue,
+      });
 
       if (existing) {
         // Payment exists - only update if not already manually categorized
@@ -549,25 +633,17 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           continue;
         }
 
-        // Auto-fill IBAN on contract if empty
-        if (result.mietvertrag_id && result.iban) {
-          const { data: contract } = await supabase
-            .from('mietvertrag')
-            .select('bankkonto_mieter')
-            .eq('id', result.mietvertrag_id)
-            .maybeSingle();
+        // Der Index spiegelt den Stand der Datenbank fuer spaetere gleiche Zeilen.
+        existing.kategorie = result.kategorie ?? null;
+        existing.mietvertrag_id = result.mietvertrag_id;
 
-          if (contract && !contract.bankkonto_mieter) {
-            await supabase
-              .from('mietvertrag')
-              .update({ bankkonto_mieter: result.iban })
-              .eq('id', result.mietvertrag_id);
-          }
+        if (result.mietvertrag_id && result.iban) {
+          await ibanNachtragen(result.mietvertrag_id, result.iban);
         }
       } else {
         // Payment doesn't exist - insert it
         // zugeordneter_monat is NOT set here - the DB trigger set_zugeordneter_monat_trigger handles it automatically
-        const { error } = await supabase
+        const { data: eingefuegt, error } = await supabase
           .from('zahlungen')
           .insert({
             buchungsdatum: result.buchungsdatum,
@@ -578,27 +654,29 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             mietvertrag_id: result.mietvertrag_id || null,
             immobilie_id: result.immobilie_id || null,
             kategorie: (result.kategorie as never) || null,
-          });
+          })
+          .select('id')
+          .single();
 
         if (error) {
           fehler.push({ zeile: bezeichne(result), grund: `Speichern fehlgeschlagen: ${error.message}` });
           continue;
         }
 
-        // Auto-fill IBAN on contract if empty
-        if (result.mietvertrag_id && result.iban) {
-          const { data: contract } = await supabase
-            .from('mietvertrag')
-            .select('bankkonto_mieter')
-            .eq('id', result.mietvertrag_id)
-            .maybeSingle();
+        // Eine spaetere gleiche Zeile desselben Imports findet diese Buchung
+        // als bestehend -- wie frueher die Einzelabfrage die eben eingefuegte Zeile.
+        bestehendeVormerken(bestehende, {
+          id: eingefuegt.id,
+          kategorie: result.kategorie ?? null,
+          mietvertrag_id: result.mietvertrag_id || null,
+          buchungsdatum: result.buchungsdatum,
+          betrag: result.betrag,
+          iban: ibanValue,
+          verwendungszweck: vzValue,
+        });
 
-          if (contract && !contract.bankkonto_mieter) {
-            await supabase
-              .from('mietvertrag')
-              .update({ bankkonto_mieter: result.iban })
-              .eq('id', result.mietvertrag_id);
-          }
+        if (result.mietvertrag_id && result.iban) {
+          await ibanNachtragen(result.mietvertrag_id, result.iban);
         }
       }
     }

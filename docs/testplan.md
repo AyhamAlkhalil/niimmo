@@ -100,6 +100,8 @@ Einstieg: Controlboard
 - [ ] ⚠️ Suche „1.250,50" und „1250,5" finden dieselbe Buchung; „Nicht zugeordnet" + Zeitraum „Letzter Monat";
       Trefferzahl und Summe in der Leiste stimmen; „Filter zurücksetzen"
 - [ ] ⚠️ ↑ ↓ wechselt die Zeile, Enter öffnet „Zahlung zuordnen"; Detailspalte ausblenden, Vollbild ein/aus (Esc)
+- [ ] ⚠️ Schnell durch alle Monate scrollen (auch Ende-Taste): keine Lücken, Monatskopf haftet oben, Summe je Monat
+      stimmt; Sortierung nach Betrag und Suche reagieren ohne spürbare Wartezeit
 - [ ] ⚠️ Anomalien-Banner → „Zur Zahlung springen" markiert die Zeile in der Tabelle
 - [ ] ⚠️ Schmales Fenster (< 1024 px): Zeile antippen öffnet die Details als Einschub von rechts
 - [ ] Zahlung manuell einem Vertrag zuordnen

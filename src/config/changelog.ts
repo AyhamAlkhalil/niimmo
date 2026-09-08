@@ -60,6 +60,18 @@ export const RELEASES: Release[] = [
           "Jede Buchung steht in einer Zeile; vorher brach der Verwendungszweck auf mehrere Zeilen um und die Liste wurde lang. Über „Offen\", „Unsicher\" und „Geändert\" lassen sich nur die Fälle einblenden, die Aufmerksamkeit brauchen; „Nächster Prüffall\" springt direkt dorthin. Die Korrektur — Mietvertrag oder Objekt wählen — geschieht in der Spalte rechts, ohne ein zweites Fenster. Was gespeichert wird, ist unverändert.",
       },
       {
+        art: "verbessert",
+        titel: "Zahlungsübersicht bleibt auch bei tausenden Buchungen flüssig",
+        detail:
+          "Gezeichnet wird nur, was gerade im Fenster sichtbar ist; beim Scrollen kommen die nächsten Zeilen nach. Vorher standen alle Buchungen gleichzeitig auf der Seite, was auf einem schwächeren Rechner mehrere Sekunden je Sortierung oder Suche kostete. Die vier Datenpakete der Übersicht werden außerdem gleichzeitig statt nacheinander geladen, und ein Wechsel zwischen Fenstern lädt nicht mehr jedes Mal alles neu.",
+      },
+      {
+        art: "verbessert",
+        titel: "Übernahme nach dem CSV-Import spart zwei Datenbankabfragen je Buchung",
+        detail:
+          "Ob eine Buchung schon vorhanden ist und ob am Vertrag eine Bankverbindung fehlt, wird jetzt einmal für den ganzen Import nachgesehen statt für jede Zeile einzeln. Die Prüfung je Zeile und die Reihenfolge des Speicherns sind unverändert; gemessen brauchte die Übernahme vorher rund 150 Millisekunden je Buchung, also etwa 18 Sekunden für 120 Zeilen.",
+      },
+      {
         art: "behoben",
         titel: "Objektbezug blieb beim Kategoriewechsel stehen",
         detail:
