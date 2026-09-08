@@ -258,3 +258,19 @@ export function zeitraumVoreinstellung(vorgabe: ZeitraumVorgabe, heute: Date = n
 export function hatAktivenFilter(filter: ZahlungenFilter): boolean {
   return Boolean(filter.suche.trim() || filter.kategorie || filter.zuordnung !== 'alle' || filter.von || filter.bis);
 }
+
+/**
+ * Welche Monate offen gezeigt werden. Standard ist eingeklappt — die
+ * Buchhaltung hat sich das am 08.09.2026 ausdrücklich gewünscht: Die Übersicht
+ * beginnt mit einer Monatsliste samt Anzahl und Summe, aufgeklappt wird gezielt.
+ * Zwei Ausnahmen, damit Treffer nicht versteckt bleiben: Bei einer Textsuche
+ * und wenn nur ein Monat übrig ist, sind alle Gruppen offen.
+ */
+export function effektivOffeneMonate(
+  gruppen: readonly Pick<MonatsGruppe, 'monatKey'>[],
+  ausgeklappt: ReadonlySet<string>,
+  sucheAktiv: boolean
+): ReadonlySet<string> {
+  if (sucheAktiv || gruppen.length === 1) return new Set(gruppen.map((g) => g.monatKey));
+  return ausgeklappt;
+}

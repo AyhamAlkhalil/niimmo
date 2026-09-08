@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Calendar as CalendarIcon, Loader2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
+import { AlertTriangle, Calendar as CalendarIcon, ChevronsDownUp, ChevronsUpDown, Loader2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
   ZahlungZeile,
   ZahlungenFilter,
   ZuordnungsSicht,
+  effektivOffeneMonate,
   filtereZahlungen,
   formatEuro,
   gruppiereNachMonat,
@@ -73,7 +74,8 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
 
   const [filter, setFilter] = useState<ZahlungenFilter>(LEERER_FILTER);
   const [sortierung, setSortierung] = useState<Sortierung>(STANDARD_SORTIERUNG);
-  const [eingeklappt, setEingeklappt] = useState<Set<string>>(() => new Set());
+  // Monate sind eingeklappt, bis die Buchhaltung sie öffnet (Wunsch vom 08.09.2026).
+  const [ausgeklappt, setAusgeklappt] = useState<Set<string>>(() => new Set());
   const [ausgewaehltId, setAusgewaehltId] = useState<string | null>(null);
   const [detailsOffen, setDetailsOffen] = useState(true);
   const [vollbild, setVollbild] = useState(false);
@@ -111,13 +113,23 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
   }, []);
 
   const monatUmschalten = useCallback((monatKey: string) => {
-    setEingeklappt((prev) => {
+    setAusgeklappt((prev) => {
       const next = new Set(prev);
       if (next.has(monatKey)) next.delete(monatKey);
       else next.add(monatKey);
       return next;
     });
   }, []);
+
+  const sucheAktiv = suche.trim().length > 0;
+  const offeneMonate = useMemo(
+    () => (gruppen ? effektivOffeneMonate(gruppen, ausgeklappt, sucheAktiv) : ausgeklappt),
+    [gruppen, ausgeklappt, sucheAktiv]
+  );
+  const alleMonateOffen = Boolean(gruppen && gruppen.every((g) => offeneMonate.has(g.monatKey)));
+  const alleMonateUmschalten = useCallback(() => {
+    setAusgeklappt(alleMonateOffen ? new Set() : new Set((gruppen ?? []).map((g) => g.monatKey)));
+  }, [alleMonateOffen, gruppen]);
 
   // Sprung vom Anomalien-Banner: Filter weg, Monat auf, Zeile markieren; die
   // Tabelle scrollt selbst hin (gefenstert — die Zeile steht erst dann im DOM).
@@ -128,18 +140,14 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
     setSortierung(STANDARD_SORTIERUNG);
     if (sprungZiel.buchungsdatum) {
       const monatKey = sprungZiel.buchungsdatum.slice(0, 7);
-      setEingeklappt((prev) => {
-        if (!prev.has(monatKey)) return prev;
-        const next = new Set(prev);
-        next.delete(monatKey);
-        return next;
-      });
+      setAusgeklappt((prev) => (prev.has(monatKey) ? prev : new Set(prev).add(monatKey)));
     } else {
-      setEingeklappt(new Set());
+      // Datum unbekannt: alle Monate öffnen, sonst bleibt die Zeile versteckt.
+      setAusgeklappt(new Set((zahlungen ?? []).map((z) => z.buchungsdatum.slice(0, 7))));
     }
     setAusgewaehltId(sprungZiel.zahlungId);
     setSprung({ id: sprungZiel.zahlungId, nonce: sprungZiel.nonce });
-  }, [sprungZiel]);
+  }, [sprungZiel, zahlungen]);
 
   const handleSprungErgebnis = useCallback(
     (gefunden: boolean) => {
@@ -202,7 +210,7 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
       ausgewaehltId={ausgewaehltId}
       onAuswahl={setAusgewaehltId}
       onOeffnen={onZuordnen}
-      eingeklappt={eingeklappt}
+      ausgeklappt={offeneMonate}
       onMonatToggle={monatUmschalten}
       sprung={sprung}
       onSprungErgebnis={handleSprungErgebnis}
@@ -342,6 +350,18 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
               </>
             )}
           </p>
+          {gruppen && gruppen.length > 1 && !sucheAktiv && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-9 w-9"
+              aria-label={alleMonateOffen ? "Alle Monate zuklappen" : "Alle Monate aufklappen"}
+              aria-pressed={alleMonateOffen}
+              onClick={alleMonateUmschalten}
+            >
+              {alleMonateOffen ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="icon"

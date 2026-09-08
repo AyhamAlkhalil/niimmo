@@ -44,7 +44,8 @@ interface ZahlungenTabelleProps {
   onAuswahl: (id: string) => void;
   /** Enter oder Doppelklick: Zuordnung öffnen. */
   onOeffnen: (zahlung: ZahlungZeile) => void;
-  eingeklappt: ReadonlySet<string>;
+  /** Monate, deren Buchungen gezeigt werden; alle anderen sind eingeklappt. */
+  ausgeklappt: ReadonlySet<string>;
   onMonatToggle: (monatKey: string) => void;
   /** Zu dieser Buchung scrollen; `nonce` löst denselben Sprung erneut aus. */
   sprung?: { id: string; nonce: number } | null;
@@ -175,8 +176,8 @@ const GruppenZeile = memo(function GruppenZeile({
   onToggle: (monatKey: string) => void;
 }) {
   return (
-    <tr className="text-sm" style={{ height: ZEILENHOEHE }}>
-      <td colSpan={SPALTEN} className="sticky top-9 z-10 border-b bg-muted/95 p-0 backdrop-blur-sm">
+    <tr className="cursor-pointer text-sm" style={{ height: ZEILENHOEHE }} onClick={() => onToggle(gruppe.monatKey)}>
+      <td colSpan={SPALTEN} className="sticky top-9 z-10 border-b bg-muted/95 p-0 backdrop-blur-sm hover:bg-muted">
         <div className="flex h-9 items-center gap-2 px-2">
           <Button
             type="button"
@@ -184,8 +185,11 @@ const GruppenZeile = memo(function GruppenZeile({
             size="sm"
             className="h-7 gap-1.5 px-1.5 font-semibold"
             aria-expanded={offen}
-            aria-label={`${gruppe.label} ${offen ? "einklappen" : "ausklappen"}`}
-            onClick={() => onToggle(gruppe.monatKey)}
+            aria-label={`${gruppe.label} ${offen ? "einklappen" : "aufklappen"}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(gruppe.monatKey);
+            }}
           >
             {offen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             {gruppe.label}
@@ -219,7 +223,7 @@ export function ZahlungenTabelle({
   ausgewaehltId,
   onAuswahl,
   onOeffnen,
-  eingeklappt,
+  ausgeklappt,
   onMonatToggle,
   sprung,
   onSprungErgebnis,
@@ -234,13 +238,13 @@ export function ZahlungenTabelle({
     if (!gruppen) return zeilen.map((z) => ({ art: "zahlung", key: z.id, zahlung: z, gruppenIndex: null }));
     const liste: Eintrag[] = [];
     for (const gruppe of gruppen) {
-      const offen = !eingeklappt.has(gruppe.monatKey);
+      const offen = ausgeklappt.has(gruppe.monatKey);
       const gruppenIndex = liste.length;
       liste.push({ art: "gruppe", key: `g-${gruppe.monatKey}`, gruppe, offen });
       if (offen) for (const z of gruppe.zahlungen) liste.push({ art: "zahlung", key: z.id, zahlung: z, gruppenIndex });
     }
     return liste;
-  }, [gruppen, zeilen, eingeklappt]);
+  }, [gruppen, zeilen, ausgeklappt]);
 
   // Reihenfolge, in der ↑/↓ blättern: nur sichtbare (ausgeklappte) Buchungen.
   const sichtbar = useMemo(() => eintraege.flatMap((e) => (e.art === "zahlung" ? [e.zahlung] : [])), [eintraege]);

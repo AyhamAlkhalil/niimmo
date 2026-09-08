@@ -5,6 +5,7 @@ import {
   ZahlungZeile,
   alsIsoTag,
   brauchtZuordnung,
+  effektivOffeneMonate,
   filtereZahlungen,
   formatEuro,
   formatIsoDatum,
@@ -200,5 +201,24 @@ describe('zeitraumVoreinstellung', () => {
 
   it('bildet ISO-Tage in Ortszeit', () => {
     expect(alsIsoTag(new Date(2026, 0, 5))).toBe('2026-01-05');
+  });
+});
+
+describe('effektivOffeneMonate', () => {
+  const gruppen = [{ monatKey: '2026-09' }, { monatKey: '2026-08' }, { monatKey: '2026-07' }];
+
+  it('zeigt ohne Suche nur die ausdrücklich aufgeklappten Monate', () => {
+    const offen = effektivOffeneMonate(gruppen, new Set(['2026-08']), false);
+    expect([...offen]).toEqual(['2026-08']);
+    expect([...effektivOffeneMonate(gruppen, new Set(), false)]).toEqual([]);
+  });
+
+  it('klappt bei einer Textsuche alle Monate auf, damit Treffer sichtbar sind', () => {
+    expect([...effektivOffeneMonate(gruppen, new Set(), true)]).toEqual(['2026-09', '2026-08', '2026-07']);
+  });
+
+  it('klappt einen einzelnen Monat immer auf', () => {
+    expect([...effektivOffeneMonate([{ monatKey: '2026-09' }], new Set(), false)]).toEqual(['2026-09']);
+    expect([...effektivOffeneMonate([], new Set(), false)]).toEqual([]);
   });
 });

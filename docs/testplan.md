@@ -96,7 +96,8 @@ Einstieg: Controlboard
 - [ ] ⚠️ Fehlerfall provozieren (z. B. Import ohne Adminrechte) → **muss jetzt eine rote Meldung geben**,
       nicht mehr „erfolgreich"
 - [ ] ⚠️ **Alle Zahlungen**: Tabelle in voller Breite, rund 25 Buchungen je Bildschirm; Klick auf Datum / Betrag /
-      Kategorie / Zuordnung sortiert; Monatszeile zeigt Anzahl und Summe und klappt ein
+      Kategorie / Zuordnung sortiert; Monate starten eingeklappt mit Anzahl und Summe, Klick auf die Monatszeile
+      klappt auf, der Knopf in der Leiste alle Monate; bei Textsuche sind die Treffer immer sichtbar
 - [ ] ⚠️ Suche „1.250,50" und „1250,5" finden dieselbe Buchung; „Nicht zugeordnet" + Zeitraum „Letzter Monat";
       Trefferzahl und Summe in der Leiste stimmen; „Filter zurücksetzen"
 - [ ] ⚠️ ↑ ↓ wechselt die Zeile, Enter öffnet „Zahlung zuordnen"; Detailspalte ausblenden, Vollbild ein/aus (Esc)
