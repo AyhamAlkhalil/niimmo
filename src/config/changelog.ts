@@ -37,6 +37,18 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.4.2",
+    datum: "2026-09-09",
+    aenderungen: [
+      {
+        art: "verbessert",
+        titel: "Der Knopf \"Vermieter\" heißt jetzt \"Stammdaten\" und zeigt nur die eigene Gesellschaft",
+        detail:
+          "Bisher standen dort drei Gesellschaften zur Auswahl. Zwei davon waren beim Aufbau aus alten Verträgen übernommen worden, gehören aber zu keinem Objekt und in keinen Mietvertrag; ein Klick darauf hätte falsche Daten in den Vertragskopf gebracht. Die Maske zeigt jetzt nur noch die hinterlegte Standardgesellschaft.",
+      },
+    ],
+  },
+  {
     version: "1.4.1",
     datum: "2026-09-08",
     schwerpunkt: "Zahlungen: schneller und übersichtlicher",

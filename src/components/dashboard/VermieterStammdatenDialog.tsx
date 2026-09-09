@@ -10,6 +10,11 @@
  * Die IBAN wird beim Tippen gegen die Prüfziffer nach ISO 7064 geprüft. In
  * der alten Word-Vorlage stand jahrelang eine IBAN mit falscher Prüfziffer;
  * Überweisungen dorthin lehnt die Bank ab.
+ *
+ * 09.09.2026: Die Maske zeigt nur noch den Standardvermieter. Die Migration vom
+ * 21.08.2026 hatte drei Rechtsträger aus den Altverträgen angelegt; die beiden
+ * Projektentwicklungsgesellschaften tragen kein einziges Objekt und gehören in
+ * keinen Mietvertrag. Die Auswahl lud nur zum Fehlgriff ein.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -66,30 +71,31 @@ interface VermieterZeile {
 export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeichert }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [gewaehlt, setGewaehlt] = useState<string | null>(null);
   const [entwurf, setEntwurf] = useState<VermieterZeile | null>(null);
   const [speichert, setSpeichert] = useState(false);
 
-  const { data: vermieter, isLoading } = useQuery({
+  const {
+    data: vermieter,
+    isLoading,
+    isError,
+    error: ladefehler,
+  } = useQuery({
     queryKey: ['vermieter-stammdaten'],
     enabled: isOpen,
-    queryFn: async (): Promise<VermieterZeile[]> => {
+    queryFn: async (): Promise<VermieterZeile | null> => {
       const { data, error } = await supabase
         .from('vermieter')
         .select('*')
-        .order('ist_standard', { ascending: false })
-        .order('firmenname');
+        .eq('ist_standard', true)
+        .limit(1);
       if (error) throw error;
-      return (data ?? []) as unknown as VermieterZeile[];
+      return (data?.[0] as unknown as VermieterZeile) ?? null;
     },
   });
 
   useEffect(() => {
-    if (!vermieter?.length) return;
-    const id = gewaehlt ?? vermieter[0].id;
-    if (!gewaehlt) setGewaehlt(id);
-    setEntwurf(vermieter.find(v => v.id === id) ?? null);
-  }, [vermieter, gewaehlt]);
+    setEntwurf(vermieter ?? null);
+  }, [vermieter]);
 
   const mietIbanOk = !entwurf?.miet_iban || istIbanGueltig(entwurf.miet_iban);
   const kautionIbanOk = !entwurf?.kaution_iban || istIbanGueltig(entwurf.kaution_iban);
@@ -168,7 +174,7 @@ export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeiche
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Building2 className="h-5 w-5" />
-            Vermieter-Stammdaten
+            Stammdaten
           </DialogTitle>
           <DialogDescription>
             Diese Angaben stehen im Kopf jedes Mietvertrags. Ohne Mietkonto lässt sich kein
@@ -182,229 +188,230 @@ export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeiche
           </div>
         )}
 
-        {!isLoading && (vermieter?.length ?? 0) > 0 && (
+        {!isLoading && isError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              Die Stammdaten konnten nicht geladen werden:{' '}
+              {ladefehler instanceof Error ? ladefehler.message : 'Unbekannter Fehler'}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!isLoading && !isError && !vermieter && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              Es ist keine Gesellschaft als Standard hinterlegt. Ohne sie lässt sich kein Vertrag
+              erzeugen.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!isLoading && !isError && entwurf && (
           <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {vermieter!.map(v => (
-                <Button
-                  key={v.id}
-                  size="sm"
-                  variant={v.id === gewaehlt ? 'default' : 'outline'}
-                  onClick={() => setGewaehlt(v.id)}
-                >
-                  {v.firmenname}
-                  {v.ist_standard && <span className="ml-1 text-xs opacity-70">(Standard)</span>}
-                  {!v.miet_iban && <AlertTriangle className="ml-1 h-3 w-3 text-amber-500" />}
-                </Button>
-              ))}
+            {fehlt.length > 0 && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Für einen Vertragsdruck fehlt noch: {fehlt.join(', ')}.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+              <div className="space-y-1">
+                <Label className="text-xs">Firmierung</Label>
+                <Input
+                  value={entwurf.firmenname ?? ''}
+                  onChange={e => setze('firmenname', e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Rechtsform</Label>
+                <Input
+                  value={entwurf.rechtsform ?? ''}
+                  onChange={e => setze('rechtsform', e.target.value || null)}
+                />
+              </div>
             </div>
 
-            {entwurf && (
-              <div className="space-y-4">
-                {fehlt.length > 0 && (
-                  <Alert variant="destructive">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription className="text-xs">
-                      Für einen Vertragsdruck fehlt noch: {fehlt.join(', ')}.
-                    </AlertDescription>
-                  </Alert>
-                )}
+            <div className="space-y-1">
+              <Label className="text-xs">
+                Vertreten durch — mehrere Personen mit Komma trennen
+              </Label>
+              <Input
+                value={(entwurf.vertreten_durch ?? []).join(', ')}
+                onChange={e =>
+                  setze('vertreten_durch', e.target.value.split(',').map(x => x.trim()))
+                }
+                placeholder="Ayhan Yeyrek, Dennis Mikyas"
+              />
+              <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+                <Checkbox
+                  checked={entwurf.vertretung_art === 'gesamt'}
+                  onCheckedChange={c => setze('vertretung_art', c === true ? 'gesamt' : 'einzel')}
+                />
+                Gesamtvertretung — alle müssen gemeinsam unterschreiben
+              </label>
+            </div>
 
-                <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Firmierung</Label>
-                    <Input
-                      value={entwurf.firmenname ?? ''}
-                      onChange={e => setze('firmenname', e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Rechtsform</Label>
-                    <Input
-                      value={entwurf.rechtsform ?? ''}
-                      onChange={e => setze('rechtsform', e.target.value || null)}
-                    />
-                  </div>
-                </div>
+            <div className="grid gap-3 sm:grid-cols-[2fr_80px_100px_2fr]">
+              <div className="space-y-1">
+                <Label className="text-xs">Straße</Label>
+                <Input
+                  value={entwurf.strasse ?? ''}
+                  onChange={e => setze('strasse', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Nr.</Label>
+                <Input
+                  value={entwurf.hausnummer ?? ''}
+                  onChange={e => setze('hausnummer', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">PLZ</Label>
+                <Input
+                  value={entwurf.plz ?? ''}
+                  onChange={e => setze('plz', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Ort</Label>
+                <Input
+                  value={entwurf.ort ?? ''}
+                  onChange={e => setze('ort', e.target.value || null)}
+                />
+              </div>
+            </div>
 
+            <Separator />
+
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Bankverbindung</Label>
+              <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
                 <div className="space-y-1">
-                  <Label className="text-xs">
-                    Vertreten durch — mehrere Personen mit Komma trennen
-                  </Label>
+                  <Label className="text-xs">Mietkonto — IBAN</Label>
                   <Input
-                    value={(entwurf.vertreten_durch ?? []).join(', ')}
-                    onChange={e =>
-                      setze('vertreten_durch', e.target.value.split(',').map(x => x.trim()))
-                    }
-                    placeholder="Ayhan Yeyrek, Dennis Mikyas"
+                    value={formatIban(entwurf.miet_iban)}
+                    onChange={e => setze('miet_iban', e.target.value || null)}
+                    className={!mietIbanOk ? 'border-destructive' : ''}
+                    placeholder="DE00 0000 0000 0000 0000 00"
                   />
-                  <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
-                    <Checkbox
-                      checked={entwurf.vertretung_art === 'gesamt'}
-                      onCheckedChange={c => setze('vertretung_art', c === true ? 'gesamt' : 'einzel')}
-                    />
-                    Gesamtvertretung — alle müssen gemeinsam unterschreiben
-                  </label>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-[2fr_80px_100px_2fr]">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Straße</Label>
-                    <Input
-                      value={entwurf.strasse ?? ''}
-                      onChange={e => setze('strasse', e.target.value || null)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Nr.</Label>
-                    <Input
-                      value={entwurf.hausnummer ?? ''}
-                      onChange={e => setze('hausnummer', e.target.value || null)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">PLZ</Label>
-                    <Input
-                      value={entwurf.plz ?? ''}
-                      onChange={e => setze('plz', e.target.value || null)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Ort</Label>
-                    <Input
-                      value={entwurf.ort ?? ''}
-                      onChange={e => setze('ort', e.target.value || null)}
-                    />
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3">
-                  <Label className="text-sm font-semibold">Bankverbindung</Label>
-                  <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Mietkonto — IBAN</Label>
-                      <Input
-                        value={formatIban(entwurf.miet_iban)}
-                        onChange={e => setze('miet_iban', e.target.value || null)}
-                        className={!mietIbanOk ? 'border-destructive' : ''}
-                        placeholder="DE00 0000 0000 0000 0000 00"
-                      />
-                      {entwurf.miet_iban && (
-                        <p
-                          className={`flex items-center gap-1 text-xs ${
-                            mietIbanOk ? 'text-emerald-600' : 'text-destructive'
-                          }`}
-                        >
-                          {mietIbanOk ? (
-                            <>
-                              <Check className="h-3 w-3" /> Prüfziffer stimmt
-                            </>
-                          ) : (
-                            <>
-                              <AlertTriangle className="h-3 w-3" /> Prüfziffer falsch
-                            </>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">BIC</Label>
-                      <Input
-                        value={entwurf.miet_bic ?? ''}
-                        onChange={e => setze('miet_bic', e.target.value || null)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
-                    <div className="space-y-1">
-                      <Label className="text-xs">
-                        Kautionskonto — IBAN (§ 551 Abs. 3 BGB: getrennt vom Vermögen)
-                      </Label>
-                      <Input
-                        value={formatIban(entwurf.kaution_iban)}
-                        onChange={e => setze('kaution_iban', e.target.value || null)}
-                        className={!kautionIbanOk ? 'border-destructive' : ''}
-                      />
-                      {entwurf.kaution_iban && !kautionIbanOk && (
-                        <p className="flex items-center gap-1 text-xs text-destructive">
+                  {entwurf.miet_iban && (
+                    <p
+                      className={`flex items-center gap-1 text-xs ${
+                        mietIbanOk ? 'text-emerald-600' : 'text-destructive'
+                      }`}
+                    >
+                      {mietIbanOk ? (
+                        <>
+                          <Check className="h-3 w-3" /> Prüfziffer stimmt
+                        </>
+                      ) : (
+                        <>
                           <AlertTriangle className="h-3 w-3" /> Prüfziffer falsch
-                        </p>
+                        </>
                       )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">BIC</Label>
-                      <Input
-                        value={entwurf.kaution_bic ?? ''}
-                        onChange={e => setze('kaution_bic', e.target.value || null)}
-                      />
-                    </div>
-                  </div>
+                    </p>
+                  )}
                 </div>
-
-                <Separator />
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Registergericht</Label>
-                    <Input
-                      value={entwurf.registergericht ?? ''}
-                      onChange={e => setze('registergericht', e.target.value || null)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Handelsregister</Label>
-                    <Input
-                      value={entwurf.handelsregister ?? ''}
-                      onChange={e => setze('handelsregister', e.target.value || null)}
-                      placeholder="HRB 208111"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Steuernummer</Label>
-                    <Input
-                      value={entwurf.steuernummer ?? ''}
-                      onChange={e => setze('steuernummer', e.target.value || null)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">USt-IdNr.</Label>
-                    <Input
-                      value={entwurf.ust_id ?? ''}
-                      onChange={e => setze('ust_id', e.target.value || null)}
-                    />
-                  </div>
-                </div>
-
-                <label className="flex items-start gap-2 rounded border p-3 text-xs">
-                  <Checkbox
-                    checked={entwurf.stammdaten_geprueft === true}
-                    onCheckedChange={c => setze('stammdaten_geprueft', c === true)}
+                <div className="space-y-1">
+                  <Label className="text-xs">BIC</Label>
+                  <Input
+                    value={entwurf.miet_bic ?? ''}
+                    onChange={e => setze('miet_bic', e.target.value || null)}
                   />
-                  <span>
-                    Firmierung, Anschrift, Vertretung und Bankverbindung sind gegen
-                    Handelsregisterauszug und Kontoauszug geprüft. Solange der Haken fehlt, weist
-                    der Vertragsdialog darauf hin.
-                  </span>
-                </label>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" onClick={onClose}>
-                    Schließen
-                  </Button>
-                  <Button onClick={speichern} disabled={speichert}>
-                    {speichert ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="mr-2 h-4 w-4" />
-                    )}
-                    Speichern
-                  </Button>
                 </div>
               </div>
-            )}
+
+              <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Kautionskonto — IBAN (§ 551 Abs. 3 BGB: getrennt vom Vermögen)
+                  </Label>
+                  <Input
+                    value={formatIban(entwurf.kaution_iban)}
+                    onChange={e => setze('kaution_iban', e.target.value || null)}
+                    className={!kautionIbanOk ? 'border-destructive' : ''}
+                  />
+                  {entwurf.kaution_iban && !kautionIbanOk && (
+                    <p className="flex items-center gap-1 text-xs text-destructive">
+                      <AlertTriangle className="h-3 w-3" /> Prüfziffer falsch
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">BIC</Label>
+                  <Input
+                    value={entwurf.kaution_bic ?? ''}
+                    onChange={e => setze('kaution_bic', e.target.value || null)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Registergericht</Label>
+                <Input
+                  value={entwurf.registergericht ?? ''}
+                  onChange={e => setze('registergericht', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Handelsregister</Label>
+                <Input
+                  value={entwurf.handelsregister ?? ''}
+                  onChange={e => setze('handelsregister', e.target.value || null)}
+                  placeholder="HRB 208111"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Steuernummer</Label>
+                <Input
+                  value={entwurf.steuernummer ?? ''}
+                  onChange={e => setze('steuernummer', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">USt-IdNr.</Label>
+                <Input
+                  value={entwurf.ust_id ?? ''}
+                  onChange={e => setze('ust_id', e.target.value || null)}
+                />
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2 rounded border p-3 text-xs">
+              <Checkbox
+                checked={entwurf.stammdaten_geprueft === true}
+                onCheckedChange={c => setze('stammdaten_geprueft', c === true)}
+              />
+              <span>
+                Firmierung, Anschrift, Vertretung und Bankverbindung sind gegen
+                Handelsregisterauszug und Kontoauszug geprüft. Solange der Haken fehlt, weist
+                der Vertragsdialog darauf hin.
+              </span>
+            </label>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={onClose}>
+                Schließen
+              </Button>
+              <Button onClick={speichern} disabled={speichert}>
+                {speichert ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Speichern
+              </Button>
+            </div>
           </div>
         )}
       </DialogContent>
