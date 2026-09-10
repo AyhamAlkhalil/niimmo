@@ -37,6 +37,37 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.4.3",
+    datum: "2026-09-10",
+    schwerpunkt: "Nebenkosten-Zuordnung als Arbeitsplatz",
+    aenderungen: [
+      {
+        art: "verbessert",
+        titel: "Der Reiter „Nebenkosten\" sieht aus und arbeitet wie „Alle Zahlungen\"",
+        detail:
+          "Ausgaben ohne Objekt stehen in einer Tabelle in voller Breite, nach Monaten gruppiert und zunächst eingeklappt, mit Suche, Zeitraum und Kategoriefilter. Rechts zeigt die Detailspalte den vollen Verwendungszweck, den KI-Vorschlag mit Begründung und Sicherheit sowie die Objektliste — ein Klick ordnet zu, danach springt die Auswahl zur nächsten Ausgabe. Das Ziehen der Karten auf Objektkacheln entfällt.",
+      },
+      {
+        art: "neu",
+        titel: "Sichten „Zugeordnet\" und „Ausgeblendet\"",
+        detail:
+          "Bereits zugeordnete Ausgaben lassen sich mit ihrem Objekt durchsehen und umhängen. Ausgeblendete Ausgaben waren bisher nirgends mehr zu sehen; jetzt gibt es dafür eine eigene Sicht mit „Wieder einblenden\".",
+      },
+      {
+        art: "neu",
+        titel: "KI-Vorschläge auf Knopfdruck",
+        detail:
+          "Der Knopf „KI-Vorschläge\" in der Leiste lässt neue Ausgaben klassifizieren. Die Funktion war vorhanden, aber an keinen Knopf gebunden.",
+      },
+      {
+        art: "behoben",
+        titel: "Nebenkosten-Listen wären ab 1000 Ausgaben still abgeschnitten worden",
+        detail:
+          "Beide Listen luden ohne Seitenschleife; mit 541 offenen und 529 zugeordneten Ausgaben war die Grenze absehbar. Sie laden jetzt seitenweise und parallel.",
+      },
+    ],
+  },
+  {
     version: "1.4.2",
     datum: "2026-09-09",
     aenderungen: [

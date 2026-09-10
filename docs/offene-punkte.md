@@ -37,6 +37,10 @@ wartet die Buchhaltung entsprechend lange; begrenzte Parallelität wäre eine Ä
 (Planner-Entscheidung, Deploy per MCP). (3) Chunk-Inserts bei der Übernahme wären nochmals schneller, ändern aber
 die Fehlerzuordnung je Zeile.
 
+**10.09.2026 — Nebenkosten-Reiter als Arbeitsplatz** (Version 1.4.3): Gleiche Tabelle wie „Alle Zahlungen", Sichten
+ohne Objekt / zugeordnet / ausgeblendet, KI-Vorschlag und Objektliste in der Detailspalte, Knopf für die
+Klassifizierung, beide Abfragen mit `range()`. Ziehen und Ablegen entfällt.
+
 **Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
 Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).

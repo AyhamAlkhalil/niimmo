@@ -1,19 +1,16 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Calendar as CalendarIcon, ChevronsDownUp, ChevronsUpDown, Loader2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
-import { format } from "date-fns";
-import { de } from "date-fns/locale";
+import { AlertTriangle, ChevronsDownUp, ChevronsUpDown, Loader2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 import { ZahlungenTabelle } from "./ZahlungenTabelle";
 import { ZahlungInspector } from "./ZahlungInspector";
+import { ZeitraumFilter } from "./ZeitraumFilter";
 import { OHNE_KATEGORIE_LABEL, ZAHLUNG_KATEGORIEN } from "@/utils/zahlungKategorie";
 import {
   LEERER_FILTER,
@@ -21,7 +18,6 @@ import {
   STANDARD_SORTIERUNG,
   SortierFeld,
   Sortierung,
-  ZEITRAUM_VORGABEN,
   ZahlungZeile,
   ZahlungenFilter,
   ZuordnungsSicht,
@@ -32,7 +28,6 @@ import {
   hatAktivenFilter,
   sortiereZahlungen,
   summeBetraege,
-  zeitraumVoreinstellung,
 } from "@/utils/zahlungenAnsicht";
 
 /**
@@ -79,7 +74,6 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
   const [ausgewaehltId, setAusgewaehltId] = useState<string | null>(null);
   const [detailsOffen, setDetailsOffen] = useState(true);
   const [vollbild, setVollbild] = useState(false);
-  const [zeitraumOffen, setZeitraumOffen] = useState(false);
 
   // Tippen bleibt flüssig: Die Tabelle folgt dem Suchbegriff mit Verzögerung.
   const suche = useDeferredValue(filter.suche);
@@ -170,14 +164,6 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
     return () => document.removeEventListener("keydown", handler);
   }, [vollbild]);
 
-  const zeitraumText =
-    filter.von && filter.bis
-      ? `${format(filter.von, "dd.MM.yy", { locale: de })} – ${format(filter.bis, "dd.MM.yy", { locale: de })}`
-      : filter.von
-        ? `ab ${format(filter.von, "dd.MM.yy", { locale: de })}`
-        : filter.bis
-          ? `bis ${format(filter.bis, "dd.MM.yy", { locale: de })}`
-          : "Zeitraum";
 
   const inhalt = laedt ? (
     <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -283,55 +269,7 @@ export function ZahlungenArbeitsplatz({ zahlungen, laedt, fehler, onZuordnen, sp
           ))}
         </ToggleGroup>
 
-        <Popover open={zeitraumOffen} onOpenChange={setZeitraumOffen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className={cn("h-9 bg-background text-xs", (filter.von || filter.bis) && "border-primary/50 bg-primary/5")}>
-              <CalendarIcon className="h-3.5 w-3.5" />
-              {zeitraumText}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <div className="flex">
-              <div className="flex flex-col gap-0.5 border-r p-2">
-                {ZEITRAUM_VORGABEN.map((v) => (
-                  <Button
-                    key={v.wert}
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 justify-start text-xs"
-                    onClick={() => {
-                      const { von, bis } = zeitraumVoreinstellung(v.wert);
-                      setFilter((f) => ({ ...f, von, bis }));
-                      setZeitraumOffen(false);
-                    }}
-                  >
-                    {v.label}
-                  </Button>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 justify-start text-xs text-muted-foreground"
-                  disabled={!filter.von && !filter.bis}
-                  onClick={() => {
-                    setFilter((f) => ({ ...f, von: undefined, bis: undefined }));
-                    setZeitraumOffen(false);
-                  }}
-                >
-                  Gesamter Zeitraum
-                </Button>
-              </div>
-              <Calendar
-                mode="range"
-                selected={{ from: filter.von, to: filter.bis }}
-                onSelect={(bereich) => setFilter((f) => ({ ...f, von: bereich?.from, bis: bereich?.to }))}
-                numberOfMonths={2}
-                locale={de}
-                initialFocus
-              />
-            </div>
-          </PopoverContent>
-        </Popover>
+        <ZeitraumFilter von={filter.von} bis={filter.bis} onChange={(von, bis) => setFilter((f) => ({ ...f, von, bis }))} />
 
         {filterAktiv && (
           <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={filterZuruecksetzen}>

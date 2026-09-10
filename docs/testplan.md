@@ -107,6 +107,10 @@ Einstieg: Controlboard
 - [ ] ⚠️ Schmales Fenster (< 1024 px): Zeile antippen öffnet die Details als Einschub von rechts
 - [ ] Zahlung manuell einem Vertrag zuordnen
 - [ ] Zahlung auf Nebenkosten umbuchen → verschwindet aus der Vertrags-Timeline, taucht am Objekt auf
+- [ ] ⚠️ **Reiter Nebenkosten**: Tabelle mit Sichten „Ohne Objekt / Zugeordnet / Ausgeblendet"; Zeile wählen → rechts
+      Objektliste, Klick ordnet zu, Auswahl springt zur nächsten Zeile; KI-Vorschlag „übernehmen" setzt das Objekt
+- [ ] ⚠️ „Als Nichtmiete" nimmt den Objektbezug und blendet aus; unter „Ausgeblendet" wieder einblenden; „KI-Vorschläge"
+      liefert eine Meldung mit der Zahl neuer Vorschläge
 - [ ] Zahlung aufteilen und wieder zusammenführen
 - [ ] Kategorie einer Zahlung ändern
 - [ ] Nichtmiete-Regel greift (Jobcenter, Rücklastschrift)

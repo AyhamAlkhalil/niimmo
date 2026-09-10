@@ -15,7 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { NebenkostenZuordnungTab } from "./NebenkostenZuordnungTab";
+import { NebenkostenArbeitsplatz } from "./NebenkostenArbeitsplatz";
 import { LastUploadReviewModal } from "./LastUploadReviewModal";
 import { ZahlungsAnomalienBanner } from "./ZahlungsAnomalienBanner";
 import { PaymentKategorieEditor } from "./PaymentKategorieEditor";
@@ -32,6 +32,7 @@ import {
   normalisiereWert,
   vertragsIdsMitIban,
 } from "@/utils/zahlungenUebernahme";
+import { alleSeiten } from "@/utils/supabaseSeiten";
 
 /**
  * Robuster Betragsparser für deutsche und englische Formate:
@@ -157,52 +158,6 @@ interface ZahlungOffen {
   zugeordneter_monat: string | null;
   kategorie: string | null;
   immobilie_id: string | null;
-}
-
-interface Seite<T> {
-  data: T[] | null;
-  error: { message: string } | null;
-  count?: number | null;
-}
-
-/**
- * Liest eine wachsende Tabelle seitenweise. PostgREST liefert still höchstens
- * 1000 Zeilen; ohne Schleife rechnet die Ansicht mit einem Bruchteil der Daten
- * (docs/architektur.md §4).
- *
- * Die erste Seite bringt die Gesamtzahl mit (`count: 'exact'`), alle weiteren
- * Seiten laufen gleichzeitig. Bis zum 07.09.2026 liefen die vier Seiten der
- * Übersicht nacheinander — jede wartete auf die vorige.
- */
-async function alleSeiten<T>(seite: (von: number, bis: number, mitZaehlung: boolean) => PromiseLike<Seite<T>>): Promise<T[]> {
-  const groesse = 1000;
-  const erste = await seite(0, groesse - 1, true);
-  if (erste.error) throw erste.error;
-  const alle: T[] = [...(erste.data ?? [])];
-  if (alle.length < groesse) return alle;
-
-  const gesamt = typeof erste.count === 'number' ? erste.count : null;
-  if (gesamt === null) {
-    // Ohne Gesamtzahl bleibt nur der Reihe nach.
-    for (let von = groesse; ; von += groesse) {
-      const { data, error } = await seite(von, von + groesse - 1, false);
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      alle.push(...data);
-      if (data.length < groesse) break;
-    }
-    return alle;
-  }
-
-  const weitere: Promise<Seite<T>>[] = [];
-  for (let von = groesse; von < gesamt; von += groesse) {
-    weitere.push(Promise.resolve(seite(von, von + groesse - 1, false)));
-  }
-  for (const antwort of await Promise.all(weitere)) {
-    if (antwort.error) throw antwort.error;
-    alle.push(...(antwort.data ?? []));
-  }
-  return alle;
 }
 
 /**
@@ -1016,12 +971,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       </TabsContent>
 
       {/* Reiter 4: Nebenkosten (Nichtmiete-Zahlungen) */}
-      <TabsContent value="nebenkosten" className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
-        <Card>
-          <CardContent className="p-4 sm:p-6">
-            <NebenkostenZuordnungTab />
-          </CardContent>
-        </Card>
+      <TabsContent value="nebenkosten" className="mt-0 min-h-0 flex-1">
+        <NebenkostenArbeitsplatz />
       </TabsContent>
 
       {/* Assign Payment Dialog */}

@@ -24,6 +24,8 @@ interface ZuordnungsAuswahlProps {
   laedt?: boolean;
   /** Abfrage der Ziele fehlgeschlagen — darf nie wie „keine Einträge" aussehen. */
   fehler?: boolean;
+  /** Zählwert je Ziel-ID, z. B. bereits zugeordnete Buchungen je Objekt. */
+  anzahlJeId?: ReadonlyMap<string, number>;
 }
 
 const STATUS_RANG: Record<string, number> = { aktiv: 0, gekuendigt: 1, beendet: 2 };
@@ -43,7 +45,7 @@ function VertragStatus({ status }: { status?: string }) {
   );
 }
 
-export function ZuordnungsAuswahl({ modus, vertraege, immobilien, aktuelleId, onAuswahl, laedt, fehler }: ZuordnungsAuswahlProps) {
+export function ZuordnungsAuswahl({ modus, vertraege, immobilien, aktuelleId, onAuswahl, laedt, fehler, anzahlJeId }: ZuordnungsAuswahlProps) {
   const [suche, setSuche] = useState("");
   const s = suche.trim().toLowerCase();
 
@@ -120,6 +122,11 @@ export function ZuordnungsAuswahl({ modus, vertraege, immobilien, aktuelleId, on
                   <span className="block truncate font-medium">{imm.name}</span>
                   <span className="block truncate text-xs text-muted-foreground">{imm.adresse}</span>
                 </span>
+                {anzahlJeId?.has(imm.id) && (
+                  <span className="mt-0.5 shrink-0 rounded bg-muted px-1.5 text-xs tabular-nums text-muted-foreground" title="bereits zugeordnete Buchungen">
+                    {anzahlJeId.get(imm.id)}
+                  </span>
+                )}
                 {aktiv && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
               </button>
             );

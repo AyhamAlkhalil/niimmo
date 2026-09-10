@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, UIEvent } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsUpDown, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { KategorieBadge } from "./KategorieBadge";
@@ -50,6 +50,8 @@ interface ZahlungenTabelleProps {
   /** Zu dieser Buchung scrollen; `nonce` löst denselben Sprung erneut aus. */
   sprung?: { id: string; nonce: number } | null;
   onSprungErgebnis?: (gefunden: boolean) => void;
+  /** Kurzer Hinweis je Buchungs-ID für die Zuordnungsspalte, z. B. der KI-Vorschlag im Nebenkosten-Reiter. */
+  hinweise?: ReadonlyMap<string, string>;
 }
 
 type Eintrag =
@@ -95,7 +97,7 @@ function KopfZelle({
   );
 }
 
-function ZuordnungZelle({ z }: { z: ZahlungZeile }) {
+function ZuordnungZelle({ z, hinweis }: { z: ZahlungZeile; hinweis?: string }) {
   if (z.mietvertrag_id) {
     const objekt = [z.immobilie_name, z.einheit_etage].filter(Boolean).join(" · ");
     return (
@@ -113,6 +115,14 @@ function ZuordnungZelle({ z }: { z: ZahlungZeile }) {
       </span>
     );
   }
+  if (hinweis) {
+    return (
+      <span className="inline-flex max-w-full items-center gap-1 text-primary" title={`Vorschlag: ${hinweis}`}>
+        <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{hinweis}</span>
+      </span>
+    );
+  }
   if (brauchtZuordnung(z)) {
     return (
       <span className="inline-flex items-center gap-1 font-medium text-warning">
@@ -127,11 +137,12 @@ function ZuordnungZelle({ z }: { z: ZahlungZeile }) {
 interface ZeileProps {
   z: ZahlungZeile;
   aktiv: boolean;
+  hinweis?: string;
   onAuswahl: (id: string) => void;
   onOeffnen: (zahlung: ZahlungZeile) => void;
 }
 
-const Zeile = memo(function Zeile({ z, aktiv, onAuswahl, onOeffnen }: ZeileProps) {
+const Zeile = memo(function Zeile({ z, aktiv, hinweis, onAuswahl, onOeffnen }: ZeileProps) {
   return (
     <tr
       id={`zahlung-${z.id}`}
@@ -160,7 +171,7 @@ const Zeile = memo(function Zeile({ z, aktiv, onAuswahl, onOeffnen }: ZeileProps
         <KategorieBadge kategorie={z.kategorie} />
       </td>
       <td className="truncate px-3">
-        <ZuordnungZelle z={z} />
+        <ZuordnungZelle z={z} hinweis={hinweis} />
       </td>
     </tr>
   );
@@ -227,6 +238,7 @@ export function ZahlungenTabelle({
   onMonatToggle,
   sprung,
   onSprungErgebnis,
+  hinweise,
 }: ZahlungenTabelleProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -428,7 +440,7 @@ export function ZahlungenTabelle({
             e.art === "gruppe" ? (
               <GruppenZeile key={e.key} gruppe={e.gruppe} offen={e.offen} onToggle={onMonatToggle} />
             ) : (
-              <Zeile key={e.key} z={e.zahlung} aktiv={e.zahlung.id === ausgewaehltId} onAuswahl={onAuswahl} onOeffnen={onOeffnen} />
+              <Zeile key={e.key} z={e.zahlung} aktiv={e.zahlung.id === ausgewaehltId} hinweis={hinweise?.get(e.zahlung.id)} onAuswahl={onAuswahl} onOeffnen={onOeffnen} />
             )
           )}
           <Abstand hoehe={abstandUnten} />
