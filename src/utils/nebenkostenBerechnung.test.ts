@@ -6,6 +6,7 @@ import {
   bezugsgroesseFuerSchluessel,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
+  istAlleinnutzung,
   personenzahlErforderlich,
   kostenAnteilImZeitraum,
   tageInZeitraum,
@@ -332,6 +333,37 @@ describe('Personenschlüssel ohne gepflegte Personenzahl', () => {
     expect(personenzahlErforderlich(bezug)).toBe(true);
     expect(berechneAnteil(a, 'personen', bezug)).toBe(0);
     expect(berechneAnteil(b, 'personen', bezug)).toBe(0);
+  });
+
+  it('weist die Alleinnutzung nur dort aus, wo sie zutrifft', () => {
+    const periode = ohneZahl('e1');
+    const bezug = berechneBezugsgroessen([einheit('e1', 100)], [periode], GESAMT_TAGE);
+
+    expect(istAlleinnutzung('personen', periode, bezug)).toBe(true);
+    // Andere Schlüssel haben eine Bezugsgröße und bleiben, wie sie heißen.
+    expect(istAlleinnutzung('qm', periode, bezug)).toBe(false);
+    expect(istAlleinnutzung('gleich', periode, bezug)).toBe(false);
+  });
+
+  it('nennt weder Leerstand noch zwei belegte Perioden Alleinnutzung', () => {
+    const vertrag = ohneZahl('e1', 200);
+    const leerstand = ohneZahl('e1', 165, true);
+    const einer = berechneBezugsgroessen([einheit('e1', 100)], [vertrag, leerstand], GESAMT_TAGE);
+    expect(istAlleinnutzung('personen', leerstand, einer)).toBe(false);
+
+    const a = ohneZahl('e1');
+    const b = ohneZahl('e2');
+    const zwei = berechneBezugsgroessen(
+      [einheit('e1', 100), einheit('e2', 80)], [a, b], GESAMT_TAGE
+    );
+    expect(istAlleinnutzung('personen', a, zwei)).toBe(false);
+  });
+
+  it('nennt eine gepflegte Personenzahl nicht Alleinnutzung', () => {
+    const periode: Nutzungsperiode = { ...ohneZahl('e1'), personen: 2, personenGepflegt: true };
+    const bezug = berechneBezugsgroessen([einheit('e1', 100)], [periode], GESAMT_TAGE);
+
+    expect(istAlleinnutzung('personen', periode, bezug)).toBe(false);
   });
 
   it('rechnet mit gepflegter Zahl unverändert über die Personentage', () => {

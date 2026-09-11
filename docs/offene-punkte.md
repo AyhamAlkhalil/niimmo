@@ -54,6 +54,27 @@ Klassifizierung, beide Abfragen mit `range()`. Ziehen und Ablegen entfällt.
    Sperre greifen jetzt erst ab zwei belegten Nutzungsperioden; bei einer einzigen trägt sie zwangsläufig
    100 %. Fehlt die Zahl, steht im PDF ein Strich statt einer Null — es wird weiterhin nichts geschätzt.
 
+**Am 11.09.2026 gegen die Produktionsdaten nachgerechnet** (nur lesend, Skripte in `.tmp/validierung/`):
+Alle 13 Objekte über 2024–2026 doppelt gerechnet, einmal mit der alten und einmal mit der neuen
+Personenlogik. Genau ein Objekt-Jahr ändert sich — Objekt 7 Ilsede 2025, der Fall aus der Meldung:
+statt 433,01 € werden jetzt alle 3.062,32 € umgelegt, die Sperre fällt. Alle übrigen Objekt-Jahre
+rechnen auf den Cent gleich. Die Aufteilung wurde über alle 14 real vorhandenen Kostenarten mit neun
+Quoten durchgespielt: 126 Aufteilungen, keine Abweichung. Das erzeugte PDF für Objekt 7 wurde
+ausgelesen und geprüft.
+
+**Dabei aufgefallen, noch offen:** Fünf Zahlungen tragen sowohl `mietvertrag_id` als auch
+`immobilie_id` (Regel: entweder-oder). In allen fünf Fällen gehören Vertrag und Objekt zusammen, ein
+Widerspruch besteht also nicht — gezählt werden kann die Buchung aber doppelt. Vier davon sind
+Ausgaben der Kategorie Nebenkosten (dort gehört der Vertragsbezug weg), eine ist ein Mieteingang
+(dort gehört der Objektbezug weg). Nicht angefasst, weil es eine Datenkorrektur an Produktivdaten ist.
+
+**Bewusst offen geblieben (11.09.2026):** Das Umbuchen einer Zahlung prüft unmittelbar vor dem Schreiben
+noch einmal an der Datenbank, ob Kostenpositionen daran hängen. Das ist Prüfen-dann-Handeln und schließt
+das Zeitfenster nicht vollständig; dafür bräuchte es einen Trigger oder eine Datenbankfunktion. Ebenso
+läuft das Anlegen der Zielkostenart beim Aufteilen vor dem eigentlichen Umbuchen in einer eigenen
+Transaktion: Scheitert das Umbuchen, bleibt eine leere Kostenart stehen. Sie ist unsichtbar, blockiert
+nichts und wird beim nächsten Versuch wiederverwendet.
+
 **Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
 Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).

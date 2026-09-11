@@ -57,6 +57,7 @@ import {
   berechneBezugsgroessen,
   berechneVorauszahlungen,
   bezugsgroesseFuerSchluessel,
+  istAlleinnutzung,
   personenzahlErforderlich,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
@@ -324,7 +325,10 @@ export function NebenkostenStep3Abrechnung({
           betrkvNummer: kategorie.betrkvNummer,
           kategorieName: kategorie.name,
           gesamtKosten: kategorie.total,
-          verteilerschluessel: kategorie.schluessel,
+          // Nur die Beschriftung wechselt; gespeichert wird weiter 'personen'.
+          verteilerschluessel: istAlleinnutzung(kategorie.schluessel, periode, bezugsgroessen)
+            ? "alleinnutzung"
+            : kategorie.schluessel,
           anteilProzent: anteil * 100,
           anteilBetrag,
           einheitenGesamt: bezug.gesamt,
@@ -578,7 +582,12 @@ export function NebenkostenStep3Abrechnung({
       return {
         betrkvNummer: kat.betrkvNummer ?? "",
         name: kat.pdfName ?? kat.name,
-        verteilerschluessel: schluessel,
+        // Nur wo tatsaechlich Kosten gebucht sind; eine leere Zeile mit "—" soll
+        // nicht behaupten, jemand nutze etwas allein.
+        verteilerschluessel:
+          entry && istAlleinnutzung(schluessel, abrechnung.periode, bezugsgroessen)
+            ? "alleinnutzung"
+            : schluessel,
         betragGesamt: entry?.total ?? 0,
         einheitenLabel: einheitenLabelFuer(schluessel),
       };
@@ -593,7 +602,9 @@ export function NebenkostenStep3Abrechnung({
       immobilieKosten.push({
         betrkvNummer: "—",
         name: entry.name,
-        verteilerschluessel: entry.schluessel,
+        verteilerschluessel: istAlleinnutzung(entry.schluessel, abrechnung.periode, bezugsgroessen)
+          ? "alleinnutzung"
+          : entry.schluessel,
         betragGesamt: entry.total,
         einheitenLabel: einheitenLabelFuer(entry.schluessel),
       });

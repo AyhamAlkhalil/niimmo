@@ -69,6 +69,10 @@ const LIGHT: [number, number, number] = [245, 245, 245];
 const SCHLUESSEL_LABEL: Record<string, string> = {
   qm: 'Wohnfläche',
   personen: 'Personentage',
+  // Kein eigener Schlüssel, nur eine Beschriftung: Gibt es im Zeitraum nur einen
+  // Nutzer, trägt er die nach Personentagen verteilten Kosten vollständig. Ohne
+  // gepflegte Personenzahl gäbe es sonst eine Zeile ganz ohne Bezugsgröße.
+  alleinnutzung: 'Alleinnutzung',
   gleich: 'Einheit',
   verbrauch: 'Verbrauch',
   individuell: 'Individuell',
@@ -558,8 +562,14 @@ function seite3(
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...GRAY);
   doc.text('VORAUSZAHLUNGEN LAUT MIETVERTRAG', ML + 2, y);
+  // Deutsche Schreibweise: Komma als Dezimaltrennzeichen, und volle Monate ohne
+  // Nachkommastelle. Vorher stand dort "12.0 Mon. x 240.00 EUR".
+  const monate =
+    Number.isInteger(data.anzahlMonate)
+      ? `${data.anzahlMonate}`
+      : data.anzahlMonate.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   doc.text(
-    `${data.anzahlMonate.toFixed(1)} Mon. × ${data.monatlicheVorauszahlung.toFixed(2)} €`,
+    `${monate} Mon. × ${formatEur(data.monatlicheVorauszahlung)}`,
     cx[5] + cW[5], y, { align: 'right' }
   );
   doc.setFont('helvetica', 'bold');

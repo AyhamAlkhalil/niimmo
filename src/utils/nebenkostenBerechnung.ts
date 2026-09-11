@@ -184,6 +184,30 @@ export function bezugsgroesseFuerSchluessel(
 }
 
 /**
+ * Trägt diese Periode die nach Personentagen verteilten Kosten allein, weil es
+ * im Abrechnungszeitraum keine zweite belegte Periode gibt?
+ *
+ * Nur für die Beschriftung im Schriftstück gedacht: Der gespeicherte
+ * Verteilerschlüssel bleibt `personen`. Im Druck steht statt einer leeren
+ * Bezugsgröße "Alleinnutzung" — sonst sähe der Mieter einen Betrag ohne jede
+ * Begründung, weil es ohne gepflegte Personenzahl keine Personentage gibt.
+ */
+export function istAlleinnutzung(
+  schluessel: VerteilerSchluessel,
+  periode: Nutzungsperiode,
+  bezug: Bezugsgroessen
+): boolean {
+  // Bewusst als Verneinung von "> 0" formuliert, exakt wie die Fallunterscheidung
+  // in berechneAnteil — sonst könnten Beschriftung und Betrag auseinanderlaufen.
+  return (
+    schluessel === "personen" &&
+    !(bezug.personentage > 0) &&
+    bezug.belegtePerioden === 1 &&
+    !periode.istLeerstand
+  );
+}
+
+/**
  * Ist die Personenzahl der Mietverträge für diese Abrechnung überhaupt nötig?
  *
  * Nein, solange nur eine einzige belegte Nutzungsperiode im Zeitraum liegt: Sie

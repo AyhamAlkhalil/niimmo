@@ -30,6 +30,8 @@ export interface KostenpositionMitArt {
   bezeichnung: string | null;
   quelle: string;
   ist_umlagefaehig: boolean;
+  /** Wer die Position angelegt hat. Bis 11.09.2026 nirgends gesetzt. */
+  erstellt_von: string | null;
   nebenkostenart: {
     id: string;
     name: string;

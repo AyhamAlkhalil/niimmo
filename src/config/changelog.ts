@@ -55,9 +55,15 @@ export const RELEASES: Release[] = [
       },
       {
         art: "behoben",
+        titel: "Die Vorauszahlungszeile im PDF steht in deutscher Schreibweise",
+        detail:
+          "Dort stand \"12.0 Mon. x 240.00 EUR\" mit Punkt statt Komma. Jetzt: \"12 Mon. × 240,00 €\".",
+      },
+      {
+        art: "behoben",
         titel: "Die Personenzahl wird nur noch verlangt, wenn sie das Ergebnis verändert",
         detail:
-          "Bei einem einzigen Mietvertrag im Abrechnungszeitraum trägt dieser die nach Personentagen verteilten Kosten ohnehin vollständig — beim Einfamilienhaus blockierte die fehlende Angabe die Abrechnung trotzdem. Ab zwei belegten Zeiträumen bleibt sie Pflicht, weil sie dort das Verhältnis untereinander bestimmt. Fehlt sie, steht im Schriftstück ein Strich statt einer Null.",
+          "Bei einem einzigen Mietvertrag im Abrechnungszeitraum trägt dieser die nach Personentagen verteilten Kosten ohnehin vollständig — beim Einfamilienhaus blockierte die fehlende Angabe die Abrechnung trotzdem. Ab zwei belegten Zeiträumen bleibt sie Pflicht, weil sie dort das Verhältnis untereinander bestimmt. Fehlt sie, steht im Schriftstück ein Strich statt einer Null und als Verteilerschlüssel \"Alleinnutzung\" — so ist im Brief erkennbar, warum der Mieter die Kosten allein trägt.",
       },
     ],
   },

@@ -111,6 +111,11 @@ export function ZahlungObjektWechselDialog({
         description: `Die Zahlung liegt jetzt bei ${ziel?.name ?? "dem gewählten Objekt"} und ist hier nicht mehr zu sehen.`,
       });
       queryClient.invalidateQueries({ queryKey: ["immobilie-nebenkosten-zahlungen"] });
+      // Der Nebenkosten-Arbeitsplatz im Controlboard fuehrt dieselbe Zahlung in
+      // eigenen Listen. Ohne diese beiden Schluessel zeigte er das alte Objekt
+      // weiter an, bis jemand die Seite neu laedt.
+      queryClient.invalidateQueries({ queryKey: ["unzugeordnete-nebenkosten"] });
+      queryClient.invalidateQueries({ queryKey: ["zugeordnete-nebenkosten"] });
       invalidate();
       setZielId(null);
       onOpenChange(false);

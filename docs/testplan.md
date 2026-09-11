@@ -178,8 +178,12 @@ Einstieg: Objekt → Nebenkosten
       verdoppelt sich (Rest + verschobener Anteil je Position)
 - [ ] Schritt 2: Verteilerschlüssel je Kostenart prüfen
 - [ ] ⚠️ Schritt 2: Objekt mit genau einem Mietvertrag im Zeitraum und ohne Personenzahl — keine
-      Warnung, Schritt 3 nicht gesperrt; im PDF steht bei Nutzerzahl und Personentagen ein Strich.
-      Objekt mit zwei belegten Zeiträumen: Warnung und Sperre wie bisher
+      Warnung, Schritt 3 nicht gesperrt; im PDF steht bei Nutzerzahl und Personentagen ein Strich und
+      als Verteilerschlüssel „Alleinnutzung". Objekt mit zwei belegten Zeiträumen: Warnung und Sperre
+      wie bisher
+- [ ] ⚠️ Abrechnung für Objekt 7 Ilsede, Jahr 2025 erzeugen: 3.062,32 € umlagefähig, davon
+      2.629,31 € Wasserversorgung und 433,01 € Straßenreinigung, Vorauszahlung 2.880,00 €,
+      Nachzahlung 182,32 € (am 11.09.2026 gegen die Live-Daten gerechnet)
 - [ ] 🔒 Schritt 3: **für Objekte mit Stellplatz oder Garage gesperrt** — bitte an einem Objekt ohne
       Stellplätze testen
 - [ ] Abrechnung erzeugen, PDF gegen eine früher von Hand erstellte Abrechnung desselben Objekts legen

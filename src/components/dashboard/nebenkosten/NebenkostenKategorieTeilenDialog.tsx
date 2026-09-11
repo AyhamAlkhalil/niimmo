@@ -33,6 +33,7 @@ import {
   type KostenpositionMitArt,
 } from "@/hooks/useNebenkostenDaten";
 import {
+  baueAufteilungsReihen,
   betragAusProzent,
   pruefeAufteilung,
   summePositionen,
@@ -107,55 +108,31 @@ export function NebenkostenKategorieTeilenDialog({
     setSpeichert(true);
 
     try {
-      const zielArtId = await findeOderErstelleNebenkostenart(
-        immobilieId,
-        ziel.id,
-        nebenkostenarten
-      );
+      // Zwei Schritte: Erst muss die Zielkostenart bestehen, dann werden die
+      // Positionen umgebucht. Nur der zweite Schritt ist in sich unteilbar;
+      // deshalb werden beide getrennt gemeldet.
+      let zielArtId: string;
+      try {
+        zielArtId = await findeOderErstelleNebenkostenart(immobilieId, ziel.id, nebenkostenarten);
+      } catch (fehler: unknown) {
+        const grund = fehler instanceof Error ? fehler.message : "Unbekannter Fehler";
+        throw new Error(`Die Kostenart ${ziel.name} konnte nicht angelegt werden: ${grund}`);
+      }
+
+      const { data: benutzer } = await supabase.auth.getUser();
 
       // Gekürzte und neue Positionen gehen in EINER Anfrage raus. Eine Schleife
       // aus einzelnen update/insert-Aufrufen kann mittendrin abbrechen und die
       // Kategorie halb aufgeteilt zurücklassen — die Summe stimmte dann nicht
       // mehr. Der Upsert wird als ein INSERT ... ON CONFLICT ausgeführt und ist
       // damit ganz oder gar nicht wirksam.
-      const reihen = zeilen.flatMap((zeile) => {
-        if (zeile.verschoben <= 0) return [];
-        const position = positionen.find((p) => p.id === zeile.positionId);
-        if (!position) return [];
-
-        const gemeinsam = {
-          zahlung_id: position.zahlung_id,
-          immobilie_id: immobilieId,
-          zeitraum_von: position.zeitraum_von,
-          zeitraum_bis: position.zeitraum_bis,
-          quelle: position.quelle,
-        };
-
-        const verschobeneZeile = {
-          id: crypto.randomUUID(),
-          ...gemeinsam,
-          nebenkostenart_id: zielArtId,
-          gesamtbetrag: zeile.verschoben,
-          bezeichnung: position.bezeichnung || ziel.name,
-          ist_umlagefaehig: ziel.umlagefaehig,
-        };
-
-        // Wandert die Position vollständig, behält sie ihre ID und wechselt nur
-        // die Kostenart — so bleiben Anlagedatum und Verknüpfungen erhalten.
-        if (zeile.rest <= 0) return [{ ...verschobeneZeile, id: position.id }];
-
-        return [
-          {
-            id: position.id,
-            ...gemeinsam,
-            nebenkostenart_id: position.nebenkostenart_id,
-            gesamtbetrag: zeile.rest,
-            bezeichnung: position.bezeichnung,
-            ist_umlagefaehig: position.ist_umlagefaehig,
-          },
-          verschobeneZeile,
-        ];
-      });
+      const reihen = baueAufteilungsReihen(
+        positionen,
+        zeilen,
+        { nebenkostenartId: zielArtId, name: ziel.name, umlagefaehig: ziel.umlagefaehig },
+        immobilieId,
+        { urheber: benutzer.user?.id ?? null }
+      );
 
       if (reihen.length === 0) throw new Error("Es gibt nichts zu verschieben.");
 
@@ -174,7 +151,7 @@ export function NebenkostenKategorieTeilenDialog({
       const message = error instanceof Error ? error.message : "Unbekannter Fehler";
       toast({
         title: "Aufteilen fehlgeschlagen",
-        description: `${message} Bitte die Beträge in beiden Kategorien prüfen.`,
+        description: `${message} Es wurde nichts umgebucht; die Beträge stehen unverändert in ${quelle?.name ?? "der Kategorie"}.`,
         variant: "destructive",
       });
     } finally {

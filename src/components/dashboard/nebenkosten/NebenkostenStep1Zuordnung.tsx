@@ -192,6 +192,8 @@ export function NebenkostenStep1Zuordnung({
         nebenkostenarten
       );
 
+      const { data: benutzer } = await supabase.auth.getUser();
+
       const { error } = await supabase.from("kostenpositionen").insert({
         immobilie_id: immobilieId,
         zahlung_id: zahlungId,
@@ -202,6 +204,7 @@ export function NebenkostenStep1Zuordnung({
         bezeichnung,
         ist_umlagefaehig: kategorie.umlagefaehig,
         quelle: "zahlung",
+        erstellt_von: benutzer.user?.id ?? null,
       });
       if (error) throw error;
     },

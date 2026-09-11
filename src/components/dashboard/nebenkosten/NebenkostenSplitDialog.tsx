@@ -248,7 +248,12 @@ export function NebenkostenSplitDialog({
             .eq("id", line.existingPositionId);
           if (error) throw error;
         } else {
-          const { error } = await supabase.from("kostenpositionen").insert(positionData);
+          // Der Urheber steht nur an neu angelegten Positionen; beim Aendern
+          // bliebe sonst nicht erkennbar, wer sie urspruenglich gebucht hat.
+          const { data: benutzer } = await supabase.auth.getUser();
+          const { error } = await supabase
+            .from("kostenpositionen")
+            .insert({ ...positionData, erstellt_von: benutzer.user?.id ?? null });
           if (error) throw error;
         }
       }
