@@ -1,7 +1,8 @@
 # Funktionsinventar
 
-Alles, was die Anwendung kann — erhoben am Code, Stand 06.09.2026 (Commit `ae72395`).
-**308 genutzte Funktionen** in 14 Fachbereichen, dazu 69 nicht erreichbare (siehe Ende).
+Alles, was die Anwendung kann — erhoben am Code, Stand 06.09.2026 (Commit `ae72395`),
+fortgeschrieben am 11.09.2026. **311 genutzte Funktionen** in 14 Fachbereichen, dazu 69 nicht
+erreichbare (siehe Ende).
 
 Reife: `fertig` = im Betrieb tragfähig · `teilweise` = nutzbar, mit bekannter Lücke · `prototyp` = nicht abgenommen.
 Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), Zustände in [datenmodell.md](datenmodell.md).
@@ -235,12 +236,15 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Nebenkosten-Arbeitsflaeche je Objekt (3-Schritt-Assistent)** | Waehlt das Abrechnungsjahr, zeigt Kennzahlen (offene Zahlungen, zugeordnete Positionen, umlagefaehige… | `src/components/dashboard/nebenkosten/BetrKVNebenkostenTab.tsx…` | fertig |
 | **Schritt 1 – Ausgaben den BetrKV-Kostenarten zuordnen** | Zeigt alle Ausgaben (betrag < 0) des Objekts aus Abrechnungs- und Vorjahr, mit Suche, Monatsgruppierung… | `src/components/dashboard/nebenkosten/NebenkostenStep1Zuordnun…` | fertig |
 | **Zahlung aufteilen / Kostenposition manuell anlegen** | Teilt eine Bankbewegung auf mehrere Kostenarten mit je eigenem Zeitraum und Bezeichnung auf, bearbeitet… | `src/components/dashboard/nebenkosten/NebenkostenSplitDialog.t…` | fertig |
+| **Kategorie nachtraeglich auf eine zweite Kategorie aufteilen** | Loest aus einer Kostenart einen Betrag oder Prozentsatz heraus und bucht ihn in eine zweite: fuer Abschlaege, die erst die Endabrechnung aufteilt (Wasser/Entwaesserung). Verteilt anteilig ueber alle Positionen der Kategorie, cent-genau; wandert eine Position vollstaendig, wird sie umgehaengt statt geloescht. Logik in `utils/nebenkostenAufteilung.ts` (23 Tests in zwei Dateien). Gekuerzte und neue Positionen gehen in einer einzigen Upsert-Anfrage raus, damit eine Aufteilung nicht halb stehenbleibt. | `src/components/dashboard/nebenkosten/NebenkostenKategorieTeilenDialog.tsx` | fertig |
+| **Ausgabe aus der Abrechnung auf ein anderes Objekt buchen** | Setzt `zahlungen.immobilie_id` auf das gewaehlte Objekt und leert dabei `mietvertrag_id` (Bezug ist entweder-oder). Gesperrt, solange die Zahlung im aktuellen Objekt Kostenpositionen hat — sie gehoeren zum alten Objekt und koennen nicht mitwandern. | `src/components/dashboard/nebenkosten/ZahlungObjektWechselDialog.tsx` | fertig |
 | **KI-Vorklassifizierung von Ausgaben** | Filtert Darlehens- und Bankbuchungen aus, erkennt bekannte Versorger per Regex, schickt den Rest an das… | `supabase/functions/classify-nebenkosten/index.ts:171 (Aufruf:…` | teilweise |
 | **Uebernahme des KI-Vorschlags in Schritt 1** | Zeigt je Zahlung den KI-Vorschlag als Badge und uebernimmt ihn per Klick als vollstaendige… | `src/components/dashboard/nebenkosten/NebenkostenStep1Zuordnun…` | fertig |
 | **Objektzuordnung unklarer Ausgaben im Controlboard** | Ordnet Ausgaben der Kategorien Nichtmiete und Nebenkosten ueber die Objektliste der Detailspalte oder den KI-Vorschlag einem Objekt zu; bestaetigt dabei die Klassifizierung. Siehe „Nebenkosten-Zuordnung" im Abschnitt Zahlungen. | `src/components/controlboard/NebenkostenArbeitsplatz.tsx` | fertig |
 | **Schritt 2 – Verteilerschluessel je Kostenart pflegen** | Speichert je Nebenkostenart einen der drei rechenbaren Schluessel (Wohnflaeche, Personentage,… | `src/components/dashboard/nebenkosten/NebenkostenStep2Verteilu…` | fertig |
 | **Schritt 2 – Vorschau der Kostenverteilung auf Nutzungsperioden** | Zeigt je Kostenart, welche Mieter- und Leerstandsperiode mit welchem Prozentsatz, welcher… | `src/components/dashboard/nebenkosten/NebenkostenStep2Verteilu…` | fertig |
 | **Personenzahl am Mietvertrag nachpflegen** | Listet alle im Zeitraum relevanten Vertraege ohne anzahl_personen auf und schreibt die nachgetragene… | `src/components/dashboard/nebenkosten/NebenkostenStep2Verteilu…` | fertig |
+| **Personenzahl nur fordern, wenn sie das Ergebnis aendert** | Warnung und Abrechnungssperre greifen erst, wenn eine Kostenart nach Personentagen verteilt wird UND mindestens zwei belegte Nutzungsperioden das Verhaeltnis bestimmen. Bei einer einzigen belegten Periode traegt sie zwangslaeufig 100 % (Einfamilienhaus); fehlt die Zahl, steht im PDF ein Strich statt einer Null. | `src/utils/nebenkostenBerechnung.ts (personenzahlErforderlich)` | fertig |
 | **Nutzungsperioden und Leerstand ermitteln** | Zerlegt jede Einheit im Abrechnungszeitraum in Vertragsperioden und Leerstandsluecken, meldet… | `src/utils/nebenkostenBerechnung.ts:231 (ermittlePerioden)` | fertig |
 | **Zeitanteilige Einrechnung jahresuebergreifender Rechnungen** | Rechnet eine Kostenposition ueber die Tages-Ueberlappung ihres Zeitraums mit dem Abrechnungszeitraum… | `src/utils/nebenkostenBerechnung.ts:68 (kostenAnteilImZeitraum)` | fertig |
 | **Schritt 3 – Abrechnung je Mieter und Leerstandsperiode** | Bildet je Nutzungsperiode eine Abrechnung mit Kostenaufschluesselung nach Kategorie, Soll-Vorauszahlung… | `src/components/dashboard/nebenkosten/NebenkostenStep3Abrechnu…` | teilweise |

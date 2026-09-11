@@ -57,6 +57,7 @@ import {
   berechneBezugsgroessen,
   berechneVorauszahlungen,
   bezugsgroesseFuerSchluessel,
+  personenzahlErforderlich,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
   kostenAnteilImZeitraum,
@@ -422,8 +423,14 @@ export function NebenkostenStep3Abrechnung({
   );
   const einheitenOhneFlaeche = (einheiten || []).filter((e) => !e.qm || e.qm <= 0);
 
+  // Ab zwei belegten Nutzungsperioden bestimmt die Personenzahl das Verhältnis
+  // untereinander; bei einer einzigen trägt sie ohnehin 100 % und die fehlende
+  // Angabe ändert nichts (Kundenmeldung 10.09.2026, Einfamilienhaus).
+  const personenzahlNoetig =
+    personenSchluesselAktiv && personenzahlErforderlich(bezugsgroessen);
+
   const sperrgruende: string[] = [];
-  if (personenSchluesselAktiv && ohnePersonenzahl.length > 0) {
+  if (personenzahlNoetig && ohnePersonenzahl.length > 0) {
     sperrgruende.push(
       `Personenzahl fehlt bei ${ohnePersonenzahl.length} Vertrag/Verträgen: ` +
         ohnePersonenzahl.map((a) => mieterNamenText(a.mieterNamen)).join(", ")
@@ -558,6 +565,9 @@ export function NebenkostenStep3Abrechnung({
     function einheitenLabelFuer(schluessel: VerteilerSchluessel): string {
       const gesamt = bezugsgroesseFuerSchluessel(schluessel, abrechnung.periode, bezugsgroessen)
         .gesamt;
+      // Ohne Bezugsgröße wird nichts behauptet: bei einer einzigen belegten
+      // Periode gibt es keine Personentage, der Anteil ist trotzdem eindeutig.
+      if (gesamt <= 0) return "—";
       return schluessel === "qm" ? `${gesamt.toFixed(0)} m²` : `${gesamt.toFixed(0)}`;
     }
 
@@ -595,13 +605,19 @@ export function NebenkostenStep3Abrechnung({
       empfaengerAdresse: abrechnung.empfaengerAdresse,
       gesamtFlaeche: bezugsgroessen.qm,
       anzahlWohneinheiten: bezugsgroessen.einheiten,
-      gesamtPersonentage: Math.round(bezugsgroessen.personentage),
+      // null statt 0: eine nicht gepflegte Personenzahl darf im Schriftstück nicht
+      // wie "null Personen" aussehen.
+      gesamtPersonentage:
+        bezugsgroessen.personentage > 0 ? Math.round(bezugsgroessen.personentage) : null,
       immobilieKosten,
       immobilieGesamtkosten: gesamtkostenUmlagefaehig,
       einheitBezeichnung: abrechnung.einheitName,
       qm: abrechnung.periode.qm,
-      anzahlPersonen: abrechnung.periode.personen,
-      personentageEinheit: abrechnung.periode.personen * abrechnung.periode.tage,
+      anzahlPersonen: abrechnung.periode.personen > 0 ? abrechnung.periode.personen : null,
+      personentageEinheit:
+        abrechnung.periode.personen > 0
+          ? abrechnung.periode.personen * abrechnung.periode.tage
+          : null,
       mieterName: mieterNamenText(abrechnung.mieterNamen),
       abrechnungsjahr: selectedYear,
       abrechnungszeitraumVon: format(abrStart, "dd.MM.yyyy", { locale: de }),

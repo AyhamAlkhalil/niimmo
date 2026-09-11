@@ -170,7 +170,16 @@ Einstieg: Vertragsdetails → „Kündigen"
 Einstieg: Objekt → Nebenkosten
 
 - [ ] Schritt 1: Ausgaben den Kostenarten zuordnen
+- [ ] ⚠️ Schritt 1: Zahlung aufklappen → „Auf anderes Objekt buchen" → Zahlung verschwindet hier und
+      liegt im Zielobjekt; bei bereits zugeordneter Zahlung erscheint stattdessen der Hinweis, erst
+      die Zuordnung zu entfernen
+- [ ] ⚠️ Schritt 1: Kategorie aufklappen → „Auf andere Kategorie aufteilen" → Betrag oder Prozentsatz
+      eingeben; Summe beider Kategorien muss danach der Summe davor entsprechen, Positionsanzahl
+      verdoppelt sich (Rest + verschobener Anteil je Position)
 - [ ] Schritt 2: Verteilerschlüssel je Kostenart prüfen
+- [ ] ⚠️ Schritt 2: Objekt mit genau einem Mietvertrag im Zeitraum und ohne Personenzahl — keine
+      Warnung, Schritt 3 nicht gesperrt; im PDF steht bei Nutzerzahl und Personentagen ein Strich.
+      Objekt mit zwei belegten Zeiträumen: Warnung und Sperre wie bisher
 - [ ] 🔒 Schritt 3: **für Objekte mit Stellplatz oder Garage gesperrt** — bitte an einem Objekt ohne
       Stellplätze testen
 - [ ] Abrechnung erzeugen, PDF gegen eine früher von Hand erstellte Abrechnung desselben Objekts legen

@@ -61,6 +61,7 @@ import {
   berechneAnteil,
   berechneBezugsgroessen,
   bezugsgroesseFuerSchluessel,
+  personenzahlErforderlich,
   ermittlePerioden,
   kostenAnteilImZeitraum,
   tageInZeitraum,
@@ -207,6 +208,19 @@ export function NebenkostenStep2Verteilung({
     .filter((k) => k.kategorie.umlagefaehig)
     .reduce((sum, k) => sum + k.total, 0);
 
+  // Die Personenzahl wird nur dort verlangt, wo sie das Ergebnis verändern kann:
+  // wenn Kosten nach Personentagen verteilt werden UND mindestens zwei belegte
+  // Nutzungsperioden das Verhältnis untereinander bestimmen. Beim Einfamilienhaus
+  // mit einem einzigen Vertrag trägt dieser ohnehin 100 % (Kundenmeldung 10.09.2026).
+  // Nur umlagefähige Kostenarten zählen — genau wie in Schritt 3. Eine nicht
+  // umlagefähige Art mit Personen-Schlüssel geht nicht in die Abrechnung ein und
+  // darf deshalb auch keine Personenzahl verlangen.
+  const personenSchluesselAktiv = kategorienMitKosten.some(
+    (k) => k.kategorie.umlagefaehig && k.schluessel === "personen"
+  );
+  const personenzahlNoetig =
+    personenSchluesselAktiv && personenzahlErforderlich(bezugsgroessen);
+
   // Verträge ohne gepflegte Personenzahl. Sie wird nicht ersetzt — fehlt sie,
   // ist die Umlage nach Personentagen für die ganze Immobilie nicht belegbar
   // und Schritt 3 sperrt die Abrechnung.
@@ -224,6 +238,9 @@ export function NebenkostenStep2Verteilung({
             .join(", ") || "Unbekannter Mieter",
       }));
   }, [mietvertraege, vertragsPerioden]);
+
+  /** Fehlende Personenzahl, die hier tatsächlich etwas verändert. */
+  const personenLuecke = personenzahlNoetig && fehlendePersonenzahl.length > 0;
 
   const schluesselMutation = useMutation({
     mutationFn: async ({
@@ -358,7 +375,7 @@ export function NebenkostenStep2Verteilung({
         <Card
           className={cn(
             "border-2",
-            fehlendePersonenzahl.length > 0
+            personenLuecke
               ? "bg-gradient-to-br from-amber-50 to-amber-100 border-amber-300"
               : "bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200"
           )}
@@ -368,10 +385,10 @@ export function NebenkostenStep2Verteilung({
               <div
                 className={cn(
                   "w-10 h-10 rounded-lg flex items-center justify-center",
-                  fehlendePersonenzahl.length > 0 ? "bg-amber-500/20" : "bg-slate-500/20"
+                  personenLuecke ? "bg-amber-500/20" : "bg-slate-500/20"
                 )}
               >
-                {fehlendePersonenzahl.length > 0 ? (
+                {personenLuecke ? (
                   <AlertCircle className="h-5 w-5 text-amber-700" />
                 ) : (
                   <CheckCircle2 className="h-5 w-5 text-green-700" />
@@ -381,7 +398,7 @@ export function NebenkostenStep2Verteilung({
                 <p
                   className={cn(
                     "text-sm font-medium",
-                    fehlendePersonenzahl.length > 0 ? "text-amber-700" : "text-slate-700"
+                    personenLuecke ? "text-amber-700" : "text-slate-700"
                   )}
                 >
                   Fehlende Personenzahlen
@@ -389,11 +406,16 @@ export function NebenkostenStep2Verteilung({
                 <p
                   className={cn(
                     "text-2xl font-bold",
-                    fehlendePersonenzahl.length > 0 ? "text-amber-800" : "text-green-800"
+                    personenLuecke ? "text-amber-800" : "text-green-800"
                   )}
                 >
-                  {fehlendePersonenzahl.length}
+                  {personenLuecke ? fehlendePersonenzahl.length : 0}
                 </p>
+                {!personenzahlNoetig && fehlendePersonenzahl.length > 0 && (
+                  <p className="text-xs text-slate-600">
+                    {fehlendePersonenzahl.length} offen, hier ohne Auswirkung
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -402,17 +424,31 @@ export function NebenkostenStep2Verteilung({
 
       {/* Personenzahl pflegen — schreibt in den Mietvertrag */}
       {fehlendePersonenzahl.length > 0 && (
-        <Card className="border-amber-300 bg-amber-50">
+        <Card className={cn(personenLuecke ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50")}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2 text-amber-800">
-              <AlertCircle className="h-5 w-5" />
-              Personenzahl erforderlich
+            <CardTitle
+              className={cn(
+                "text-base flex items-center gap-2",
+                personenLuecke ? "text-amber-800" : "text-slate-800"
+              )}
+            >
+              {personenLuecke ? <AlertCircle className="h-5 w-5" /> : <User className="h-5 w-5" />}
+              {personenLuecke ? "Personenzahl erforderlich" : "Personenzahl offen, hier ohne Auswirkung"}
             </CardTitle>
-            <p className="text-sm text-amber-700">
-              Die Personenzahl gehört zum Mietvertrag und wird nicht ersetzt. Solange sie fehlt,
-              sperrt Schritt 3 die Abrechnung dieser Immobilie, sobald eine Kostenart nach
-              Personentagen verteilt wird — die Bezugsgröße wäre sonst für alle Mieter falsch.
-            </p>
+            {personenLuecke ? (
+              <p className="text-sm text-amber-700">
+                Die Personenzahl gehört zum Mietvertrag und wird nicht ersetzt. Solange sie fehlt,
+                sperrt Schritt 3 die Abrechnung dieser Immobilie, sobald eine Kostenart nach
+                Personentagen verteilt wird — die Bezugsgröße wäre sonst für alle Mieter falsch.
+              </p>
+            ) : (
+              <p className="text-sm text-slate-600">
+                {!personenSchluesselAktiv
+                  ? "Keine Kostenart dieser Abrechnung wird nach Personentagen verteilt — die Zahl ändert am Ergebnis nichts."
+                  : "Im Abrechnungszeitraum besteht nur eine belegte Nutzungsperiode. Sie trägt die nach Personentagen verteilten Kosten vollständig, gleich wie viele Personen dort wohnen."}{" "}
+                Schritt 3 ist deshalb nicht gesperrt. Eintragen können Sie die Zahl trotzdem.
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

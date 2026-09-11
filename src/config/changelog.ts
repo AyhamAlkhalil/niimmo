@@ -37,6 +37,31 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.4.4",
+    datum: "2026-09-11",
+    schwerpunkt: "Betriebskostenabrechnung: Umbuchen, Aufteilen, Personenzahl",
+    aenderungen: [
+      {
+        art: "neu",
+        titel: "Eine Ausgabe lässt sich aus der Abrechnung heraus auf ein anderes Objekt buchen",
+        detail:
+          "Liegt eine Zahlung beim falschen Objekt, führt der Weg nicht mehr über die Zahlungsverwaltung: In Schritt 1 öffnet die Zahlung ein Fenster mit allen Objekten. Ist die Zahlung hier bereits Kategorien zugeordnet, wird zuerst diese Zuordnung verlangt — sie gehört zum alten Objekt und kann nicht mitwandern.",
+      },
+      {
+        art: "neu",
+        titel: "Eine Kategorie lässt sich nachträglich auf eine zweite Kategorie aufteilen",
+        detail:
+          "Abschläge können gebündelt gebucht werden, etwa alle Zahlungen an den Wasserverband unter Wasserversorgung. Kommt später die Endabrechnung, verschiebt ein Betrag oder Prozentsatz den Anteil auf die zweite Kostenart, zum Beispiel Entwässerung. Verteilt wird anteilig über alle Positionen der Kategorie, auf den Cent genau.",
+      },
+      {
+        art: "behoben",
+        titel: "Die Personenzahl wird nur noch verlangt, wenn sie das Ergebnis verändert",
+        detail:
+          "Bei einem einzigen Mietvertrag im Abrechnungszeitraum trägt dieser die nach Personentagen verteilten Kosten ohnehin vollständig — beim Einfamilienhaus blockierte die fehlende Angabe die Abrechnung trotzdem. Ab zwei belegten Zeiträumen bleibt sie Pflicht, weil sie dort das Verhältnis untereinander bestimmt. Fehlt sie, steht im Schriftstück ein Strich statt einer Null.",
+      },
+    ],
+  },
+  {
     version: "1.4.3",
     datum: "2026-09-10",
     schwerpunkt: "Nebenkosten-Zuordnung als Arbeitsplatz",

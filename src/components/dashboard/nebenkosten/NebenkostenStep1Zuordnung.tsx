@@ -34,6 +34,8 @@ import { de } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { NebenkostenSplitDialog } from "./NebenkostenSplitDialog";
+import { NebenkostenKategorieTeilenDialog } from "./NebenkostenKategorieTeilenDialog";
+import { ZahlungObjektWechselDialog } from "./ZahlungObjektWechselDialog";
 import {
   BETRKV_KATEGORIEN,
   NICHT_UMLAGEFAEHIGE_KATEGORIEN,
@@ -82,6 +84,10 @@ export function NebenkostenStep1Zuordnung({
   const [splitDialogOpen, setSplitDialogOpen] = useState(false);
   const [splitDialogZahlung, setSplitDialogZahlung] = useState<Zahlung | null>(null);
   const [splitVorschlag, setSplitVorschlag] = useState<string | undefined>(undefined);
+  const [teilenOffen, setTeilenOffen] = useState(false);
+  const [teilenKategorie, setTeilenKategorie] = useState<NebenkostenKategorie | null>(null);
+  const [objektWechselOffen, setObjektWechselOffen] = useState(false);
+  const [objektWechselZahlung, setObjektWechselZahlung] = useState<Zahlung | null>(null);
   const [suche, setSuche] = useState("");
   // Die Liste zeigte nur offene Zahlungen aus zwei Jahren, nach Monaten
   // weggeklappt. Wer eine bestimmte Buchung suchte, fand sie nicht.
@@ -457,6 +463,20 @@ export function NebenkostenStep1Zuordnung({
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="px-3 pb-3 space-y-2">
+              {positionen.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2 h-8 text-xs"
+                  onClick={() => {
+                    setTeilenKategorie(kategorie);
+                    setTeilenOffen(true);
+                  }}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  Auf andere Kategorie aufteilen
+                </Button>
+              )}
               {positionen.map((pos) => (
                 <div
                   key={pos.id}
@@ -751,6 +771,20 @@ export function NebenkostenStep1Zuordnung({
                                             Aufteilen / Zuordnen
                                           </Button>
 
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="w-full gap-2"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setObjektWechselZahlung(zahlung);
+                                              setObjektWechselOffen(true);
+                                            }}
+                                          >
+                                            <Building2 className="h-4 w-4" />
+                                            Auf anderes Objekt buchen
+                                          </Button>
+
                                           {vorschlag && (
                                             <Button
                                               size="sm"
@@ -877,6 +911,26 @@ export function NebenkostenStep1Zuordnung({
           </CardContent>
         </Card>
       </div>
+
+      <ZahlungObjektWechselDialog
+        open={objektWechselOffen}
+        onOpenChange={setObjektWechselOffen}
+        immobilieId={immobilieId}
+        zahlung={objektWechselZahlung}
+        anzahlZuordnungen={
+          objektWechselZahlung
+            ? (positionenProZahlung.get(objektWechselZahlung.id) || []).length
+            : 0
+        }
+      />
+
+      <NebenkostenKategorieTeilenDialog
+        open={teilenOffen}
+        onOpenChange={setTeilenOffen}
+        immobilieId={immobilieId}
+        quelle={teilenKategorie}
+        positionen={teilenKategorie ? kostenProKategorie.get(teilenKategorie.id) || [] : []}
+      />
 
       <NebenkostenSplitDialog
         open={splitDialogOpen}

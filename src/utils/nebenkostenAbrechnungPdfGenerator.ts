@@ -33,15 +33,17 @@ export interface NebenkostenAbrechnungPdfData {
   // Seite 2 – Gesamtaufstellung Immobilie
   gesamtFlaeche: number;
   anzahlWohneinheiten: number;
-  gesamtPersonentage: number;
+  /** null, wenn keine Personenzahl gepflegt ist — dann steht im Druck ein Strich. */
+  gesamtPersonentage: number | null;
   immobilieKosten: NebenkostenImmobilieKostenRow[];
   immobilieGesamtkosten: number;
 
   // Seite 3 – Einzelmieter
   einheitBezeichnung: string;
   qm: number;
-  anzahlPersonen: number;
-  personentageEinheit: number;
+  /** null, wenn am Mietvertrag keine Personenzahl hinterlegt ist. */
+  anzahlPersonen: number | null;
+  personentageEinheit: number | null;
   mieterName: string;
   abrechnungsjahr: number;
   abrechnungszeitraumVon: string;
@@ -71,6 +73,11 @@ const SCHLUESSEL_LABEL: Record<string, string> = {
   verbrauch: 'Verbrauch',
   individuell: 'Individuell',
 };
+
+/** Zahl oder Gedankenstrich — nie eine erfundene Null im Schriftstück. */
+function zahlOderStrich(wert: number | null | undefined): string {
+  return wert === null || wert === undefined ? '—' : `${wert}`;
+}
 
 let logoCache: string | null = null;
 
@@ -312,7 +319,7 @@ function seite2(
     ['Abrechnungszeitraum', `${data.abrechnungszeitraumVon}  –  ${data.abrechnungszeitraumBis}`],
     ['Gesamt-Fläche', `${data.gesamtFlaeche.toFixed(0)} m²`],
     ['Gesamtanzahl d. Wohneinheiten', `${data.anzahlWohneinheiten}`],
-    ['Gesamt-Personentage', `${data.gesamtPersonentage}`],
+    ['Gesamt-Personentage', zahlOderStrich(data.gesamtPersonentage)],
   ];
   doc.setFontSize(8.5);
   metaRows.forEach(([label, value]) => {
@@ -423,8 +430,8 @@ function seite3(
   const metaL: [string, string][] = [
     ['Wohneinheit', data.einheitBezeichnung],
     ['Nutzer', data.mieterName],
-    ['Nutzerzahl', `${data.anzahlPersonen} Person(en)`],
-    ['Personentage', `${data.personentageEinheit}`],
+    ['Nutzerzahl', data.anzahlPersonen === null ? '—' : `${data.anzahlPersonen} Person(en)`],
+    ['Personentage', zahlOderStrich(data.personentageEinheit)],
     ['Wohnfläche', `${data.qm.toFixed(0)} m²`],
     ['Nutzungszeitraum', `${data.nutzungVon}  –  ${data.nutzungBis}`],
   ];
@@ -432,7 +439,7 @@ function seite3(
     ['Abrechnungszeitraum', `${data.abrechnungszeitraumVon}  –  ${data.abrechnungszeitraumBis}`],
     ['Gesamt-Fläche', `${data.gesamtFlaeche.toFixed(0)} m²`],
     ['Gesamtanzahl WE', `${data.anzahlWohneinheiten}`],
-    ['Gesamt-Personentage', `${data.gesamtPersonentage}`],
+    ['Gesamt-Personentage', zahlOderStrich(data.gesamtPersonentage)],
   ];
 
   const metaStartY = y;

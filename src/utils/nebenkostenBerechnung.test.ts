@@ -6,6 +6,7 @@ import {
   bezugsgroesseFuerSchluessel,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
+  personenzahlErforderlich,
   kostenAnteilImZeitraum,
   tageInZeitraum,
   ueberlappung,
@@ -294,9 +295,57 @@ describe('berechneAnteil', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Personenzahl: wann sie das Ergebnis überhaupt verändern kann
+// ---------------------------------------------------------------------------
+describe('Personenschlüssel ohne gepflegte Personenzahl', () => {
+  const ohneZahl = (id: string, tage = 365, leerstand = false): Nutzungsperiode => ({
+    einheitId: id, qm: 100, personen: 0, personenGepflegt: leerstand, istLeerstand: leerstand,
+    von: ABR_VON, bis: ABR_BIS, tage,
+  });
+
+  it('trägt bei einer einzigen belegten Periode die Kosten voll — Einfamilienhaus', () => {
+    const periode = ohneZahl('e1');
+    const bezug = berechneBezugsgroessen([einheit('e1', 100)], [periode], GESAMT_TAGE);
+
+    expect(personenzahlErforderlich(bezug)).toBe(false);
+    expect(berechneAnteil(periode, 'personen', bezug)).toBe(1);
+  });
+
+  it('lässt Leerstand daneben trotzdem außen vor', () => {
+    const vertrag = ohneZahl('e1', 200);
+    const leerstand = ohneZahl('e1', 165, true);
+    const bezug = berechneBezugsgroessen([einheit('e1', 100)], [vertrag, leerstand], GESAMT_TAGE);
+
+    expect(personenzahlErforderlich(bezug)).toBe(false);
+    expect(berechneAnteil(vertrag, 'personen', bezug)).toBe(1);
+    expect(berechneAnteil(leerstand, 'personen', bezug)).toBe(0);
+  });
+
+  it('bleibt ab zwei belegten Perioden unbestimmt — dort wird nichts geschätzt', () => {
+    const a = ohneZahl('e1');
+    const b = ohneZahl('e2');
+    const bezug = berechneBezugsgroessen(
+      [einheit('e1', 100), einheit('e2', 80)], [a, b], GESAMT_TAGE
+    );
+
+    expect(personenzahlErforderlich(bezug)).toBe(true);
+    expect(berechneAnteil(a, 'personen', bezug)).toBe(0);
+    expect(berechneAnteil(b, 'personen', bezug)).toBe(0);
+  });
+
+  it('rechnet mit gepflegter Zahl unverändert über die Personentage', () => {
+    const periode: Nutzungsperiode = { ...ohneZahl('e1'), personen: 4, personenGepflegt: true };
+    const bezug = berechneBezugsgroessen([einheit('e1', 100)], [periode], GESAMT_TAGE);
+
+    expect(berechneAnteil(periode, 'personen', bezug)).toBe(1);
+    expect(bezugsgroesseFuerSchluessel('personen', periode, bezug).gesamt).toBe(1460);
+  });
+});
+
 describe('bezugsgroesseFuerSchluessel', () => {
   const periode: Nutzungsperiode = {
-    einheitId: 'e1', qm: 60, personen: 3, personenGepflegt: true,
+    einheitId: 'e1', qm: 60, personen: 3, personenGepflegt: true, istLeerstand: false,
     von: ABR_VON, bis: ABR_BIS, tage: 365,
   };
   const bezug = berechneBezugsgroessen([einheit('e1', 60)], [periode], GESAMT_TAGE);

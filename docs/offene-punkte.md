@@ -41,6 +41,19 @@ die Fehlerzuordnung je Zeile.
 ohne Objekt / zugeordnet / ausgeblendet, KI-Vorschlag und Objektliste in der Detailspalte, Knopf für die
 Klassifizierung, beide Abfragen mit `range()`. Ziehen und Ablegen entfällt.
 
+**11.09.2026 — drei Kundenmeldungen aus der laufenden Nebenkostenarbeit** (Version 1.4.4), gemeldet über
+„Problem melden" im Aufgabenbereich:
+1. Eine Ausgabe lag im falschen Objekt und ließ sich aus Schritt 1 nicht verschieben — jetzt buchbar über
+   „Auf anderes Objekt buchen"; `mietvertrag_id` wird dabei geleert, weil der Bezug entweder-oder ist.
+   Gesperrt, solange die Zahlung im aktuellen Objekt Kostenpositionen hat: die Nebenkostenarten gehören
+   zum Objekt und können nicht mitwandern.
+2. Abschläge an den Wasserverband laufen gebündelt in 2.2; die Endabrechnung teilt sie erst später in
+   Wasser und Entwässerung. Neu: „Auf andere Kategorie aufteilen" verschiebt Betrag oder Prozentsatz
+   anteilig über alle Positionen der Kategorie (`utils/nebenkostenAufteilung.ts`).
+3. Beim Einfamilienhaus verlangte Schritt 2 eine Personenzahl, die am Ergebnis nichts ändert. Warnung und
+   Sperre greifen jetzt erst ab zwei belegten Nutzungsperioden; bei einer einzigen trägt sie zwangsläufig
+   100 %. Fehlt die Zahl, steht im PDF ein Strich statt einer Null — es wird weiterhin nichts geschätzt.
+
 **Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
 Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).

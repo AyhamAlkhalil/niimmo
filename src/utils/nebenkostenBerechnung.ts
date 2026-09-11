@@ -96,6 +96,12 @@ export interface Nutzungsperiode {
    * Immobilie ist nicht belegbar — es wird bewusst nichts geschätzt.
    */
   personenGepflegt: boolean;
+  /**
+   * true, wenn die Periode Leerstand ist. Leerstand steuert keine Personentage
+   * bei — daran hängt, ob eine fehlende Personenzahl das Ergebnis überhaupt
+   * verändern kann.
+   */
+  istLeerstand: boolean;
   von: Date;
   bis: Date;
   tage: number;
@@ -110,6 +116,8 @@ export interface Bezugsgroessen {
   personentage: number;
   /** Tage des Abrechnungszeitraums. */
   gesamtTage: number;
+  /** Nutzungsperioden mit Mietvertrag, also ohne Leerstand. */
+  belegtePerioden: number;
 }
 
 export function berechneBezugsgroessen(
@@ -122,6 +130,7 @@ export function berechneBezugsgroessen(
     einheiten: einheiten.length,
     personentage: perioden.reduce((sum, p) => sum + p.personen * p.tage, 0),
     gesamtTage,
+    belegtePerioden: perioden.filter((p) => !p.istLeerstand).length,
   };
 }
 
@@ -141,9 +150,14 @@ export function berechneAnteil(
 
   switch (schluessel) {
     case "personen":
-      return bezug.personentage > 0
-        ? (periode.personen * periode.tage) / bezug.personentage
-        : 0;
+      if (bezug.personentage > 0) {
+        return (periode.personen * periode.tage) / bezug.personentage;
+      }
+      // Gibt es im Abrechnungszeitraum nur eine belegte Periode, trägt sie die
+      // nach Personentagen verteilten Kosten zwangsläufig allein — Leerstand
+      // steuert 0 Personentage bei. Der Schlüssel ist dann auch ohne gepflegte
+      // Personenzahl eindeutig (Kundenmeldung 10.09.2026, Einfamilienhaus).
+      return bezug.belegtePerioden === 1 && !periode.istLeerstand ? 1 : 0;
     case "gleich":
       return bezug.einheiten > 0 ? (1 / bezug.einheiten) * zeitanteil : 0;
     case "qm":
@@ -167,6 +181,19 @@ export function bezugsgroesseFuerSchluessel(
     default:
       return { gesamt: bezug.qm, anteilig: periode.qm };
   }
+}
+
+/**
+ * Ist die Personenzahl der Mietverträge für diese Abrechnung überhaupt nötig?
+ *
+ * Nein, solange nur eine einzige belegte Nutzungsperiode im Zeitraum liegt: Sie
+ * trägt die nach Personentagen verteilten Kosten dann zu 100 %, gleich wie viele
+ * Personen dort wohnen. Erst ab zwei belegten Perioden bestimmt die Zahl das
+ * Verhältnis untereinander — dann fehlt ohne sie die Bezugsgröße und es wird
+ * bewusst nichts geschätzt.
+ */
+export function personenzahlErforderlich(bezug: Bezugsgroessen): boolean {
+  return bezug.belegtePerioden > 1;
 }
 
 /**
@@ -265,6 +292,7 @@ export function ermittlePerioden(
       qm,
       personen,
       personenGepflegt: personen > 0,
+      istLeerstand: false,
       von: overlap.von,
       bis: overlap.bis,
       tage: overlap.tage,
@@ -293,6 +321,7 @@ export function ermittlePerioden(
           // Wert, kein fehlender.
           personen: 0,
           personenGepflegt: true,
+          istLeerstand: true,
           von: new Date(cursor),
           bis: luekeEnde,
           tage,
@@ -312,6 +341,7 @@ export function ermittlePerioden(
         qm,
         personen: 0,
         personenGepflegt: true,
+        istLeerstand: true,
         von: new Date(cursor),
         bis: new Date(abrBis),
         tage,
