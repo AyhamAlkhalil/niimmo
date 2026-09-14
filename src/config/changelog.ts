@@ -6,10 +6,10 @@
  * genau den Stand, der auch tatsächlich ausgeliefert ist. Ein Changelog in der
  * DB könnte Änderungen ankündigen, die noch gar nicht deployt sind.
  *
- * PFLEGE: Bei jedem Release oben einen Eintrag ergänzen und die `version` in
- * package.json auf denselben Wert setzen. Die Einträge richten sich an die
- * Verwaltung, nicht an Entwickler — also fachlich formulieren: was kann man
- * jetzt, was ging vorher schief. Keine Dateinamen, keine Funktionsnamen.
+ * PFLEGE (seit 14.09.2026): Eine neue Version gibt es nur für neue Funktionen.
+ * Dann oben einen Eintrag ergänzen, je Funktion eine sehr grobe Zeile ohne
+ * `detail`, und die `version` in package.json auf denselben Wert setzen.
+ * Fehlerbehebungen bekommen weder eine Version noch einen Eintrag.
  *
  * Die Liste beginnt bewusst mit dem Stand vom 3. September 2026. Was davor lag,
  * war nachträglich aus der Entwicklungshistorie zusammengetragen und für die
@@ -39,32 +39,9 @@ export const RELEASES: Release[] = [
   {
     version: "1.4.4",
     datum: "2026-09-11",
-    schwerpunkt: "Betriebskostenabrechnung: Umbuchen, Aufteilen, Personenzahl",
     aenderungen: [
-      {
-        art: "neu",
-        titel: "Eine Ausgabe lässt sich aus der Abrechnung heraus auf ein anderes Objekt buchen",
-        detail:
-          "Liegt eine Zahlung beim falschen Objekt, führt der Weg nicht mehr über die Zahlungsverwaltung: In Schritt 1 öffnet die Zahlung ein Fenster mit allen Objekten. Ist die Zahlung hier bereits Kategorien zugeordnet, wird zuerst diese Zuordnung verlangt — sie gehört zum alten Objekt und kann nicht mitwandern.",
-      },
-      {
-        art: "neu",
-        titel: "Eine Kategorie lässt sich nachträglich auf eine zweite Kategorie aufteilen",
-        detail:
-          "Abschläge können gebündelt gebucht werden, etwa alle Zahlungen an den Wasserverband unter Wasserversorgung. Kommt später die Endabrechnung, verschiebt ein Betrag oder Prozentsatz den Anteil auf die zweite Kostenart, zum Beispiel Entwässerung. Verteilt wird anteilig über alle Positionen der Kategorie, auf den Cent genau.",
-      },
-      {
-        art: "behoben",
-        titel: "Die Vorauszahlungszeile im PDF steht in deutscher Schreibweise",
-        detail:
-          "Dort stand \"12.0 Mon. x 240.00 EUR\" mit Punkt statt Komma. Jetzt: \"12 Mon. × 240,00 €\".",
-      },
-      {
-        art: "behoben",
-        titel: "Die Personenzahl wird nur noch verlangt, wenn sie das Ergebnis verändert",
-        detail:
-          "Bei einem einzigen Mietvertrag im Abrechnungszeitraum trägt dieser die nach Personentagen verteilten Kosten ohnehin vollständig — beim Einfamilienhaus blockierte die fehlende Angabe die Abrechnung trotzdem. Ab zwei belegten Zeiträumen bleibt sie Pflicht, weil sie dort das Verhältnis untereinander bestimmt. Fehlt sie, steht im Schriftstück ein Strich statt einer Null und als Verteilerschlüssel \"Alleinnutzung\" — so ist im Brief erkennbar, warum der Mieter die Kosten allein trägt.",
-      },
+      { art: "neu", titel: "Nebenkosten: Zahlung auf ein anderes Objekt buchen" },
+      { art: "neu", titel: "Nebenkosten: Kategorie nachträglich aufteilen" },
     ],
   },
   {
