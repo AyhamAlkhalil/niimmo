@@ -1,18 +1,61 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { AufnahmeKontext, Bildschirmaufnahme } from "@/utils/bildschirmaufnahme";
 import type { Json } from "@/integrations/supabase/types";
 
 /**
- * Problem melden: Bildschirmfoto hochladen, Meldung in `dev_tickets` schreiben.
+ * Meldungen: anlegen und als Liste ansehen.
  *
- * Seit dem 14.09.2026 das Einzige, was die Anwendung am Aufgabensystem noch tut.
- * Board, Kommentare, Markieren und Benachrichtigungen sind entfallen — Meldungen
- * werden außerhalb der Anwendung abgearbeitet.
+ * Seit dem 14.09.2026 bewusst schlank. Kommentare, Markieren, Zuständigkeit und
+ * Bearbeiten in der Anwendung sind entfallen — abgearbeitet wird außerhalb, die
+ * Liste zeigt nur, was gemeldet wurde und ob es erledigt ist.
  */
 
 const BUCKET = "dokumente";
 const ORDNER = "aufgaben";
+
+export const AUFGABEN_SCHLUESSEL = ["aufgaben"] as const;
+
+export type AufgabenStatus = "offen" | "geplant" | "in_entwicklung" | "in_testing" | "fertig";
+
+export interface Aufgabe {
+  id: string;
+  titel: string;
+  beschreibung: string | null;
+  status: AufgabenStatus;
+  erstellt_am: string;
+  erledigt_am: string | null;
+  seiten_titel: string | null;
+  screenshot_pfade: string[];
+  melder: { anzeigename: string } | null;
+}
+
+/** Alle Meldungen, neueste zuerst. */
+export function useAufgabenListe() {
+  return useQuery({
+    queryKey: AUFGABEN_SCHLUESSEL,
+    queryFn: async (): Promise<Aufgabe[]> => {
+      const { data, error } = await supabase
+        .from("dev_tickets")
+        .select(
+          `id, titel, beschreibung, status, erstellt_am, erledigt_am, seiten_titel, screenshot_pfade,
+           melder:app_benutzer!dev_tickets_melder_id_fkey (anzeigename)`,
+        )
+        .order("erstellt_am", { ascending: false })
+        .range(0, 499);
+
+      if (error) throw error;
+      return (data ?? []) as unknown as Aufgabe[];
+    },
+  });
+}
+
+/** Signierte Adresse für ein Bildschirmfoto, gültig für eine Stunde. */
+export async function signiereScreenshot(pfad: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(pfad, 3600);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}
 
 export interface NeueMeldung {
   titel: string;
@@ -27,6 +70,8 @@ export interface NeueMeldung {
  * liegen, ist das folgenlos.
  */
 export function useAufgabeAnlegen() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (eingabe: NeueMeldung): Promise<void> => {
       const pfade: string[] = [];
@@ -59,6 +104,9 @@ export function useAufgabeAnlegen() {
       });
 
       if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AUFGABEN_SCHLUESSEL });
     },
   });
 }

@@ -210,7 +210,8 @@ Einstieg: Objekt → Nebenkosten
 
 ## 13. Meldungen
 
-- [ ] „Problem melden" mit Bildschirmaufnahme → Meldung entsteht mit Bild
+- [ ] „Problem melden" mit Bildschirmaufnahme → Meldung steht mit Bild unter „Aufgaben"
+- [ ] Meldung auf erledigt setzen → der Melder sieht beim nächsten Öffnen einen Hinweis
 
 ## 14. Assistent
 

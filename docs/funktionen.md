@@ -337,7 +337,7 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 
 ## Meldungen
 
-Seit 14.09.2026 nur noch Melden mit Bildschirmfoto. Board, Kommentare, Markieren und Benachrichtigungsglocke sind entfallen; abgearbeitet wird außerhalb der Anwendung. Tabellen und Trigger in der Datenbank stehen noch.
+Seit 14.09.2026 schlank: Melden mit Bildschirmfoto, eine lesende Aufgabenliste und ein Hinweis an den Melder, wenn seine Meldung erledigt ist. Kommentare, Markieren und Glocke sind entfallen; abgearbeitet wird außerhalb der Anwendung.
 
 | Funktion | Was sie leistet | Einstieg | Reife |
 |---|---|---|---|
