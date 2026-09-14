@@ -21,7 +21,7 @@ import { VersionBadge } from "@/components/dashboard/ChangelogDialog";
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
-import { AufgabenListe } from "@/components/aufgaben/AufgabenListe";
+import { AufgabenBoard } from "@/components/aufgaben/AufgabenBoard";
 import { NeuerMietvertragDialog } from "@/components/dashboard/NeuerMietvertragDialog";
 import VermieterStammdatenDialog from "@/components/dashboard/VermieterStammdatenDialog";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -49,6 +49,8 @@ const Index = () => {
   const showControlboard = navState.showControlboard;
   const showUebergabe = navState.showUebergabe;
   const showDarlehen = navState.showDarlehen;
+  const showAufgabenBoard = navState.showAufgabenBoard;
+  const selectedAufgabe = navState.selectedAufgabe;
   const navigationSource = navState.navigationSource;
 
   // Setter wrappers
@@ -59,6 +61,10 @@ const Index = () => {
   const setShowControlboard = useCallback((v: boolean) => updateNav({ showControlboard: v }), [updateNav]);
   const setShowUebergabe = useCallback((v: boolean) => updateNav({ showUebergabe: v }), [updateNav]);
   const setShowDarlehen = useCallback((v: boolean) => updateNav({ showDarlehen: v }), [updateNav]);
+  const setShowAufgabenBoard = useCallback(
+    (v: boolean, aufgabeId: string | null = null) => updateNav({ showAufgabenBoard: v, selectedAufgabe: aufgabeId }),
+    [updateNav],
+  );
   const setNavigationSource = useCallback((v: 'dashboard' | 'immobilie' | 'search') => updateNav({ navigationSource: v }), [updateNav]);
 
   const [showStammdaten, setShowStammdaten] = useState<boolean>(false);
@@ -67,7 +73,6 @@ const Index = () => {
   const [showDevLog, setShowDevLog] = useState<boolean>(false);
   const [showAgentLogs, setShowAgentLogs] = useState<boolean>(false);
   const [showBlacklist, setShowBlacklist] = useState<boolean>(false);
-  const [showAufgaben, setShowAufgaben] = useState<boolean>(false);
   const [showNeuerMietvertrag, setShowNeuerMietvertrag] = useState<boolean>(false);
   const [showVermieter, setShowVermieter] = useState<boolean>(false);
   const [rueckstaendeOpen, setRueckstaendeOpen] = useState<boolean>(false);
@@ -329,12 +334,15 @@ const Index = () => {
     return <AgentLogViewer onBack={() => setShowAgentLogs(false)} />;
   }
 
-  // Gemeldete Probleme ansehen (nur für Admins)
-  if (showAufgaben && isAdmin) {
-    return <AufgabenListe onBack={() => setShowAufgaben(false)} />;
+  // Aufgaben-Board anzeigen (nur für Admins)
+  if (showAufgabenBoard && isAdmin) {
+    return <AufgabenBoard
+      onBack={() => setShowAufgabenBoard(false)}
+      aufgabeOeffnen={selectedAufgabe}
+      onAufgabeGeoeffnet={() => updateNav({ selectedAufgabe: null })}
+    />;
   }
 
-  // Blacklist anzeigen (nur für Admins)
   if (showBlacklist && isAdmin) {
     return <BlacklistVerwaltung onBack={() => setShowBlacklist(false)} />;
   }
@@ -486,7 +494,7 @@ const Index = () => {
                     <span className="truncate">Blacklist</span>
                   </Button>
                   <Button
-                    onClick={() => setShowAufgaben(true)}
+                    onClick={() => setShowAufgabenBoard(true)}
                     variant="ghost"
                     size="sm"
                     className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"

@@ -335,9 +335,9 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Vertrags-PDF beim Anlegen mitspeichern** | Legt die hochgeladene Datei flach in der Bucket-Wurzel als <vertragId>_<ts>.<ext> ab; ein Fehler beim… | `src/components/dashboard/NewTenantContractDialog.tsx:557-585` | teilweise |
 | **Dokumente im Chatbot und ueber die agent-api** | Liefert reine Metadaten (Titel, Kategorie, Dateityp, Datum), gefiltert auf geloescht=false; der Chat… | `supabase/functions/chat/index.ts:112 und supabase/functions/a…` | fertig |
 
-## Meldungen
+## Aufgaben und Meldungen
 
-Seit 14.09.2026 schlank: Melden mit Bildschirmfoto, eine lesende Aufgabenliste und ein Hinweis an den Melder, wenn seine Meldung erledigt ist. Kommentare, Markieren und Glocke sind entfallen; abgearbeitet wird außerhalb der Anwendung.
+Seit 14.09.2026 ausgedünnt: Es gibt nur noch eine Benachrichtigung, den Hinweis an den Melder, sobald seine Meldung erledigt ist (beim nächsten Öffnen). Glocke, Live-Strom und Markieren von Personen sind entfallen.
 
 | Funktion | Was sie leistet | Einstieg | Reife |
 |---|---|---|---|
@@ -346,8 +346,14 @@ Seit 14.09.2026 schlank: Melden mit Bildschirmfoto, eine lesende Aufgabenliste u
 | **Bild aus Zwischenablage oder Datei anhaengen** | Strg+V uebernimmt ein Bild aus der Zwischenablage, alternativ waehlt man eine Bilddatei; beides laeuft… | `src/components/aufgaben/ProblemMeldenDialog.tsx:68-99` | fertig |
 | **Technischen Kontext mitschicken** | Pfad, Seitentitel, Fenstermasse, Pixelverhaeltnis, Browser und Zeitpunkt werden vor der Aufnahme… | `src/utils/bildschirmaufnahme.ts:54-64` | fertig |
 | **Melde-Knoepfe waehrend der Aufnahme ausblenden** | Das Kennzeichen html[data-aufnahme] blendet den Knopfstapel .schwebende-knoepfe aus, damit er nicht… | `src/utils/bildschirmaufnahme.ts:86 + src/index.css:388-393` | fertig |
+| **Aufgaben-Board mit Sichten, Suche und Filtern** | Liste aller Aufgaben mit den Sichten "Fuer mich", "Offen", "Alle", Volltextsuche sowie Filtern nach Art… | `src/components/aufgaben/AufgabenBoard.tsx:32-209` | fertig |
+| **Aufgabe anlegen, aendern, loeschen** | Titel, Art, Status, Dringlichkeit, Verantwortlicher und Beschreibung sind pflegbar; Loeschen entfernt… | `src/components/aufgaben/AufgabeDetail.tsx:45-299 ueber useAuf…` | teilweise |
+| **Kommentarverlauf je Aufgabe** | Rueckfragen werden als Kommentare an der Aufgabe festgehalten; ohne Benachrichtigung… | `src/components/aufgaben/AufgabeKommentare.tsx:22-99` | fertig |
 | **Erledigt-Zeitpunkt automatisch fuehren** | Beim Wechsel auf "fertig" setzt die Datenbank erledigt_am, jeder andere Status loescht es wieder -… | `Migration 20260903153000:126-144 (setze_erledigt_am)` | fertig |
+| **Sortier- und Darstellungsregeln des Boards (getestet)** | Erledigtes ans Ende, davor die dringendste, bei Gleichstand die zuletzt gemeldete zuerst; unbekannte… | `src/components/aufgaben/aufgabenDarstellung.ts:81-97` | fertig |
 | **Internes Personenverzeichnis fuer Erwaehnungen** | Fuenf interne Personen mit Kuerzel und Funktion, bewusst getrennt von auth.users, damit die Buchhaltung… | `src/hooks/useAppBenutzer.ts:42-87` | teilweise |
+| **Bildschirmfotos im privaten Bucket ablegen und signiert anzeigen** | Dateien liegen unter aufgaben/<uuid>/ im Bucket dokumente und bekommen erst beim Anzeigen eine fuer… | `src/hooks/useAufgaben.ts:128-138 (Upload) und :266-270 (signi…` | teilweise |
+| **Herkunftsangabe einer Meldung** | Zeigt Melder, Zeitpunkt, Kennzeichen "per Bildschirmaufnahme", Seitentitel/Pfad, Fenstermasse und… | `src/components/aufgaben/AufgabeDetail.tsx:334-371` | fertig |
 | **Zugangssperre fuer den Hausmeister** | RLS beschraenkt Aufgaben, Kommentare, Erwaehnungen und den Storage-Praefix aufgaben/ auf Admins; das… | `Migration 20260903153000:388-415 und 448-490` | fertig |
 | **Aktivitaetenlog (Wer hat was geaendert)** | Liest die letzten 500 Zeilen aus activity_logs und formuliert daraus lesbare Saetze; sichtbar… | `src/components/dashboard/DevActivityLog.tsx:186-327` | teilweise |
 | **Aktivitaeten protokollieren** | Schreibt Aktion, Entitaet und Details nach activity_logs - bewusst ohne Fehlerbehandlung; tatsaechlich… | `src/hooks/useActivityLog.ts:22-49` | teilweise |
