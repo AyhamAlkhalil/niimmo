@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
+import { useErledigtHinweise } from "@/hooks/useErledigtHinweise";
 import { ModernChatbotTrigger } from "@/components/chatbot/ModernChatbotTrigger";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -18,6 +19,7 @@ const queryClient = new QueryClient();
 // Component that sets up real-time updates within the query client context
 const RealtimeProvider = ({ children }: { children: React.ReactNode }) => {
   useRealtimeUpdates();
+  useErledigtHinweise();
   return <>{children}</>;
 };
 
