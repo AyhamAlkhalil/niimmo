@@ -4,19 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Camera, ImageOff, Loader2, Paperclip, Send, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useAppBenutzer } from "@/hooks/useAppBenutzer";
-import { useAufgabeAnlegen, type AufgabenPrioritaet, type AufgabenTyp } from "@/hooks/useAufgaben";
+import { useAufgabeAnlegen } from "@/hooks/useAufgaben";
 import {
   uebernimmBilddatei,
   type AufnahmeKontext,
   type Bildschirmaufnahme,
 } from "@/utils/bildschirmaufnahme";
-import { BenutzerAuswahl } from "./BenutzerAuswahl";
-import { PRIORITAET_DARSTELLUNG, TYP_DARSTELLUNG, TYP_REIHENFOLGE } from "./aufgabenDarstellung";
 
 interface ProblemMeldenDialogProps {
   open: boolean;
@@ -27,11 +22,15 @@ interface ProblemMeldenDialogProps {
   /** Hinweis, falls die Aufnahme nicht zustande kam. */
   aufnahmeHinweis?: string | null;
   onAufnahmeErsetzen: (aufnahme: Bildschirmaufnahme | null) => void;
-  onFertig?: (aufgabenId: string) => void;
 }
 
-const PRIORITAETEN: AufgabenPrioritaet[] = ["kritisch", "hoch", "mittel", "niedrig"];
-
+/**
+ * Problem melden: Bild und kurze Beschreibung, sonst nichts.
+ *
+ * Art, Dringlichkeit, Zuständigkeit und Markierungen sind am 14.09.2026 entfallen.
+ * Meldungen werden außerhalb der Anwendung abgearbeitet; dort braucht es nur Bild
+ * und Text. Seite und Fenstergröße werden weiterhin still mitgeschickt.
+ */
 export const ProblemMeldenDialog = ({
   open,
   onOpenChange,
@@ -39,30 +38,18 @@ export const ProblemMeldenDialog = ({
   kontext,
   aufnahmeHinweis,
   onAufnahmeErsetzen,
-  onFertig,
 }: ProblemMeldenDialogProps) => {
-  const { benutzer, ichSelbst, entwickler } = useAppBenutzer();
   const anlegen = useAufgabeAnlegen();
   const dateiFeld = useRef<HTMLInputElement>(null);
 
   const [titel, setTitel] = useState("");
   const [beschreibung, setBeschreibung] = useState("");
-  const [typ, setTyp] = useState<AufgabenTyp>("bug");
-  const [prioritaet, setPrioritaet] = useState<AufgabenPrioritaet>("hoch");
-  const [verantwortlichId, setVerantwortlichId] = useState<string | null>(null);
-  const [erwaehnte, setErwaehnte] = useState<string[]>([]);
 
-  // Beim Öffnen zurücksetzen. Verantwortlich ist standardmäßig die Entwicklung,
-  // damit die häufigste Meldung ohne einen weiteren Klick auskommt.
   useEffect(() => {
     if (!open) return;
     setTitel("");
     setBeschreibung("");
-    setTyp("bug");
-    setPrioritaet("hoch");
-    setVerantwortlichId(entwickler?.id ?? null);
-    setErwaehnte([]);
-  }, [open, entwickler?.id]);
+  }, [open]);
 
   // Bild aus der Zwischenablage einfügen (Screenshot-Taste des Betriebssystems).
   useEffect(() => {
@@ -101,55 +88,33 @@ export const ProblemMeldenDialog = ({
   const absenden = () => {
     const bereinigterTitel = titel.trim();
     // Die Sperre steht hier und nicht nur am Knopf: Strg+Enter kaeme sonst
-    // daran vorbei und legte bei zweimaligem Druecken zwei Aufgaben an.
+    // daran vorbei und legte bei zweimaligem Druecken zwei Meldungen an.
     if (!bereinigterTitel || anlegen.isPending) return;
 
     anlegen.mutate(
       {
         titel: bereinigterTitel,
-        typ,
-        prioritaet,
         beschreibung: beschreibung.trim() || undefined,
-        verantwortlichId,
-        erwaehnteIds: erwaehnte,
         aufnahme,
         kontext,
       },
       {
-        onSuccess: ({ aufgabenId, markierungenFehlgeschlagen }) => {
-          if (markierungenFehlgeschlagen) {
-            toast.warning(
-              "Aufgabe angelegt, aber die zusätzlichen Personen konnten nicht markiert werden",
-              { description: "Bitte im Aufgaben-Board nachtragen." },
-            );
-          } else {
-            const empfaenger = [
-              verantwortlichId,
-              ...erwaehnte.filter((e) => e !== verantwortlichId),
-            ].filter(Boolean);
-            toast.success(
-              empfaenger.length
-                ? `Aufgabe angelegt — ${empfaenger.length} Person${empfaenger.length > 1 ? "en" : ""} benachrichtigt`
-                : "Aufgabe angelegt",
-            );
-          }
+        onSuccess: () => {
+          toast.success("Meldung gesendet");
           onAufnahmeErsetzen(null);
           onOpenChange(false);
-          onFertig?.(aufgabenId);
         },
         onError: (fehler: unknown) => {
           const nachricht = fehler instanceof Error ? fehler.message : "Unbekannter Fehler";
-          toast.error(`Die Aufgabe konnte nicht angelegt werden: ${nachricht}`);
+          toast.error(`Die Meldung konnte nicht gesendet werden: ${nachricht}`);
         },
       },
     );
   };
 
-  const markierbar = benutzer.filter((person) => person.id !== ichSelbst?.id);
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Camera className="h-5 w-5 text-red-600" />
@@ -161,7 +126,6 @@ export const ProblemMeldenDialog = ({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Bild */}
           <div className="rounded-lg border bg-muted/30 p-3">
             {aufnahme ? (
               <div className="space-y-2">
@@ -170,10 +134,7 @@ export const ProblemMeldenDialog = ({
                   alt="Aufgenommener Bildschirm"
                   className="max-h-64 w-full rounded-md border bg-white object-contain"
                 />
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {aufnahme.breite} × {aufnahme.hoehe} Pixel
-                  </span>
+                <div className="flex justify-end">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -210,7 +171,6 @@ export const ProblemMeldenDialog = ({
             />
           </div>
 
-          {/* Titel */}
           <div>
             <Label htmlFor="melder-titel">Was stimmt nicht? *</Label>
             <Input
@@ -225,111 +185,6 @@ export const ProblemMeldenDialog = ({
             />
           </div>
 
-          {/* Art und Dringlichkeit */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label className="mb-1.5 block">Art</Label>
-              <div className="flex gap-1.5">
-                {TYP_REIHENFOLGE.map((wert) => {
-                  const darstellung = TYP_DARSTELLUNG[wert];
-                  const Symbol = darstellung.icon;
-                  return (
-                    <button
-                      key={wert}
-                      type="button"
-                      onClick={() => setTyp(wert)}
-                      className={cn(
-                        "flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-sm transition-colors",
-                        typ === wert
-                          ? "border-red-300 bg-red-50 font-medium text-red-900"
-                          : "border-gray-200 bg-white/70 text-gray-600 hover:bg-white",
-                      )}
-                    >
-                      <Symbol className="h-4 w-4" />
-                      {darstellung.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <Label className="mb-1.5 block">Dringlichkeit</Label>
-              <div className="flex gap-1.5">
-                {PRIORITAETEN.map((wert) => (
-                  <button
-                    key={wert}
-                    type="button"
-                    onClick={() => setPrioritaet(wert)}
-                    className={cn(
-                      "flex-1 rounded-md border px-2 py-2 text-sm transition-colors",
-                      prioritaet === wert
-                        ? "border-red-300 bg-red-50 font-medium text-red-900"
-                        : "border-gray-200 bg-white/70 text-gray-600 hover:bg-white",
-                    )}
-                  >
-                    {PRIORITAET_DARSTELLUNG[wert].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Verantwortlich */}
-          <div>
-            <Label className="mb-1.5 block">Wer kümmert sich darum?</Label>
-            <div className="flex flex-wrap gap-2">
-              {benutzer.map((person) => (
-                <button
-                  key={person.id}
-                  type="button"
-                  onClick={() =>
-                    setVerantwortlichId((vorher) => (vorher === person.id ? null : person.id))
-                  }
-                  className={cn(
-                    "flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-sm transition-colors",
-                    verantwortlichId === person.id
-                      ? "border-red-300 bg-red-600 text-white"
-                      : "border-gray-200 bg-white/70 text-gray-700 hover:bg-white",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
-                      verantwortlichId === person.id
-                        ? "bg-white/25 text-white"
-                        : "bg-gray-200 text-gray-700",
-                    )}
-                  >
-                    {person.kuerzel}
-                  </span>
-                  {person.anzeigename}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Zusätzlich markieren */}
-          {markierbar.length > 0 && (
-            <div>
-              <Label className="mb-1.5 block">
-                Zusätzlich informieren
-                <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
-              </Label>
-              <BenutzerAuswahl
-                benutzer={markierbar}
-                ausgewaehlt={erwaehnte}
-                verantwortlichId={verantwortlichId}
-                onUmschalten={(id) =>
-                  setErwaehnte((vorher) =>
-                    vorher.includes(id) ? vorher.filter((e) => e !== id) : [...vorher, id],
-                  )
-                }
-              />
-            </div>
-          )}
-
-          {/* Details */}
           <div>
             <Label htmlFor="melder-details">Weitere Angaben</Label>
             <Textarea
@@ -340,17 +195,6 @@ export const ProblemMeldenDialog = ({
               className="min-h-[80px]"
             />
           </div>
-
-          {kontext && (
-            <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline" className="text-[10px] font-normal">
-                Fenster {kontext.fensterbreite} × {kontext.fensterhoehe}
-              </Badge>
-              <Badge variant="outline" className="text-[10px] font-normal">
-                Ansicht {kontext.pfad}
-              </Badge>
-            </div>
-          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -366,7 +210,7 @@ export const ProblemMeldenDialog = ({
               ) : (
                 <Send className="mr-1.5 h-4 w-4" />
               )}
-              Aufgabe anlegen
+              Meldung senden
             </Button>
           </div>
         </div>

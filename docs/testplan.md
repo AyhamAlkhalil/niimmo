@@ -208,12 +208,9 @@ Einstieg: Objekt → Nebenkosten
 - [ ] ❓ **Achtung**: Auswertungen lesen höchstens 1000 Zahlungen von aktuell 3505 — die Zahlen sind zu
       niedrig, bis C3 behoben ist. Nicht als Fehler melden, ist bekannt.
 
-## 13. Aufgaben und Meldungen
+## 13. Meldungen
 
-- [ ] „Problem melden" mit Bildschirmaufnahme → Aufgabe entsteht
-- [ ] Aufgabe zuweisen, kommentieren, jemanden erwähnen
-- [ ] Benachrichtigungsglocke zeigt die Erwähnung
-- [ ] Aufgabe erledigen
+- [ ] „Problem melden" mit Bildschirmaufnahme → Meldung entsteht mit Bild
 
 ## 14. Assistent
 

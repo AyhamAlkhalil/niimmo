@@ -11,9 +11,6 @@ interface NavigationState {
   showControlboard: boolean;
   showUebergabe: boolean;
   showDarlehen: boolean;
-  showAufgabenBoard: boolean;
-  /** Aus einer Benachrichtigung heraus direkt zu oeffnende Aufgabe. */
-  selectedAufgabe: string | null;
   navigationSource: "dashboard" | "immobilie" | "search";
   selectedTab: string | null;
 }
@@ -26,8 +23,6 @@ const defaultState: NavigationState = {
   showControlboard: false,
   showUebergabe: false,
   showDarlehen: false,
-  showAufgabenBoard: false,
-  selectedAufgabe: null,
   navigationSource: "dashboard",
   selectedTab: null,
 };

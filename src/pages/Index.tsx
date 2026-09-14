@@ -21,8 +21,6 @@ import { VersionBadge } from "@/components/dashboard/ChangelogDialog";
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
-import { AufgabenBoard } from "@/components/aufgaben/AufgabenBoard";
-import { BenachrichtigungsGlocke } from "@/components/aufgaben/BenachrichtigungsGlocke";
 import { NeuerMietvertragDialog } from "@/components/dashboard/NeuerMietvertragDialog";
 import VermieterStammdatenDialog from "@/components/dashboard/VermieterStammdatenDialog";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -30,7 +28,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
 import { useState, useMemo, useCallback } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Building } from "lucide-react";
+import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, Building } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
@@ -50,8 +48,6 @@ const Index = () => {
   const showControlboard = navState.showControlboard;
   const showUebergabe = navState.showUebergabe;
   const showDarlehen = navState.showDarlehen;
-  const showAufgabenBoard = navState.showAufgabenBoard;
-  const selectedAufgabe = navState.selectedAufgabe;
   const navigationSource = navState.navigationSource;
 
   // Setter wrappers
@@ -62,10 +58,6 @@ const Index = () => {
   const setShowControlboard = useCallback((v: boolean) => updateNav({ showControlboard: v }), [updateNav]);
   const setShowUebergabe = useCallback((v: boolean) => updateNav({ showUebergabe: v }), [updateNav]);
   const setShowDarlehen = useCallback((v: boolean) => updateNav({ showDarlehen: v }), [updateNav]);
-  const setShowAufgabenBoard = useCallback(
-    (v: boolean, aufgabeId: string | null = null) => updateNav({ showAufgabenBoard: v, selectedAufgabe: aufgabeId }),
-    [updateNav],
-  );
   const setNavigationSource = useCallback((v: 'dashboard' | 'immobilie' | 'search') => updateNav({ navigationSource: v }), [updateNav]);
 
   const [showStammdaten, setShowStammdaten] = useState<boolean>(false);
@@ -336,14 +328,6 @@ const Index = () => {
   }
 
   // Blacklist anzeigen (nur für Admins)
-  if (showAufgabenBoard && isAdmin) {
-    return <AufgabenBoard
-      onBack={() => setShowAufgabenBoard(false)}
-      aufgabeOeffnen={selectedAufgabe}
-      onAufgabeGeoeffnet={() => updateNav({ selectedAufgabe: null })}
-    />;
-  }
-
   if (showBlacklist && isAdmin) {
     return <BlacklistVerwaltung onBack={() => setShowBlacklist(false)} />;
   }
@@ -406,11 +390,6 @@ const Index = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <VersionBadge className="hidden sm:flex" />
-                  {isAdmin && (
-                    <BenachrichtigungsGlocke
-                      onAufgabeOeffnen={(id) => setShowAufgabenBoard(true, id)}
-                    />
-                  )}
                   <UserMenu />
                 </div>
               </div>
@@ -498,15 +477,6 @@ const Index = () => {
                   >
                     <ShieldAlert className="h-4 w-4 mr-1.5 shrink-0" />
                     <span className="truncate">Blacklist</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowAufgabenBoard(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <ListChecks className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Aufgaben</span>
                   </Button>
                   <Button
                     onClick={() => setShowAgentLogs(true)}
