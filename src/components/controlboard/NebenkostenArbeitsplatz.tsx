@@ -253,7 +253,14 @@ export function NebenkostenArbeitsplatz() {
 
   const zuordnen = useMutation({
     mutationFn: async ({ zahlungId, immobilieId }: { zahlungId: string; immobilieId: string }) => {
-      const { error } = await supabase.from("zahlungen").update({ immobilie_id: immobilieId }).eq("id", zahlungId);
+      // Zahlungsbezug ist entweder-oder: Wer eine Ausgabe dem Objekt zuordnet, löst sie
+      // vom Mietvertrag, sonst zählt sie doppelt. Am 17.09.2026 hingen nach dem Import
+      // mehrere Nichtmiete-Ausgaben (Grundsteuer, Wasserabschläge) am Mietvertrag und
+      // wären hier doppelt gebunden worden.
+      const { error } = await supabase
+        .from("zahlungen")
+        .update({ immobilie_id: immobilieId, mietvertrag_id: null })
+        .eq("id", zahlungId);
       if (error) throw error;
       await supabase.from("nebenkosten_klassifizierungen").update({ bestaetigt: true, bestaetigt_am: new Date().toISOString() }).eq("zahlung_id", zahlungId);
     },
