@@ -160,6 +160,12 @@ Einstieg: Vertragsdetails → „Kündigen"
 - [ ] Manuell kündigen mit PDF → ⚠️ danach **Vertragsende auch in den Vertragsdetails sichtbar**
       (nicht mehr „unbefristet")
 - [ ] Kündigungsschreiben hochladen statt erzeugen
+- [ ] ⚠️ Danach öffnet sich die **Kündigungsbestätigung**: Vertragsende stimmt mit dem eingetragenen Datum überein,
+      Anrede je Mieter wählbar, Vorschau aktualisiert sich
+- [ ] Bestätigung speichern → erscheint einmal unter Dokumente (Kategorie Kündigung)
+- [ ] Bestätigung senden → Mail mit PDF-Anhang kommt an; Absender ist das Übergabe-Postfach
+- [ ] Vertrag ohne hinterlegte Mailadresse → Hinweis statt Versandknopf, Speichern geht
+- [ ] Gekündigter Vertrag → Knopf „Kündigungsbestätigung" öffnet denselben Dialog auch nachträglich
 - [ ] Einheitenkarte und Detailansicht zeigen **dasselbe** Enddatum
 - [ ] Übergabe „Auszug" durchführen, Zählerstände erfassen
 - [ ] Nach Ablauf: Vertrag geht auf „beendet"

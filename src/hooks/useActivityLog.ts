@@ -9,6 +9,7 @@ export type ActivityAction =
   | "mietvertrag_geaendert"
   | "mieterhoehung_dokumentiert"
   | "kuendigung_durchgefuehrt"
+  | "kuendigungsbestaetigung_versendet"
   | "kaution_geaendert"
   | "zahlung_zugeordnet"
   | "zahlung_kategorie_geaendert"

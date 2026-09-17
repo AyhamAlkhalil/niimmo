@@ -8,6 +8,7 @@ import { CreateForderungModal } from "./CreateForderungModal";
 import { MietvertragOverviewTab } from "./mietvertrag-details/MietvertragOverviewTab";
 import { MietvertragDocumentsTab } from "./mietvertrag-details/MietvertragDocumentsTab";
 import { TerminationDialog } from "./termination/TerminationDialog";
+import { KuendigungsbestaetigungDialog } from "./termination/KuendigungsbestaetigungDialog";
 import { MahnungErstellungModal } from "./MahnungErstellungModal";
 import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
@@ -37,6 +38,7 @@ export default function MietvertragDetailsModal({
 
   const einheitData = fetchedEinheit || einheit;
   const [showVertragPdfModal, setShowVertragPdfModal] = useState(false);
+  const [showBestaetigung, setShowBestaetigung] = useState(false);
 
   // All editing state + mutations
   const mutations = useMietvertragMutations({ vertragId, vertrag, einheitData, mieter });
@@ -155,6 +157,7 @@ export default function MietvertragDetailsModal({
                 }}
                 onShowMahnung={() => mutations.setShowMahnungModal(true)}
                 onShowKuendigung={() => mutations.setShowTerminationDialog(true)}
+                onShowKuendigungsbestaetigung={() => setShowBestaetigung(true)}
                 onShowVertragPdf={() => setShowVertragPdfModal(true)}
                 allMietvertraege={allMietvertraege}
                 vertragId={vertragId}
@@ -193,6 +196,16 @@ export default function MietvertragDetailsModal({
           einheit={einheitData}
           immobilie={immobilie}
           onTerminationSuccess={mutations.handleTerminationSuccess}
+          onUploadErfolg={() => setShowBestaetigung(true)}
+        />
+
+        <KuendigungsbestaetigungDialog
+          isOpen={showBestaetigung}
+          onClose={() => setShowBestaetigung(false)}
+          vertragId={vertragId}
+          onGespeichert={() => {
+            queryClient.invalidateQueries({ queryKey: ['dokumente-detail', vertragId] });
+          }}
         />
 
         {/* Mietvertrag als PDF erzeugen */}

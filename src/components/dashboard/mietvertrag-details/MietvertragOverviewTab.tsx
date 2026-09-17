@@ -35,6 +35,7 @@ interface MietvertragOverviewTabProps {
   onContractUpdate?: () => void;
   onShowMahnung?: () => void;
   onShowKuendigung?: () => void;
+  onShowKuendigungsbestaetigung?: () => void;
   onShowVertragPdf?: () => void;
   formatDatum: (datum: string) => string;
   formatBetrag: (betrag: number) => string;
@@ -72,6 +73,7 @@ export function MietvertragOverviewTab({
   onContractUpdate,
   onShowMahnung,
   onShowKuendigung,
+  onShowKuendigungsbestaetigung,
   onShowVertragPdf,
   formatDatum,
   formatBetrag
@@ -95,6 +97,7 @@ export function MietvertragOverviewTab({
         formatBetrag={formatBetrag}
         onShowMahnung={onShowMahnung}
         onShowKuendigung={onShowKuendigung}
+        onShowKuendigungsbestaetigung={onShowKuendigungsbestaetigung}
         onShowVertragPdf={onShowVertragPdf}
       />
 

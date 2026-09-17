@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Copy, Check, Mail, Phone, Building2, Square, XCircle, AlertTriangle, RotateCcw, FileText } from "lucide-react";
+import { AlertCircle, Copy, Check, Mail, Phone, Building2, Square, XCircle, AlertTriangle, RotateCcw, FileText, FileCheck } from "lucide-react";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { MahnstufeIndicator } from "../MahnstufeIndicator";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ interface MietvertragContractInfoProps {
   formatBetrag: (betrag: number) => string;
   onShowMahnung?: () => void;
   onShowKuendigung?: () => void;
+  onShowKuendigungsbestaetigung?: () => void;
   onShowVertragPdf?: () => void;
 }
 
@@ -46,6 +47,7 @@ export function MietvertragContractInfo({
   formatBetrag,
   onShowMahnung,
   onShowKuendigung,
+  onShowKuendigungsbestaetigung,
   onShowVertragPdf,
 }: MietvertragContractInfoProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -585,6 +587,21 @@ export function MietvertragContractInfo({
                     Kündigung
                   </Button>
                 )}
+              </div>
+            )}
+
+            {/* Bestätigung einer Mieterkündigung — auch nachträglich */}
+            {vertrag.status === 'gekuendigt' && onShowKuendigungsbestaetigung && !isGlobalEditMode && (
+              <div className="pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onShowKuendigungsbestaetigung}
+                  className="h-8 text-xs w-full gap-1.5"
+                >
+                  <FileCheck className="h-3.5 w-3.5" />
+                  Kündigungsbestätigung
+                </Button>
               </div>
             )}
           </div>

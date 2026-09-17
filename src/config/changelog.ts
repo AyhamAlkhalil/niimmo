@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.4.5",
+    datum: "2026-09-16",
+    aenderungen: [
+      { art: "neu", titel: "Kündigungsbestätigung als PDF erstellen und per E-Mail senden" },
+    ],
+  },
+  {
     version: "1.4.4",
     datum: "2026-09-11",
     aenderungen: [

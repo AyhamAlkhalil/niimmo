@@ -18,6 +18,7 @@ const ACTION_LABELS: Record<string, string> = {
   mietvertrag_geaendert: "Vertrag geändert",
   mieterhoehung_dokumentiert: "Mieterhöhung",
   kuendigung_durchgefuehrt: "Kündigung",
+  kuendigungsbestaetigung_versendet: "Kündigungsbestätigung",
   kaution_geaendert: "Kaution geändert",
   zahlung_zugeordnet: "Zahlung zugeordnet",
   zahlung_kategorie_geaendert: "Kategorie geändert",
@@ -119,6 +120,13 @@ function buildSummary(action: string, details: Record<string, unknown> | null): 
       if (mieter) return `${mieter} — Vertrag gekündigt`;
       if (datum) return `Kündigung zum ${datum}`;
       return "Vertrag gekündigt";
+    }
+
+    case "kuendigungsbestaetigung_versendet": {
+      const anzahl = Number(details.empfaenger);
+      if (anzahl === 1) return "Kündigungsbestätigung an 1 Adresse versendet";
+      if (anzahl > 1) return `Kündigungsbestätigung an ${anzahl} Adressen versendet`;
+      return "Kündigungsbestätigung versendet";
     }
 
     case "zahlung_zugeordnet": {

@@ -137,7 +137,7 @@ eine austauschbare „Modern-SaaS"-Optik, während die Eigenschaften eines Fachp
 **RLS ist die Sicherheitsgrenze, nicht das Frontend.** Eine Berechtigung, die im UI über `isAdmin` ausgeblendet
 wird, muss zusätzlich in RLS oder in der Edge Function durchgesetzt sein — sonst ist sie Kosmetik.
 
-- Alle 18 Edge Functions laufen mit `verify_jwt = false` und **müssen selbst prüfen**. Jede schreibende Function
+- Alle 19 Edge Functions laufen mit `verify_jwt = false` und **müssen selbst prüfen**. Jede schreibende Function
   wertet nach `auth.getUser()` zusätzlich `is_admin` aus und antwortet sonst mit 403.
 - **Der Service-Role-Client wird erst nach bestandener Prüfung erzeugt** — nie oberhalb davon.
 - **Nach `auth.getUser()` immer beides prüfen**: `authError` **und** `!userData?.user?.id`.

@@ -33,6 +33,8 @@ interface TerminationDialogProps {
     adresse: string;
   };
   onTerminationSuccess?: () => void;
+  /** Nach dem Upload einer Mieterkündigung — öffnet die Kündigungsbestätigung. */
+  onUploadErfolg?: () => void;
 }
 
 interface MieterInfo {
@@ -47,7 +49,8 @@ export const TerminationDialog = ({
   vertragId,
   einheit,
   immobilie,
-  onTerminationSuccess
+  onTerminationSuccess,
+  onUploadErfolg
 }: TerminationDialogProps) => {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<string>("manual");
@@ -384,6 +387,8 @@ export const TerminationDialog = ({
       toast({ title: "Erfolg", description: "Kündigung eingereicht und Dokument hochgeladen." });
       onClose();
       onTerminationSuccess?.();
+      // Auf eine Mieterkündigung folgt die schriftliche Bestätigung (seit 16.09.2026).
+      onUploadErfolg?.();
     } catch (error) {
       toast({
         title: "Fehler",
@@ -675,6 +680,9 @@ export const TerminationDialog = ({
                         <p className="font-medium text-destructive">Dokumenten-Upload</p>
                         <p className="text-sm text-muted-foreground">
                           Laden Sie das offizielle Kündigungsschreiben hoch. Unterstützt: PDF, JPG, PNG (max. 10MB)
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Danach öffnet sich die Kündigungsbestätigung für den Mieter.
                         </p>
                       </div>
                     </div>

@@ -1,7 +1,7 @@
 # Funktionsinventar
 
 Alles, was die Anwendung kann — erhoben am Code, Stand 06.09.2026 (Commit `ae72395`),
-fortgeschrieben am 11.09.2026. **311 genutzte Funktionen** in 14 Fachbereichen, dazu 69 nicht
+fortgeschrieben am 16.09.2026. **312 genutzte Funktionen** in 14 Fachbereichen, dazu 69 nicht
 erreichbare (siehe Ende).
 
 Reife: `fertig` = im Betrieb tragfähig · `teilweise` = nutzbar, mit bekannter Lücke · `prototyp` = nicht abgenommen.
@@ -191,6 +191,7 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Mahnung herunterladen ohne zu versenden** | Speichert die aktuelle Vorschau als lokale Datei; die Mahnstufe bleibt dabei unveraendert. | `src/components/dashboard/MahnungErstellungModal.tsx:321 handl…` | fertig |
 | **Kuendigung manuell erfassen und Kuendigungsschreiben erzeugen** | Erfasst Kuendigungsart, Kuendigungs- und Auszugsdatum, Grund und Bemerkungen, erzeugt das PDF, legt es… | `src/components/dashboard/termination/TerminationDialog.tsx:24…` | teilweise |
 | **Vorhandenes Kuendigungsschreiben hochladen** | Nimmt PDF/JPG/PNG bis 10 MB entgegen, setzt `status`, `kuendigungsdatum` und `ende_datum` und legt eine… | `src/components/dashboard/termination/TerminationDialog.tsx:32…` | fertig |
+| **Kuendigungsbestaetigung erstellen und versenden** | Oeffnet sich nach dem Upload einer Mieterkuendigung und spaeter ueber den Knopf am gekuendigten Vertrag: Anrede je Mieter, Eingangsdaten, Vertragsende aus `getVertragsende()`, Widerspruch nach § 545 BGB, PDF-Vorschau; speichert nach `kuendigungen/<vertragId>/` mit `dokumente`-Zeile und versendet ueber `send-kuendigungsbestaetigung` (Empfaenger nur aus `hauptmail`/`weitere_mails`, Postfach `KUENDIGUNG_SMTP_*`, sonst `UEBERGABE_SMTP_*`). | `src/components/dashboard/termination/KuendigungsbestaetigungDialog.tsx` | teilweise |
 | **Kuendigungsschreiben-Generator fuer drei Kuendigungsarten** | Baut je nach ordentlich, ausserordentlich fristlos oder ausserordentlich mit Frist einen anderen… | `src/utils/kuendigungPdfGenerator.ts:55 generateKuendigungPdf` | fertig |
 | **Kuendigung ueber die Aussenschnittstelle des Telegram-Assistenten** | Setzt `status`, `kuendigungsdatum`, `ende_datum` und zusaetzlich `kuendigungsgrund` — eine Spalte, die… | `supabase/functions/agent-api/index.ts:507 (Werkzeug) und 813 …` | prototyp |
 | **Mahnstufe ueber die Aussenschnittstelle zuruecksetzen** | Liest die aktuelle Stufe, verweigert jede Erhoehung, schreibt den neuen Wert und bestaetigt ihn durch… | `supabase/functions/agent-api/index.ts:580 (Werkzeug) und 891 …` | fertig |
