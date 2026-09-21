@@ -144,6 +144,68 @@ function mailHtml(p: { anrede: string; objekt: string; lage: string; ende: strin
 </html>`;
 }
 
+// ── Mail-Protokoll (21.09.2026) ───────────────────────────────────────────────
+// Betreff und Text entstanden bisher nur hier und waren nach dem Versand weg.
+// Jede Mail wird deshalb vor dem Versand gespeichert und danach auf `gesendet`
+// oder `fehler` gesetzt. Scheitert das Protokollieren, wird trotzdem versendet:
+// ein fehlendes Protokoll ist ärgerlich, eine nicht versendete Mail schlimmer.
+async function mailVormerken(
+  client: ReturnType<typeof createClient>,
+  eintrag: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    const { data, error } = await client.from('mails').insert(eintrag).select('id').single();
+    if (error) {
+      console.error('[mails] Vormerken fehlgeschlagen:', error.message);
+      return null;
+    }
+    return (data as { id?: string } | null)?.id ?? null;
+  } catch (fehler) {
+    console.error('[mails] Vormerken fehlgeschlagen:', fehler instanceof Error ? fehler.message : 'unbekannt');
+    return null;
+  }
+}
+
+async function mailAbschliessen(
+  client: ReturnType<typeof createClient>,
+  id: string | null,
+  status: 'gesendet' | 'fehler',
+  fehlertext?: string,
+): Promise<void> {
+  if (!id) return;
+  try {
+    await client
+      .from('mails')
+      .update({
+        status,
+        gesendet_am: status === 'gesendet' ? new Date().toISOString() : null,
+        fehler: fehlertext ?? null,
+      })
+      .eq('id', id);
+  } catch (fehler) {
+    console.error('[mails] Abschluss fehlgeschlagen:', fehler instanceof Error ? fehler.message : 'unbekannt');
+  }
+}
+
+/** Grobe Klartextfassung des HTML-Briefs, damit das Protokoll lesbar ist. */
+function htmlZuText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -273,25 +335,55 @@ serve(async (req: Request) => {
       auth: { user: postfach.user, pass: postfach.pass },
     });
 
-    await transporter.sendMail({
-      from: `"${postfach.fromName}" <${postfach.fromEmail}>`,
-      to: empfaenger.join(', '),
-      subject: `Bestätigung Ihrer Kündigung${lage ? ` – ${lage}` : ''}`,
-      text:
+    const betreff = `Bestätigung Ihrer Kündigung${lage ? ` – ${lage}` : ''}`;
+    const klartext =
         `${anrede}\n\n` +
         `anbei erhalten Sie unsere schriftliche Bestätigung Ihrer Kündigung. ` +
         `Das Mietverhältnis über ${objekt}${lage ? ` ${lage}` : ''} endet zum ${ende}.\n\n` +
         `Das Bestätigungsschreiben mit allen Hinweisen zur Rückgabe ist dieser E-Mail als PDF beigefügt. ` +
         `Für die Übergabe vereinbaren wir rechtzeitig vorher einen Termin mit Ihnen.\n\n` +
         `Mit freundlichen Grüßen\n${COMPANY.name}\n\n` +
-        `${COMPANY.strasse}, ${COMPANY.plzOrt} · Tel. ${COMPANY.telefon} · ${COMPANY.email}\n`,
-      html: mailHtml({ anrede, objekt, lage, ende }),
-      attachments: [{
-        filename: `Kuendigungsbestaetigung_${ende.replace(/\./g, '-')}.pdf`,
-        content: pdf,
-        contentType: 'application/pdf',
-      }],
+        `${COMPANY.strasse}, ${COMPANY.plzOrt} · Tel. ${COMPANY.telefon} · ${COMPANY.email}\n`;
+    const htmlBody = mailHtml({ anrede, objekt, lage, ende });
+    const anhangName = `Kuendigungsbestaetigung_${ende.replace(/\./g, '-')}.pdf`;
+
+    const mailId = await mailVormerken(supabase, {
+      typ: 'kuendigungsbestaetigung',
+      status: 'entwurf',
+      betreff,
+      text: klartext,
+      html: htmlBody,
+      empfaenger,
+      anhang_pfad: pdfPath,
+      anhang_name: anhangName,
+      mietvertrag_id: mietvertragId,
+      erstellt_von: userData.user.id,
+      nutzlast: { vertragsende: ende },
     });
+
+    try {
+      await transporter.sendMail({
+        from: `"${postfach.fromName}" <${postfach.fromEmail}>`,
+        to: empfaenger.join(', '),
+        subject: betreff,
+        text: klartext,
+        html: htmlBody,
+        attachments: [{
+          filename: anhangName,
+          content: pdf,
+          contentType: 'application/pdf',
+        }],
+      });
+    } catch (versandFehler) {
+      await mailAbschliessen(
+        supabase,
+        mailId,
+        'fehler',
+        versandFehler instanceof Error ? versandFehler.message : 'Unbekannter Fehler',
+      );
+      throw versandFehler;
+    }
+    await mailAbschliessen(supabase, mailId, 'gesendet');
     transporter.close();
 
     // Keine Namen oder Adressen ins Protokoll — nur IDs und Anzahl.

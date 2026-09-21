@@ -13,6 +13,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_logs: {
@@ -1146,6 +1171,81 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      mails: {
+        Row: {
+          anhang_name: string | null
+          anhang_pfad: string | null
+          betreff: string
+          empfaenger: string[]
+          erstellt_am: string
+          erstellt_von: string | null
+          fehler: string | null
+          gesendet_am: string | null
+          html: string | null
+          id: string
+          immobilie_id: string | null
+          kopie: string[]
+          mietvertrag_id: string | null
+          nutzlast: Json | null
+          status: string
+          text: string
+          typ: string
+        }
+        Insert: {
+          anhang_name?: string | null
+          anhang_pfad?: string | null
+          betreff: string
+          empfaenger?: string[]
+          erstellt_am?: string
+          erstellt_von?: string | null
+          fehler?: string | null
+          gesendet_am?: string | null
+          html?: string | null
+          id?: string
+          immobilie_id?: string | null
+          kopie?: string[]
+          mietvertrag_id?: string | null
+          nutzlast?: Json | null
+          status?: string
+          text?: string
+          typ: string
+        }
+        Update: {
+          anhang_name?: string | null
+          anhang_pfad?: string | null
+          betreff?: string
+          empfaenger?: string[]
+          erstellt_am?: string
+          erstellt_von?: string | null
+          fehler?: string | null
+          gesendet_am?: string | null
+          html?: string | null
+          id?: string
+          immobilie_id?: string | null
+          kopie?: string[]
+          mietvertrag_id?: string | null
+          nutzlast?: Json | null
+          status?: string
+          text?: string
+          typ?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mails_immobilie_id_fkey"
+            columns: ["immobilie_id"]
+            isOneToOne: false
+            referencedRelation: "immobilien"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mails_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       marktdaten: {
         Row: {
@@ -3100,6 +3200,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       anrede: ["Herr", "Frau", "Divers", "Firma"],

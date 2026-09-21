@@ -114,6 +114,68 @@ function generateEmailHtml(data: NebenkostenAbrechnungEmailRequest): string {
 </html>`;
 }
 
+// ── Mail-Protokoll (21.09.2026) ───────────────────────────────────────────────
+// Betreff und Text entstanden bisher nur hier und waren nach dem Versand weg.
+// Jede Mail wird deshalb vor dem Versand gespeichert und danach auf `gesendet`
+// oder `fehler` gesetzt. Scheitert das Protokollieren, wird trotzdem versendet:
+// ein fehlendes Protokoll ist ärgerlich, eine nicht versendete Mail schlimmer.
+async function mailVormerken(
+  client: ReturnType<typeof createClient>,
+  eintrag: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    const { data, error } = await client.from('mails').insert(eintrag).select('id').single();
+    if (error) {
+      console.error('[mails] Vormerken fehlgeschlagen:', error.message);
+      return null;
+    }
+    return (data as { id?: string } | null)?.id ?? null;
+  } catch (fehler) {
+    console.error('[mails] Vormerken fehlgeschlagen:', fehler instanceof Error ? fehler.message : 'unbekannt');
+    return null;
+  }
+}
+
+async function mailAbschliessen(
+  client: ReturnType<typeof createClient>,
+  id: string | null,
+  status: 'gesendet' | 'fehler',
+  fehlertext?: string,
+): Promise<void> {
+  if (!id) return;
+  try {
+    await client
+      .from('mails')
+      .update({
+        status,
+        gesendet_am: status === 'gesendet' ? new Date().toISOString() : null,
+        fehler: fehlertext ?? null,
+      })
+      .eq('id', id);
+  } catch (fehler) {
+    console.error('[mails] Abschluss fehlgeschlagen:', fehler instanceof Error ? fehler.message : 'unbekannt');
+  }
+}
+
+/** Grobe Klartextfassung des HTML-Briefs, damit das Protokoll lesbar ist. */
+function htmlZuText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -191,19 +253,58 @@ serve(async (req: Request) => {
     const safeName = data.recipientName.replace(/[^\wÄÖÜäöüß -]/g, '').replace(/\s+/g, '_');
     const filename = `Betriebskostenabrechnung_${data.abrechnungsjahr}_${safeName}.pdf`;
 
-    await transporter.sendMail({
-      from: `"${COMPANY.name}" <${smtpFrom}>`,
-      to: empfaenger.join(', '),
-      subject: `Betriebskostenabrechnung ${data.abrechnungsjahr} – ${data.einheitBezeichnung}`,
-      html: generateEmailHtml(data),
-      attachments: [
-        {
-          filename,
-          content: pdfBuffer,
-          contentType: 'application/pdf',
-        },
-      ],
+    const betreff = `Betriebskostenabrechnung ${data.abrechnungsjahr} – ${data.einheitBezeichnung}`;
+    const htmlBody = generateEmailHtml(data);
+
+    // Die Abrechnung entsteht im Browser und lag bisher nirgends. Fuer das
+    // Protokoll wandert sie in den Dokumenten-Bucket; scheitert das, wird
+    // trotzdem versendet und nur der Anhangspfad fehlt.
+    let anhangPfad: string | null = `mails/${crypto.randomUUID()}.pdf`;
+    const { error: ablageFehler } = await serviceClient.storage
+      .from('dokumente')
+      .upload(anhangPfad, pdfBuffer, { contentType: 'application/pdf', upsert: false });
+    if (ablageFehler) {
+      console.error('[mails] Anhang konnte nicht abgelegt werden:', ablageFehler.message);
+      anhangPfad = null;
+    }
+
+    const mailId = await mailVormerken(serviceClient, {
+      typ: 'nebenkostenabrechnung',
+      status: 'entwurf',
+      betreff,
+      text: htmlZuText(htmlBody),
+      html: htmlBody,
+      empfaenger,
+      anhang_pfad: anhangPfad,
+      anhang_name: filename,
+      erstellt_von: userData.user.id,
+      nutzlast: { abrechnungsjahr: data.abrechnungsjahr, einheit: data.einheitBezeichnung },
     });
+
+    try {
+      await transporter.sendMail({
+        from: `"${COMPANY.name}" <${smtpFrom}>`,
+        to: empfaenger.join(', '),
+        subject: betreff,
+        html: htmlBody,
+        attachments: [
+          {
+            filename,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          },
+        ],
+      });
+    } catch (versandFehler) {
+      await mailAbschliessen(
+        serviceClient,
+        mailId,
+        'fehler',
+        versandFehler instanceof Error ? versandFehler.message : 'Unbekannter Fehler',
+      );
+      throw versandFehler;
+    }
+    await mailAbschliessen(serviceClient, mailId, 'gesendet');
 
     return json({ success: true, recipients: empfaenger }, 200, corsHeaders);
   } catch (error: unknown) {

@@ -122,6 +122,68 @@ function generateMahnungHtml(data: MahnungEmailRequest): string {
 </html>`;
 }
 
+// ── Mail-Protokoll (21.09.2026) ───────────────────────────────────────────────
+// Betreff und Text entstanden bisher nur hier und waren nach dem Versand weg.
+// Jede Mail wird deshalb vor dem Versand gespeichert und danach auf `gesendet`
+// oder `fehler` gesetzt. Scheitert das Protokollieren, wird trotzdem versendet:
+// ein fehlendes Protokoll ist ärgerlich, eine nicht versendete Mail schlimmer.
+async function mailVormerken(
+  client: ReturnType<typeof createClient>,
+  eintrag: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    const { data, error } = await client.from('mails').insert(eintrag).select('id').single();
+    if (error) {
+      console.error('[mails] Vormerken fehlgeschlagen:', error.message);
+      return null;
+    }
+    return (data as { id?: string } | null)?.id ?? null;
+  } catch (fehler) {
+    console.error('[mails] Vormerken fehlgeschlagen:', fehler instanceof Error ? fehler.message : 'unbekannt');
+    return null;
+  }
+}
+
+async function mailAbschliessen(
+  client: ReturnType<typeof createClient>,
+  id: string | null,
+  status: 'gesendet' | 'fehler',
+  fehlertext?: string,
+): Promise<void> {
+  if (!id) return;
+  try {
+    await client
+      .from('mails')
+      .update({
+        status,
+        gesendet_am: status === 'gesendet' ? new Date().toISOString() : null,
+        fehler: fehlertext ?? null,
+      })
+      .eq('id', id);
+  } catch (fehler) {
+    console.error('[mails] Abschluss fehlgeschlagen:', fehler instanceof Error ? fehler.message : 'unbekannt');
+  }
+}
+
+/** Grobe Klartextfassung des HTML-Briefs, damit das Protokoll lesbar ist. */
+function htmlZuText(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -277,7 +339,33 @@ serve(async (req) => {
       }];
     }
 
-    await transporter.sendMail(mailOptions);
+    const mailId = await mailVormerken(supabase, {
+      typ: 'mahnung',
+      status: 'entwurf',
+      betreff,
+      text: htmlZuText(htmlBody),
+      html: htmlBody,
+      empfaenger: [data.recipientEmail],
+      kopie: data.ccEmails ?? [],
+      anhang_pfad: data.pdfPath || null,
+      anhang_name: pdfBuffer ? pdfFilename : null,
+      mietvertrag_id: data.mietvertragId,
+      erstellt_von: userData.user.id,
+      nutzlast: { mahnstufe: data.mahnstufe },
+    });
+
+    try {
+      await transporter.sendMail(mailOptions);
+    } catch (versandFehler) {
+      await mailAbschliessen(
+        supabase,
+        mailId,
+        'fehler',
+        versandFehler instanceof Error ? versandFehler.message : 'Unbekannter Fehler',
+      );
+      throw versandFehler;
+    }
+    await mailAbschliessen(supabase, mailId, 'gesendet');
 
     // Erst nach erfolgreichem Versand: Die neue Mahnstufe kam frueher aus dem
     // Request -- damit konnte jeder Aufrufer jeden Vertrag unmittelbar auf

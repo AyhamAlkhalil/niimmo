@@ -22,6 +22,7 @@ import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
 import { AufgabenBoard } from "@/components/aufgaben/AufgabenBoard";
+import { MailProtokoll } from "@/components/dashboard/MailProtokoll";
 import { NeuerMietvertragDialog } from "@/components/dashboard/NeuerMietvertragDialog";
 import VermieterStammdatenDialog from "@/components/dashboard/VermieterStammdatenDialog";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -29,7 +30,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
 import { useState, useMemo, useCallback } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Building } from "lucide-react";
+import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Mail, Building } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
@@ -73,6 +74,7 @@ const Index = () => {
   const [showDevLog, setShowDevLog] = useState<boolean>(false);
   const [showAgentLogs, setShowAgentLogs] = useState<boolean>(false);
   const [showBlacklist, setShowBlacklist] = useState<boolean>(false);
+  const [showMails, setShowMails] = useState<boolean>(false);
   const [showNeuerMietvertrag, setShowNeuerMietvertrag] = useState<boolean>(false);
   const [showVermieter, setShowVermieter] = useState<boolean>(false);
   const [rueckstaendeOpen, setRueckstaendeOpen] = useState<boolean>(false);
@@ -334,6 +336,11 @@ const Index = () => {
     return <AgentLogViewer onBack={() => setShowAgentLogs(false)} />;
   }
 
+  // Mails ansehen (nur für Admins)
+  if (showMails && isAdmin) {
+    return <MailProtokoll onBack={() => setShowMails(false)} />;
+  }
+
   // Aufgaben-Board anzeigen (nur für Admins)
   if (showAufgabenBoard && isAdmin) {
     return <AufgabenBoard
@@ -501,6 +508,15 @@ const Index = () => {
                   >
                     <ListChecks className="h-4 w-4 mr-1.5 shrink-0" />
                     <span className="truncate">Aufgaben</span>
+                  </Button>
+                  <Button
+                    onClick={() => setShowMails(true)}
+                    variant="ghost"
+                    size="sm"
+                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
+                  >
+                    <Mail className="h-4 w-4 mr-1.5 shrink-0" />
+                    <span className="truncate">Mails</span>
                   </Button>
                   <Button
                     onClick={() => setShowAgentLogs(true)}
