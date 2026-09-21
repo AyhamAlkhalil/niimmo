@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.4.6",
+    datum: "2026-09-21",
+    aenderungen: [
+      { art: "neu", titel: "Knopf „Mails“: alle versendeten Mails mit vollem Inhalt nachlesen" },
+    ],
+  },
+  {
     version: "1.4.5",
     datum: "2026-09-16",
     aenderungen: [
