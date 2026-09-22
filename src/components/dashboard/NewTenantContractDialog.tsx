@@ -278,23 +278,39 @@ export const NewTenantContractDialog = ({
       // Extract text from PDF using pdfjs
       let textContent = '';
       let base64 = '';
+      // Scheitern beide Wege, braucht die Meldung den echten Grund - frueher sah
+      // ein kaputtes PDF.js wie ein inhaltsloses Dokument aus (22.09.2026).
+      let leseFehler = '';
       try {
         textContent = await OCRProcessingService.extractTextFromPDF(file);
-      } catch (e) {
+      } catch (e: any) {
         // Kein Textlayer im PDF - unten wird die erste Seite als Bild gerendert
-        console.warn('Textextraktion aus dem PDF fehlgeschlagen:', e);
+        leseFehler = e?.message || String(e);
       }
 
       // If no text extracted, render first page as image
       if (!textContent || textContent.trim().length < 30) {
         try {
           base64 = await OCRProcessingService.renderPdfFirstPageToBase64(file);
-        } catch (e) {
-          console.warn('Erste PDF-Seite konnte nicht gerendert werden:', e);
+        } catch (e: any) {
+          leseFehler = e?.message || String(e);
         }
       }
 
       const effectiveFileType = (!textContent || textContent.trim().length < 30) ? 'image/jpeg' : file.type;
+
+      if ((!textContent || textContent.trim().length < 30) && !base64) {
+        toast({
+          title: "PDF konnte nicht gelesen werden",
+          description: leseFehler
+            ? `Das Dokument liess sich nicht oeffnen (${leseFehler}). Bitte fuelle die Felder manuell aus.`
+            : "Das Dokument enthaelt weder Text noch eine darstellbare Seite. Bitte fuelle die Felder manuell aus.",
+          variant: "destructive"
+        });
+        setInputMode('manual');
+        setStep('tenant');
+        return;
+      }
 
       // Call Supabase Edge Function
       const { data: result, error } = await supabase.functions.invoke('process-contract-ocr', {

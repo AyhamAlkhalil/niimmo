@@ -1,3 +1,5 @@
+import { ladePdfjs } from '@/utils/pdfjs';
+
 interface OCRProcessingResult {
   success: boolean;
   extractedData?: {
@@ -72,112 +74,59 @@ export class OCRProcessingService {
   }
 
   static async extractTextFromPDF(file: File): Promise<string> {
-    try {
-      // Dynamically import PDF.js (prefer legacy build for better bundler compatibility)
-      let pdfjsLib: any;
-      try {
-        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
-      } catch (e) {
-        pdfjsLib = await import('pdfjs-dist/build/pdf');
-      }
-      
-      // Set up worker using bundled version
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/legacy/build/pdf.worker.min.js',
-          import.meta.url
-        ).toString();
-      }
+    const pdfjsLib = await ladePdfjs();
 
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      
-      let fullText = '';
-      
-      // Extract text from each page (limit to first 5 pages for performance)
-      const numPages = Math.min(pdf.numPages, 5);
-      
-      for (let i = 1; i <= numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items
-          .map((item: any) => item.str)
-          .join(' ');
-        fullText += `\n\nSeite ${i}:\n${pageText}`;
-      }
-      
-      return fullText.trim();
-    } catch (error) {
-      return '';
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let fullText = '';
+
+    // Extract text from each page (limit to first 5 pages for performance)
+    const numPages = Math.min(pdf.numPages, 5);
+
+    for (let i = 1; i <= numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      fullText += `\n\nSeite ${i}:\n${pageText}`;
     }
+
+    return fullText.trim();
   }
 
   static async renderPdfFirstPageToBase64(file: File): Promise<string> {
-    try {
-      let pdfjsLib: any;
-      try {
-        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
-      } catch (_) {
-        pdfjsLib = await import('pdfjs-dist/build/pdf');
-      }
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/legacy/build/pdf.worker.min.js',
-          import.meta.url
-        ).toString();
-      }
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      
-      // Render first page(s) as JPEG with lower scale for smaller payload
-      const pagesToRender = Math.min(pdf.numPages, 2);
-      const allBase64Parts: string[] = [];
-      
-      for (let i = 1; i <= pagesToRender; i++) {
-        const page = await pdf.getPage(i);
-        // Use scale 1.0 to keep size manageable (typically < 500KB per page as JPEG)
-        const viewport = page.getViewport({ scale: 1.0 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const context = canvas.getContext('2d');
-        if (!context) continue;
-        await page.render({ canvasContext: context, viewport }).promise;
-        // Use JPEG at 70% quality - much smaller than PNG
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-        const commaIdx = dataUrl.indexOf(',');
-        const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-        if (b64.length > 100) { // sanity check
-          allBase64Parts.push(b64);
-        }
-        // Clean up
-        canvas.width = 0;
-        canvas.height = 0;
-      }
-      
-      // Return just the first page for now (multi-page would need array support)
-      const result = allBase64Parts[0] || '';
+    const pdfjsLib = await ladePdfjs();
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
-      // Reject if too large (> 4MB base64 ≈ 3MB image)
-      if (result.length > 4 * 1024 * 1024) {
-        // Re-render at even lower quality
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 0.75 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const context = canvas.getContext('2d');
-        if (!context) return '';
-        await page.render({ canvasContext: context, viewport }).promise;
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
-        const commaIdx = dataUrl.indexOf(',');
-        return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-      }
-      
-      return result;
-    } catch (e) {
-      return '';
+    // Erste Seite als JPEG rendern; Skalierung klein halten, damit die
+    // base64-Nutzlast fuer die Edge Function handhabbar bleibt.
+    const renderePdfSeite = async (scale: number, quality: number): Promise<string> => {
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const context = canvas.getContext('2d');
+      if (!context) return '';
+      await page.render({ canvasContext: context, viewport }).promise;
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      canvas.width = 0;
+      canvas.height = 0;
+      const commaIdx = dataUrl.indexOf(',');
+      return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
+    };
+
+    const result = await renderePdfSeite(1.0, 0.7);
+
+    // Zu gross (> 4MB base64 ~ 3MB Bild): noch einmal kleiner rendern.
+    if (result.length > 4 * 1024 * 1024) {
+      return renderePdfSeite(0.75, 0.5);
     }
+
+    return result;
   }
 
   private static fileToBase64(file: File): Promise<string> {

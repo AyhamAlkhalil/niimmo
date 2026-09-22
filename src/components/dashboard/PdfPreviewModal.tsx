@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { Loader2, ChevronLeft, ChevronRight, Download, X, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { ladePdfjs } from "@/utils/pdfjs";
 
 interface PdfPreviewModalProps {
   isOpen: boolean;
@@ -147,20 +148,8 @@ export const PdfPreviewModal = ({ isOpen, onClose, dokument }: PdfPreviewModalPr
       const url = URL.createObjectURL(blob);
       setPdfUrl(url);
 
-      // Load PDF with pdfjs-dist - Safari-compatible
-      let pdfjsLib: any;
-      try {
-        // Try modern build first
-        pdfjsLib = await import('pdfjs-dist/build/pdf');
-      } catch {
-        // Fallback to legacy build
-        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf');
-      }
-
-      // Use CDN worker for better Safari compatibility
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.js`;
-      }
+      // PDF.js samt mitgebautem Worker laden (siehe utils/pdfjs.ts)
+      const pdfjsLib = await ladePdfjs();
 
       const arrayBuffer = await blob.arrayBuffer();
       
