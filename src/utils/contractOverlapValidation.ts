@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { getVertragsende } from "@/utils/contractUtils";
 
 export interface ContractOverlapCheck {
   hasOverlap: boolean;
@@ -12,13 +13,73 @@ export interface ContractOverlapCheck {
   warningMessage?: string;
 }
 
+export interface BestehenderVertrag {
+  id: string;
+  start_datum: string;
+  ende_datum?: string | null;
+  kuendigungsdatum?: string | null;
+  status: string;
+  mieterNamen?: string;
+}
+
+/** Tagesgenauer Vergleich über den ISO-Tag, damit keine Zeitzone einen Tag verschiebt. */
+const tag = (datum: string): string => datum.slice(0, 10);
+
 /**
- * Checks if a contract's date range overlaps with existing contracts for the same unit
- * @param einheitId - The unit ID to check contracts for
- * @param newStartDate - The start date of the new/updated contract
- * @param newEndDate - The end date of the new/updated contract (optional)
- * @param excludeContractId - Contract ID to exclude from check (when updating existing contract)
- * @returns ContractOverlapCheck object with overlap information
+ * Welche bestehenden Verträge der Einheit überschneiden sich mit dem Zeitraum?
+ *
+ * Das Ende eines bestehenden Vertrags kommt seit dem 24.09.2026 aus getVertragsende()
+ * -- vorher entschied hier der Status, ob `kuendigungsdatum` oder `ende_datum` galt, und
+ * ein gekündigter Vertrag mit abweichendem `ende_datum` wurde anders bewertet als in der
+ * Vertragsansicht. Beide Enddaten meinen dasselbe Mietende.
+ *
+ * Eine Überschneidung ist nur ein Hinweis, kein Verbot: Beim Nachmieter oder bei
+ * einem vorgezogenen Einzug laufen zwei Verträge bewusst einige Tage parallel.
+ */
+export function findeUeberschneidungen(
+  neuerStart: string,
+  neuesEnde: string | null,
+  bestehende: BestehenderVertrag[]
+): ContractOverlapCheck["overlappingContracts"] {
+  const start = tag(neuerStart);
+  const ende = neuesEnde ? tag(neuesEnde) : null;
+
+  return bestehende
+    .filter((vertrag) => {
+      if (!vertrag.start_datum) return false;
+      const vertragStart = tag(vertrag.start_datum);
+      const vertragEnde = getVertragsende(vertrag);
+      const startetVorDessenEnde = !vertragEnde || start <= tag(vertragEnde);
+      const endetNachDessenStart = !ende || ende >= vertragStart;
+      return startetVorDessenEnde && endetNachDessenStart;
+    })
+    .map((vertrag) => ({
+      id: vertrag.id,
+      startDate: vertrag.start_datum,
+      endDate: getVertragsende(vertrag),
+      tenantNames: vertrag.mieterNamen || "Unbekannt",
+      status: vertrag.status,
+    }));
+}
+
+export function ueberschneidungsHinweis(
+  vertraege: ContractOverlapCheck["overlappingContracts"]
+): string | undefined {
+  if (vertraege.length === 0) return undefined;
+  if (vertraege.length > 1) {
+    return `Der Zeitraum überschneidet sich mit ${vertraege.length} bestehenden Verträgen dieser Einheit. Bitte prüfen Sie die Laufzeiten.`;
+  }
+  const [vertrag] = vertraege;
+  const bis = vertrag.endDate ? `bis ${formatDate(vertrag.endDate)}` : "unbefristet";
+  return (
+    `Der Zeitraum überschneidet sich mit einem bestehenden Vertrag dieser Einheit:\n` +
+    `${vertrag.tenantNames} (${vertrag.status}), ab ${formatDate(vertrag.startDate)} ${bis}.`
+  );
+}
+
+/**
+ * Prüft einen Zeitraum gegen die übrigen Verträge derselben Einheit.
+ * @param excludeContractId - der gerade bearbeitete Vertrag
  */
 export async function checkContractOverlap(
   einheitId: string,
@@ -26,160 +87,74 @@ export async function checkContractOverlap(
   newEndDate: string | null = null,
   excludeContractId: string | null = null
 ): Promise<ContractOverlapCheck> {
-  try {
-    // Fetch all contracts for this unit (active, terminated, and ended)
-    let query = supabase
-      .from('mietvertrag')
-      .select(`
-        id,
-        start_datum,
-        ende_datum,
-        kuendigungsdatum,
-        status,
-        mietvertrag_mieter (
-          mieter:mieter_id (
-            vorname,
-            nachname
-          )
+  let query = supabase
+    .from('mietvertrag')
+    .select(`
+      id,
+      start_datum,
+      ende_datum,
+      kuendigungsdatum,
+      status,
+      mietvertrag_mieter (
+        mieter:mieter_id (
+          vorname,
+          nachname
         )
-      `)
-      .eq('einheit_id', einheitId)
-      .in('status', ['aktiv', 'gekuendigt', 'beendet']);
+      )
+    `)
+    .eq('einheit_id', einheitId)
+    .in('status', ['aktiv', 'gekuendigt', 'beendet']);
 
-    // Exclude current contract if updating
-    if (excludeContractId) {
-      query = query.neq('id', excludeContractId);
-    }
+  if (excludeContractId) {
+    query = query.neq('id', excludeContractId);
+  }
 
-    const { data: existingContracts, error } = await query;
+  const { data, error } = await query;
 
-    if (error) {
-      // error is rethrown
-      throw error;
-    }
-
-    if (!existingContracts || existingContracts.length === 0) {
-      return { hasOverlap: false, overlappingContracts: [] };
-    }
-
-    const overlappingContracts: ContractOverlapCheck['overlappingContracts'] = [];
-    const newStart = new Date(newStartDate);
-    const newEnd = newEndDate ? new Date(newEndDate) : null;
-
-    for (const contract of existingContracts) {
-      const existingStart = new Date(contract.start_datum);
-      
-      // Determine the effective end date of existing contract
-      let existingEnd: Date | null = null;
-      if (contract.status === 'beendet' && contract.kuendigungsdatum) {
-        existingEnd = new Date(contract.kuendigungsdatum);
-      } else if (contract.status === 'gekuendigt' && contract.kuendigungsdatum) {
-        existingEnd = new Date(contract.kuendigungsdatum);
-      } else if (contract.ende_datum) {
-        existingEnd = new Date(contract.ende_datum);
-      }
-      // If no end date, the contract is ongoing (existingEnd = null)
-
-      // Check for overlap
-      const hasOverlap = checkDateRangeOverlap(
-        newStart,
-        newEnd,
-        existingStart,
-        existingEnd
-      );
-
-      if (hasOverlap) {
-        // Get tenant names
-        const tenantNames = contract.mietvertrag_mieter
-          ?.map((mm: any) => `${mm.mieter.vorname} ${mm.mieter.nachname}`)
-          .join(', ') || 'Unbekannt';
-
-        overlappingContracts.push({
-          id: contract.id,
-          startDate: contract.start_datum,
-          endDate: contract.ende_datum || contract.kuendigungsdatum,
-          tenantNames,
-          status: contract.status
-        });
-      }
-    }
-
-    const hasOverlap = overlappingContracts.length > 0;
-    let warningMessage: string | undefined;
-
-    if (hasOverlap) {
-      const contractCount = overlappingContracts.length;
-      const firstContract = overlappingContracts[0];
-      
-      warningMessage = `⚠️ Achtung: Das Startdatum überschneidet sich mit ${contractCount} bestehenden Vertrag${contractCount > 1 ? 'en' : ''} für diese Einheit.\n\n`;
-      
-      if (contractCount === 1) {
-        warningMessage += `Bestehender Vertrag mit ${firstContract.tenantNames} (${firstContract.status}):\n`;
-        warningMessage += `Von ${formatDate(firstContract.startDate)}`;
-        if (firstContract.endDate) {
-          warningMessage += ` bis ${formatDate(firstContract.endDate)}`;
-        } else {
-          warningMessage += ` (unbefristet)`;
-        }
-      } else {
-        warningMessage += `Mehrere Verträge überschneiden sich. Bitte prüfen Sie die Vertragslaufzeiten.`;
-      }
-    }
-
+  // Ein Fehler darf nicht wie „keine Überschneidung" aussehen.
+  if (error) {
     return {
-      hasOverlap,
-      overlappingContracts,
-      warningMessage
+      hasOverlap: true,
+      overlappingContracts: [],
+      warningMessage: "Die Überschneidungsprüfung ist fehlgeschlagen. Bitte prüfen Sie die Laufzeiten der übrigen Verträge dieser Einheit selbst.",
     };
-  } catch (error) {
-    return { hasOverlap: false, overlappingContracts: [] };
   }
+
+  const bestehende: BestehenderVertrag[] = (data || []).map((vertrag: any) => ({
+    id: vertrag.id,
+    start_datum: vertrag.start_datum,
+    ende_datum: vertrag.ende_datum,
+    kuendigungsdatum: vertrag.kuendigungsdatum,
+    status: vertrag.status,
+    mieterNamen: vertrag.mietvertrag_mieter
+      ?.map((mm: any) => `${mm.mieter?.vorname ?? ''} ${mm.mieter?.nachname ?? ''}`.trim())
+      .filter(Boolean)
+      .join(', '),
+  }));
+
+  const overlappingContracts = findeUeberschneidungen(newStartDate, newEndDate, bestehende);
+  return {
+    hasOverlap: overlappingContracts.length > 0,
+    overlappingContracts,
+    warningMessage: ueberschneidungsHinweis(overlappingContracts),
+  };
 }
 
 /**
- * Helper function to check if two date ranges overlap
+ * Hinweis mit Rückfrage. Liefert true, wenn gespeichert werden darf.
  */
-function checkDateRangeOverlap(
-  start1: Date,
-  end1: Date | null,
-  start2: Date,
-  end2: Date | null
-): boolean {
-  // If either range has no end date, it extends indefinitely
-  const range1EndIsInfinite = end1 === null;
-  const range2EndIsInfinite = end2 === null;
-
-  // Case 1: Both ranges are infinite
-  if (range1EndIsInfinite && range2EndIsInfinite) {
-    // They overlap if either starts before or at the same time as the other
-    return true;
-  }
-
-  // Case 2: First range is infinite
-  if (range1EndIsInfinite) {
-    // start1 must be before end2 to overlap
-    return start1 <= (end2 as Date);
-  }
-
-  // Case 3: Second range is infinite
-  if (range2EndIsInfinite) {
-    // start2 must be before end1 to overlap
-    return start2 <= (end1 as Date);
-  }
-
-  // Case 4: Both ranges have end dates
-  // Ranges overlap if: start1 <= end2 && end1 >= start2
-  return start1 <= (end2 as Date) && (end1 as Date) >= start2;
+export async function bestaetigeUeberschneidung(
+  einheitId: string,
+  start: string,
+  ende: string | null,
+  excludeContractId: string | null = null
+): Promise<boolean> {
+  const pruefung = await checkContractOverlap(einheitId, start, ende, excludeContractId);
+  if (!pruefung.hasOverlap) return true;
+  return window.confirm(`${pruefung.warningMessage}\n\nTrotzdem speichern?`);
 }
 
-/**
- * Helper function to format date for display
- */
 function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  });
+  const [jahr, monat, tagImMonat] = tag(dateString).split('-');
+  return `${tagImMonat}.${monat}.${jahr}`;
 }

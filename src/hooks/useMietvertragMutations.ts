@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { format } from "date-fns";
+import { getVertragsende } from "@/utils/contractUtils";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -138,12 +139,9 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           }
         }
         if (vertrag?.einheit_id && vertrag.start_datum) {
-          const { checkContractOverlap } = await import("@/utils/contractOverlapValidation");
-          const overlapCheck = await checkContractOverlap(vertrag.einheit_id, vertrag.start_datum, newEndForDb, vertragId);
-          if (overlapCheck.hasOverlap) {
-            toast({ title: "Überschneidung erkannt", description: overlapCheck.warningMessage || "Der gewählte Zeitraum überschneidet sich mit einem bestehenden Vertrag.", variant: "destructive" });
-            return;
-          }
+          const { bestaetigeUeberschneidung } = await import("@/utils/contractOverlapValidation");
+          const ende = getVertragsende({ ende_datum: newEndForDb, kuendigungsdatum: vertrag.kuendigungsdatum });
+          if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, vertrag.start_datum, ende, vertragId))) return;
         }
         const isPast = !!newEndForDb && new Date(newEndForDb) < new Date();
         const { error } = await supabase.from('mietvertrag').update({ ende_datum: newEndForDb, ...(isPast ? { status: 'beendet' } : {}) }).eq('id', vertragId);
@@ -161,12 +159,8 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           toast({ title: "Fehler", description: "Einheit-ID nicht gefunden.", variant: "destructive" });
           return;
         }
-        const { checkContractOverlap } = await import('@/utils/contractOverlapValidation');
-        const overlapCheck = await checkContractOverlap(vertrag.einheit_id, value, vertrag.ende_datum, vertragId);
-        if (overlapCheck.hasOverlap) {
-          toast({ title: 'Überschneidung erkannt', description: overlapCheck.warningMessage || 'Startdatum überschneidet sich mit einem bestehenden Vertrag.', variant: 'destructive' });
-          return;
-        }
+        const { bestaetigeUeberschneidung } = await import('@/utils/contractOverlapValidation');
+        if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, value, getVertragsende(vertrag), vertragId))) return;
         const { error } = await supabase.from('mietvertrag').update({ start_datum: value }).eq('id', vertragId);
         if (error) throw error;
         toast({ title: "✅ Startdatum aktualisiert", description: "Startdatum wurde erfolgreich aktualisiert." });
@@ -379,18 +373,15 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       }
 
       // Overlap check only if dates actually changed
-      const originalStartDatum = vertrag?.start_datum || '';
-      const originalEndDatum = vertrag?.ende_datum || '';
-      const startDatumChanged = startForDb !== originalStartDatum;
-      const endDatumChanged = endForDb !== originalEndDatum;
+      // Beide Seiten gleich normalisieren: Ein leeres Ende ist null, nicht '' -- sonst gilt bei
+      // jedem unbefristeten Vertrag das Ende als geändert und die Prüfung läuft bei jedem Speichern.
+      const startDatumChanged = startForDb !== (vertrag?.start_datum || null);
+      const endDatumChanged = endForDb !== (vertrag?.ende_datum || null);
 
       if (vertrag?.einheit_id && startForDb && (startDatumChanged || endDatumChanged)) {
-        const { checkContractOverlap } = await import("@/utils/contractOverlapValidation");
-        const overlapCheck = await checkContractOverlap(vertrag.einheit_id, startForDb, endForDb, vertragId);
-        if (overlapCheck.hasOverlap) {
-          toast({ title: "Überschneidung erkannt", description: overlapCheck.warningMessage || "Zeitraum überschneidet sich mit einem bestehenden Vertrag.", variant: "destructive" });
-          return;
-        }
+        const { bestaetigeUeberschneidung } = await import("@/utils/contractOverlapValidation");
+        const ende = getVertragsende({ ende_datum: endForDb, kuendigungsdatum: vertrag.kuendigungsdatum });
+        if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, startForDb, ende, vertragId))) return;
       }
 
       const mietvertragFields = [
