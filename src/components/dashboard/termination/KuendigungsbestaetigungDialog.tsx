@@ -33,6 +33,8 @@ interface KuendigungsbestaetigungDialogProps {
   vertragId: string;
   /** Nach Speichern, damit die Dokumentenliste neu lädt. */
   onGespeichert?: () => void;
+  /** Angaben aus der eben erfassten Mieterkündigung. */
+  vorbelegung?: { schreibenVom: string | null; eingangAm: string | null } | null;
 }
 
 interface MieterZeile {
@@ -123,6 +125,7 @@ export const KuendigungsbestaetigungDialog = ({
   onClose,
   vertragId,
   onGespeichert,
+  vorbelegung,
 }: KuendigungsbestaetigungDialogProps) => {
   const { toast } = useToast();
   const { logActivity } = useActivityLog();
@@ -134,6 +137,9 @@ export const KuendigungsbestaetigungDialog = ({
     // Direkt nach dem Upload geöffnet — das Vertragsende muss frisch sein.
     staleTime: 0,
     gcTime: 0,
+    // Ein Neuladen bei Fensterfokus würde das offene Formular zurücksetzen.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const [anreden, setAnreden] = useState<Record<string, Anrede>>({});
@@ -161,24 +167,32 @@ export const KuendigungsbestaetigungDialog = ({
   const laufNummer = useRef(0);
   // Sperre gegen Doppelklick: der Button wird erst beim nächsten Render deaktiviert.
   const vorgangLaeuft = useRef(false);
+  // Vorbelegt wird einmal je Öffnen — ein späteres „Erneut laden" oder ein
+  // Hintergrund-Refetch darf Eingaben nicht überschreiben (Review 24.09.2026).
+  const vorbelegt = useRef(false);
 
   // Formular bei jedem Öffnen aus den Vertragsdaten vorbelegen
   useEffect(() => {
-    if (!isOpen || !vertrag) return;
+    if (!isOpen) {
+      vorbelegt.current = false;
+      return;
+    }
+    if (!vertrag || vorbelegt.current) return;
+    vorbelegt.current = true;
     setAnreden(Object.fromEntries(vertrag.mieter.map(m => [m.id, anredeAusDatenbank(m.anrede)])));
     const [strasseTeil, ...rest] = vertrag.immobilieAdresse.split(",");
     setStrasse(strasseTeil?.trim() ?? "");
     setPlzOrt(rest.join(",").trim());
     setEinheitBezeichnung(vertrag.einheitVorschlag);
-    setSchreibenVom("");
-    setEingangAm(heuteIso());
+    setSchreibenVom(vorbelegung?.schreibenVom ?? "");
+    setEingangAm(vorbelegung ? (vorbelegung.eingangAm ?? "") : heuteIso());
     setUseFreitext(false);
     setFreitext("");
     setBemerkungen("");
     setAusgewaehlt(vertrag.mieter.map(m => m.hauptmail?.trim().toLowerCase()).filter((m): m is string => Boolean(m?.includes("@"))));
     setGespeichert(null);
     setVersendetAn(null);
-  }, [isOpen, vertrag]);
+  }, [isOpen, vertrag, vorbelegung]);
 
   const adressen = useMemo(() => mailadressenDerMieter(vertrag?.mieter ?? []), [vertrag]);
 

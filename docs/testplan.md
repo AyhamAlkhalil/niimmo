@@ -157,11 +157,13 @@ Einstieg: Dashboard → Mieterhöhung
 
 Einstieg: Vertragsdetails → „Kündigen"
 
-- [ ] Manuell kündigen mit PDF → ⚠️ danach **Vertragsende auch in den Vertragsdetails sichtbar**
+- [ ] Reiter „Wir kündigen“: mit PDF kündigen → ⚠️ danach **Vertragsende auch in den Vertragsdetails sichtbar**
       (nicht mehr „unbefristet")
-- [ ] Kündigungsschreiben hochladen statt erzeugen
-- [ ] ⚠️ Danach öffnet sich die **Kündigungsbestätigung**: Vertragsende stimmt mit dem eingetragenen Datum überein,
+- [ ] Dialog öffnet mit dem Reiter **„Mieter hat gekündigt“** (Standard seit 24.09.2026, der Mieter kündigt praktisch immer)
+- [ ] Vertragsende, „Schreiben vom“ und „Eingegangen am“ eintragen, Schreiben des Mieters optional hochladen
+- [ ] ⚠️ „Weiter zur Kündigungsbestätigung“ → Bestätigung öffnet sich mit denselben Daten; Vertragsende stimmt,
       Anrede je Mieter wählbar, Vorschau aktualisiert sich
+- [ ] Reiter „Wir kündigen“ zeigt den Hinweis auf die Mahnung Stufe 3
 - [ ] Bestätigung speichern → erscheint einmal unter Dokumente (Kategorie Kündigung)
 - [ ] Bestätigung senden → Mail mit PDF-Anhang kommt an; Absender ist das Übergabe-Postfach
 - [ ] Vertrag ohne hinterlegte Mailadresse → Hinweis statt Versandknopf, Speichern geht

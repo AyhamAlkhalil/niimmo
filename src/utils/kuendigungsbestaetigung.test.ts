@@ -267,3 +267,23 @@ describe('Kündigungsbestätigung speichert nur, was die Vorschau zeigt', () => 
     expect(dialog).toContain('if (stand !== signatur) throw new Error(');
   });
 });
+
+/**
+ * Kundenauskunft 24.09.2026: Gekündigt wird praktisch immer vom Mieter; eine
+ * fristlose Kündigung durch uns ergibt sich aus der Mahnung. Der Dialog führt
+ * deshalb zuerst zur Mieterkündigung und von dort zur Bestätigung.
+ */
+describe('Kündigungsdialog führt mit der Mieterkündigung zur Bestätigung', () => {
+  const dialog = readFileSync('src/components/dashboard/termination/TerminationDialog.tsx', 'utf-8');
+
+  it('öffnet mit dem Reiter „Mieter hat gekündigt"', () => {
+    expect(dialog).toContain('useState<string>("upload")');
+    expect(dialog).toContain('setActiveTab("upload")');
+    expect(dialog.indexOf('Mieter hat gekündigt')).toBeLessThan(dialog.indexOf('Wir kündigen'));
+  });
+
+  it('verlangt kein hochgeladenes Schreiben und gibt die Eingangsdaten weiter', () => {
+    expect(dialog).toContain('disabled={isUploading || !uploadKuendigungsdatum}');
+    expect(dialog).toContain('onUploadErfolg?.({ schreibenVom: schreibenVom || null, eingangAm: eingangAm || null })');
+  });
+});

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, AlertTriangle, Download, FileText, Eye, RefreshCw, Upload, X, Calendar, Check } from "lucide-react";
+import { Loader2, AlertTriangle, Download, FileText, Eye, RefreshCw, Upload, X, Calendar, Check, FileCheck, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { generateKuendigungPdf, type KuendigungPdfData, type KuendigungsTyp } from "@/utils/kuendigungPdfGenerator";
@@ -33,8 +33,8 @@ interface TerminationDialogProps {
     adresse: string;
   };
   onTerminationSuccess?: () => void;
-  /** Nach dem Upload einer Mieterkündigung — öffnet die Kündigungsbestätigung. */
-  onUploadErfolg?: () => void;
+  /** Nach Erfassen einer Mieterkündigung — öffnet die Kündigungsbestätigung mit diesen Angaben. */
+  onUploadErfolg?: (angaben: { schreibenVom: string | null; eingangAm: string | null }) => void;
 }
 
 interface MieterInfo {
@@ -53,7 +53,10 @@ export const TerminationDialog = ({
   onUploadErfolg
 }: TerminationDialogProps) => {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<string>("manual");
+  // Kündigt praktisch immer der Mieter (Kundenauskunft 24.09.2026) — deshalb
+  // steht dieser Weg vorn. Eine fristlose Kündigung wegen Zahlungsverzug läuft
+  // über die Mahnung (Stufe 3), eine ordentliche durch uns kommt kaum vor.
+  const [activeTab, setActiveTab] = useState<string>("upload");
   const [showConfirm, setShowConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -83,6 +86,8 @@ export const TerminationDialog = ({
   // ====== Upload Tab State ======
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadKuendigungsdatum, setUploadKuendigungsdatum] = useState("");
+  const [schreibenVom, setSchreibenVom] = useState("");
+  const [eingangAm, setEingangAm] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [showUploadConfirm, setShowUploadConfirm] = useState(false);
@@ -131,7 +136,7 @@ export const TerminationDialog = ({
   // Reset on open
   useEffect(() => {
     if (isOpen) {
-      setActiveTab("manual");
+      setActiveTab("upload");
       setShowConfirm(false);
       setShowUploadConfirm(false);
       setKuendigungstyp("ordentlich");
@@ -143,6 +148,10 @@ export const TerminationDialog = ({
       setFreitext("");
       setSelectedFile(null);
       setUploadKuendigungsdatum("");
+      setSchreibenVom("");
+      // Lokales Datum — toISOString() läge kurz nach Mitternacht noch auf dem Vortag.
+      const heute = new Date();
+      setEingangAm(`${heute.getFullYear()}-${String(heute.getMonth() + 1).padStart(2, '0')}-${String(heute.getDate()).padStart(2, '0')}`);
       setUploadProgress(0);
 
       setAnrede("Herr");
@@ -335,26 +344,32 @@ export const TerminationDialog = ({
   };
 
   const handleUploadTermination = async () => {
-    if (!uploadKuendigungsdatum || !selectedFile) {
-      toast({ title: "Fehler", description: "Bitte Kündigungsdatum und Dokument angeben.", variant: "destructive" });
+    if (!uploadKuendigungsdatum) {
+      toast({ title: "Fehler", description: "Bitte angeben, zu wann das Mietverhältnis endet.", variant: "destructive" });
       return;
     }
 
     setIsUploading(true);
     setUploadProgress(0);
+    let progressInterval: ReturnType<typeof setInterval> | null = null;
     try {
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => Math.min(prev + 10, 80));
-      }, 100);
-
-      const fileExtension = selectedFile.name.split('.').pop();
-      const fileName = `kuendigung_${vertragId}_${Date.now()}.${fileExtension}`;
-      const { data: uploadData, error: storageError } = await supabase.storage
-        .from('dokumente')
-        .upload(fileName, selectedFile, { cacheControl: '3600', upsert: false });
-
-      if (storageError) throw new Error('Upload fehlgeschlagen: ' + storageError.message);
-      setUploadProgress(90);
+      // Das Schreiben des Mieters ist optional: Kündigungen kommen auch per Mail
+      // oder werden im Büro abgegeben.
+      let dokumentPfad: string | undefined;
+      let schreibenAbgelegt = true;
+      if (selectedFile) {
+        progressInterval = setInterval(() => {
+          setUploadProgress(prev => Math.min(prev + 10, 80));
+        }, 100);
+        const fileExtension = selectedFile.name.split('.').pop();
+        const fileName = `kuendigung_${vertragId}_${Date.now()}.${fileExtension}`;
+        const { data: uploadData, error: storageError } = await supabase.storage
+          .from('dokumente')
+          .upload(fileName, selectedFile, { cacheControl: '3600', upsert: false });
+        if (storageError) throw new Error('Upload fehlgeschlagen: ' + storageError.message);
+        dokumentPfad = uploadData.path;
+        setUploadProgress(90);
+      }
 
       const { error: updateError } = await supabase
         .from('mietvertrag')
@@ -363,32 +378,47 @@ export const TerminationDialog = ({
 
       if (updateError) throw new Error('Vertragsaktualisierung fehlgeschlagen: ' + updateError.message);
 
-      await supabase.from('dokumente').insert({
-        mietvertrag_id: vertragId,
-        kategorie: 'Kündigung',
-        titel: `Kündigungsschreiben - ${selectedFile.name}`,
-        pfad: uploadData.path,
-        dateityp: selectedFile.type,
-        groesse_bytes: selectedFile.size,
-        erstellt_von: 'Upload',
-        hochgeladen_am: new Date(uploadKuendigungsdatum + 'T12:00:00').toISOString()
-      });
+      if (selectedFile && dokumentPfad) {
+        const { error: eintragFehler } = await supabase.from('dokumente').insert({
+          mietvertrag_id: vertragId,
+          kategorie: 'Kündigung',
+          titel: `Kündigungsschreiben - ${selectedFile.name}`,
+          pfad: dokumentPfad,
+          dateityp: selectedFile.type,
+          groesse_bytes: selectedFile.size,
+          erstellt_von: 'Upload',
+          hochgeladen_am: new Date(uploadKuendigungsdatum + 'T12:00:00').toISOString()
+        });
+        // Der Vertrag ist schon gekündigt — nur melden, nicht abbrechen. Eine
+        // Datei ohne dokumente-Zeile wäre im UI unsichtbar, also entfernen.
+        if (eintragFehler) {
+          await supabase.storage.from('dokumente').remove([dokumentPfad]);
+          schreibenAbgelegt = false;
+        }
+      }
 
-      clearInterval(progressInterval);
       setUploadProgress(100);
 
       try {
         await terminationWebhookService.notifyTermination({
-          vertragId, kuendigungsdatum: uploadKuendigungsdatum, documentPath: uploadData.path,
-          fileName: selectedFile.name, method: 'document_upload'
+          vertragId, kuendigungsdatum: uploadKuendigungsdatum, documentPath: dokumentPfad,
+          fileName: selectedFile?.name, method: 'document_upload'
         });
       } catch { /* silent */ }
 
-      toast({ title: "Erfolg", description: "Kündigung eingereicht und Dokument hochgeladen." });
+      // Nur ein Toast: Es wird immer nur der neueste angezeigt (TOAST_LIMIT = 1),
+      // ein zweiter würde den Fehlerhinweis sofort verdrängen.
+      toast(schreibenAbgelegt
+        ? { title: "Kündigung erfasst", description: "Jetzt die Kündigungsbestätigung für den Mieter erstellen." }
+        : {
+            title: "Kündigung erfasst, Schreiben nicht abgelegt",
+            description: "Das Schreiben des Mieters konnte nicht gespeichert werden. Bitte unter Dokumente erneut hochladen.",
+            variant: "destructive",
+          });
       onClose();
       onTerminationSuccess?.();
-      // Auf eine Mieterkündigung folgt die schriftliche Bestätigung (seit 16.09.2026).
-      onUploadErfolg?.();
+      // Auf eine Mieterkündigung folgt die schriftliche Bestätigung.
+      onUploadErfolg?.({ schreibenVom: schreibenVom || null, eingangAm: eingangAm || null });
     } catch (error) {
       toast({
         title: "Fehler",
@@ -397,6 +427,7 @@ export const TerminationDialog = ({
       });
       setUploadProgress(0);
     } finally {
+      if (progressInterval) clearInterval(progressInterval);
       setIsUploading(false);
     }
   };
@@ -409,7 +440,10 @@ export const TerminationDialog = ({
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b bg-background flex-shrink-0">
             <div className="flex items-center gap-3">
               <FileText className="h-5 w-5 text-destructive" />
-              <h2 className="text-lg font-semibold">Mietvertrag kündigen</h2>
+              <DialogTitle className="text-lg font-semibold">Kündigung erfassen</DialogTitle>
+              <DialogDescription className="sr-only">
+                Kündigung des Mieters erfassen, danach folgt die Kündigungsbestätigung. Alternativ selbst ein Kündigungsschreiben erstellen.
+              </DialogDescription>
               <Badge variant="outline" className="bg-destructive/10 text-destructive border-destructive/30">
                 Kündigung
               </Badge>
@@ -424,14 +458,14 @@ export const TerminationDialog = ({
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 overflow-hidden">
             <div className="px-6 pt-2 border-b flex-shrink-0">
-              <TabsList className="grid w-full sm:w-[400px] grid-cols-2">
+              <TabsList className="grid w-full sm:w-[440px] grid-cols-2">
+                <TabsTrigger value="upload" className="flex items-center gap-2">
+                  <FileCheck className="h-4 w-4" />
+                  Mieter hat gekündigt
+                </TabsTrigger>
                 <TabsTrigger value="manual" className="flex items-center gap-2">
                   <FileText className="h-4 w-4" />
-                  PDF erstellen & kündigen
-                </TabsTrigger>
-                <TabsTrigger value="upload" className="flex items-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  Dokument hochladen
+                  Wir kündigen
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -442,6 +476,14 @@ export const TerminationDialog = ({
                 {/* LEFT: Form */}
                 <ScrollArea className="w-full md:w-[420px] md:flex-shrink-0 border-b md:border-b-0 border-r-0 md:border-r">
                   <div className="p-5 space-y-5">
+                    <div className="flex items-start gap-2 rounded-lg border p-3 text-xs text-muted-foreground">
+                      <Info className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                      <p>
+                        Nur wenn wir selbst kündigen. Eine fristlose Kündigung wegen Zahlungsverzug erstellen Sie
+                        über die Mahnung (Stufe 3). Hat der Mieter gekündigt, nutzen Sie den Reiter „Mieter hat gekündigt".
+                      </p>
+                    </div>
+
                     {/* Contract info */}
                     <div>
                       <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Vertragsdaten</h3>
@@ -631,7 +673,7 @@ export const TerminationDialog = ({
                         {isSubmitting ? (
                           <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Wird gekündigt...</>
                         ) : (
-                          <><FileText className="h-4 w-4 mr-1.5" />Kündigung bestätigen</>
+                          <><FileText className="h-4 w-4 mr-1.5" />Kündigung aussprechen</>
                         )}
                       </Button>
                     </div>
@@ -669,20 +711,18 @@ export const TerminationDialog = ({
               </div>
             </TabsContent>
 
-            {/* ========== UPLOAD TAB ========== */}
+            {/* ========== MIETER HAT GEKÜNDIGT ========== */}
             <TabsContent value="upload" className="flex-1 overflow-auto m-0 p-6">
               <div className="max-w-lg mx-auto space-y-4">
-                <Card className="border-l-4 border-l-destructive bg-destructive/5">
+                <Card className="border-l-4 border-l-primary bg-primary/5">
                   <CardContent className="pt-4">
                     <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
+                      <FileCheck className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
                       <div>
-                        <p className="font-medium text-destructive">Dokumenten-Upload</p>
+                        <p className="font-medium">Der Mieter hat gekündigt</p>
                         <p className="text-sm text-muted-foreground">
-                          Laden Sie das offizielle Kündigungsschreiben hoch. Unterstützt: PDF, JPG, PNG (max. 10MB)
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Danach öffnet sich die Kündigungsbestätigung für den Mieter.
+                          Tragen Sie ein, zu wann das Mietverhältnis endet. Im nächsten Schritt erstellen Sie
+                          daraus die Kündigungsbestätigung für den Mieter und versenden sie.
                         </p>
                       </div>
                     </div>
@@ -690,11 +730,12 @@ export const TerminationDialog = ({
                 </Card>
 
                 <div>
-                  <Label className="flex items-center gap-2">
+                  <Label htmlFor="mk-ende" className="flex items-center gap-2">
                     <Calendar className="h-4 w-4" />
-                    Kündigungsdatum *
+                    Mietverhältnis endet zum *
                   </Label>
                   <Input
+                    id="mk-ende"
                     type="date"
                     value={uploadKuendigungsdatum}
                     onChange={(e) => setUploadKuendigungsdatum(e.target.value)}
@@ -702,10 +743,21 @@ export const TerminationDialog = ({
                   />
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="mk-vom" className="text-sm">Schreiben des Mieters vom</Label>
+                    <Input id="mk-vom" type="date" value={schreibenVom} onChange={(e) => setSchreibenVom(e.target.value)} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label htmlFor="mk-eingang" className="text-sm">Bei uns eingegangen am</Label>
+                    <Input id="mk-eingang" type="date" value={eingangAm} onChange={(e) => setEingangAm(e.target.value)} className="mt-1" />
+                  </div>
+                </div>
+
                 <div>
                   <Label className="flex items-center gap-2">
                     <Upload className="h-4 w-4" />
-                    Kündigungsdokument *
+                    Kündigungsschreiben des Mieters (optional)
                   </Label>
                   <DocumentDragDropZone
                     onFileSelect={(file: File) => validateAndSetFile(file)}
@@ -756,13 +808,17 @@ export const TerminationDialog = ({
                 <div className="flex gap-2 pt-2">
                   <Button variant="outline" onClick={onClose} disabled={isUploading}>Abbrechen</Button>
                   <Button
-                    variant="destructive"
                     onClick={() => setShowUploadConfirm(true)}
-                    disabled={isUploading || !selectedFile || !uploadKuendigungsdatum}
+                    disabled={isUploading || !uploadKuendigungsdatum}
                     className="flex-1"
                   >
-                    {uploadProgress === 100 ? <Check className="h-4 w-4 mr-1.5" /> : <FileText className="h-4 w-4 mr-1.5" />}
-                    {isUploading ? "Wird verarbeitet..." : "Kündigung einreichen"}
+                    {isUploading ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Check className="h-4 w-4 mr-1.5" />}
+                    {isUploading ? "Wird erfasst..." : (
+                      <>
+                        <span className="sm:hidden">Weiter zur Bestätigung</span>
+                        <span className="hidden sm:inline">Weiter zur Kündigungsbestätigung</span>
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>
@@ -777,7 +833,7 @@ export const TerminationDialog = ({
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              Kündigung bestätigen
+              Kündigung aussprechen
             </AlertDialogTitle>
             <AlertDialogDescription>
               Haben Sie die PDF-Vorschau geprüft? Der Vertrag wird unwiderruflich auf "gekündigt" gesetzt
@@ -798,17 +854,18 @@ export const TerminationDialog = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              Kündigung bestätigen
+              <FileCheck className="h-5 w-5 text-primary" />
+              Mieterkündigung erfassen
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Der Vertrag wird unwiderruflich auf "gekündigt" gesetzt und das hochgeladene Dokument wird gespeichert.
+              Der Vertrag wird auf „gekündigt" gesetzt und endet zum eingetragenen Datum
+              {selectedFile ? "; das Schreiben des Mieters wird gespeichert" : ""}. Danach erstellen Sie die Kündigungsbestätigung.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction onClick={handleUploadTermination} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Ja, Kündigung einreichen
+            <AlertDialogAction onClick={handleUploadTermination}>
+              Kündigung erfassen
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

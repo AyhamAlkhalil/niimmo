@@ -39,6 +39,7 @@ export default function MietvertragDetailsModal({
   const einheitData = fetchedEinheit || einheit;
   const [showVertragPdfModal, setShowVertragPdfModal] = useState(false);
   const [showBestaetigung, setShowBestaetigung] = useState(false);
+  const [bestaetigungVorbelegung, setBestaetigungVorbelegung] = useState<{ schreibenVom: string | null; eingangAm: string | null } | null>(null);
 
   // All editing state + mutations
   const mutations = useMietvertragMutations({ vertragId, vertrag, einheitData, mieter });
@@ -157,7 +158,7 @@ export default function MietvertragDetailsModal({
                 }}
                 onShowMahnung={() => mutations.setShowMahnungModal(true)}
                 onShowKuendigung={() => mutations.setShowTerminationDialog(true)}
-                onShowKuendigungsbestaetigung={() => setShowBestaetigung(true)}
+                onShowKuendigungsbestaetigung={() => { setBestaetigungVorbelegung(null); setShowBestaetigung(true); }}
                 onShowVertragPdf={() => setShowVertragPdfModal(true)}
                 allMietvertraege={allMietvertraege}
                 vertragId={vertragId}
@@ -196,13 +197,14 @@ export default function MietvertragDetailsModal({
           einheit={einheitData}
           immobilie={immobilie}
           onTerminationSuccess={mutations.handleTerminationSuccess}
-          onUploadErfolg={() => setShowBestaetigung(true)}
+          onUploadErfolg={(angaben) => { setBestaetigungVorbelegung(angaben); setShowBestaetigung(true); }}
         />
 
         <KuendigungsbestaetigungDialog
           isOpen={showBestaetigung}
           onClose={() => setShowBestaetigung(false)}
           vertragId={vertragId}
+          vorbelegung={bestaetigungVorbelegung}
           onGespeichert={() => {
             queryClient.invalidateQueries({ queryKey: ['dokumente-detail', vertragId] });
           }}
