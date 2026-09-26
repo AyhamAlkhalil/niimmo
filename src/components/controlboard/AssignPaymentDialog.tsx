@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format, isValid, parseISO } from "date-fns";
 import { useActivityLog } from "@/hooks/useActivityLog";
+import { getVertragsende } from "@/utils/contractUtils";
 
 interface AssignPaymentDialogProps {
   open: boolean;
@@ -56,6 +57,7 @@ export function AssignPaymentDialog({ open, onOpenChange, payment }: AssignPayme
           id,
           start_datum,
           ende_datum,
+          kuendigungsdatum,
           kaltmiete,
           betriebskosten,
           status,
@@ -441,7 +443,7 @@ export function AssignPaymentDialog({ open, onOpenChange, payment }: AssignPayme
                                 <Calendar className="h-4 w-4" />
                                 <span>
                                   {contract.start_datum && isValid(parseISO(contract.start_datum)) ? format(parseISO(contract.start_datum), 'dd.MM.yyyy') : '-'}
-                                  {contract.ende_datum && isValid(parseISO(contract.ende_datum)) && ` - ${format(parseISO(contract.ende_datum), 'dd.MM.yyyy')}`}
+                                  {getVertragsende(contract) && isValid(parseISO(getVertragsende(contract)!)) && ` - ${format(parseISO(getVertragsende(contract)!), 'dd.MM.yyyy')}`}
                                 </span>
                               </div>
                               <div>

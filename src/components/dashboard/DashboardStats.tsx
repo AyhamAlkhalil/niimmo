@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
-import { istLaufenderVertrag } from "@/utils/contractUtils";
+import { getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
 
 interface DashboardStatsProps {
   immobilien: any[] | undefined;
@@ -126,17 +126,8 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const naechstesVertragInfo = mietvertraege
     ?.reduce((frueheste: { datum: string | null, vertrag: any | null }, mv) => {
       const heute = new Date();
-      const kuendigungsdatum = mv.kuendigungsdatum ? new Date(mv.kuendigungsdatum) : null;
-      const auslaufdatum = mv.ende_datum ? new Date(mv.ende_datum) : null;
-      let naechstesDatumFuerVertrag: Date | null = null;
-      if (kuendigungsdatum && kuendigungsdatum > heute) {
-        naechstesDatumFuerVertrag = kuendigungsdatum;
-      }
-      if (auslaufdatum && auslaufdatum > heute) {
-        if (!naechstesDatumFuerVertrag || auslaufdatum < naechstesDatumFuerVertrag) {
-          naechstesDatumFuerVertrag = auslaufdatum;
-        }
-      }
+      const ende = getVertragsende(mv);
+      const naechstesDatumFuerVertrag = ende && new Date(ende) > heute ? new Date(ende) : null;
       if (!naechstesDatumFuerVertrag) return frueheste;
       const datumString = naechstesDatumFuerVertrag.toISOString().split('T')[0];
       if (!frueheste.datum) return { datum: datumString, vertrag: mv };

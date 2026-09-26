@@ -124,6 +124,28 @@ export const getVertragsende = (
   return vertrag.ende_datum || vertrag.kuendigungsdatum || null;
 };
 
+/**
+ * Felder fuer ein neues Mietende.
+ *
+ * Ist der Vertrag gekuendigt, wird `kuendigungsdatum` mitgefuehrt -- beide Felder meinen
+ * dasselbe Mietende. Am 24.09.2026 hatten zwei gekuendigte Vertraege nach Aenderung im
+ * Detailfenster ein anderes `ende_datum` als `kuendigungsdatum`; Historie und Uebergabe
+ * zeigten dadurch ein anderes Ende als Karte und Detailfenster.
+ *
+ * Leeren ist bei einer Kuendigung nicht moeglich: getVertragsende() fiele dann auf das alte
+ * Kuendigungsdatum zurueck, und das geloeschte Ende stuende sofort wieder da.
+ */
+export const mietendeFelder = (
+  neuesEnde: string | null,
+  vertrag: { kuendigungsdatum?: string | null } | null | undefined
+): { ende_datum: string | null; kuendigungsdatum?: string } | { fehler: string } => {
+  if (!istGekuendigt(vertrag)) return { ende_datum: neuesEnde };
+  if (!neuesEnde) {
+    return { fehler: "Der Vertrag ist gekündigt – das Mietende kann nicht leer sein. Bitte ein Datum eintragen." };
+  }
+  return { ende_datum: neuesEnde, kuendigungsdatum: neuesEnde };
+};
+
 /** True, wenn das Ende auf einer belegten Kuendigung beruht und nicht auf einer Befristung. */
 export const istGekuendigt = (
   vertrag: { kuendigungsdatum?: string | null } | null | undefined

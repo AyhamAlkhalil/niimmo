@@ -87,7 +87,7 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
   }, [openMietvertragId, vertrag?.id]);
 
   // Auto-expire contracts past their Kündigungsdatum
-  useAutoExpireContract(vertrag?.id, vertrag?.status, vertrag?.kuendigungsdatum);
+  useAutoExpireContract(vertrag?.id, vertrag?.status, getVertragsende(vertrag) ?? undefined);
 
   const getStatusColor = () => {
     if (!vertrag) return "bg-red-100 border-red-200";

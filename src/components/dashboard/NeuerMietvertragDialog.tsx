@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { sortPropertiesByName } from '@/utils/contractUtils';
+import { getVertragsende, sortPropertiesByName } from '@/utils/contractUtils';
 import { NewTenantContractDialog } from './NewTenantContractDialog';
 
 interface Props {
@@ -75,7 +75,7 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
           // mietvertrag_einheiten zusätzlich verbunden, ein Embed ohne Hint wäre
           // mehrdeutig, sobald PostgREST daraus wieder eine m:n-Beziehung ableitet.
           `id, bezeichnung, etage, qm, einheitentyp, immobilie_id,
-           mietvertrag!mietvertraege_einheit_id_fkey ( id, status, ende_datum,
+           mietvertrag!mietvertraege_einheit_id_fkey ( id, status, ende_datum, kuendigungsdatum,
              mietvertrag_mieter ( mieter:mieter_id ( vorname, nachname ) ) )`
         )
         .eq('immobilie_id', immobilieId);
@@ -92,7 +92,7 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
               .filter(Boolean)
         );
         const enden = laufende
-          .map((v: { ende_datum: string | null }) => v.ende_datum)
+          .map((v: { ende_datum: string | null; kuendigungsdatum: string | null }) => getVertragsende(v))
           .filter((d): d is string => !!d)
           .sort();
 

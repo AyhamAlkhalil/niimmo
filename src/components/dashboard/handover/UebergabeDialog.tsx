@@ -24,6 +24,7 @@ import { VersorgerBenachrichtigungDialog } from "./VersorgerBenachrichtigungDial
 import { generateUebergabePdf, type UebergabePdfData } from "@/utils/uebergabePdfGenerator";
 import { blobToPdfImage, type PdfImage } from "@/utils/pdfImageUtils";
 import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe } from "@/utils/zaehlerstandUtils";
+import { getVertragsende } from "@/utils/contractUtils";
 
 const METER_TYPEN = ["strom", "gas", "wasser", "warmwasser"] as const;
 type MeterTyp = (typeof METER_TYPEN)[number];
@@ -49,6 +50,7 @@ interface ContractInfo {
     };
   };
   kuendigungsdatum?: string;
+  ende_datum?: string;
 }
 
 interface MieterData {
@@ -96,7 +98,7 @@ export const UebergabeDialog = ({
   isEinzug = false,
 }: UebergabeDialogProps) => {
   const [uebergabeDatum, setUebergabeDatum] = useState<Date | undefined>(
-    contracts[0]?.kuendigungsdatum ? new Date(contracts[0].kuendigungsdatum) : new Date()
+    getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date()
   );
   const [schluesselHaustuer, setSchluesselHaustuer] = useState<string>("");
   const [schluesselWohnung, setSchluesselWohnung] = useState<string>("");
@@ -244,7 +246,7 @@ export const UebergabeDialog = ({
   };
 
   const resetForm = () => {
-    setUebergabeDatum(contracts[0]?.kuendigungsdatum ? new Date(contracts[0].kuendigungsdatum) : new Date());
+    setUebergabeDatum(getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date());
     setSchluesselHaustuer("");
     setSchluesselWohnung("");
     setSchluesselBriefkasten("");

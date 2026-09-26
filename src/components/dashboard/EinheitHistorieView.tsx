@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Calendar, Users, Euro, Building2, Clock, FileText } from "lucide-react";
 import { Loader2 } from "lucide-react";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
+import { getVertragsende } from "@/utils/contractUtils";
 
 interface EinheitHistorieViewProps {
   einheitId: string;
@@ -95,15 +96,14 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
 
     sortedVertraege.forEach((vertrag, index) => {
       const startDatum = new Date(vertrag.start_datum || '1900-01-01');
-      const endDatum = vertrag.kuendigungsdatum ? new Date(vertrag.kuendigungsdatum) : 
-                      vertrag.ende_datum ? new Date(vertrag.ende_datum) : null;
+      const ende = getVertragsende(vertrag);
+      const endDatum = ende ? new Date(ende) : null;
       
       // Check for vacancy period before this contract
       if (index > 0) {
         const vorherigendesVertrag = sortedVertraege[index - 1];
-        const vorherigesEndDatum = vorherigendesVertrag.kuendigungsdatum ? 
-          new Date(vorherigendesVertrag.kuendigungsdatum) : 
-          vorherigendesVertrag.ende_datum ? new Date(vorherigendesVertrag.ende_datum) : null;
+        const vorherigesEnde = getVertragsende(vorherigendesVertrag);
+        const vorherigesEndDatum = vorherigesEnde ? new Date(vorherigesEnde) : null;
         
         if (vorherigesEndDatum && vorherigesEndDatum < startDatum) {
           // Calculate days between contracts
@@ -135,9 +135,8 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
     // Check for vacancy at the end
     const letzterVertrag = sortedVertraege[sortedVertraege.length - 1];
     if (letzterVertrag) {
-      const letzteEndDatum = letzterVertrag.kuendigungsdatum ? 
-        new Date(letzterVertrag.kuendigungsdatum) : 
-        letzterVertrag.ende_datum ? new Date(letzterVertrag.ende_datum) : null;
+      const letztesEnde = getVertragsende(letzterVertrag);
+      const letzteEndDatum = letztesEnde ? new Date(letztesEnde) : null;
       
       if (letzteEndDatum && letzteEndDatum < heute && letzterVertrag.status !== 'aktiv') {
         // Check if more than 5 days have passed since the last contract ended
@@ -276,9 +275,9 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
                                  {formatDatum(periode.startDatum)} 
                                  {periode.endDatum && ` - ${formatDatum(periode.endDatum)}`}
                                  {!periode.endDatum && periode.isAktuell && ' - laufend'}
-                                 {periode.vertrag.status === 'gekuendigt' && periode.vertrag.kuendigungsdatum && (
+                                 {periode.vertrag.status === 'gekuendigt' && periode.endDatum && (
                                    <span className="block text-yellow-600 font-medium">
-                                     Gekündigt zum: {formatDatum(new Date(periode.vertrag.kuendigungsdatum))}
+                                     Gekündigt zum: {formatDatum(periode.endDatum)}
                                    </span>
                                  )}
                                </p>

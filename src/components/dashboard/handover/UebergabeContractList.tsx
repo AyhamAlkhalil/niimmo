@@ -4,6 +4,7 @@ import { Building2, User, Calendar, MapPin, Clock, Link2 } from "lucide-react";
 import { format, addDays, differenceInDays } from "date-fns";
 import { de } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { getVertragsende } from "@/utils/contractUtils";
 
 interface ContractWithDetails {
   id: string;
@@ -58,14 +59,10 @@ export const UebergabeContractList = ({
 }: UebergabeContractListProps) => {
   const today = new Date();
 
-  // Das tatsächliche Auszugsdatum ist das spätere von Kündigungs- und Ende-Datum:
-  // Verträge können ein früheres ende_datum tragen, obwohl bis zum kuendigungsdatum gewohnt wird.
+  // Auszug = Mietende aus getVertragsende(), wie auf der Einheiten-Karte und im Detailfenster.
   const getAuszugsDatum = (contract: ContractWithDetails): Date | null => {
-    const dates = [contract.kuendigungsdatum, contract.ende_datum]
-      .filter((d): d is string => !!d)
-      .map(d => new Date(d));
-    if (dates.length === 0) return null;
-    return dates.reduce((a, b) => (a > b ? a : b));
+    const ende = getVertragsende(contract);
+    return ende ? new Date(ende) : null;
   };
 
   const getPriority = (contract: ContractWithDetails): { priority: number; label?: string } => {
@@ -210,13 +207,9 @@ export const UebergabeContractList = ({
                   ? format(new Date(mainContract.start_datum), "dd.MM.yyyy", { locale: de })
                   : "–"
                 }
-                {mainContract.kuendigungsdatum && (
-                  <> → {format(new Date(mainContract.kuendigungsdatum), "dd.MM.yyyy", { locale: de })}</>
-                )}
-                {!mainContract.kuendigungsdatum && mainContract.ende_datum && (
-                  <> → {format(new Date(mainContract.ende_datum), "dd.MM.yyyy", { locale: de })}</>
-                )}
-                {!mainContract.kuendigungsdatum && !mainContract.ende_datum && " → unbefristet"}
+                {getVertragsende(mainContract)
+                  ? <> → {format(new Date(getVertragsende(mainContract)!), "dd.MM.yyyy", { locale: de })}</>
+                  : " → unbefristet"}
               </span>
             </div>
             {totalMiete > 0 && (

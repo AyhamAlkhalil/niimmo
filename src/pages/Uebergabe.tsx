@@ -235,7 +235,8 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
               immobilie_id: c.einheit.immobilie.id,
               immobilie: { id: c.einheit.immobilie.id, name: c.einheit.immobilie.name, adresse: c.einheit.immobilie.adresse }
             },
-            kuendigungsdatum: c.kuendigungsdatum || undefined
+            kuendigungsdatum: c.kuendigungsdatum || undefined,
+            ende_datum: c.ende_datum || undefined
           }))}
           mieterName={selectedContracts[0].mieter.map(m => `${m.vorname} ${m.nachname}`).join(", ")}
           onSuccess={handleSuccess}

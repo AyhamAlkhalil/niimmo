@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   getVertragsende,
   istGekuendigt,
+  mietendeFelder,
   istLaufenderVertrag,
   getLaufenderVertrag,
 } from "./contractUtils";
@@ -99,5 +100,21 @@ describe("getLaufenderVertrag", () => {
   it("gibt null bei leerer Einheit", () => {
     expect(getLaufenderVertrag([], STICHTAG)).toBeNull();
     expect(getLaufenderVertrag(undefined, STICHTAG)).toBeNull();
+  });
+});
+
+describe("mietendeFelder", () => {
+  it("befristeter Vertrag: nur ende_datum, auch leer", () => {
+    expect(mietendeFelder("2027-01-31", { kuendigungsdatum: null })).toEqual({ ende_datum: "2027-01-31" });
+    expect(mietendeFelder(null, {})).toEqual({ ende_datum: null });
+  });
+
+  it("gekündigter Vertrag: kuendigungsdatum wird mitgeführt", () => {
+    expect(mietendeFelder("2026-10-31", { kuendigungsdatum: "2026-11-30" }))
+      .toEqual({ ende_datum: "2026-10-31", kuendigungsdatum: "2026-10-31" });
+  });
+
+  it("gekündigter Vertrag: Mietende darf nicht leer werden", () => {
+    expect(mietendeFelder(null, { kuendigungsdatum: "2026-11-30" })).toHaveProperty("fehler");
   });
 });

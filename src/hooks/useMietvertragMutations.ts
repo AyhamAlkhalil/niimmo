@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { format } from "date-fns";
-import { getVertragsende } from "@/utils/contractUtils";
+import { getVertragsende, mietendeFelder } from "@/utils/contractUtils";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -138,13 +138,18 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
             return;
           }
         }
+        const felder = mietendeFelder(newEndForDb, vertrag);
+        if ('fehler' in felder) {
+          toast({ title: "Mietende fehlt", description: felder.fehler, variant: "destructive" });
+          return;
+        }
         if (vertrag?.einheit_id && vertrag.start_datum) {
           const { bestaetigeUeberschneidung } = await import("@/utils/contractOverlapValidation");
           const ende = getVertragsende({ ende_datum: newEndForDb, kuendigungsdatum: vertrag.kuendigungsdatum });
           if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, vertrag.start_datum, ende, vertragId))) return;
         }
         const isPast = !!newEndForDb && new Date(newEndForDb) < new Date();
-        const { error } = await supabase.from('mietvertrag').update({ ende_datum: newEndForDb, ...(isPast ? { status: 'beendet' } : {}) }).eq('id', vertragId);
+        const { error } = await supabase.from('mietvertrag').update({ ...felder, ...(isPast ? { status: 'beendet' } : {}) }).eq('id', vertragId);
         if (error) throw error;
         toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
         setEditingMietvertrag(null);
@@ -315,7 +320,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   const handleStartGlobalEdit = () => {
     const initialValues: Record<string, any> = {
       start_datum: vertrag?.start_datum || '',
-      ende_datum: vertrag?.ende_datum || '',
+      ende_datum: getVertragsende(vertrag) || '',
       kaltmiete: vertrag?.kaltmiete || 0,
       betriebskosten: vertrag?.betriebskosten || 0,
       anzahl_personen: vertrag?.anzahl_personen ?? null,
@@ -362,7 +367,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     try {
       const mietvertragUpdates: Partial<Mietvertrag> = {};
       const rawStart = (editedValues.start_datum ?? vertrag?.start_datum ?? '') as string;
-      const rawEnd = (editedValues.ende_datum ?? vertrag?.ende_datum ?? '') as string;
+      const rawEnd = (editedValues.ende_datum ?? getVertragsende(vertrag) ?? '') as string;
       const startForDb = rawStart && rawStart.trim() !== '' ? rawStart : null;
       const endForDb = rawEnd && rawEnd.trim() !== '' ? rawEnd : null;
 
@@ -375,8 +380,15 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       // Overlap check only if dates actually changed
       // Beide Seiten gleich normalisieren: Ein leeres Ende ist null, nicht '' -- sonst gilt bei
       // jedem unbefristeten Vertrag das Ende als geändert und die Prüfung läuft bei jedem Speichern.
+      // Verglichen wird mit getVertragsende(), weil das Feld auch so vorbelegt wird.
       const startDatumChanged = startForDb !== (vertrag?.start_datum || null);
-      const endDatumChanged = endForDb !== (vertrag?.ende_datum || null);
+      const endDatumChanged = endForDb !== (getVertragsende(vertrag) || null);
+
+      const endeFelder = mietendeFelder(endForDb, vertrag);
+      if (endDatumChanged && 'fehler' in endeFelder) {
+        toast({ title: "Mietende fehlt", description: endeFelder.fehler, variant: "destructive" });
+        return;
+      }
 
       if (vertrag?.einheit_id && startForDb && (startDatumChanged || endDatumChanged)) {
         const { bestaetigeUeberschneidung } = await import("@/utils/contractOverlapValidation");
@@ -396,7 +408,8 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         if (editedValues[field] !== undefined) {
           if (field === 'start_datum') { mietvertragUpdates.start_datum = startForDb; return; }
           if (field === 'ende_datum') {
-            mietvertragUpdates.ende_datum = endForDb;
+            // Unverändert nichts schreiben -- sonst bekäme ein Altvertrag ohne ende_datum still eins.
+            if (endDatumChanged && !('fehler' in endeFelder)) Object.assign(mietvertragUpdates, endeFelder);
             if (endForDb && new Date(endForDb) < new Date()) mietvertragUpdates.status = 'beendet';
             return;
           }

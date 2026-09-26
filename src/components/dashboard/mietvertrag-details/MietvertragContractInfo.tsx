@@ -10,6 +10,7 @@ import { useEditableField } from "@/hooks/useEditableField";
 import { useState } from "react";
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { toast } from "sonner";
+import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragContractInfoProps {
   vertrag: any;
@@ -70,9 +71,10 @@ export function MietvertragContractInfo({
     ? (editedValues.start_datum ?? (vertrag.start_datum || ''))
     : (vertrag.start_datum || '');
 
+  // Dasselbe Mietende wie auf der Einheiten-Karte und in der Historie: getVertragsende().
   const mietendeValue = isGlobalEditMode
-    ? (editedValues.ende_datum ?? (vertrag.ende_datum || ''))
-    : (vertrag.ende_datum || '');
+    ? (editedValues.ende_datum ?? (getVertragsende(vertrag) || ''))
+    : (getVertragsende(vertrag) || '');
 
   const copyToClipboard = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
