@@ -49,6 +49,12 @@ describe("findeUeberschneidungen", () => {
     expect(findeUeberschneidungen("2022-01-01", "2023-01-01", [vorgaenger])).toHaveLength(1);
   });
 
+  it("bestehender Vertrag ohne Beginn wird nicht übersprungen", () => {
+    const ohneBeginn = { ...vorgaenger, start_datum: null as unknown as string };
+    expect(findeUeberschneidungen("2020-01-01", "2020-12-31", [ohneBeginn])).toHaveLength(1);
+    expect(findeUeberschneidungen("2026-04-01", null, [ohneBeginn])).toEqual([]);
+  });
+
   it("Uhrzeitanteile verschieben keinen Tag", () => {
     expect(findeUeberschneidungen("2026-04-01T00:00:00+02:00", null, [vorgaenger])).toEqual([]);
   });

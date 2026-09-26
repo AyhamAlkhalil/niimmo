@@ -46,8 +46,8 @@ export function findeUeberschneidungen(
 
   return bestehende
     .filter((vertrag) => {
-      if (!vertrag.start_datum) return false;
-      const vertragStart = tag(vertrag.start_datum);
+      // Ohne Beginn gilt der Vertrag als seit jeher laufend -- lieber ein Hinweis zu viel.
+      const vertragStart = vertrag.start_datum ? tag(vertrag.start_datum) : "";
       const vertragEnde = getVertragsende(vertrag);
       const startetVorDessenEnde = !vertragEnde || start <= tag(vertragEnde);
       const endetNachDessenStart = !ende || ende >= vertragStart;
