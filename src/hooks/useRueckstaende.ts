@@ -53,11 +53,16 @@ export interface FehlendeMietzahlung {
 }
 
 
-export const useRueckstaende = () => {
+/**
+ * `aktiv: false` schaltet Abfrage und Live-Abo ab — die 3D-Ansicht zeigt Rückstände nur
+ * Admins, wie das Dashboard, und darf für alle anderen nichts laden.
+ */
+export const useRueckstaende = ({ aktiv = true }: { aktiv?: boolean } = {}) => {
   const queryClient = useQueryClient();
 
   // Set up real-time subscriptions for instant updates
   useEffect(() => {
+    if (!aktiv) return;
     const channel = supabase
       .channel('rueckstaende-updates')
       .on(
@@ -107,10 +112,11 @@ export const useRueckstaende = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [queryClient]);
+  }, [queryClient, aktiv]);
 
   return useQuery({
     queryKey: ['rueckstaende'],
+    enabled: aktiv,
     staleTime: 60 * 1000,
     refetchOnMount: true,
     queryFn: async () => {

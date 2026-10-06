@@ -152,7 +152,7 @@ export const istGekuendigt = (
 ): boolean => Boolean(vertrag?.kuendigungsdatum);
 
 /** Tagesgenauer ISO-Stichtag ohne Zeitzonen-Verschiebung. */
-const alsIsoTag = (d: Date): string =>
+export const alsIsoTag = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export interface VertragZeitraum {

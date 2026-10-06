@@ -16,6 +16,10 @@ interface NavigationState {
   selectedAufgabe: string | null;
   navigationSource: "dashboard" | "immobilie" | "search";
   selectedTab: string | null;
+  /** 3D-Ansicht statt Kacheln; bleibt beim Weg über die Objektseite erhalten. */
+  show3D: boolean;
+  /** Objekt, auf das die 3D-Ansicht gerade schaut. */
+  fokus3D: string | null;
 }
 
 const defaultState: NavigationState = {
@@ -30,6 +34,8 @@ const defaultState: NavigationState = {
   selectedAufgabe: null,
   navigationSource: "dashboard",
   selectedTab: null,
+  show3D: false,
+  fokus3D: null,
 };
 
 function loadState(): NavigationState {

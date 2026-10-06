@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.5.0",
+    datum: "2026-10-06",
+    aenderungen: [
+      { art: "neu", titel: "3D-Ansicht aller Immobilien: Häuser und Mietparteien räumlich ansehen, per Klick die Detailansicht öffnen" },
+    ],
+  },
+  {
     version: "1.4.6",
     datum: "2026-09-21",
     aenderungen: [

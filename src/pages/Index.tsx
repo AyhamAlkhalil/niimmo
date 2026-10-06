@@ -29,12 +29,17 @@ import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
-import { useState, useMemo, useCallback } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Mail, Building } from "lucide-react";
+import { useState, useMemo, useCallback, lazy, Suspense } from "react";
+import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Mail, Building, Box, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
 import { DEV_EMAIL } from "@/constants/config";
+import { Fehlergrenze3D } from "@/components/dashboard/ansicht3d/Fehlergrenze3D";
+
+// three.js ist gross; die 3D-Ansicht wird erst geladen, wenn jemand sie oeffnet.
+const ladeAnsicht3D = () => import("@/components/dashboard/ansicht3d/Ansicht3D");
+const Ansicht3D = lazy(ladeAnsicht3D);
 
 const Index = () => {
   const { isAdmin, isHausmeister, isLoading: roleLoading } = useUserRole();
@@ -67,6 +72,7 @@ const Index = () => {
     [updateNav],
   );
   const setNavigationSource = useCallback((v: 'dashboard' | 'immobilie' | 'search') => updateNav({ navigationSource: v }), [updateNav]);
+  const setFokus3D = useCallback((v: string | null) => updateNav({ fokus3D: v }), [updateNav]);
 
   const [showStammdaten, setShowStammdaten] = useState<boolean>(false);
   const [showZaehlerVerwaltung, setShowZaehlerVerwaltung] = useState<boolean>(false);
@@ -382,6 +388,41 @@ const Index = () => {
       initialTab={navState.selectedTab ?? undefined}
     />;
   }
+
+  // 3D-Ansicht: steht hinter der Objektseite, damit "Zurueck" dort wieder in 3D landet.
+  if (navState.show3D) {
+    const schliessen3D = () => updateNav({ show3D: false, fokus3D: null });
+    return (
+      <Fehlergrenze3D onZurueck={schliessen3D}>
+        <Suspense
+          fallback={
+            <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" aria-hidden="true" />
+              <span className="ml-3 text-sm font-medium text-foreground">3D-Ansicht wird geladen …</span>
+            </div>
+          }
+        >
+          <Ansicht3D
+            immobilien={sortedImmobilien}
+            istAdmin={isAdmin}
+            fokusId={navState.fokus3D}
+            onFokus={setFokus3D}
+            onZurueck={schliessen3D}
+            onObjektseite={(immobilieId, einheitId) =>
+              updateNav({
+                selectedImmobilie: immobilieId,
+                selectedEinheit: einheitId ?? null,
+                selectedMietvertrag: null,
+                selectedTab: null,
+                navigationSource: 'immobilie',
+              })
+            }
+          />
+        </Suspense>
+      </Fehlergrenze3D>
+    );
+  }
+
   return <div className="min-h-screen modern-dashboard-bg">
       <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
         {/* Header */}
@@ -585,8 +626,26 @@ const Index = () => {
 
         {/* Immobilien Grid */}
         <div className="mb-4 sm:mb-6">
-          <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <div className="flex items-center justify-between gap-3 mb-4 sm:mb-6">
             <h2 className="text-lg sm:text-2xl font-sans font-bold text-gray-800">Ihre Immobilien</h2>
+            <div className="inline-flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5 shadow-sm" role="group" aria-label="Darstellung der Immobilien">
+              <Button variant="ghost" size="sm" aria-pressed="true" className="h-8 gap-1.5 rounded-md bg-primary/10 px-2.5 text-primary hover:bg-primary/15 hover:text-primary sm:px-3">
+                <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+                <span>Kacheln</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-pressed="false"
+                className="h-8 gap-1.5 rounded-md px-2.5 text-muted-foreground hover:text-foreground sm:px-3"
+                onMouseEnter={() => void ladeAnsicht3D()}
+                onFocus={() => void ladeAnsicht3D()}
+                onClick={() => updateNav({ show3D: true })}
+              >
+                <Box className="h-4 w-4" aria-hidden="true" />
+                <span>3D-Ansicht</span>
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">

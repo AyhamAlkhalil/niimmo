@@ -1,7 +1,7 @@
 # Funktionsinventar
 
 Alles, was die Anwendung kann — erhoben am Code, Stand 06.09.2026 (Commit `ae72395`),
-fortgeschrieben am 16.09.2026. **312 genutzte Funktionen** in 14 Fachbereichen, dazu 69 nicht
+fortgeschrieben am 06.10.2026. **313 genutzte Funktionen** in 14 Fachbereichen, dazu 69 nicht
 erreichbare (siehe Ende).
 
 Reife: `fertig` = im Betrieb tragfähig · `teilweise` = nutzbar, mit bekannter Lücke · `prototyp` = nicht abgenommen.
@@ -13,6 +13,7 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | Funktion | Was sie leistet | Einstieg | Reife |
 |---|---|---|---|
 | **Objektuebersicht mit Auslastungskachel** | Je Objekt eine Kachel mit Adresse, Einheitenzahl, Auslastungsbalken und den Zaehlern Aktiv / Gekuendigt… | `src/pages/Index.tsx:590` | teilweise |
+| **3D-Ansicht aller Objekte** | Quartier aus schematischen Gebaeuden, gebaut aus dem Etagentext der Einheiten; Leerstand, Kuendigung und Neuvermietung farbig, Rueckstaende als Marke (nur Admin); Klick fliegt zum Objekt, Klick auf eine Partei oeffnet den Mietvertrag; Tag- und Abendstimmung | `src/components/dashboard/ansicht3d/Ansicht3D.tsx` | prototyp |
 | **Objektdetail mit Kennzahlen und Tabs** | Kopf mit Adresse, Objekttyp, Flaeche, Kaltmiete, Betriebskosten, Warmmiete und den Tabs Einheiten,… | `src/components/dashboard/ImmobilienDetail.tsx:40` | fertig |
 | **Kennzeichnung angespannter Wohnungsmarkt** | Klickbarer Schalter setzt immobilien.ist_angespannt, was Kappungsgrenze und Mietpreisbremse im Vertrag… | `src/components/dashboard/ImmobilienDetail.tsx:280-295` | teilweise |
 | **Hausanschlusszaehler am Objekt pflegen** | Zaehlernummer, Stand und Datum fuer Wasser, Strom, Gas (optional zweiter Satz) inline bearbeitbar;… | `src/components/dashboard/ImmobilienDetail.tsx:322-462` | fertig |
