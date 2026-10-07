@@ -114,15 +114,19 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
         .select('id, bezeichnung, bank, kontonummer, darlehensbetrag, restschuld')
         .or(`bezeichnung.ilike.%${term}%,bank.ilike.%${term}%,kontonummer.ilike.%${term}%`);
 
-      // Suche Dokumente
+      // Suche Dokumente. Bis zum 07.10.2026 verlangte die Abfrage mit immobilien!inner
+      // einen Objektbezug -- 1.386 von 1.502 Dokumenten haengen aber nur am Vertrag
+      // und blieben unauffindbar. Das Objekt kommt jetzt wahlweise ueber den Vertrag.
       const { data: dokumente } = await supabase
         .from('dokumente')
         .select(`
-          id, titel, kategorie, immobilie_id,
-          immobilien!inner(id, name)
+          id, titel, kategorie, immobilie_id, mietvertrag_id,
+          immobilien(id, name),
+          mietvertrag(einheiten(immobilien(id, name)))
         `)
         .eq('geloescht', false)
         .ilike('titel', `%${term}%`)
+        .order('hochgeladen_am', { ascending: false })
         .limit(6);
 
       return {
@@ -483,13 +487,17 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                     <div
                       key={dok.id}
                       className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
-                      onClick={() => dok.immobilie_id && handleImmobilieClick(dok.immobilie_id, undefined, 'dokumente')}
+                      onClick={() => {
+                        // Vertragsdokumente oeffnen den Vertrag, Objektdokumente den Dokumente-Reiter des Objekts
+                        if (dok.mietvertrag_id) handleMietvertragClick(dok.mietvertrag_id);
+                        else if (dok.immobilie_id) handleImmobilieClick(dok.immobilie_id, undefined, 'dokumente');
+                      }}
                     >
                       <div className="flex items-center justify-between">
                         <div className="min-w-0">
                           <p className="font-medium text-foreground truncate">{highlight(dok.titel)}</p>
                           <p className="text-xs text-muted-foreground">
-                            {(dok.immobilien as any)?.name || 'Unbekannte Immobilie'}
+                            {dok.immobilien?.name || dok.mietvertrag?.einheiten?.immobilien?.name || 'Unbekannte Immobilie'}
                             {dok.kategorie ? ` · ${dok.kategorie}` : ''}
                           </p>
                         </div>
