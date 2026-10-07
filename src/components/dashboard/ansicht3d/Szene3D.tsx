@@ -352,7 +352,7 @@ export function Szene3D(props: Szene3DProps) {
       camera={{ fov: 32, near: 0.5, far: 600, position: [0, 60, 80] }}
       gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
       onCreated={({ gl }) => {
-        // Neutrales Tonemapping hält die Pastelltöne der Statusfarben farbtreu.
+        // Neutrales Tonemapping hält die hellen Modelltöne farbtreu.
         gl.toneMapping = THREE.NeutralToneMapping;
         gl.domElement.addEventListener("webglcontextlost", (ereignis) => {
           ereignis.preventDefault();

@@ -3,40 +3,38 @@ import { AlertTriangle, ArrowLeft, Box, Loader2, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import MietvertragDetailsModal from "@/components/dashboard/MietvertragDetailsModal";
-import { NewTenantContractDialog } from "@/components/dashboard/NewTenantContractDialog";
 import { EinheitHistorieView } from "@/components/dashboard/EinheitHistorieView";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useAnsicht3dDaten, type EinheitZeile3D, type VertragZeile3D } from "@/hooks/useAnsicht3dDaten";
 import { bereichsname, bereichsrang, etageLesen } from "@/utils/ansicht3d/etageLesen";
 import { objektModell } from "@/utils/ansicht3d/objektModell";
-import { einheitenNummern, kennzahlen, parteiZustand } from "@/utils/ansicht3d/parteiStatus";
+import { parteiZustand } from "@/utils/ansicht3d/parteiStatus";
 import { quartierAnordnen, type Quartier } from "@/utils/ansicht3d/quartier";
 import { Ankerregister } from "./Beschriftungen3D";
 import type { KameraZiel } from "./Kamera3D";
 import type { ObjektSzene } from "./Objekt3D";
 import { Szene3D, type Zeigerziel } from "./Szene3D";
 import { Seitenleiste3D } from "./Seitenleiste3D";
-import { Aktualisierungsfehler, Bedienhinweis, Kontextverlust, Legende3D, ObjektSchilder, ParteiMarken, Werkzeuge3D, Zeigerinfo } from "./Ueberlagerungen3D";
+import { Aktualisierungsfehler, Bedienhinweis, Kontextverlust, ObjektSchilder, Werkzeuge3D, Zeigerinfo } from "./Ueberlagerungen3D";
 import { STIMMUNGEN, type Tageszeit } from "./szene3dHilfen";
 import type { ImmobilieZeile, ObjektAnsicht, Partei } from "./ansicht3dTypen";
 
 export interface Ansicht3DProps {
   immobilien: ImmobilieZeile[];
-  istAdmin: boolean;
   /** Objekt im Fokus; liegt im Navigationszustand, damit es den Weg über die Objektseite übersteht. */
   fokusId: string | null;
   onFokus: (immobilieId: string | null) => void;
   /** Zurück zur Kachelansicht. */
   onZurueck: () => void;
-  /** Klassische Objektseite öffnen, optional mit Sprung zur Einheit. */
-  onObjektseite: (immobilieId: string, einheitId?: string) => void;
+  /** Klassische Objektseite öffnen. */
+  onObjektseite: (immobilieId: string) => void;
 }
 
 const KEIN_ZIEL: Zeigerziel = { immobilieId: null, einheitId: null };
 const SPEICHER_TAGESZEIT = "niimmo-3d-tageszeit";
 const SPEICHER_HINWEIS = "niimmo-3d-hinweis";
 const SPEICHER_AUFBAU = "niimmo-3d-aufgebaut";
-const LEISTE_BREITE = 416;
+const LEISTE_BREITE = 352;
 
 function lesen(speicher: () => Storage, schluessel: string): string | null {
   try {
@@ -109,8 +107,8 @@ function fokusZiel(objekt: ObjektAnsicht, frei: { breite: number; hoehe: number 
   return { ziel: [objekt.platz.x, objekt.modell.hoehe * 0.32, objekt.platz.z], abstand, polar, azimut: 0.45 };
 }
 
-export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZurueck, onObjektseite }: Ansicht3DProps) {
-  const daten = useAnsicht3dDaten(istAdmin);
+export default function Ansicht3D({ immobilien, fokusId, onFokus, onZurueck, onObjektseite }: Ansicht3DProps) {
+  const daten = useAnsicht3dDaten();
   const desktop = useMediaQuery("(min-width: 1024px)");
   const reduziert = useMediaQuery("(prefers-reduced-motion: reduce)");
   const groesse = useFenstergroesse();
@@ -124,7 +122,6 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
   const [auswahlId, setAuswahlId] = useState<string | null>(null);
   const [vertragDialog, setVertragDialog] = useState<{ vertragId: string; partei: Partei } | null>(null);
   const [verlaufFuer, setVerlaufFuer] = useState<Partei | null>(null);
-  const [neuerVertragFuer, setNeuerVertragFuer] = useState<Partei | null>(null);
   const [listeOffen, setListeOffen] = useState(true);
   const [kontextVerloren, setKontextVerloren] = useState(false);
   const [szenenSchluessel, setSzenenSchluessel] = useState(0);
@@ -139,7 +136,7 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
   // ---------------------------------------------------------------------------------------
   // Ansichtsmodell: Parteien mit Zustand, Modell je Objekt, Lage im Quartier.
   // ---------------------------------------------------------------------------------------
-  // Gebäude hängen nur an den Einheiten; ein neuer Rückstands- oder Mieterstand baut sie nicht neu.
+  // Gebäude hängen nur an den Einheiten; ein neuer Vertrags- oder Mieterstand baut sie nicht neu.
   const modelle = useMemo(() => {
     if (!daten.einheiten) return null;
     const jeObjekt = new Map<string, EinheitZeile3D[]>();
@@ -158,7 +155,7 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
       karte.set(immobilie.id, { einheiten, modell });
     }
     const quartier = quartierAnordnen(immobilien.map((i) => ({ id: i.id, breite: karte.get(i.id)!.modell.breite, tiefe: karte.get(i.id)!.modell.tiefe })));
-    return { karte, quartier, nummern: einheitenNummern(daten.einheiten.filter((e) => e.immobilie_id)) };
+    return { karte, quartier };
   }, [daten.einheiten, immobilien]);
 
   const ansicht = useMemo(() => {
@@ -169,41 +166,27 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
       if (!v.einheit_id) continue;
       vertraegeJeEinheit.set(v.einheit_id, [...(vertraegeJeEinheit.get(v.einheit_id) ?? []), v]);
     }
-    const { karte, quartier, nummern } = modelle;
+    const { karte, quartier } = modelle;
 
     const roh = immobilien.map((immobilie) => {
       const { einheiten, modell } = karte.get(immobilie.id)!;
-      let summe = 0;
-      let anzahl = 0;
       const parteien: Partei[] = einheiten
         .map((einheit) => {
-          const vertraege = vertraegeJeEinheit.get(einheit.id) ?? [];
-          const zustand = parteiZustand(vertraege, stichtag);
+          const zustand = parteiZustand(vertraegeJeEinheit.get(einheit.id) ?? [], stichtag);
           const lage = etageLesen(einheit.etage, einheit.einheitentyp, einheit.qm === null ? null : Number(einheit.qm));
-          const massgeblich = zustand.vertrag ?? zustand.oeffnen;
-          let frueher = 0;
-          for (const v of vertraege) {
-            const offen = daten.rueckstandJeVertrag.get(v.id);
-            if (!offen) continue;
-            summe += offen.betrag;
-            anzahl += 1;
-            if (v.id !== massgeblich?.id) frueher += offen.betrag;
-          }
           return {
             einheit,
             immobilieId: immobilie.id,
-            nummer: nummern.get(einheit.id) ?? 0,
             lage,
             bereich: bereichsname(lage),
             rang: bereichsrang(lage),
             zustand,
             mieter: zustand.vertrag ? daten.mieterJeVertrag.get(zustand.vertrag.id) ?? [] : [],
-            rueckstand: massgeblich ? daten.rueckstandJeVertrag.get(massgeblich.id) ?? null : null,
-            rueckstandFrueher: frueher,
           };
         })
-        .sort((a, b) => a.rang - b.rang || (a.lage.spalte ?? 1) - (b.lage.spalte ?? 1) || a.nummer - b.nummer);
-      return { immobilie, modell, parteien, kennzahlen: kennzahlen(parteien.map((p) => p.zustand)), rueckstand: { summe, anzahl } };
+        // Oben im Haus zuerst, innerhalb eines Geschosses von links nach rechts.
+        .sort((a, b) => a.rang - b.rang || (a.lage.spalte ?? 1) - (b.lage.spalte ?? 1) || a.einheit.id.localeCompare(b.einheit.id));
+      return { immobilie, modell, parteien };
     });
 
     const plaetze = new Map(quartier.plaetze.map((p) => [p.id, p]));
@@ -214,15 +197,13 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
       x: o.platz.x,
       z: o.platz.z,
       status: new Map(o.parteien.map((p) => [p.einheit.id, p.zustand.status])),
-      rueckstand: new Set(o.parteien.filter((p) => p.rueckstand || p.rueckstandFrueher > 0).map((p) => p.einheit.id)),
       reihenfolge: i,
     }));
     const parteien = new Map(objekte.flatMap((o) => o.parteien.map((p) => [p.einheit.id, p] as const)));
     return { objekte, quartier, szene, parteien };
-  }, [modelle, daten.vertraege, daten.mieterJeVertrag, daten.rueckstandJeVertrag, immobilien]);
+  }, [modelle, daten.vertraege, daten.mieterJeVertrag, immobilien]);
 
   const fokus = useMemo(() => ansicht?.objekte.find((o) => o.immobilie.id === fokusId) ?? null, [ansicht, fokusId]);
-  const auswahl = auswahlId ? ansicht?.parteien.get(auswahlId) ?? null : null;
 
   // Ein Fokus auf ein Objekt, das es nicht mehr gibt, wird verworfen.
   useEffect(() => {
@@ -253,7 +234,7 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
   // ---------------------------------------------------------------------------------------
   // Bedienung
   // ---------------------------------------------------------------------------------------
-  const dialogOffen = Boolean(vertragDialog || verlaufFuer || neuerVertragFuer);
+  const dialogOffen = Boolean(vertragDialog || verlaufFuer);
 
   const fokussieren = useCallback(
     (id: string | null) => {
@@ -264,19 +245,21 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
     [onFokus]
   );
 
-  const vertragOeffnen = useCallback((partei: Partei) => {
-    const vertrag = partei.zustand.oeffnen;
-    if (vertrag) setVertragDialog({ vertragId: vertrag.id, partei });
-  }, []);
-
-  /** Klick auf eine Partei: auswählen und — wenn es einen Vertrag gibt — die Detailansicht öffnen. */
+  /**
+   * Klick auf eine Partei öffnet ihre Detailansicht: den laufenden (oder künftigen) Mietvertrag.
+   * Bei Leerstand gibt es keinen solchen Vertrag — dann den Verlauf der Einheit, wie ein Klick auf
+   * die Einheitenkarte der Objektseite.
+   */
   const parteiWaehlen = useCallback(
     (einheitId: string) => {
       setAuswahlId(einheitId);
       const partei = ansicht?.parteien.get(einheitId);
-      if (partei && partei.zustand.status !== "leer") vertragOeffnen(partei);
+      if (!partei) return;
+      const vertrag = partei.zustand.vertrag;
+      if (vertrag) setVertragDialog({ vertragId: vertrag.id, partei });
+      else setVerlaufFuer(partei);
     },
-    [ansicht, vertragOeffnen]
+    [ansicht]
   );
 
   const szenenKlick = useCallback(
@@ -370,7 +353,7 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
       <Hinweisseite
         stil={hintergrund}
         titel="Daten konnten nicht geladen werden"
-        text="Einheiten oder Mietverträge ließen sich nicht abrufen. Es wird nichts angezeigt, solange die Daten unvollständig sind."
+        text="Einheiten, Mietverträge oder Mieternamen ließen sich nicht abrufen. Es wird nichts angezeigt, solange die Daten unvollständig sind."
         fehler
         onZurueck={onZurueck}
         onWiederholen={daten.neuLaden}
@@ -423,27 +406,22 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
           onKontextVerloren={() => setKontextVerloren(true)}
         />
         </div>
-        {/* Eigener Stapelkontext: Die z-Werte der Beschriftungen bleiben unter dem Zeigerhinweis. */}
-        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-          {fokus ? (
-            <ParteiMarken fokus={fokus} register={register} hover={hover} auswahlId={auswahlId} onPartei={parteiWaehlen} onHover={listenHover} />
-          ) : (
+        {/* Eigener Stapelkontext: Die z-Werte der Schilder bleiben unter dem Zeigerhinweis. */}
+        {!fokus && (
+          <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
             <ObjektSchilder objekte={ansicht.objekte} register={register} hover={hover} onFokus={fokussieren} onHover={listenHover} />
-          )}
-        </div>
+          </div>
+        )}
         <div ref={infoRef} className="pointer-events-none absolute left-0 top-0 z-30" style={{ visibility: hover.immobilieId && hoverAusSzene && !zieht.current ? "visible" : "hidden" }}>
-          {hover.immobilieId && hoverAusSzene && <Zeigerinfo ziel={hover} objekte={ansicht.objekte} fokusId={fokusId} istAdmin={istAdmin} />}
+          {hover.immobilieId && hoverAusSzene && <Zeigerinfo ziel={hover} objekte={ansicht.objekte} fokusId={fokusId} />}
         </div>
       </div>
 
       <Seitenleiste3D
         objekte={ansicht.objekte}
         fokus={fokus}
-        auswahl={auswahl}
+        auswahlId={auswahlId}
         hover={hover}
-        istAdmin={istAdmin}
-        rueckstandFehler={daten.rueckstandFehler}
-        rueckstandLaedt={daten.rueckstandLaedt}
         kompakt={!desktop}
         offen={listeOffen}
         onOffen={setListeOffen}
@@ -451,10 +429,6 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
         onFokus={fokussieren}
         onHover={listenHover}
         onPartei={parteiWaehlen}
-        onAuswahlAufheben={() => setAuswahlId(null)}
-        onVertragOeffnen={vertragOeffnen}
-        onVerlauf={setVerlaufFuer}
-        onNeuerVertrag={setNeuerVertragFuer}
         onObjektseite={onObjektseite}
       />
 
@@ -476,7 +450,6 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
         )}
         {daten.aktualisierungFehler && <Aktualisierungsfehler onWiederholen={daten.neuLaden} />}
         {hinweis && desktop && <Bedienhinweis onSchliessen={hinweisSchliessen} />}
-        <Legende3D tageszeit={tageszeit} mitRueckstand={istAdmin} className={desktop ? undefined : "max-w-[calc(100vw-5rem)]"} />
       </div>
 
       {vertragDialog && (
@@ -489,18 +462,6 @@ export default function Ansicht3D({ immobilien, istAdmin, fokusId, onFokus, onZu
           vertragId={vertragDialog.vertragId}
           einheit={vertragDialog.partei.einheit}
           immobilie={ansicht.objekte.find((o) => o.immobilie.id === vertragDialog.partei.immobilieId)?.immobilie}
-        />
-      )}
-
-      {neuerVertragFuer && (
-        <NewTenantContractDialog
-          isOpen
-          onClose={() => {
-            setNeuerVertragFuer(null);
-            dialogGeschlossen();
-          }}
-          einheitId={neuerVertragFuer.einheit.id}
-          immobilie={ansicht.objekte.find((o) => o.immobilie.id === neuerVertragFuer.immobilieId)?.immobilie}
         />
       )}
 

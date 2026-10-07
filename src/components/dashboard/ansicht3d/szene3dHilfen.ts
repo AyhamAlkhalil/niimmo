@@ -1,11 +1,10 @@
 /**
  * Farben, Materialien und Geometrien der 3D-Ansicht.
  *
- * Statusfarben kommen aus den Rollen-Tokens in index.css (success, warning, destructive,
- * primary) und werden zur Laufzeit gelesen — dieselbe Quelle wie die Oberfläche
- * (docs/architektur.md §5). Die übrigen Farben sind Szenenmaterial (Rasen, Dach, Straße) ohne
- * fachliche Bedeutung und stehen nur hier. Vermietete Einheiten bleiben bewusst neutral: Farbe
- * bekommt nur, was Aufmerksamkeit braucht.
+ * Die Ansicht dient der Navigation (Wunsch vom 07.10.2026): Alle Einheiten sind gleich gefärbt,
+ * Hervorhebung beim Überfahren kommt aus dem Rollen-Token „primary" (index.css). Die übrigen
+ * Farben sind Szenenmaterial (Rasen, Dach, Straße) ohne fachliche Bedeutung und stehen nur hier.
+ * Am Abend brennt Licht, wo jemand wohnt — Stimmung, keine Legende.
  */
 
 import * as THREE from "three";
@@ -85,66 +84,31 @@ export const SZENENFARBEN = {
   autos: ["#8193a8", "#c67e6c", "#e6e1d8", "#6b7a83", "#b9a37e"],
 } as const;
 
-/** Licht in den Fenstern am Abend: Wo jemand wohnt, brennt Licht. */
+/** Licht in den Fenstern am Abend: Wo jemand wohnt, brennt Licht; leere Einheiten bleiben dunkel. */
 const FENSTERLICHT: Record<Bausteinstatus, string> = {
   vermietet: "#ffd08a",
-  gekuendigt: "#ffab5c",
-  kommend: "#a9cfff",
+  gekuendigt: "#ffd08a",
+  kommend: "#263044",
   leer: "#263044",
   allgemein: "#39435a",
 };
 
-type Rolle = "success" | "warning" | "destructive" | "primary";
-
-const ERSATZ: Record<Rolle, string> = {
-  success: "hsl(142, 60%, 32%)",
-  warning: "hsl(32, 90%, 36%)",
-  destructive: "hsl(0, 84%, 60%)",
-  primary: "hsl(217, 91%, 60%)",
-};
-
-/** Liest eine Rollenfarbe aus index.css („142 60% 32%") als THREE.Color. */
-export function rollenfarbe(rolle: Rolle): THREE.Color {
+/** Liest die Rollenfarbe „primary" aus index.css („217 91% 60%") als THREE.Color. */
+export function hervorhebungsfarbe(): THREE.Color {
   try {
-    const roh = getComputedStyle(document.documentElement).getPropertyValue(`--${rolle}`).trim();
+    const roh = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
     const teile = roh.split(/\s+/);
     if (teile.length >= 3) return new THREE.Color().setStyle(`hsl(${teile[0]}, ${teile[1]}, ${teile[2]})`);
   } catch {
     // Ohne DOM (Tests) oder bei fehlendem Token: Ersatzwert unten.
   }
-  return new THREE.Color().setStyle(ERSATZ[rolle]);
+  return new THREE.Color().setStyle("hsl(217, 91%, 60%)");
 }
 
-/** Rollenfarbe als CSS-Wert für die Legende. */
-export function rollenfarbeCss(rolle: Rolle): string {
-  return `#${rollenfarbe(rolle).getHexString()}`;
-}
-
-const STATUSROLLE: Partial<Record<Bausteinstatus, Rolle>> = {
-  gekuendigt: "warning",
-  leer: "destructive",
-  kommend: "primary",
-};
-
-/**
- * Helligkeit der Statustöne. Der Farbton kommt aus dem Token, Sättigung und Helligkeit werden
- * auf Pastell gesetzt: Die Tokens sind dunkel, weil sie als Schriftfarbe lesbar sein müssen —
- * als Fassade wirkte „warning" damit braun statt orange.
- */
-const PASTELL: Record<Flaeche, { s: number; l: number }> = { fassade: { s: 0.72, l: 0.76 }, dach: { s: 0.5, l: 0.66 } };
-
+/** Einheiten sind neutral; nur Allgemeinfläche ohne Partei ist eine Spur dunkler. */
 export function grundfarbe(status: Bausteinstatus, flaeche: Flaeche): THREE.Color {
-  const basis = new THREE.Color(flaeche === "dach" ? SZENENFARBEN.dach : status === "allgemein" ? SZENENFARBEN.allgemein : SZENENFARBEN.fassade);
-  const rolle = STATUSROLLE[status];
-  if (!rolle) return basis;
-  const hsl = { h: 0, s: 0, l: 0 };
-  rollenfarbe(rolle).getHSL(hsl, THREE.SRGBColorSpace);
-  return new THREE.Color().setHSL(hsl.h, PASTELL[flaeche].s, PASTELL[flaeche].l, THREE.SRGBColorSpace);
-}
-
-/** Farbe für Legende und Liste: so, wie die Fassade in der Szene erscheint. */
-export function legendenfarbe(status: Bausteinstatus): string {
-  return `#${grundfarbe(status, "fassade").getHexString()}`;
+  if (flaeche === "dach") return new THREE.Color(SZENENFARBEN.dach);
+  return new THREE.Color(status === "allgemein" ? SZENENFARBEN.allgemein : SZENENFARBEN.fassade);
 }
 
 export function fensterlicht(status: Bausteinstatus): THREE.Color {
@@ -157,7 +121,7 @@ export function fensterlicht(status: Bausteinstatus): THREE.Color {
  */
 export class Materialien {
   private readonly cache = new Map<string, THREE.Material>();
-  private readonly hervorhebungsfarbe = rollenfarbe("primary");
+  private readonly hervorhebungsfarbe = hervorhebungsfarbe();
   private readonly gedimmt = new THREE.Color("#e9e5de");
 
   constructor(readonly stimmung: Stimmung) {}
@@ -172,13 +136,14 @@ export class Materialien {
   }
 
   partei(status: Bausteinstatus, flaeche: Flaeche, hervorhebung: Hervorhebung): THREE.MeshStandardMaterial {
-    return this.holen(`partei:${status}:${flaeche}:${hervorhebung}`, () => {
+    const art = status === "allgemein" ? "allgemein" : "einheit";
+    return this.holen(`partei:${art}:${flaeche}:${hervorhebung}`, () => {
       const farbe = grundfarbe(status, flaeche);
       if (hervorhebung === "gedimmt") farbe.lerp(this.gedimmt, this.stimmung.tageszeit === "abend" ? 0.35 : 0.6);
       const material = new THREE.MeshStandardMaterial({ color: farbe, roughness: flaeche === "dach" ? 0.78 : 0.86, metalness: 0 });
       if (hervorhebung === "hover" || hervorhebung === "auswahl") {
         material.emissive = this.hervorhebungsfarbe.clone();
-        material.emissiveIntensity = hervorhebung === "auswahl" ? 0.42 : 0.24;
+        material.emissiveIntensity = hervorhebung === "auswahl" ? 0.55 : 0.4;
       }
       return material;
     });
@@ -199,13 +164,6 @@ export class Materialien {
       }
       const wert = farbe ?? (SZENENFARBEN[name] as string);
       return new THREE.MeshStandardMaterial({ color: wert, roughness: name === "strasse" ? 0.95 : 0.88, metalness: 0 });
-    });
-  }
-
-  rueckstand(): THREE.MeshStandardMaterial {
-    return this.holen("rueckstand", () => {
-      const farbe = rollenfarbe("destructive");
-      return new THREE.MeshStandardMaterial({ color: farbe, emissive: farbe, emissiveIntensity: 0.35, roughness: 0.4 });
     });
   }
 

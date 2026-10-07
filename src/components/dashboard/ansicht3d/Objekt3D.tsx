@@ -21,10 +21,8 @@ export interface ObjektSzene {
   modell: ObjektModell;
   x: number;
   z: number;
-  /** Status je Einheit; fehlt eine Einheit, gilt sie als Allgemeinfläche. */
+  /** Status je Einheit (für Abendlicht und Autos); fehlt eine Einheit, gilt sie als Allgemeinfläche. */
   status: Map<string, Bausteinstatus>;
-  /** Einheiten mit offenem Rückstand. */
-  rueckstand: Set<string>;
   /** Position in der Aufbau-Animation. */
   reihenfolge: number;
 }
@@ -322,7 +320,7 @@ function Teil({ b, status, materialien, hervorhebung }: { b: Baustein; status: B
       );
     case "stellplatz": {
       const belegt = status === "vermietet" || status === "gekuendigt";
-      const flaeche = status === "vermietet" && hervorhebung === "normal" ? materialien.einfach("weg") : fassade;
+      const flaeche = hervorhebung === "hover" || hervorhebung === "auswahl" ? fassade : materialien.einfach("weg");
       const farbe = autoFarbe(b.einheitId ?? b.schluessel);
       return (
         <group>
@@ -366,21 +364,6 @@ function Teil({ b, status, materialien, hervorhebung }: { b: Baustein; status: B
   }
 }
 
-/** Eine Rückstandsmarke: rote Kugel auf dünnem Stiel über der Einheit. */
-function Rueckstandsmarke({ b, materialien }: { b: Baustein; materialien: Materialien }) {
-  const dach = b.form === "dach";
-  const y = b.y + b.hoehe + (dach ? 0.12 : 0.2);
-  const z = dach ? b.z : b.z + (b.tiefe - FUGE) / 2;
-  return (
-    <group position={[b.x, y, z]}>
-      <mesh geometry={wuerfelGeometrie()} scale={[0.025, 0.2, 0.025]} material={materialien.einfach("laterne")} raycast={KEIN_RAYCAST} />
-      <mesh position={[0, 0.27, 0]} material={materialien.rueckstand()} raycast={KEIN_RAYCAST} castShadow>
-        <sphereGeometry args={[0.1, 20, 14]} />
-      </mesh>
-    </group>
-  );
-}
-
 function hervorhebungVon(einheitId: string | null, props: Pick<Objekt3DProps, "modus" | "hoverEinheit" | "auswahlEinheit">): Hervorhebung {
   if (einheitId && einheitId === props.auswahlEinheit) return "auswahl";
   if (einheitId && einheitId === props.hoverEinheit) return "hover";
@@ -398,17 +381,6 @@ function Objekt3DOhneMemo(props: Objekt3DProps) {
   const invalidate = useThree((s) => s.invalidate);
 
   const fenster = useMemo(() => fensterFuer(modell), [modell]);
-  // Pro Einheit eine Marke, auf dem obersten Baustein.
-  const marken = useMemo(() => {
-    const oberste = new Map<string, Baustein>();
-    for (const b of modell.bausteine) {
-      if (!b.einheitId || !objekt.rueckstand.has(b.einheitId)) continue;
-      const bisher = oberste.get(b.einheitId);
-      if (!bisher || b.y + b.hoehe > bisher.y + bisher.hoehe) oberste.set(b.einheitId, b);
-    }
-    return [...oberste.values()];
-  }, [modell, objekt.rueckstand]);
-
   useFrame((_, delta) => {
     let weiter = false;
     if (gruppe.current) {
@@ -465,9 +437,6 @@ function Objekt3DOhneMemo(props: Objekt3DProps) {
           <Zier key={teil.schluessel} teil={teil} materialien={materialien} hervorhebung={zierHervorhebung} />
         ))}
         <FensterInstanzen fenster={fenster} status={objekt.status} materialien={materialien} />
-        {marken.map((b) => (
-          <Rueckstandsmarke key={b.schluessel} b={b} materialien={materialien} />
-        ))}
       </group>
     </group>
   );

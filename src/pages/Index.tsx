@@ -404,14 +404,13 @@ const Index = () => {
         >
           <Ansicht3D
             immobilien={sortedImmobilien}
-            istAdmin={isAdmin}
             fokusId={navState.fokus3D}
             onFokus={setFokus3D}
             onZurueck={schliessen3D}
-            onObjektseite={(immobilieId, einheitId) =>
+            onObjektseite={(immobilieId) =>
               updateNav({
                 selectedImmobilie: immobilieId,
-                selectedEinheit: einheitId ?? null,
+                selectedEinheit: null,
                 selectedMietvertrag: null,
                 selectedTab: null,
                 navigationSource: 'immobilie',
