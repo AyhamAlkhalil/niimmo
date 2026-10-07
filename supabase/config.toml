@@ -6,9 +6,6 @@ verify_jwt = false
 [functions.process-contract-ocr]
 verify_jwt = false
 
-[functions.generate-rent-increase-pdf]
-verify_jwt = false
-
 [functions.check-rent-increase-eligibility]
 verify_jwt = false
 
@@ -18,25 +15,13 @@ verify_jwt = false
 [functions.generate-mietforderungen]
 verify_jwt = false
 
-[functions.process-tilgungsplan-ocr]
-verify_jwt = false
-
 [functions.process-payments]
-verify_jwt = false
-
-[functions.generate-mahnung-pdf]
-verify_jwt = false
-
-[functions.generate-uebergabe-pdf]
 verify_jwt = false
 
 [functions.check-faelligkeiten]
 verify_jwt = false
 
 [functions.send-mahnung]
-verify_jwt = false
-
-[functions.send-rent-increase-notification]
 verify_jwt = false
 
 [functions.send-uebergabe-email]
