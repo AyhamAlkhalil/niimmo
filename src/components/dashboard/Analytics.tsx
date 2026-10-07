@@ -4,6 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Euro, TrendingUp, TrendingDown, Building, Users, ArrowLeft, Home, AlertTriangle, DollarSign, PiggyBank, BarChart3, Calendar, Landmark, CreditCard } from 'lucide-react';
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+import { alleSeiten } from "@/utils/supabaseSeiten";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useMemo } from 'react';
 import { formatDateForDisplay } from "@/utils/dateUtils";
@@ -53,17 +55,19 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
     },
   });
 
-  // Fetch Zahlungen data
+  // Alle Zahlungen seitenweise: Ohne range() lieferte PostgREST still nur die ersten
+  // 1000 von 3.703 Buchungen (Stand 07.10.2026), alle Kennzahlen waren zu niedrig.
   const { data: zahlungen } = useQuery({
     queryKey: ['zahlungen-analytics'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('zahlungen')
-        .select('*')
-        .order('buchungsdatum', { ascending: true });
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      alleSeiten<Database['public']['Tables']['zahlungen']['Row']>((von, bis, mitZaehlung) =>
+        supabase
+          .from('zahlungen')
+          .select('*', { count: mitZaehlung ? 'exact' : undefined })
+          .order('buchungsdatum', { ascending: true })
+          .order('id', { ascending: true })
+          .range(von, bis)
+      ),
   });
 
   // Berechnete Kennzahlen
