@@ -208,6 +208,43 @@ export const getLaufenderVertrag = <T extends VertragZeitraum>(
 };
 
 /**
+ * Kalt- und Betriebskostensumme eines Bestands: je Einheit nur der am Stichtag
+ * laufende Vertrag (getLaufenderVertrag).
+ *
+ * Der Objektkopf summierte bis zum 07.10.2026 alle aktiven und gekuendigten
+ * Vertraege. Bei einem Mieterwechsel standen der gekuendigte Vormieter und der
+ * Nachmieter, der erst im Folgemonat einzieht, gleichzeitig in der Summe --
+ * Objekt 5 zeigte 9.280 EUR statt 7.970 EUR Kaltmiete (Kundenmeldung vom 02.10.2026).
+ */
+export const summiereLaufendeMieten = <
+  T extends VertragZeitraum & {
+    einheit_id?: string | null;
+    kaltmiete?: number | null;
+    betriebskosten?: number | null;
+  }
+>(
+  vertraege: T[] | null | undefined,
+  stichtag: Date = new Date()
+): { kaltmiete: number; betriebskosten: number } => {
+  const jeEinheit = new Map<string, T[]>();
+  (vertraege ?? []).forEach((v, i) => {
+    // Ohne Einheit kann kein Nachfolger kollidieren -- jeder Vertrag zaehlt fuer sich.
+    const schluessel = v.einheit_id ?? `ohne-einheit-${i}`;
+    jeEinheit.set(schluessel, [...(jeEinheit.get(schluessel) ?? []), v]);
+  });
+
+  let kaltmiete = 0;
+  let betriebskosten = 0;
+  for (const liste of jeEinheit.values()) {
+    const laufend = getLaufenderVertrag(liste, stichtag);
+    if (!laufend) continue;
+    kaltmiete += Number(laufend.kaltmiete) || 0;
+    betriebskosten += Number(laufend.betriebskosten) || 0;
+  }
+  return { kaltmiete, betriebskosten };
+};
+
+/**
  * Formats currency values consistently
  */
 export const formatCurrency = (value: number | null | undefined): string => {

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
-import { sortUnitsByNumber, getCurrentContract, filterActiveAndTerminatedContracts } from "@/utils/contractUtils";
+import { sortUnitsByNumber, getCurrentContract, filterActiveAndTerminatedContracts, summiereLaufendeMieten } from "@/utils/contractUtils";
 import { useEditableField } from "@/hooks/useEditableField";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -151,7 +151,8 @@ export const ImmobilienDetail = ({
     enabled: !!einheiten
   });
 
-  // Query für alle aktiven und gekündigten Mietverträge für Finanzberechnungen
+  // Vertraege fuer die Mietsummen im Kopf. Der Status ist nur Vorfilter --
+  // massgeblich ist der am Stichtag laufende Vertrag je Einheit (summiereLaufendeMieten).
   const {
     data: alleMietvertraege
   } = useQuery({
@@ -159,12 +160,12 @@ export const ImmobilienDetail = ({
     queryFn: async () => {
       const einheitIds = einheiten?.map(e => e.id) || [];
       if (einheitIds.length === 0) return [];
-      
+
       const { data, error } = await supabase
         .from('mietvertrag')
-        .select('kaltmiete, betriebskosten, status')
+        .select('einheit_id, kaltmiete, betriebskosten, status, start_datum, ende_datum, kuendigungsdatum')
         .in('einheit_id', einheitIds)
-        .in('status', ['aktiv', 'gekuendigt', 'beendet']); // Include all contract types
+        .in('status', ['aktiv', 'gekuendigt']);
       
       if (error) throw error;
       return data || [];
@@ -188,10 +189,7 @@ export const ImmobilienDetail = ({
     },
   });
 
-  // Berechne Gesamtwerte (nur aktive und gekündigte Verträge)
-  const aktiveMietvertraege = alleMietvertraege?.filter(v => v.status === 'aktiv' || v.status === 'gekuendigt') || [];
-  const gesamtKaltmiete = aktiveMietvertraege.reduce((sum, vertrag) => sum + (vertrag.kaltmiete || 0), 0);
-  const gesamtBetriebskosten = aktiveMietvertraege.reduce((sum, vertrag) => sum + (vertrag.betriebskosten || 0), 0);
+  const { kaltmiete: gesamtKaltmiete, betriebskosten: gesamtBetriebskosten } = summiereLaufendeMieten(alleMietvertraege);
   const gesamtWarmmiete = gesamtKaltmiete + gesamtBetriebskosten;
   // Exclude non-residential unit types (Garage, Stellplatz, Lager, Sonstiges) from total QM calculation
   const wohnflaechenEinheiten = einheiten?.filter(e => 

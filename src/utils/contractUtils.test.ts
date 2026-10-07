@@ -5,6 +5,7 @@ import {
   mietendeFelder,
   istLaufenderVertrag,
   getLaufenderVertrag,
+  summiereLaufendeMieten,
 } from "./contractUtils";
 
 const STICHTAG = new Date(2026, 8, 3); // 03.09.2026
@@ -116,5 +117,47 @@ describe("mietendeFelder", () => {
 
   it("gekündigter Vertrag: Mietende darf nicht leer werden", () => {
     expect(mietendeFelder(null, { kuendigungsdatum: "2026-11-30" })).toHaveProperty("fehler");
+  });
+});
+
+describe("summiereLaufendeMieten", () => {
+  // Nachgebildet nach Objekt 5 am 02.10.2026 (Kundenmeldung): Wohnung und Stellplatz
+  // sind gekuendigt zum 31.10., die Nachmieter ziehen am 01.11. ein.
+  const bestand = [
+    { einheit_id: "e01", status: "aktiv", start_datum: "2021-01-01", ende_datum: null, kaltmiete: 550, betriebskosten: 100 },
+    { einheit_id: "e06", status: "aktiv", start_datum: "2026-10-01", ende_datum: null, kaltmiete: 1150, betriebskosten: 180 },
+    { einheit_id: "e07", status: "gekuendigt", start_datum: "2025-06-01", ende_datum: "2026-10-31", kuendigungsdatum: "2026-11-30", kaltmiete: 1200, betriebskosten: 200 },
+    { einheit_id: "e07", status: "aktiv", start_datum: "2026-11-01", ende_datum: null, kaltmiete: 1260, betriebskosten: 200 },
+    { einheit_id: "e10", status: "gekuendigt", start_datum: "2025-06-01", ende_datum: "2026-10-31", kuendigungsdatum: "2026-11-30", kaltmiete: 50, betriebskosten: 0 },
+    { einheit_id: "e10", status: "aktiv", start_datum: "2026-11-01", ende_datum: null, kaltmiete: 50, betriebskosten: 0 },
+  ];
+
+  it("zaehlt bei einem Mieterwechsel nur den Vormieter, solange er noch wohnt", () => {
+    // Vorher: 4.260 EUR Kaltmiete, weil Vor- und Nachmieter gleichzeitig zaehlten.
+    expect(summiereLaufendeMieten(bestand, new Date(2026, 9, 2))).toEqual({ kaltmiete: 2950, betriebskosten: 480 });
+  });
+
+  it("zaehlt nach dem Auszug nur den Nachmieter", () => {
+    expect(summiereLaufendeMieten(bestand, new Date(2026, 10, 15))).toEqual({ kaltmiete: 3010, betriebskosten: 480 });
+  });
+
+  it("laesst noch nicht begonnene und beendete Vertraege weg", () => {
+    const vertraege = [
+      { einheit_id: "a", status: "aktiv", start_datum: "2026-12-01", ende_datum: null, kaltmiete: 900, betriebskosten: 90 },
+      { einheit_id: "b", status: "beendet", start_datum: "2020-01-01", ende_datum: "2025-12-31", kaltmiete: 700, betriebskosten: 70 },
+    ];
+    expect(summiereLaufendeMieten(vertraege, STICHTAG)).toEqual({ kaltmiete: 0, betriebskosten: 0 });
+  });
+
+  it("zaehlt Vertraege ohne Einheit einzeln", () => {
+    const vertraege = [
+      { einheit_id: null, status: "aktiv", start_datum: "2024-01-01", ende_datum: null, kaltmiete: 400, betriebskosten: 40 },
+      { einheit_id: null, status: "aktiv", start_datum: "2024-01-01", ende_datum: null, kaltmiete: 300, betriebskosten: 30 },
+    ];
+    expect(summiereLaufendeMieten(vertraege, STICHTAG)).toEqual({ kaltmiete: 700, betriebskosten: 70 });
+  });
+
+  it("liefert 0 ohne Vertraege", () => {
+    expect(summiereLaufendeMieten(undefined)).toEqual({ kaltmiete: 0, betriebskosten: 0 });
   });
 });
