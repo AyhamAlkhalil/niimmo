@@ -448,7 +448,11 @@ export const NewTenantContractDialog = ({
       
       if (activeTab === 'new-tenant') {
         for (const tenant of newTenants) {
-          // Bei Unternehmen: Firmenname in Vorname und Nachname aufteilen
+          // Bei Unternehmen: Firmenname zusaetzlich in Vorname und Nachname aufteilen,
+          // weil Listen, Suche und Schreiben den Mieter ueber diese beiden Felder anzeigen.
+          // Massgeblich fuer den Vertragsdruck sind ist_unternehmen und firmenname; beide
+          // wurden bis zum 07.10.2026 nicht gespeichert, ein Firmenmieter war danach
+          // nicht mehr als Firma erkennbar.
           let vorname = tenant.vorname.trim();
           let nachname = tenant.nachname.trim();
           
@@ -470,7 +474,9 @@ export const NewTenantContractDialog = ({
               nachname: nachname,
               hauptmail: tenant.hauptmail?.trim() || null,
               telnr: tenant.telnr?.trim() || null,
-              geburtsdatum: tenant.istUnternehmen ? null : (tenant.geburtsdatum || null)
+              geburtsdatum: tenant.istUnternehmen ? null : (tenant.geburtsdatum || null),
+              ist_unternehmen: tenant.istUnternehmen,
+              firmenname: tenant.istUnternehmen ? (tenant.firmenname.trim() || null) : null
             })
             .select('id')
             .single();
