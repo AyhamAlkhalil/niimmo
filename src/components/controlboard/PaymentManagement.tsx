@@ -453,8 +453,11 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   };
 
   const handleApplyAssignments = async (selectedResults?: Zuordnungsvorschlag[]) => {
-    // Selected results now include all categories the user chose (Miete, Mietkaution, Rücklastschrift, etc.)
-    const selectedToApply = selectedResults || aiResults.filter(r => r.kategorie !== "Nichtmiete");
+    // Die Prüfmaske zeigt seit dem 09.10.2026 alle Kategorien, auch Nichtmiete.
+    // Bis dahin lief Nichtmiete hier an der Auswahl vorbei und wurde zusätzlich
+    // gespeichert -- eine in der Maske umgestellte Nichtmiete hätte die
+    // Korrektur gleich wieder mit der alten Kategorie überschrieben.
+    const selectedToApply = selectedResults ?? aiResults;
 
     // Der Schluessel ist inhaltsbasiert (Tag, Betrag, IBAN, 50 Zeichen Verwendungszweck).
     // Zwei Buchungen mit gleichem Schluessel im selben Import: Bis zum 07.09.2026 galt
@@ -466,13 +469,9 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       gewaehltJeSchluessel.set(schluessel, (gewaehltJeSchluessel.get(schluessel) ?? 0) + 1);
     }
 
-    // Nichtmiete payments are always saved (not shown in modal selection)
-    const nichtmieteResults = aiResults.filter(r => r.kategorie === "Nichtmiete");
-
-    // Unselected non-Nichtmiete payments should ALSO be saved, but without mietvertrag_id
+    // Abgewählte Buchungen werden ebenfalls gespeichert, aber ohne Vertrag.
     const unselected = aiResults
       .filter(r => {
-        if (r.kategorie === "Nichtmiete") return false;
         const schluessel = vorschlagsSchluessel(r);
         const offen = gewaehltJeSchluessel.get(schluessel) ?? 0;
         if (offen > 0) {
@@ -483,8 +482,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       })
       .map(r => ({ ...r, mietvertrag_id: null }));
 
-    // Combine ALL: selected (with assignment) + unselected (without) + Nichtmiete
-    const allResultsToSave = [...selectedToApply, ...unselected, ...nichtmieteResults];
+    const allResultsToSave = [...selectedToApply, ...unselected];
 
     // Bis zum 06.09.2026 wurde `error` an drei Stellen destrukturiert und nie
     // gelesen. Scheiterte eine Zeile an RLS oder einem Constraint, lief die

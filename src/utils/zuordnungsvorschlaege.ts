@@ -58,7 +58,10 @@ export const KEINE_KORREKTUREN: Korrekturen = { vertrag: {}, immobilie: {}, kate
 /** Unter dieser Konfidenz gilt ein Vorschlag als unsicher (Backend: reiner Betrags-Match = 40). */
 export const KONFIDENZ_UNSICHER = 50;
 
-export type VorschlagStatus = 'geaendert' | 'offen' | 'unsicher' | 'zugeordnet';
+/** Ab dieser Konfidenz gilt ein Vorschlag als sicher (grünes Abzeichen). */
+export const KONFIDENZ_SICHER = 80;
+
+export type VorschlagStatus = 'geaendert' | 'offen' | 'unsicher' | 'zugeordnet' | 'nichtmiete';
 export type VorschlagSicht = 'alle' | VorschlagStatus;
 
 /** Fachlicher Schlüssel einer Buchung, identisch mit dem der Übernahme in PaymentManagement. */
@@ -70,9 +73,15 @@ export function effektiveKategorie(idx: number, v: Zuordnungsvorschlag, k: Korre
   return k.kategorie[idx] || v.kategorie;
 }
 
-/** Nebenkosten hängen am Objekt, nie am Vertrag (docs/datenmodell.md: Zahlungsbezug ist entweder-oder). */
+/**
+ * Nebenkosten hängen am Objekt, nie am Vertrag (docs/datenmodell.md: Zahlungsbezug ist entweder-oder).
+ * Nichtmiete trägt wie im Kategorie-Editor keinen Vertrag; ihr Objekt setzt später der
+ * Nebenkosten-Arbeitsplatz. Ignorieren behält den Vertrag — so blendet die Vertragsansicht
+ * einzelne Zahlungen am Mieterkonto aus.
+ */
 export function effektiveVertragId(idx: number, v: Zuordnungsvorschlag, k: Korrekturen): string | null {
-  if (effektiveKategorie(idx, v, k) === 'Nebenkosten') return null;
+  const kategorie = effektiveKategorie(idx, v, k);
+  if (kategorie === 'Nebenkosten' || kategorie === 'Nichtmiete') return null;
   return k.vertrag[idx] !== undefined ? k.vertrag[idx] : v.mietvertrag_id;
 }
 
@@ -89,7 +98,9 @@ export function effektiveImmobilieId(idx: number, v: Zuordnungsvorschlag, k: Kor
  */
 export function istManuellGeaendert(idx: number, v: Zuordnungsvorschlag, k: Korrekturen): boolean {
   if (k.kategorie[idx] !== undefined) return true;
-  return effektiveKategorie(idx, v, k) === 'Nebenkosten' ? k.immobilie[idx] !== undefined : k.vertrag[idx] !== undefined;
+  const kategorie = effektiveKategorie(idx, v, k);
+  if (kategorie === 'Nichtmiete') return false;
+  return kategorie === 'Nebenkosten' ? k.immobilie[idx] !== undefined : k.vertrag[idx] !== undefined;
 }
 
 export function hatZuordnung(idx: number, v: Zuordnungsvorschlag, k: Korrekturen): boolean {
@@ -99,27 +110,49 @@ export function hatZuordnung(idx: number, v: Zuordnungsvorschlag, k: Korrekturen
 }
 
 /**
+ * Bis zum 09.10.2026 blendete die Prüfmaske Nichtmiete aus und speicherte sie
+ * ungesehen. process-payments vergibt „Nichtmiete" aber auch, wenn das System
+ * nur nichts erkannt hat: ohne das Wort „Miete" im Verwendungszweck
+ * (Konfidenz 50), nach einem KI-Fehler und jenseits von 20 KI-Abfragen je
+ * Import (Konfidenz 0). Im Import vom 02.10.2026 lagen so zwei Eingänge einer
+ * Privatperson mit Objektadresse im Verwendungszweck unter Nichtmiete.
+ * Eingehendes Geld ohne Mietbezug ist deshalb erst bei hoher Konfidenz sicher.
+ */
+function nichtmieteUnsicher(v: Zuordnungsvorschlag): boolean {
+  // Die Konfidenz kommt ungeprüft aus der KI-Antwort; fehlt sie, ist nichts sicher.
+  const konfidenz = v.confidence ?? 0;
+  if (konfidenz < KONFIDENZ_UNSICHER) return true;
+  return v.betrag > 0 && konfidenz < KONFIDENZ_SICHER;
+}
+
+/**
  * Reihenfolge der Prüfung: Was die Buchhaltung angefasst hat, ist „geändert";
+ * Nichtmiete braucht kein Ziel und ist „Nichtmiete", sofern nicht unsicher;
  * ohne Ziel ist „offen"; ein Ziel mit niedriger Konfidenz ist „unsicher".
  */
 export function vorschlagStatus(idx: number, v: Zuordnungsvorschlag, k: Korrekturen): VorschlagStatus {
   if (istManuellGeaendert(idx, v, k)) return 'geaendert';
+  if (effektiveKategorie(idx, v, k) === 'Nichtmiete') return nichtmieteUnsicher(v) ? 'unsicher' : 'nichtmiete';
   if (!hatZuordnung(idx, v, k)) return 'offen';
   if (v.confidence < KONFIDENZ_UNSICHER) return 'unsicher';
   return 'zugeordnet';
 }
 
-/** Vorbelegung der Auswahl: nur Vorschläge mit Vertrag, die das Backend nicht ausdrücklich abgewählt hat. */
+/**
+ * Vorbelegung der Auswahl: Vorschläge mit Vertrag, die das Backend nicht
+ * ausdrücklich abgewählt hat, und Nichtmiete. Eine abgewählte Nichtmiete würde
+ * ohnehin unverändert gespeichert — gewählt zählt sie sichtbar mit.
+ */
 export function standardAuswahl(vorschlaege: readonly Zuordnungsvorschlag[]): Set<number> {
   const auswahl = new Set<number>();
   vorschlaege.forEach((v, idx) => {
-    if (v.mietvertrag_id && v.selected !== false) auswahl.add(idx);
+    if ((v.mietvertrag_id && v.selected !== false) || v.kategorie === 'Nichtmiete') auswahl.add(idx);
   });
   return auswahl;
 }
 
 export function zaehleStatus(vorschlaege: readonly Zuordnungsvorschlag[], k: Korrekturen): Record<VorschlagStatus, number> {
-  const z: Record<VorschlagStatus, number> = { geaendert: 0, offen: 0, unsicher: 0, zugeordnet: 0 };
+  const z: Record<VorschlagStatus, number> = { geaendert: 0, offen: 0, unsicher: 0, zugeordnet: 0, nichtmiete: 0 };
   vorschlaege.forEach((v, idx) => {
     z[vorschlagStatus(idx, v, k)] += 1;
   });
@@ -195,6 +228,9 @@ export function wendeKorrekturenAn(
           neu.zuordnungsgrund = korrektur ? `Manuell zugeordnet: ${imm?.name ?? korrektur}` : 'Manuell entfernt';
         }
         neu.mietvertrag_id = null;
+      } else if (kategorie === 'Nichtmiete') {
+        neu.mietvertrag_id = null;
+        neu.immobilie_id = null;
       } else {
         // Alles außer Nebenkosten hängt am Vertrag. Ein Objektbezug aus einem
         // früheren Nebenkosten-Vorschlag darf nicht mitgespeichert werden —

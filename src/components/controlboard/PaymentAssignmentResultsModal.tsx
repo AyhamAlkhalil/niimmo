@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Edit2, Loader2, Search, SkipForward, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft, ChevronRight, Edit2, Loader2, MinusCircle, Search, SkipForward, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { formatEuro, formatIsoDatum } from "@/utils/zahlungenAnsicht";
 import {
   ImmobilieOption,
   KEINE_KORREKTUREN,
+  KONFIDENZ_SICHER,
   KONFIDENZ_UNSICHER,
   Korrekturen,
   VertragOption,
@@ -47,6 +48,11 @@ import { ZuordnungsAuswahl } from "./ZuordnungsAuswahl";
  * Zeilen hoch, und die Korrektur öffnete ein zweites Fenster darüber. Jetzt:
  * Vollbild, eine Zeile je Buchung, Filter nach Prüfstatus, und die Korrektur
  * sitzt in der Detailspalte rechts.
+ *
+ * Seit dem 09.10.2026 zeigt die Maske auch Nichtmiete (eigener Reiter); vorher
+ * stand sie nur als Zahl in der Fußzeile und wurde ungesehen gespeichert —
+ * auch dort, wo das System nur nichts erkannt hatte. Kundenwunsch: sehen, was
+ * beim Upload nicht als Miete erkannt wurde.
  */
 
 interface DuplicatePayment {
@@ -105,11 +111,12 @@ const STATUS_ANZEIGE: Record<VorschlagStatus, { label: string; Icon: typeof Chec
   offen: { label: "Offen", Icon: AlertTriangle, klasse: "text-warning", zeile: "bg-warning/5" },
   unsicher: { label: "Unsicher", Icon: AlertTriangle, klasse: "text-destructive", zeile: "bg-destructive/5" },
   geaendert: { label: "Geändert", Icon: Edit2, klasse: "text-primary", zeile: "bg-primary/5" },
+  nichtmiete: { label: "Nichtmiete", Icon: MinusCircle, klasse: "text-muted-foreground", zeile: "" },
 };
 
 function KonfidenzBadge({ wert }: { wert: number }) {
   const klasse =
-    wert >= 80
+    wert >= KONFIDENZ_SICHER
       ? "border-success/30 bg-success/10 text-success"
       : wert >= KONFIDENZ_UNSICHER
         ? "border-warning/30 bg-warning/10 text-warning"
@@ -184,6 +191,8 @@ const VorschlagZeile = memo(function VorschlagZeile({ idx, v, status, kategorie,
             <span className="font-medium">{ziel.haupt}</span>
             {ziel.neben && <span className="text-muted-foreground"> · {ziel.neben}</span>}
           </span>
+        ) : kategorie === "Nichtmiete" ? (
+          <span className="text-muted-foreground">Keine Zuordnung nötig</span>
         ) : (
           <span className="text-warning">{kategorie === "Nebenkosten" ? "Kein Objekt" : "Nicht zugeordnet"}</span>
         )}
@@ -249,35 +258,31 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
     staleTime: 60 * 1000,
   });
 
-  // Nichtmiete wird ohne Prüfung gespeichert und erscheint hier nicht.
-  const mietResults = useMemo(() => results.filter((r) => r.kategorie !== "Nichtmiete"), [results]);
-  const nichtmieteAnzahl = results.length - mietResults.length;
-
   const [korrekturen, setKorrekturen] = useState<Korrekturen>(KEINE_KORREKTUREN);
-  const [auswahl, setAuswahl] = useState<Set<number>>(() => standardAuswahl(mietResults));
+  const [auswahl, setAuswahl] = useState<Set<number>>(() => standardAuswahl(results));
   const [inspiziert, setInspiziert] = useState<number | null>(null);
   const [sicht, setSicht] = useState<VorschlagSicht>("alle");
   const [suche, setSuche] = useState("");
 
   useEffect(() => {
     setKorrekturen(KEINE_KORREKTUREN);
-    setAuswahl(standardAuswahl(mietResults));
+    setAuswahl(standardAuswahl(results));
     setInspiziert(null);
     setSicht("alle");
     setSuche("");
-  }, [mietResults]);
+  }, [results]);
 
   const sichtbar = useMemo(
-    () => filtereVorschlaege(mietResults, korrekturen, sicht, suche, vertraege, immobilien),
-    [mietResults, korrekturen, sicht, suche, vertraege, immobilien]
+    () => filtereVorschlaege(results, korrekturen, sicht, suche, vertraege, immobilien),
+    [results, korrekturen, sicht, suche, vertraege, immobilien]
   );
-  const zaehler = useMemo(() => zaehleStatus(mietResults, korrekturen), [mietResults, korrekturen]);
+  const zaehler = useMemo(() => zaehleStatus(results, korrekturen), [results, korrekturen]);
   const finale = useMemo(
-    () => wendeKorrekturenAn(mietResults, korrekturen, auswahl, vertraege, immobilien),
-    [mietResults, korrekturen, auswahl, vertraege, immobilien]
+    () => wendeKorrekturenAn(results, korrekturen, auswahl, vertraege, immobilien),
+    [results, korrekturen, auswahl, vertraege, immobilien]
   );
   const mitZuordnung = finale.filter((r) => r.mietvertrag_id || r.immobilie_id).length;
-  const kannUebernehmen = auswahl.size > 0 || nichtmieteAnzahl > 0;
+  const kannUebernehmen = auswahl.size > 0;
   const alleSichtbarenGewaehlt = sichtbar.length > 0 && sichtbar.every((idx) => auswahl.has(idx));
   const einigeSichtbareGewaehlt = sichtbar.some((idx) => auswahl.has(idx));
 
@@ -322,7 +327,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
   // an ihnen verpuffte bis zum 07.09.2026 unbemerkt.
   const setzeKategorie = useCallback(
     (idx: number, wert: string) => {
-      const original = mietResults[idx]?.kategorie;
+      const original = results[idx]?.kategorie;
       setKorrekturen((k) => {
         const kategorie = { ...k.kategorie };
         if (wert === original) delete kategorie[idx];
@@ -331,17 +336,25 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
       });
       if (wert !== original) setAuswahl((prev) => new Set(prev).add(idx));
     },
-    [mietResults]
+    [results]
   );
 
   const setzeZiel = useCallback(
     (idx: number, id: string | null) => {
-      const nebenkosten = effektiveKategorie(idx, mietResults[idx], korrekturen) === "Nebenkosten";
+      const nebenkosten = effektiveKategorie(idx, results[idx], korrekturen) === "Nebenkosten";
       setKorrekturen((k) => (nebenkosten ? { ...k, immobilie: { ...k.immobilie, [idx]: id } } : { ...k, vertrag: { ...k.vertrag, [idx]: id } }));
       if (id) setAuswahl((prev) => new Set(prev).add(idx));
     },
-    [mietResults, korrekturen]
+    [results, korrekturen]
   );
+
+  // Über die Auswahlliste lässt sich eine unsichere Nichtmiete nicht bestätigen:
+  // dieselbe Kategorie noch einmal zu wählen hebt die Korrektur auf, und die
+  // Zeile bliebe Prüffall.
+  const bestaetigeNichtmiete = useCallback((idx: number) => {
+    setKorrekturen((k) => ({ ...k, kategorie: { ...k.kategorie, [idx]: "Nichtmiete" } }));
+    setAuswahl((prev) => new Set(prev).add(idx));
+  }, []);
 
   const scrolleZu = useCallback((idx: number) => {
     requestAnimationFrame(() => {
@@ -357,7 +370,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
     [scrolleZu]
   );
 
-  const naechsterFall = () => inspiziere(naechsterPruefFall(mietResults, korrekturen, sichtbar, inspiziert));
+  const naechsterFall = () => inspiziere(naechsterPruefFall(results, korrekturen, sichtbar, inspiziert));
 
   const blaettern = (schritt: 1 | -1) => {
     if (sichtbar.length === 0) return;
@@ -404,7 +417,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
     }
   };
 
-  const aktuell = inspiziert !== null ? mietResults[inspiziert] : undefined;
+  const aktuell = inspiziert !== null ? results[inspiziert] : undefined;
   const aktuellKategorie = aktuell && inspiziert !== null ? effektiveKategorie(inspiziert, aktuell, korrekturen) : null;
   const aktuellStatus = aktuell && inspiziert !== null ? vorschlagStatus(inspiziert, aktuell, korrekturen) : null;
   const aktuellZiel = aktuell && inspiziert !== null ? zielVon(inspiziert, aktuell) : null;
@@ -417,11 +430,12 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
   const pruefFaelle = zaehler.offen + zaehler.unsicher;
 
   const sichten: Array<{ wert: VorschlagSicht; label: string; anzahl: number }> = [
-    { wert: "alle", label: "Alle", anzahl: mietResults.length },
+    { wert: "alle", label: "Alle", anzahl: results.length },
     { wert: "offen", label: "Offen", anzahl: zaehler.offen },
     { wert: "unsicher", label: "Unsicher", anzahl: zaehler.unsicher },
     { wert: "geaendert", label: "Geändert", anzahl: zaehler.geaendert },
     { wert: "zugeordnet", label: "Zugeordnet", anzahl: zaehler.zugeordnet },
+    { wert: "nichtmiete", label: "Nichtmiete", anzahl: zaehler.nichtmiete },
   ];
 
   return (
@@ -439,12 +453,6 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
             </span>
             <span>
               <span className="font-medium text-foreground">{stats.duplikate}</span> Duplikate
-            </span>
-            <span>
-              <span className="font-medium text-success">{stats.zugeordnet}</span> zugeordnet
-            </span>
-            <span>
-              <span className={cn("font-medium", stats.nicht_zugeordnet > 0 ? "text-warning" : "text-foreground")}>{stats.nicht_zugeordnet}</span> offen
             </span>
             <span>Ø {stats.durchschnittliche_konfidenz} %</span>
           </p>
@@ -475,7 +483,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
           </div>
           <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
             <span className="tabular-nums">
-              <span className="font-medium text-foreground">{auswahl.size}</span> von {mietResults.length} gewählt
+              <span className="font-medium text-foreground">{auswahl.size}</span> von {results.length} gewählt
               {mitZuordnung > 0 && <> · {mitZuordnung} mit Ziel</>}
             </span>
             <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => sichtbareWaehlen(true)} disabled={sichtbar.length === 0}>
@@ -495,8 +503,8 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
           <div ref={tabelleRef} className="min-w-0 flex-1 overflow-auto">
             {sichtbar.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-                <p className="text-sm font-medium">{mietResults.length === 0 ? "Keine prüfbaren Buchungen" : "Nichts entspricht Sicht und Suche"}</p>
-                {mietResults.length > 0 && (
+                <p className="text-sm font-medium">{results.length === 0 ? "Keine neuen Buchungen in der Datei" : "Nichts entspricht Sicht und Suche"}</p>
+                {results.length > 0 && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -552,7 +560,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
                 </thead>
                 <tbody>
                   {sichtbar.map((idx) => {
-                    const v = mietResults[idx];
+                    const v = results[idx];
                     return (
                       <VorschlagZeile
                         key={idx}
@@ -645,30 +653,45 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
                         </p>
                       )}
                     </div>
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">{aktuellKategorie === "Nebenkosten" ? "Objekt" : "Mietvertrag"}</p>
-                      <div className={cn("rounded-md border px-3 py-2 text-sm", aktuellZiel ? "bg-card" : "border-warning/40 bg-warning/5 text-warning")}>
-                        {aktuellZiel ? (
-                          <>
-                            <span className="block font-medium">{aktuellZiel.haupt}</span>
-                            {aktuellZiel.neben && <span className="block text-xs text-muted-foreground">{aktuellZiel.neben}</span>}
-                          </>
-                        ) : aktuellKategorie === "Nebenkosten" ? (
-                          "Kein Objekt gewählt"
-                        ) : (
-                          "Kein Mietvertrag gewählt"
+                    {aktuellKategorie === "Nichtmiete" ? (
+                      <div className="space-y-2 rounded-md border bg-muted/40 px-3 py-2">
+                        <p className="text-xs leading-snug text-muted-foreground">
+                          Nichtmiete wird ohne Mietvertrag gespeichert. Ist es doch eine Mietzahlung, die Kategorie auf „Miete“ stellen und den
+                          Vertrag wählen.
+                        </p>
+                        {aktuellStatus === "unsicher" && (
+                          <Button variant="outline" size="sm" className="h-8 bg-background" onClick={() => bestaetigeNichtmiete(inspiziert)}>
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Ist Nichtmiete – bestätigen
+                          </Button>
                         )}
                       </div>
-                      <ZuordnungsAuswahl
-                        modus={aktuellKategorie === "Nebenkosten" ? "immobilie" : "mietvertrag"}
-                        vertraege={vertraege}
-                        immobilien={immobilien}
-                        aktuelleId={aktuellZielId}
-                        onAuswahl={(id) => setzeZiel(inspiziert, id)}
-                        laedt={aktuellKategorie === "Nebenkosten" ? immobilienLaden : vertraegeLaden}
-                        fehler={aktuellKategorie === "Nebenkosten" ? immobilienFehler : vertraegeFehler}
-                      />
-                    </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">{aktuellKategorie === "Nebenkosten" ? "Objekt" : "Mietvertrag"}</p>
+                        <div className={cn("rounded-md border px-3 py-2 text-sm", aktuellZiel ? "bg-card" : "border-warning/40 bg-warning/5 text-warning")}>
+                          {aktuellZiel ? (
+                            <>
+                              <span className="block font-medium">{aktuellZiel.haupt}</span>
+                              {aktuellZiel.neben && <span className="block text-xs text-muted-foreground">{aktuellZiel.neben}</span>}
+                            </>
+                          ) : aktuellKategorie === "Nebenkosten" ? (
+                            "Kein Objekt gewählt"
+                          ) : (
+                            "Kein Mietvertrag gewählt"
+                          )}
+                        </div>
+                        <ZuordnungsAuswahl
+                          modus={aktuellKategorie === "Nebenkosten" ? "immobilie" : "mietvertrag"}
+                          vertraege={vertraege}
+                          immobilien={immobilien}
+                          aktuelleId={aktuellZielId}
+                          onAuswahl={(id) => setzeZiel(inspiziert, id)}
+                          laedt={aktuellKategorie === "Nebenkosten" ? immobilienLaden : vertraegeLaden}
+                          fehler={aktuellKategorie === "Nebenkosten" ? immobilienFehler : vertraegeFehler}
+                        />
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
                 <div className="flex shrink-0 items-center justify-between gap-2 border-t px-4 py-2">
@@ -699,11 +722,6 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
 
         <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-t bg-card px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            {nichtmieteAnzahl > 0 && (
-              <span>
-                <span className="font-medium text-foreground">{nichtmieteAnzahl}</span> Nichtmiete-Buchungen werden ohne Prüfung gespeichert
-              </span>
-            )}
             {duplicates.length > 0 && (
               <span>
                 <span className="font-medium text-foreground">{duplicates.length}</span> Duplikate übersprungen
@@ -712,7 +730,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
             {zaehler.unsicher > 0 && (
               <span className="inline-flex items-center gap-1 text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
-                {zaehler.unsicher} {zaehler.unsicher === 1 ? "Vorschlag beruht" : "Vorschläge beruhen"} nur auf dem Betrag — bitte prüfen
+                {zaehler.unsicher} {zaehler.unsicher === 1 ? "Vorschlag ist" : "Vorschläge sind"} unsicher — bitte prüfen
               </span>
             )}
           </div>
@@ -723,11 +741,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
             </Button>
             <Button onClick={handleApply} disabled={isApplying || !kannUebernehmen}>
               {isApplying ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {isApplying
-                ? "Wird übernommen …"
-                : auswahl.size > 0
-                  ? `${auswahl.size} ${auswahl.size === 1 ? "Buchung" : "Buchungen"}${nichtmieteAnzahl > 0 ? ` + ${nichtmieteAnzahl} Nichtmiete` : ""} übernehmen`
-                  : `${nichtmieteAnzahl} Nichtmiete übernehmen`}
+              {isApplying ? "Wird übernommen …" : `${auswahl.size} ${auswahl.size === 1 ? "Buchung" : "Buchungen"} übernehmen`}
             </Button>
           </div>
         </div>

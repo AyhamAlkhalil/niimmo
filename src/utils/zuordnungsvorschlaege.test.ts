@@ -7,6 +7,7 @@ import {
   Zuordnungsvorschlag,
   effektiveImmobilieId,
   effektiveVertragId,
+  istManuellGeaendert,
   filtereVorschlaege,
   naechsterPruefFall,
   standardAuswahl,
@@ -85,7 +86,84 @@ describe('Status je Vorschlag', () => {
       offen: 0,
       unsicher: 1,
       zugeordnet: 1,
+      nichtmiete: 0,
     });
+  });
+});
+
+describe('Nichtmiete in der Prüfmaske', () => {
+  // Bis zum 09.10.2026 blendete die Maske Nichtmiete aus. process-payments vergibt
+  // sie auch ohne Erkenntnis: „Keine Miet-Keywords erkannt" (50), Batch-Limit und KI-Fehler (0).
+  const nichtmiete = (teil: Partial<Zuordnungsvorschlag>) =>
+    vorschlag({ kategorie: 'Nichtmiete', mietvertrag_id: null, verwendungszweck: 'Abschlag Strom', zuordnungsgrund: 'KI', ...teil });
+
+  it('ist eine sichere Nichtmiete kein offener Fall', () => {
+    expect(vorschlagStatus(0, nichtmiete({ betrag: -120, confidence: 50 }), KEINE_KORREKTUREN)).toBe('nichtmiete');
+    expect(vorschlagStatus(0, nichtmiete({ betrag: 2500, confidence: 90 }), KEINE_KORREKTUREN)).toBe('nichtmiete');
+  });
+
+  it('ist unsicher, wenn das System nichts erkannt hat oder Geld ohne klare Erkennung eingeht', () => {
+    expect(vorschlagStatus(0, nichtmiete({ betrag: -120, confidence: 0 }), KEINE_KORREKTUREN)).toBe('unsicher');
+    expect(vorschlagStatus(0, nichtmiete({ betrag: 100, confidence: 50, zuordnungsgrund: 'Keine Miet-Keywords erkannt' }), KEINE_KORREKTUREN)).toBe('unsicher');
+    expect(vorschlagStatus(0, nichtmiete({ betrag: 100, confidence: 79 }), KEINE_KORREKTUREN)).toBe('unsicher');
+    expect(vorschlagStatus(0, nichtmiete({ betrag: 100, confidence: 80 }), KEINE_KORREKTUREN)).toBe('nichtmiete');
+  });
+
+  it('trägt keinen Vertrag, Ignorieren dagegen schon', () => {
+    expect(effektiveVertragId(0, nichtmiete({ mietvertrag_id: 'mv1' }), KEINE_KORREKTUREN)).toBeNull();
+    expect(effektiveVertragId(0, vorschlag({}), { ...KEINE_KORREKTUREN, kategorie: { 0: 'Nichtmiete' } })).toBeNull();
+    expect(effektiveVertragId(0, vorschlag({ kategorie: 'Ignorieren' }), KEINE_KORREKTUREN)).toBe('mv1');
+  });
+
+  it('zählt eine Vertragswahl, die nach dem Rückwechsel auf Nichtmiete übrig bleibt, nicht als Änderung', () => {
+    const k: Korrekturen = { ...KEINE_KORREKTUREN, vertrag: { 0: 'mv2' } };
+    expect(istManuellGeaendert(0, nichtmiete({ betrag: -120 }), k)).toBe(false);
+    expect(vorschlagStatus(0, nichtmiete({ betrag: -120 }), k)).toBe('nichtmiete');
+  });
+
+  it('wird durch Umstellen auf Miete zu „geändert" und mit Vertrag übernommen', () => {
+    const liste = [nichtmiete({ betrag: 100, confidence: 50 })];
+    const k: Korrekturen = { ...KEINE_KORREKTUREN, kategorie: { 0: 'Miete' }, vertrag: { 0: 'mv2' } };
+    expect(vorschlagStatus(0, liste[0], k)).toBe('geaendert');
+    const [ergebnis] = wendeKorrekturenAn(liste, k, new Set([0]), vertraege, immobilien);
+    expect(ergebnis.kategorie).toBe('Miete');
+    expect(ergebnis.mietvertrag_id).toBe('mv2');
+    expect(ergebnis.immobilie_id).toBeNull();
+  });
+
+  it('räumt beim Umstellen auf Nichtmiete Vertrag und Objekt ab', () => {
+    const [ergebnis] = wendeKorrekturenAn([vorschlag({ immobilie_id: 'im1' })], { ...KEINE_KORREKTUREN, kategorie: { 0: 'Nichtmiete' } }, new Set([0]), vertraege, immobilien);
+    expect(ergebnis.kategorie).toBe('Nichtmiete');
+    expect(ergebnis.mietvertrag_id).toBeNull();
+    expect(ergebnis.immobilie_id).toBeNull();
+  });
+
+  it('hat einen eigenen Reiter und zählt dort mit', () => {
+    const liste = [vorschlag({}), nichtmiete({ betrag: -120 }), nichtmiete({ betrag: 100, confidence: 0 }), vorschlag({ kategorie: 'Ignorieren', mietvertrag_id: null })];
+    expect(filtereVorschlaege(liste, KEINE_KORREKTUREN, 'nichtmiete', '')).toEqual([1]);
+    expect(filtereVorschlaege(liste, KEINE_KORREKTUREN, 'unsicher', '')).toEqual([2]);
+    expect(filtereVorschlaege(liste, KEINE_KORREKTUREN, 'alle', 'strom')).toEqual([1, 2]);
+    expect(zaehleStatus(liste, KEINE_KORREKTUREN)).toEqual({ geaendert: 0, offen: 1, unsicher: 1, zugeordnet: 1, nichtmiete: 1 });
+  });
+
+  it('springt beim nächsten Prüffall nur auf unsichere Nichtmiete', () => {
+    const liste = [nichtmiete({ betrag: -120 }), vorschlag({}), nichtmiete({ betrag: 100, confidence: 50 })];
+    expect(naechsterPruefFall(liste, KEINE_KORREKTUREN, [0, 1, 2], null)).toBe(2);
+  });
+
+  it('lässt sich als Nichtmiete bestätigen und ist dann kein Prüffall mehr', () => {
+    const liste = [nichtmiete({ betrag: 100, confidence: 50 })];
+    const bestaetigt: Korrekturen = { ...KEINE_KORREKTUREN, kategorie: { 0: 'Nichtmiete' } };
+    expect(vorschlagStatus(0, liste[0], bestaetigt)).toBe('geaendert');
+    expect(naechsterPruefFall(liste, bestaetigt, [0], null)).toBeNull();
+    const [ergebnis] = wendeKorrekturenAn(liste, bestaetigt, new Set([0]), vertraege, immobilien);
+    expect(ergebnis.kategorie).toBe('Nichtmiete');
+    expect(ergebnis.mietvertrag_id).toBeNull();
+  });
+
+  it('gilt ohne Konfidenz als unsicher', () => {
+    expect(vorschlagStatus(0, nichtmiete({ betrag: -120, confidence: undefined }), KEINE_KORREKTUREN)).toBe('unsicher');
+    expect(vorschlagStatus(0, nichtmiete({ betrag: -120, confidence: null as unknown as number }), KEINE_KORREKTUREN)).toBe('unsicher');
   });
 });
 
@@ -98,6 +176,14 @@ describe('standardAuswahl', () => {
       vorschlag({ selected: true }),
     ];
     expect([...standardAuswahl(liste)]).toEqual([0, 3]);
+  });
+
+  it('wählt Nichtmiete vor, weil sie abgewählt ohnehin unverändert gespeichert würde', () => {
+    const liste = [
+      vorschlag({ kategorie: 'Nichtmiete', mietvertrag_id: null, selected: false }),
+      vorschlag({ kategorie: 'Ignorieren', mietvertrag_id: null }),
+    ];
+    expect([...standardAuswahl(liste)]).toEqual([0]);
   });
 });
 

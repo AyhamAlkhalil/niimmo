@@ -194,7 +194,7 @@ describe('wendeKorrekturenAn: unbekannte Ziel-IDs', () => {
 describe('standardAuswahl und zaehleStatus: leere Liste', () => {
   it('liefern eine leere Auswahl bzw. lauter Nullen', () => {
     expect([...standardAuswahl([])]).toEqual([]);
-    expect(zaehleStatus([], KEINE_KORREKTUREN)).toEqual({ geaendert: 0, offen: 0, unsicher: 0, zugeordnet: 0 });
+    expect(zaehleStatus([], KEINE_KORREKTUREN)).toEqual({ geaendert: 0, offen: 0, unsicher: 0, zugeordnet: 0, nichtmiete: 0 });
   });
 });
 
