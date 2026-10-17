@@ -5,6 +5,7 @@ import { useAuth } from "./useAuth";
 import type { AppBenutzer } from "./useAppBenutzer";
 import type { AufnahmeKontext, Bildschirmaufnahme } from "@/utils/bildschirmaufnahme";
 import type { Json } from "@/integrations/supabase/types";
+import { STORAGE_PFAD, dateiendung } from "@/utils/storagePfad";
 
 /**
  * Aufgaben-Board.
@@ -118,7 +119,11 @@ export function useAufgabeAnlegen() {
       const pfade: string[] = [];
 
       if (eingabe.aufnahme) {
-        const pfad = `${ORDNER}/${zufallsOrdner()}/${eingabe.aufnahme.datei.name}`;
+        // Den Gerätedateinamen nur übernehmen, wenn Supabase ihn annimmt — ein
+        // gewähltes Bild „Übersicht.png" ließ die Meldung mit InvalidKey scheitern
+        const { datei } = eingabe.aufnahme;
+        const name = datei.name && STORAGE_PFAD.test(datei.name) ? datei.name : `bild.${dateiendung(datei.name, datei.type, "png")}`;
+        const pfad = `${ORDNER}/${zufallsOrdner()}/${name}`;
         const { error: uploadFehler } = await supabase.storage
           .from(BUCKET)
           .upload(pfad, eingabe.aufnahme.datei, {

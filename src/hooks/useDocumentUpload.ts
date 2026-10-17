@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import type { Database } from "@/integrations/supabase/types";
+import { dateiendung } from "@/utils/storagePfad";
 
 type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
 
@@ -25,7 +26,8 @@ export const useDocumentUpload = () => {
 
     try {
       // 1. Upload to Storage
-      const fileExt = file.name.split('.').pop();
+      // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
+      const fileExt = dateiendung(file.name, file.type, 'bin');
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `${metadata.mietvertragId || metadata.immobilieId || 'general'}/${fileName}`;
 

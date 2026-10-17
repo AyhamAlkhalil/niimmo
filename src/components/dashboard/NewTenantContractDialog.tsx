@@ -16,6 +16,7 @@ import { Loader2, User, Users, Plus, Check, Calendar, Euro, FileUp, X, Building2
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OCRProcessingService } from "@/services/ocrProcessingService";
+import { dateiendung } from "@/utils/storagePfad";
 
 interface NewTenantContractDialogProps {
   isOpen: boolean;
@@ -578,7 +579,8 @@ export const NewTenantContractDialog = ({
       // Step 5: Upload documents if any
       if (uploadedFiles.length > 0) {
         for (const file of uploadedFiles) {
-          const fileExt = file.name.split('.').pop();
+          // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
+          const fileExt = dateiendung(file.name, file.type, 'pdf');
           const fileName = `${contractResult.id}_${Date.now()}.${fileExt}`;
           
           const { error: uploadError } = await supabase.storage
