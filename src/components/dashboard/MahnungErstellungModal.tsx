@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateMahnungPdf, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
 import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, getVerzugszinssatz, toLocalIso } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
+import { schriftstueckPfad } from "@/utils/storagePfad";
 
 interface MahnungErstellungModalProps {
   isOpen: boolean;
@@ -266,12 +267,10 @@ export function MahnungErstellungModal({
     
     setIsSubmitting(true);
     try {
-      const mieterList = contractData.mieter || [];
-      const vorname = mieterList[0]?.vorname || 'Mieter';
-      const nachname = mieterList[0]?.nachname || '';
-      const datum = new Date().toLocaleDateString('de-DE').replace(/\./g, '-');
-      const fileName = `Mahnung_Stufe${mahnstufe}_${vorname}_${nachname}_${datum}.pdf`;
-      const filePath = `mahnungen/${contractData.mietvertrag_id}/${fileName}`;
+      // Pfad ohne Mieternamen: Supabase Storage lehnt Umlaute ab (InvalidKey),
+      // die Mahnung war für diese Mieter nicht speicherbar. Die Uhrzeit trennt
+      // zwei Mahnungen desselben Tages, die sich vorher still überschrieben.
+      const filePath = schriftstueckPfad('mahnungen', contractData.mietvertrag_id, `Mahnung_Stufe${mahnstufe}`, new Date());
       
       // Upload PDF blob to storage
       const arrayBuffer = await pdfBlob.arrayBuffer();
@@ -281,7 +280,7 @@ export function MahnungErstellungModal({
         .from('dokumente')
         .upload(filePath, uint8, {
           contentType: 'application/pdf',
-          upsert: true
+          upsert: false
         });
 
       if (uploadError) {

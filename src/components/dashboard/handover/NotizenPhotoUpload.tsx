@@ -3,7 +3,8 @@
  import { supabase } from "@/integrations/supabase/client";
  import { useToast } from "@/hooks/use-toast";
  import { cn } from "@/lib/utils";
-import { dateiendung, dateienHochladen } from "@/utils/uebergabeSpeicherung";
+import { dateienHochladen } from "@/utils/uebergabeSpeicherung";
+import { dateiendung } from "@/utils/storagePfad";
  
  interface NotizenPhotoUploadProps {
    contractId: string;

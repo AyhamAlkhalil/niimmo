@@ -11,31 +11,12 @@
  * Deshalb: Pfade ohne Namen, nur erfasste Zählerstände schreiben, und jeder
  * Schritt so, dass ein Wiederholen nichts verdoppelt.
  */
-import { format } from "date-fns";
 import { parseZaehlerstand } from "./zaehlerstandUtils";
+import { schriftstueckPfad } from "./storagePfad";
 
-/**
- * Zeichen, die Supabase Storage in Objektpfaden annimmt (storage-api `isValidKey`).
- * `\w` meint dort nur ASCII — „ü" oder „é" machen den ganzen Upload ungültig.
- */
-export const STORAGE_PFAD = /^(\w|\/|!|-|\.|\*|'|\(|\)| |&|\$|@|=|;|:|\+|,|\?)*$/;
-
-/** Ablageort des Protokoll-PDFs: Datum und Uhrzeit statt Mieternamen (docs/architektur.md §6). */
+/** Ablageort des Protokoll-PDFs: Datum und Uhrzeit statt Mieternamen (utils/storagePfad.ts). */
 export function uebergabePdfPfad(vertragId: string, isEinzug: boolean, jetzt: Date): string {
-  const art = isEinzug ? "Einzug" : "Auszug";
-  return `uebergabeprotokolle/${vertragId}/Uebergabeprotokoll_${art}_${format(jetzt, "yyyy-MM-dd")}_${format(jetzt, "HHmmss")}.pdf`;
-}
-
-/**
- * Dateiendung für einen Foto-Upload. Der Dateiname kommt vom Gerät; ohne Punkt
- * wäre der ganze Name die „Endung" und mit ihm jedes Sonderzeichen im Pfad.
- */
-export function dateiendung(dateiname: string, mimeTyp: string): string {
-  const ausName = dateiname.includes(".") ? (dateiname.split(".").pop() ?? "").toLowerCase() : "";
-  if (/^[a-z0-9]{1,5}$/.test(ausName)) return ausName;
-  const ausTyp = (mimeTyp.split(";")[0].split("/")[1] ?? "").trim().toLowerCase().replace(/^jpeg$/, "jpg");
-  if (/^[a-z0-9]{1,5}$/.test(ausTyp)) return ausTyp;
-  return "jpg";
+  return schriftstueckPfad("uebergabeprotokolle", vertragId, `Uebergabeprotokoll_${isEinzug ? "Einzug" : "Auszug"}`, jetzt);
 }
 
 export interface ZaehlerEingaben {

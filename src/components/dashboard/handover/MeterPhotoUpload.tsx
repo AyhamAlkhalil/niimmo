@@ -3,7 +3,8 @@ import { Camera, X, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { dateiendung, dateienHochladen } from "@/utils/uebergabeSpeicherung";
+import { dateienHochladen } from "@/utils/uebergabeSpeicherung";
+import { dateiendung } from "@/utils/storagePfad";
 
 interface MeterPhotoUploadProps {
   contractId: string;

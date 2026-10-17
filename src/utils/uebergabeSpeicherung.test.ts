@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { STORAGE_PFAD } from "./storagePfad";
 import {
-  STORAGE_PFAD,
   uebergabePdfPfad,
-  dateiendung,
   vertragsStaende,
   historieEintraege,
   historieAufteilen,
@@ -27,34 +26,6 @@ describe("uebergabePdfPfad", () => {
     expect(a).toContain("_Auszug_");
   });
 
-  it("die Prüfung erkennt Umlaute als ungültig — genau daran scheiterte das alte Schema", () => {
-    expect(STORAGE_PFAD.test("uebergabeprotokolle/x/Uebergabeprotokoll_Einzug_Ä_Ö_ü.pdf")).toBe(false);
-    expect(STORAGE_PFAD.test("uebergabeprotokolle/x/Uebergabeprotokoll_Einzug_é.pdf")).toBe(false);
-  });
-});
-
-describe("dateiendung", () => {
-  it("übernimmt eine normale Endung klein geschrieben", () => {
-    expect(dateiendung("IMG_1234.HEIC", "image/heic")).toBe("heic");
-    expect(dateiendung("image.jpg", "image/jpeg")).toBe("jpg");
-  });
-
-  it("nimmt ohne Punkt im Namen den MIME-Typ statt des ganzen Namens", () => {
-    expect(dateiendung("Zählerfoto", "image/jpeg")).toBe("jpg");
-    expect(dateiendung("foto", "image/png")).toBe("png");
-    expect(dateiendung("foto", "image/png; charset=x")).toBe("png");
-  });
-
-  it("fällt bei unbrauchbarer Endung und unbekanntem Typ auf jpg zurück", () => {
-    expect(dateiendung("bild.jpg ü", "")).toBe("jpg");
-    expect(dateiendung("bild", "application/octet-stream")).toBe("jpg");
-  });
-
-  it("ergibt immer einen gültigen Storage-Pfad", () => {
-    for (const [name, typ] of [["Küche.jpg", "image/jpeg"], ["ohne", ""], ["a.ÄÖÜ", "image/webp"]]) {
-      expect(STORAGE_PFAD.test(`zaehlerfotos/${VERTRAG}/strom_einzug_1_0.${dateiendung(name, typ)}`)).toBe(true);
-    }
-  });
 });
 
 describe("vertragsStaende", () => {
