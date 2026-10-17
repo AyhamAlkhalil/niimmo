@@ -3,7 +3,7 @@ import { Camera, X, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { dateiendung } from "@/utils/uebergabeSpeicherung";
+import { dateiendung, dateienHochladen } from "@/utils/uebergabeSpeicherung";
 
 interface MeterPhotoUploadProps {
   contractId: string;
@@ -11,6 +11,8 @@ interface MeterPhotoUploadProps {
   isEinzug: boolean;
   onPhotosChange: (paths: string[]) => void;
   existingPhotos?: string[];
+  /** Meldet laufende Uploads — solange darf weder gespeichert noch kommentarlos geschlossen werden */
+  onUploadingChange?: (aktiv: boolean) => void;
 }
 
 export const MeterPhotoUpload = ({
@@ -19,9 +21,17 @@ export const MeterPhotoUpload = ({
   isEinzug,
   onPhotosChange,
   existingPhotos = [],
+  onUploadingChange,
 }: MeterPhotoUploadProps) => {
   const [uploading, setUploading] = useState(false);
+  const [fortschritt, setFortschritt] = useState<{ fertig: number; gesamt: number } | null>(null);
   const [photos, setPhotos] = useState<string[]>(existingPhotos);
+  // Aktuelle Liste für das Ende eines Uploads — wer währenddessen ein Foto
+  // entfernt, bekäme es sonst mit der Liste vom Uploadbeginn zurück
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  const onUploadingChangeRef = useRef(onUploadingChange);
+  onUploadingChangeRef.current = onUploadingChange;
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const inputId = `meter-photo-${contractId}-${meterType}`;
@@ -34,6 +44,7 @@ export const MeterPhotoUpload = ({
     istEingehaengt.current = true;
     return () => {
       istEingehaengt.current = false;
+      onUploadingChangeRef.current?.(false);
     };
   }, []);
 
@@ -68,43 +79,44 @@ export const MeterPhotoUpload = ({
     if (!files || files.length === 0) return;
 
     setUploading(true);
+    onUploadingChangeRef.current?.(true);
+    setFortschritt({ fertig: 0, gesamt: files.length });
     try {
-      const newPaths: string[] = [];
       const uebergabeTyp = isEinzug ? "einzug" : "auszug";
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      const { pfade, fehlgeschlagen } = await dateienHochladen(
+        files,
         // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
-        const fileExt = dateiendung(file.name, file.type);
-        const fileName = `${meterType}_${uebergabeTyp}_${Date.now()}_${i}.${fileExt}`;
-        const filePath = `zaehlerfotos/${contractId}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("dokumente")
-          .upload(filePath, file, { upsert: true });
-
-        if (uploadError) throw uploadError;
-        newPaths.push(filePath);
-      }
+        (file, i) => `zaehlerfotos/${contractId}/${meterType}_${uebergabeTyp}_${Date.now()}_${i}.${dateiendung(file.name, file.type)}`,
+        (pfad, file) => supabase.storage.from("dokumente").upload(pfad, file, { upsert: true }),
+        (fertig, gesamt) => istEingehaengt.current && setFortschritt({ fertig, gesamt })
+      );
 
       if (!istEingehaengt.current) return;
 
-      const updatedPhotos = [...photos, ...newPaths];
-      setPhotos(updatedPhotos);
-      onPhotosChange(updatedPhotos);
+      if (pfade.length > 0) {
+        const updatedPhotos = [...photosRef.current, ...pfade];
+        setPhotos(updatedPhotos);
+        onPhotosChange(updatedPhotos);
+      }
 
-      toast({
-        title: "Foto hochgeladen",
-        description: `${files.length} ${meterLabels[meterType]}-Zählerfoto(s) hochgeladen.`,
-      });
-    } catch {
-      toast({
-        title: "Fehler",
-        description: "Foto konnte nicht hochgeladen werden.",
-        variant: "destructive",
-      });
+      if (fehlgeschlagen === 0) {
+        toast({
+          title: "Foto hochgeladen",
+          description: `${pfade.length} ${meterLabels[meterType]}-Zählerfoto(s) hochgeladen.`,
+        });
+      } else {
+        toast({
+          title: "Foto nicht hochgeladen",
+          description: `${fehlgeschlagen} von ${files.length} ${meterLabels[meterType]}-Fotos kamen nicht an — bitte erneut aufnehmen.`,
+          variant: "destructive",
+        });
+      }
     } finally {
-      setUploading(false);
+      if (istEingehaengt.current) {
+        setUploading(false);
+        setFortschritt(null);
+        onUploadingChangeRef.current?.(false);
+      }
       const el = document.getElementById(inputId) as HTMLInputElement | null;
       if (el) el.value = "";
     }
@@ -166,7 +178,9 @@ export const MeterPhotoUpload = ({
         ) : (
           <Camera className="h-3.5 w-3.5 mr-1" />
         )}
-        {uploading ? "Lädt..." : photos.length > 0 ? "Weiteres Foto" : "Foto aufnehmen"}
+        {uploading
+          ? fortschritt && fortschritt.gesamt > 1 ? `Lädt ${Math.min(fortschritt.fertig + 1, fortschritt.gesamt)}/${fortschritt.gesamt}…` : "Lädt…"
+          : photos.length > 0 ? "Weiteres Foto" : "Foto aufnehmen"}
       </label>
     </div>
   );

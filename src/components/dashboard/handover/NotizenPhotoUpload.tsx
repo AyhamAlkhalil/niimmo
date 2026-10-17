@@ -3,13 +3,15 @@
  import { supabase } from "@/integrations/supabase/client";
  import { useToast } from "@/hooks/use-toast";
  import { cn } from "@/lib/utils";
-import { dateiendung } from "@/utils/uebergabeSpeicherung";
+import { dateiendung, dateienHochladen } from "@/utils/uebergabeSpeicherung";
  
  interface NotizenPhotoUploadProps {
    contractId: string;
    isEinzug: boolean;
    onPhotosChange: (photos: string[]) => void;
    existingPhotos?: string[];
+  /** Meldet laufende Uploads — solange darf weder gespeichert noch kommentarlos geschlossen werden */
+  onUploadingChange?: (aktiv: boolean) => void;
  }
  
  export const NotizenPhotoUpload = ({
@@ -17,9 +19,17 @@ import { dateiendung } from "@/utils/uebergabeSpeicherung";
    isEinzug,
    onPhotosChange,
    existingPhotos = [],
+  onUploadingChange,
  }: NotizenPhotoUploadProps) => {
    const [uploading, setUploading] = useState(false);
+  const [fortschritt, setFortschritt] = useState<{ fertig: number; gesamt: number } | null>(null);
    const [photos, setPhotos] = useState<string[]>(existingPhotos);
+  // Aktuelle Liste für das Ende eines Uploads — wer währenddessen ein Foto
+  // entfernt, bekäme es sonst mit der Liste vom Uploadbeginn zurück
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  const onUploadingChangeRef = useRef(onUploadingChange);
+  onUploadingChangeRef.current = onUploadingChange;
    const { toast } = useToast();
    const inputId = `notizen-photo-${contractId}`;
 
@@ -31,6 +41,7 @@ import { dateiendung } from "@/utils/uebergabeSpeicherung";
     istEingehaengt.current = true;
     return () => {
       istEingehaengt.current = false;
+      onUploadingChangeRef.current?.(false);
     };
   }, []);
  
@@ -38,46 +49,45 @@ import { dateiendung } from "@/utils/uebergabeSpeicherung";
      const files = e.target.files;
      if (!files || files.length === 0) return;
  
-     setUploading(true);
- 
-     try {
-       const newPhotos: string[] = [];
-       
-       for (let i = 0; i < files.length; i++) {
-         const file = files[i];
-         // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
-         const fileExt = dateiendung(file.name, file.type);
-         const uebergabeTyp = isEinzug ? "einzug" : "auszug";
-         const fileName = `notizen_${uebergabeTyp}_${Date.now()}_${i}.${fileExt}`;
-         const filePath = `uebergabefotos/${contractId}/${fileName}`;
- 
-         const { error: uploadError } = await supabase.storage
-           .from("dokumente")
-           .upload(filePath, file, { upsert: true });
- 
-         if (uploadError) throw uploadError;
- 
-         newPhotos.push(filePath);
-       }
- 
-       if (!istEingehaengt.current) return;
+    setUploading(true);
+    onUploadingChangeRef.current?.(true);
+    setFortschritt({ fertig: 0, gesamt: files.length });
+    try {
+      const uebergabeTyp = isEinzug ? "einzug" : "auszug";
+      const { pfade, fehlgeschlagen } = await dateienHochladen(
+        files,
+        // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
+        (file, i) => `uebergabefotos/${contractId}/notizen_${uebergabeTyp}_${Date.now()}_${i}.${dateiendung(file.name, file.type)}`,
+        (pfad, file) => supabase.storage.from("dokumente").upload(pfad, file, { upsert: true }),
+        (fertig, gesamt) => istEingehaengt.current && setFortschritt({ fertig, gesamt })
+      );
 
-       const updatedPhotos = [...photos, ...newPhotos];
-       setPhotos(updatedPhotos);
-       onPhotosChange(updatedPhotos);
+      if (!istEingehaengt.current) return;
 
-       toast({
-         title: "Fotos hochgeladen",
-         description: `${files.length} Foto(s) hochgeladen.`,
-       });
-     } catch (error) {
-       toast({
-         title: "Fehler",
-         description: "Fotos konnten nicht hochgeladen werden.",
-         variant: "destructive",
-       });
-     } finally {
-       setUploading(false);
+      if (pfade.length > 0) {
+        const updatedPhotos = [...photosRef.current, ...pfade];
+        setPhotos(updatedPhotos);
+        onPhotosChange(updatedPhotos);
+      }
+
+      if (fehlgeschlagen === 0) {
+        toast({
+          title: "Fotos hochgeladen",
+          description: `${pfade.length} Foto(s) hochgeladen.`,
+        });
+      } else {
+        toast({
+          title: "Foto nicht hochgeladen",
+          description: `${fehlgeschlagen} von ${files.length} Fotos kamen nicht an — bitte erneut aufnehmen.`,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      if (istEingehaengt.current) {
+        setUploading(false);
+        setFortschritt(null);
+        onUploadingChangeRef.current?.(false);
+      }
        const el = document.getElementById(inputId) as HTMLInputElement | null;
        if (el) el.value = "";
      }
@@ -160,7 +170,9 @@ import { dateiendung } from "@/utils/uebergabeSpeicherung";
          ) : (
            <Camera className="h-4 w-4 mr-2" />
          )}
-         {uploading ? "Wird hochgeladen..." : "Fotos hinzufügen"}
+         {uploading
+           ? fortschritt && fortschritt.gesamt > 1 ? `Lädt ${Math.min(fortschritt.fertig + 1, fortschritt.gesamt)}/${fortschritt.gesamt}…` : "Wird hochgeladen…"
+           : "Fotos hinzufügen"}
        </label>
      </div>
    );

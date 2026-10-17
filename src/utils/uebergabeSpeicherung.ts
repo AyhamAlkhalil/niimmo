@@ -137,3 +137,45 @@ export function fehlendeDokumente<T extends { pfad: string; mietvertrag_id: stri
     return true;
   });
 }
+
+export interface HochladeErgebnis {
+  /** Pfade der Fotos, die angekommen sind — in der Reihenfolge der Auswahl */
+  pfade: string[];
+  fehlgeschlagen: number;
+}
+
+/**
+ * Lädt Fotos einzeln hoch, jedes mit einem zweiten Versuch nach kurzer Pause.
+ * Bis zum 17.10.2026 brach der erste Fehler die ganze Auswahl ab: Bei
+ * schwachem Netz (Keller, Zählerraum) fielen damit auch die schon
+ * hochgeladenen Fotos derselben Auswahl aus dem Protokoll. Der Pfad bleibt je
+ * Datei derselbe, ein Wiederholen überschreibt also höchstens die eigene Datei.
+ */
+export async function dateienHochladen(
+  dateien: ArrayLike<File>,
+  pfadFuer: (datei: File, index: number) => string,
+  hochladen: (pfad: string, datei: File) => PromiseLike<{ error: unknown }>,
+  fortschritt?: (fertig: number, gesamt: number) => void,
+  pauseMs = 1000
+): Promise<HochladeErgebnis> {
+  const pfade: string[] = [];
+  let fehlgeschlagen = 0;
+  for (let i = 0; i < dateien.length; i++) {
+    const datei = dateien[i];
+    const pfad = pfadFuer(datei, i);
+    let angekommen = false;
+    for (let versuch = 0; versuch < 2 && !angekommen; versuch++) {
+      if (versuch > 0) await new Promise((r) => setTimeout(r, pauseMs));
+      try {
+        const { error } = await hochladen(pfad, datei);
+        angekommen = !error;
+      } catch {
+        angekommen = false;
+      }
+    }
+    if (angekommen) pfade.push(pfad);
+    else fehlgeschlagen++;
+    fortschritt?.(i + 1, dateien.length);
+  }
+  return { pfade, fehlgeschlagen };
+}

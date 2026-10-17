@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { MOBILE_BREAKPOINT } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,13 +22,14 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { format, parse } from "date-fns";
 import { de } from "date-fns/locale";
-import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save, AlertTriangle, History, X } from "lucide-react";
+import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save, AlertTriangle, History, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SignatureCanvas } from "./SignatureCanvas";
 import { MeterPhotoUpload } from "./MeterPhotoUpload";
 import { NotizenPhotoUpload } from "./NotizenPhotoUpload";
+import { PdfSeitenVorschau } from "./PdfSeitenVorschau";
 import { UebergabeEmailDialog } from "./UebergabeEmailDialog";
 import { VersorgerBenachrichtigungDialog } from "./VersorgerBenachrichtigungDialog";
 import { generateUebergabePdf, type UebergabePdfData } from "@/utils/uebergabePdfGenerator";
@@ -160,7 +161,11 @@ export const UebergabeDialog = ({
   const [mieterSignature, setMieterSignature] = useState<string | null>(geladenerEntwurf?.unterschriftMieter ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  const isMobile = useIsMobile();
+  // Handy-Panel oder Dialog wird beim Öffnen einmal festgelegt. useIsMobile
+  // meldet im ersten Render immer „Desktop“ und folgt danach jeder Drehung über
+  // die Grenze — beide Wechsel hängten das ganze Formular neu ein, und ein
+  // gerade laufender Foto-Upload ging verloren.
+  const [isMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT);
   // Safari, Chrome-on-iOS (CriOS) und Firefox-on-iOS (FxiOS) können alle
   // keine Blob-URLs in iframes rendern — alle auf WKWebView basierend
   const isSafari = typeof navigator !== "undefined" && (
@@ -228,6 +233,18 @@ export const UebergabeDialog = ({
   // Abfrage vor dem Schließen, solange ungespeicherte Eingaben da sind
   const [schliessenFragen, setSchliessenFragen] = useState(false);
 
+  // Fotos, die gerade hochgeladen werden — je Upload-Feld. Solange etwas läuft,
+  // fehlte das Foto in Vorschau und Protokoll, und Schließen verlöre es.
+  const [laufendeUploads, setLaufendeUploads] = useState<Record<string, boolean>>({});
+  const uploadMelden = (feld: string) => (aktiv: boolean) =>
+    setLaufendeUploads((vorher) => (!!vorher[feld] === aktiv ? vorher : { ...vorher, [feld]: aktiv }));
+  const fotosLaden = Object.values(laufendeUploads).some(Boolean);
+
+  // Zeitpunkt des letzten Zwischenspeicherns, sichtbar im Formular
+  const [zwischengespeichertAm, setZwischengespeichertAm] = useState<Date | null>(() =>
+    geladenerEntwurf ? new Date(geladenerEntwurf.gespeichertAm) : null
+  );
+
   // Alles, was ins PDF eingeht — Vergleichswert für die Wiederverwendung der Vorschau
   const pdfStand = useMemo(
     () =>
@@ -264,7 +281,7 @@ export const UebergabeDialog = ({
     [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller, zaehlerstaendePerContract,
       meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected, mieterEmails]
   );
-  const ungespeicherteEingaben = !isSaved && hatEingaben(eingaben);
+  const ungespeicherteEingaben = !isSaved && (hatEingaben(eingaben) || fotosLaden);
 
   // Jede Änderung sofort als Entwurf sichern. Der erste Lauf nach dem Öffnen
   // gibt nur den geladenen Entwurf wieder und schreibt nicht — sonst stünde
@@ -280,9 +297,13 @@ export const UebergabeDialog = ({
     if (!hatEingaben(eingaben)) {
       entwurfLoeschen(ablage, entwurfKey);
       setEntwurfGesichert(true);
+      setZwischengespeichertAm(null);
       return;
     }
-    setEntwurfGesichert(entwurfSchreiben(ablage, entwurfKey, eingaben, new Date()));
+    const jetzt = new Date();
+    const gesichert = entwurfSchreiben(ablage, entwurfKey, eingaben, jetzt);
+    setEntwurfGesichert(gesichert);
+    if (gesichert) setZwischengespeichertAm(jetzt);
   }, [eingaben, isSaved, ablage, entwurfKey, geladenerEntwurf]);
 
   // Neu laden oder Tab schließen: nur warnen, wenn sonst wirklich etwas verloren
@@ -504,6 +525,7 @@ export const UebergabeDialog = ({
   };
 
   const handleGeneratePreview = async () => {
+    if (fotosLaden) return;
     if (!uebergabeDatum) {
       toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
       return;
@@ -560,7 +582,7 @@ export const UebergabeDialog = ({
       toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
       return;
     }
-    if (speichertRef.current) return;
+    if (speichertRef.current || fotosLaden) return;
     speichertRef.current = true;
     setIsSubmitting(true);
     // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
@@ -924,22 +946,22 @@ export const UebergabeDialog = ({
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Strom (kWh)</Label>
                 <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.strom || ""} onChange={(e) => updateZaehlerstand(contract.id, "strom", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "strom") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`strom-${formResetKey}`} contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} />
+                <MeterPhotoUpload key={`strom-${formResetKey}`} contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} onUploadingChange={uploadMelden(`${contract.id}-strom`)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Gas (m³)</Label>
                 <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.gas || ""} onChange={(e) => updateZaehlerstand(contract.id, "gas", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "gas") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`gas-${formResetKey}`} contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} />
+                <MeterPhotoUpload key={`gas-${formResetKey}`} contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} onUploadingChange={uploadMelden(`${contract.id}-gas`)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Kaltwasser (m³)</Label>
                 <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.wasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "wasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "wasser") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`wasser-${formResetKey}`} contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} />
+                <MeterPhotoUpload key={`wasser-${formResetKey}`} contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} onUploadingChange={uploadMelden(`${contract.id}-wasser`)} />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Warmwasser (m³)</Label>
                 <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.warmwasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "warmwasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "warmwasser") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`warmwasser-${formResetKey}`} contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} />
+                <MeterPhotoUpload key={`warmwasser-${formResetKey}`} contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} onUploadingChange={uploadMelden(`${contract.id}-warmwasser`)} />
               </div>
             </div>
           </div>
@@ -954,7 +976,7 @@ export const UebergabeDialog = ({
           {contracts.length > 0 && (
             <div className="mb-3">
               <Label className="text-xs text-muted-foreground mb-2 block">Fotos (z.B. Mängel, Zustand)</Label>
-              <NotizenPhotoUpload key={formResetKey} contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} />
+              <NotizenPhotoUpload key={formResetKey} contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} onUploadingChange={uploadMelden("notizen")} />
             </div>
           )}
           <Textarea placeholder="Zustand der Wohnung, Mängel, Besonderheiten..." value={protokollNotizen} onChange={(e) => setProtokollNotizen(e.target.value)} className="min-h-[100px] resize-none" />
@@ -1083,8 +1105,16 @@ export const UebergabeDialog = ({
       <div className="flex flex-col gap-3 pt-4 border-t">
         {!isSaved ? (
           <>
-            <Button onClick={handleGeneratePreview} className="w-full h-12 sm:h-10" disabled={isGeneratingPreview || isSubmitting || ungueltigeZaehlerstaende.length > 0}>
-              {isGeneratingPreview ? (
+            {zwischengespeichertAm && entwurfGesichert && (
+              <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground" aria-live="polite">
+                <Check className="h-3.5 w-3.5 text-success" />
+                Zwischengespeichert auf diesem Gerät · {format(zwischengespeichertAm, "HH:mm", { locale: de })} Uhr
+              </p>
+            )}
+            <Button onClick={handleGeneratePreview} className="w-full h-12 sm:h-10" disabled={isGeneratingPreview || isSubmitting || fotosLaden || ungueltigeZaehlerstaende.length > 0}>
+              {fotosLaden ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Fotos werden hochgeladen...</>
+              ) : isGeneratingPreview ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Vorschau wird erstellt...</>
               ) : showPreview ? (
                 <><Eye className="mr-2 h-4 w-4" />Vorschau aktualisieren</>
@@ -1099,7 +1129,7 @@ export const UebergabeDialog = ({
                   <FileDown className="mr-2 h-4 w-4" />
                   Download
                 </Button>
-                <Button onClick={handleSubmit} disabled={isSubmitting || ungueltigeZaehlerstaende.length > 0} className="flex-1 h-10">
+                <Button onClick={handleSubmit} disabled={isSubmitting || fotosLaden || ungueltigeZaehlerstaende.length > 0} className="flex-1 h-10">
                   {isSubmitting ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird gespeichert...</>
                   ) : (
@@ -1113,6 +1143,15 @@ export const UebergabeDialog = ({
               <RotateCcw className="mr-2 h-4 w-4" />
               Formular zurücksetzen
             </Button>
+
+            {/* Zweiter Ausgang auf dem Handy: Das Panel schließt weder per Wischen
+                noch per Tippen daneben, und der Kopf mit dem X kann bei
+                eingeblendeter Adressleiste aus dem Bild rutschen. */}
+            {isMobile && (
+              <Button variant="outline" onClick={schliessenAnfragen} className="w-full h-10" disabled={isSubmitting}>
+                Schließen
+              </Button>
+            )}
           </>
         ) : (
           <>
@@ -1236,7 +1275,7 @@ export const UebergabeDialog = ({
         {emailDialogComponent}
         {versorgerDialogComponent}
         {schliessenAbfrage}
-        <DrawerContent className="max-h-[95vh]">
+        <DrawerContent className="max-h-[95vh] supports-[height:100dvh]:max-h-[95dvh]">
           <DrawerHeader className="pb-2 flex items-center justify-between gap-2">
             <DrawerTitle className="flex items-center gap-2 text-lg">
               <DialogIcon className={cn("h-5 w-5", isEinzug ? "text-green-600" : "text-orange-600")} />
@@ -1248,20 +1287,22 @@ export const UebergabeDialog = ({
           </DrawerHeader>
           <div className="overflow-y-auto px-4 pb-6" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
             {formContent}
-            {showPreview && pdfBlobUrl && (
-              <div className="mt-4 border-t pt-4">
-                {isSafari ? (
+            {showPreview && pdfBlob && (
+              <div className="mt-4 border-t pt-4 space-y-3">
+                <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Eye className="h-4 w-4" />
+                  PDF-Vorschau
+                </p>
+                <PdfSeitenVorschau pdf={pdfBlob} />
+                {pdfBlobUrl && (
                   <a
                     href={pdfBlobUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full h-12 rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted transition-colors"
+                    className="flex items-center justify-center gap-2 w-full h-10 rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted transition-colors"
                   >
-                    <Eye className="h-4 w-4" />
                     PDF in neuem Tab öffnen
                   </a>
-                ) : (
-                  <iframe src={pdfBlobUrl} className="w-full min-h-[500px] rounded-lg border" title="Vorschau" />
                 )}
               </div>
             )}

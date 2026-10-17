@@ -7,6 +7,7 @@ import {
   historieEintraege,
   historieAufteilen,
   fehlendeDokumente,
+  dateienHochladen,
   LEERE_ZAEHLER,
 } from "./uebergabeSpeicherung";
 
@@ -120,5 +121,43 @@ describe("fehlendeDokumente", () => {
   it("entfernt Doppelte innerhalb eines Laufs", () => {
     const geplant = [zeile("x.jpg", "v1"), zeile("x.jpg", "v1")];
     expect(fehlendeDokumente(geplant, [])).toHaveLength(1);
+  });
+});
+
+describe("dateienHochladen", () => {
+  const datei = (name: string) => new File(["x"], name, { type: "image/jpeg" });
+  const pfadFuer = (d: File, i: number) => `zaehlerfotos/v/${i}_${d.name}`;
+
+  it("behält die angekommenen Fotos, wenn ein späteres scheitert", async () => {
+    const hochladen = async (pfad: string) => ({ error: pfad.includes("kaputt") ? new Error("Netz") : null });
+    const ergebnis = await dateienHochladen([datei("a.jpg"), datei("kaputt.jpg"), datei("c.jpg")], pfadFuer, hochladen, undefined, 0);
+    expect(ergebnis).toEqual({ pfade: ["zaehlerfotos/v/0_a.jpg", "zaehlerfotos/v/2_c.jpg"], fehlgeschlagen: 1 });
+  });
+
+  it("versucht es ein zweites Mal mit demselben Pfad", async () => {
+    const aufrufe: string[] = [];
+    const hochladen = async (pfad: string) => {
+      aufrufe.push(pfad);
+      return { error: aufrufe.length === 1 ? new Error("Zeitüberschreitung") : null };
+    };
+    const ergebnis = await dateienHochladen([datei("a.jpg")], pfadFuer, hochladen, undefined, 0);
+    expect(ergebnis.pfade).toEqual(["zaehlerfotos/v/0_a.jpg"]);
+    expect(aufrufe).toEqual(["zaehlerfotos/v/0_a.jpg", "zaehlerfotos/v/0_a.jpg"]);
+  });
+
+  it("gibt nach zwei Fehlversuchen auf, auch wenn der Upload wirft", async () => {
+    let aufrufe = 0;
+    const hochladen = async () => {
+      aufrufe++;
+      throw new Error("offline");
+    };
+    expect(await dateienHochladen([datei("a.jpg")], pfadFuer, hochladen, undefined, 0)).toEqual({ pfade: [], fehlgeschlagen: 1 });
+    expect(aufrufe).toBe(2);
+  });
+
+  it("meldet den Fortschritt je Datei", async () => {
+    const stand: string[] = [];
+    await dateienHochladen([datei("a.jpg"), datei("b.jpg")], pfadFuer, async () => ({ error: null }), (f, g) => stand.push(`${f}/${g}`), 0);
+    expect(stand).toEqual(["1/2", "2/2"]);
   });
 });
