@@ -1159,6 +1159,13 @@ export const UebergabeDialog = ({
 
   const immobilieId = contracts[0]?.einheit?.immobilie_id || contracts[0]?.einheit?.immobilie?.id;
   const firstZaehler = zaehlerstaendePerContract[contracts[0]?.id] || { strom: "", gas: "", wasser: "", warmwasser: "" };
+  // Stabil halten: Der Versorger-Dialog baut Betreff und Text in einem Effekt neu,
+  // sobald sich dieses Objekt ändert. Als Literal war es nach jedem Render neu —
+  // jeder Toast hier verwarf so die bearbeiteten Texte und die Versandanzeige.
+  const versorgerZaehlerstaende = useMemo(
+    () => ({ strom: firstZaehler.strom, gas: firstZaehler.gas, wasser: firstZaehler.wasser }),
+    [firstZaehler.strom, firstZaehler.gas, firstZaehler.wasser]
+  );
 
   const versorgerDialogComponent = showVersorgerDialog && uebergabeDatum && immobilieId && (
     <VersorgerBenachrichtigungDialog
@@ -1167,7 +1174,7 @@ export const UebergabeDialog = ({
       immobilieId={immobilieId}
       mieterName={mieterName || ""}
       uebergabeDatum={uebergabeDatum}
-      zaehlerstaende={{ strom: firstZaehler.strom, gas: firstZaehler.gas, wasser: firstZaehler.wasser }}
+      zaehlerstaende={versorgerZaehlerstaende}
       adresse={contracts[0]?.einheit?.immobilie?.adresse || ""}
       einheitBezeichnung={contracts[0]?.einheit?.etage || undefined}
       isEinzug={isEinzug}
