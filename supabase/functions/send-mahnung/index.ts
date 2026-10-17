@@ -17,6 +17,17 @@ function getCorsHeaders(req: Request) {
   };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PDF_DATEINAME = /^[A-Za-z0-9_.-]+\.pdf$/;
+
+/** Nur ein PDF direkt im Mahnungsordner dieses Vertrags (mietvertragId ist vorher als UUID geprueft). */
+function mahnungsPdfErlaubt(pfad: string, mietvertragId: string): boolean {
+  const praefix = `mahnungen/${mietvertragId}/`;
+  if (!pfad.startsWith(praefix)) return false;
+  const dateiname = pfad.slice(praefix.length);
+  return PDF_DATEINAME.test(dateiname) && !dateiname.includes('..');
+}
+
 interface MahnungEmailRequest {
   recipientEmail: string;
   recipientName: string;
@@ -236,15 +247,23 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    if (!data.mietvertragId) {
-      return new Response(JSON.stringify({ error: 'mietvertragId fehlt' }),
+    // Die Vertrags-ID geht in die Pfadpruefung unten ein und muss deshalb eine
+    // UUID sein: Mit "x/../.." als ID haette die Praefixpruefung selbst auf
+    // fremde Ordner gezeigt.
+    if (typeof data.mietvertragId !== 'string' || !UUID.test(data.mietvertragId)) {
+      return new Response(JSON.stringify({ error: 'mietvertragId fehlt oder ist ungültig' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Der Storage-Pfad kam ungeprueft aus dem Request und wurde mit
     // Service-Role geladen: Damit liess sich jede Datei des Buckets an eine
     // frei gewaehlte Adresse schicken. Er muss zu diesem Vertrag gehoeren.
-    if (data.pdfPath && !data.pdfPath.startsWith(`mahnungen/${data.mietvertragId}/`)) {
+    // Seit 17.10.2026 als Erlaubnisliste: Die Storage-URL wird vom URL-Parser
+    // normalisiert, und der loest nicht nur "..", sondern auch "%2e%2e" und
+    // ".%2E" auf -- "mahnungen/<id>/%2e%2e/%2e%2e/x" landete bei x. Nach dem
+    // Praefix darf deshalb nur ein einzelner Dateiname ohne "%" und "/" stehen,
+    // so wie ihn utils/storagePfad.ts baut.
+    if (data.pdfPath && (typeof data.pdfPath !== 'string' || !mahnungsPdfErlaubt(data.pdfPath, data.mietvertragId))) {
       console.error('Pfad gehoert nicht zum Vertrag');
       return new Response(JSON.stringify({ error: 'Der Anhang gehört nicht zu diesem Mietvertrag.' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
