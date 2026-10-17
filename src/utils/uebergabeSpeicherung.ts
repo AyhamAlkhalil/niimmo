@@ -33,7 +33,7 @@ export function uebergabePdfPfad(vertragId: string, isEinzug: boolean, jetzt: Da
 export function dateiendung(dateiname: string, mimeTyp: string): string {
   const ausName = dateiname.includes(".") ? (dateiname.split(".").pop() ?? "").toLowerCase() : "";
   if (/^[a-z0-9]{1,5}$/.test(ausName)) return ausName;
-  const ausTyp = (mimeTyp.split("/")[1] ?? "").toLowerCase().replace(/^jpeg$/, "jpg");
+  const ausTyp = (mimeTyp.split(";")[0].split("/")[1] ?? "").trim().toLowerCase().replace(/^jpeg$/, "jpg");
   if (/^[a-z0-9]{1,5}$/.test(ausTyp)) return ausTyp;
   return "jpg";
 }

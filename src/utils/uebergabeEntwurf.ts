@@ -14,8 +14,10 @@
  *
  * Bewusst nur auf dem Gerät: Ein geräteübergreifender Entwurf bräuchte die
  * Übergabe als eigenen Datensatz — das ist offene Konzeptfrage D2
- * (docs/offene-punkte.md).
+ * (docs/offene-punkte.md). Weil Unterschriften und Notizen personenbezogen
+ * sind, verfällt ein Entwurf nach ENTWURF_HALTBAR_TAGE ohne Änderung.
  */
+import { isValid, parse } from "date-fns";
 import type { ZaehlerEingaben } from "./uebergabeSpeicherung";
 
 export interface UebergabeEingaben {
@@ -47,6 +49,9 @@ export interface Ablage {
 
 const ZAEHLER = ["strom", "gas", "wasser", "warmwasser"] as const;
 
+/** Nach so vielen Tagen ohne Änderung wird ein Entwurf verworfen. */
+export const ENTWURF_HALTBAR_TAGE = 30;
+
 /** localStorage, falls der Browser ihn hergibt (privates Fenster, gesperrte Website-Daten: nein). */
 export function browserAblage(): Ablage | null {
   try {
@@ -75,17 +80,27 @@ export function hatEingaben(e: UebergabeEingaben): boolean {
 }
 
 const text = (v: unknown): string => (typeof v === "string" ? v : "");
-const textOderNull = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+/** Nur, was SignatureCanvas selbst erzeugt — ein fremdes Bild ließe jsPDF bei jeder Vorschau scheitern. */
+const unterschrift = (v: unknown): string | null =>
+  typeof v === "string" && v.startsWith("data:image/png;base64,") ? v : null;
 const textListe = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const objekt = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
 /**
- * Liest den Entwurf und bringt ihn in Form. Ein beschädigter oder fremder Eintrag
- * ergibt `null` statt eines halb gefüllten Formulars. Zählerstände und Fotos
- * werden nur für die übergebenen Verträge übernommen.
+ * Liest den Entwurf und bringt ihn in Form. Ein beschädigter, fremder oder
+ * verfallener Eintrag ergibt `null` statt eines halb gefüllten Formulars und wird
+ * entfernt. Ein Wert, an dem das Formular scheitern würde (ungültiges Datum,
+ * fremdes Bild), fällt einzeln heraus — sonst stürzte der Dialog bei jedem Öffnen
+ * dieses Vertrags erneut ab. Zählerstände und Fotos werden nur für die
+ * übergebenen Verträge übernommen.
  */
-export function entwurfLesen(ablage: Ablage | null, schluessel: string, vertragIds: string[]): UebergabeEntwurf | null {
+export function entwurfLesen(
+  ablage: Ablage | null,
+  schluessel: string,
+  vertragIds: string[],
+  jetzt: Date = new Date()
+): UebergabeEntwurf | null {
   if (!ablage) return null;
   let roh: unknown;
   try {
@@ -93,10 +108,20 @@ export function entwurfLesen(ablage: Ablage | null, schluessel: string, vertragI
     if (!wert) return null;
     roh = JSON.parse(wert);
   } catch {
+    entwurfLoeschen(ablage, schluessel);
     return null;
   }
   const r = objekt(roh);
-  if (r.version !== 1) return null;
+  const gespeichertAm = text(r.gespeichertAm);
+  const gespeichertMs = Date.parse(gespeichertAm);
+  if (
+    r.version !== 1 ||
+    Number.isNaN(gespeichertMs) ||
+    jetzt.getTime() - gespeichertMs > ENTWURF_HALTBAR_TAGE * 24 * 60 * 60 * 1000
+  ) {
+    entwurfLoeschen(ablage, schluessel);
+    return null;
+  }
 
   const schluesselRoh = objekt(r.schluessel);
   const staendeRoh = objekt(r.zaehlerstaende);
@@ -119,11 +144,12 @@ export function entwurfLesen(ablage: Ablage | null, schluessel: string, vertragI
     if (typeof mail === "string") mieterEmails[id] = mail;
   }
   const datum = text(r.uebergabeDatum);
+  const datumGueltig = /^\d{4}-\d{2}-\d{2}$/.test(datum) && isValid(parse(datum, "yyyy-MM-dd", new Date()));
 
   return {
     version: 1,
-    gespeichertAm: text(r.gespeichertAm),
-    uebergabeDatum: /^\d{4}-\d{2}-\d{2}$/.test(datum) ? datum : null,
+    gespeichertAm,
+    uebergabeDatum: datumGueltig ? datum : null,
     schluessel: {
       haustuer: text(schluesselRoh.haustuer),
       wohnung: text(schluesselRoh.wohnung),
@@ -134,8 +160,8 @@ export function entwurfLesen(ablage: Ablage | null, schluessel: string, vertragI
     zaehlerfotos,
     notizen: text(r.notizen),
     notizenFotos: textListe(r.notizenFotos),
-    unterschriftVermieter: textOderNull(r.unterschriftVermieter),
-    unterschriftMieter: textOderNull(r.unterschriftMieter),
+    unterschriftVermieter: unterschrift(r.unterschriftVermieter),
+    unterschriftMieter: unterschrift(r.unterschriftMieter),
     versorgerAuswahl: textListe(r.versorgerAuswahl),
     mieterEmails,
   };
@@ -144,8 +170,8 @@ export function entwurfLesen(ablage: Ablage | null, schluessel: string, vertragI
 /** Schreibt den Entwurf; `false`, wenn der Browser es nicht zulässt (z. B. Speicher voll). */
 export function entwurfSchreiben(ablage: Ablage | null, schluessel: string, eingaben: UebergabeEingaben, jetzt: Date): boolean {
   if (!ablage) return false;
-  const entwurf: UebergabeEntwurf = { version: 1, gespeichertAm: jetzt.toISOString(), ...eingaben };
   try {
+    const entwurf: UebergabeEntwurf = { version: 1, gespeichertAm: jetzt.toISOString(), ...eingaben };
     ablage.setItem(schluessel, JSON.stringify(entwurf));
     return true;
   } catch {

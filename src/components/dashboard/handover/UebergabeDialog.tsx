@@ -191,8 +191,13 @@ export const UebergabeDialog = ({
   // lange wie die Vorschau selbst.
   const vorschauStandRef = useRef<string | null>(null);
   // PDF, das ein abgebrochener Speicherlauf schon abgelegt hat. Ein zweiter
-  // Versuch mit unverändertem Stand legt keine zweite Datei an.
-  const hochgeladenesPdfRef = useRef<{ stand: string; pfad: string } | null>(null);
+  // Versuch mit genau diesem PDF legt keine zweite Datei an. Gemerkt wird der
+  // Blob selbst, nicht der Eingabestand: Wird neu gebaut (etwa weil beim ersten
+  // Mal ein Foto fehlte), muss auch die neue Fassung hoch — sonst verwiese das
+  // Dokument auf das unvollständige PDF.
+  const hochgeladenesPdfRef = useRef<{ pdf: Blob; pfad: string } | null>(null);
+  // Sperre gegen einen zweiten Klick, bevor isSubmitting gerendert ist
+  const speichertRef = useRef(false);
   
   // Preview state
   const [showPreview, setShowPreview] = useState(false);
@@ -555,17 +560,21 @@ export const UebergabeDialog = ({
       toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
       return;
     }
+    if (speichertRef.current) return;
+    speichertRef.current = true;
     setIsSubmitting(true);
-    // Der Stand beim Klick — Tippen während des Speicherns gehört nicht mehr zu diesem Lauf
+    // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
     const stand = pdfStand;
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
       // 1. Zuerst das PDF: Fotos laden und aufbereiten ist der aufwendigste und
       // anfälligste Schritt. Scheitert er, ist noch nichts geschrieben.
-      // Die Vorschau wird nur übernommen, wenn seitdem nichts geändert wurde und
-      // alle Fotos drin sind — sonst passte das archivierte und versendete
-      // Protokoll nicht zu den gespeicherten Daten.
+      // Die Vorschau wird nur übernommen, wenn seitdem nichts geändert wurde —
+      // sonst passte das archivierte und versendete Protokoll nicht zu den
+      // gespeicherten Daten — und wenn ihr kein Foto fehlte: Dann gibt ein
+      // neuer Lauf dem Foto noch eine Chance. Fehlt es danach weiter, wird
+      // trotzdem gespeichert und der Hinweis „Fotos fehlen" bleibt stehen.
       let aktuellesPdf: Blob;
       if (pdfBlob && vorschauStandRef.current === stand && nichtEingebetteteFotos === 0) {
         aktuellesPdf = pdfBlob;
@@ -644,7 +653,7 @@ export const UebergabeDialog = ({
       // Supabase Storage lehnt Umlaute im Pfad ab (InvalidKey) — daran scheiterte
       // jedes Protokoll für Mieter mit Umlaut im Namen.
       let filePath: string;
-      if (hochgeladenesPdfRef.current?.stand === stand) {
+      if (hochgeladenesPdfRef.current?.pdf === aktuellesPdf) {
         filePath = hochgeladenesPdfRef.current.pfad;
       } else {
         filePath = uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
@@ -652,7 +661,7 @@ export const UebergabeDialog = ({
           .from("dokumente")
           .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false });
         if (pdfUploadError) throw pdfUploadError;
-        hochgeladenesPdfRef.current = { stand, pfad: filePath };
+        hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath };
       }
 
       // 5. Fotos und PDF als Dokumente — in einem Insert, ohne schon Eingetragenes
@@ -736,6 +745,7 @@ export const UebergabeDialog = ({
         variant: "destructive",
       });
     } finally {
+      speichertRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -854,172 +864,176 @@ export const UebergabeDialog = ({
         </div>
       )}
 
-      {/* Übergabedatum */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium">Übergabedatum *</Label>
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className={cn("w-full justify-start text-left font-normal h-12 sm:h-10", !uebergabeDatum && "text-muted-foreground")}>
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {uebergabeDatum ? format(uebergabeDatum, "PPP", { locale: de }) : <span>Datum auswählen</span>}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar mode="single" selected={uebergabeDatum} onSelect={setUebergabeDatum} locale={de} />
-          </PopoverContent>
-        </Popover>
-      </div>
-
-      {/* Schlüssel */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium flex items-center gap-2">
-          <KeyRound className="h-4 w-4" />
-          Übergebene Schlüssel
-        </Label>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Haustür</Label>
-            <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselHaustuer} onChange={(e) => setSchluesselHaustuer(e.target.value)} className="h-10" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Wohnung</Label>
-            <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselWohnung} onChange={(e) => setSchluesselWohnung(e.target.value)} className="h-10" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Briefkasten</Label>
-            <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselBriefkasten} onChange={(e) => setSchluesselBriefkasten(e.target.value)} className="h-10" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Keller</Label>
-            <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselKeller} onChange={(e) => setSchluesselKeller(e.target.value)} className="h-10" />
-          </div>
+      {/* Während des Speicherns gesperrt: Was jetzt noch getippt würde, käme in
+          kein Protokoll und ginge mit dem gelöschten Entwurf verloren. */}
+      <fieldset disabled={isSubmitting} className={cn("space-y-6 min-w-0", isSubmitting && "pointer-events-none opacity-60")}>
+        {/* Übergabedatum */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Übergabedatum *</Label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className={cn("w-full justify-start text-left font-normal h-12 sm:h-10", !uebergabeDatum && "text-muted-foreground")}>
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {uebergabeDatum ? format(uebergabeDatum, "PPP", { locale: de }) : <span>Datum auswählen</span>}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar mode="single" selected={uebergabeDatum} onSelect={setUebergabeDatum} locale={de} />
+            </PopoverContent>
+          </Popover>
         </div>
-      </div>
 
-      {/* Zählerstände per Contract */}
-      {contracts.map((contract) => (
-        <div key={contract.id} className="space-y-3">
+        {/* Schlüssel */}
+        <div className="space-y-2">
           <Label className="text-sm font-medium flex items-center gap-2">
-            {contracts.length > 1 && (
-              <span className="bg-muted px-2 py-0.5 rounded text-xs">
-                {contract.einheit.immobilie.name} - {contract.einheit.etage || "–"}
-              </span>
-            )}
-            Zählerstände bei {isEinzug ? "Einzug" : "Auszug"}
+            <KeyRound className="h-4 w-4" />
+            Übergebene Schlüssel
           </Label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Strom (kWh)</Label>
-              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.strom || ""} onChange={(e) => updateZaehlerstand(contract.id, "strom", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "strom") && "border-destructive focus-visible:ring-destructive")} />
-              <MeterPhotoUpload key={`strom-${formResetKey}`} contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} />
+              <Label className="text-xs text-muted-foreground">Haustür</Label>
+              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselHaustuer} onChange={(e) => setSchluesselHaustuer(e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Gas (m³)</Label>
-              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.gas || ""} onChange={(e) => updateZaehlerstand(contract.id, "gas", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "gas") && "border-destructive focus-visible:ring-destructive")} />
-              <MeterPhotoUpload key={`gas-${formResetKey}`} contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} />
+              <Label className="text-xs text-muted-foreground">Wohnung</Label>
+              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselWohnung} onChange={(e) => setSchluesselWohnung(e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Kaltwasser (m³)</Label>
-              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.wasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "wasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "wasser") && "border-destructive focus-visible:ring-destructive")} />
-              <MeterPhotoUpload key={`wasser-${formResetKey}`} contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} />
+              <Label className="text-xs text-muted-foreground">Briefkasten</Label>
+              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselBriefkasten} onChange={(e) => setSchluesselBriefkasten(e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Warmwasser (m³)</Label>
-              <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.warmwasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "warmwasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "warmwasser") && "border-destructive focus-visible:ring-destructive")} />
-              <MeterPhotoUpload key={`warmwasser-${formResetKey}`} contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} />
+              <Label className="text-xs text-muted-foreground">Keller</Label>
+              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselKeller} onChange={(e) => setSchluesselKeller(e.target.value)} className="h-10" />
             </div>
           </div>
         </div>
-      ))}
 
-      {/* Notizen */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium flex items-center gap-2">
-          <ClipboardList className="h-4 w-4" />
-          Übergabeprotokoll Notizen
-        </Label>
-        {contracts.length > 0 && (
-          <div className="mb-3">
-            <Label className="text-xs text-muted-foreground mb-2 block">Fotos (z.B. Mängel, Zustand)</Label>
-            <NotizenPhotoUpload key={formResetKey} contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} />
+        {/* Zählerstände per Contract */}
+        {contracts.map((contract) => (
+          <div key={contract.id} className="space-y-3">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              {contracts.length > 1 && (
+                <span className="bg-muted px-2 py-0.5 rounded text-xs">
+                  {contract.einheit.immobilie.name} - {contract.einheit.etage || "–"}
+                </span>
+              )}
+              Zählerstände bei {isEinzug ? "Einzug" : "Auszug"}
+            </Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Strom (kWh)</Label>
+                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.strom || ""} onChange={(e) => updateZaehlerstand(contract.id, "strom", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "strom") && "border-destructive focus-visible:ring-destructive")} />
+                <MeterPhotoUpload key={`strom-${formResetKey}`} contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Gas (m³)</Label>
+                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.gas || ""} onChange={(e) => updateZaehlerstand(contract.id, "gas", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "gas") && "border-destructive focus-visible:ring-destructive")} />
+                <MeterPhotoUpload key={`gas-${formResetKey}`} contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Kaltwasser (m³)</Label>
+                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.wasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "wasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "wasser") && "border-destructive focus-visible:ring-destructive")} />
+                <MeterPhotoUpload key={`wasser-${formResetKey}`} contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Warmwasser (m³)</Label>
+                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.warmwasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "warmwasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "warmwasser") && "border-destructive focus-visible:ring-destructive")} />
+                <MeterPhotoUpload key={`warmwasser-${formResetKey}`} contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* Notizen */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium flex items-center gap-2">
+            <ClipboardList className="h-4 w-4" />
+            Übergabeprotokoll Notizen
+          </Label>
+          {contracts.length > 0 && (
+            <div className="mb-3">
+              <Label className="text-xs text-muted-foreground mb-2 block">Fotos (z.B. Mängel, Zustand)</Label>
+              <NotizenPhotoUpload key={formResetKey} contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} />
+            </div>
+          )}
+          <Textarea placeholder="Zustand der Wohnung, Mängel, Besonderheiten..." value={protokollNotizen} onChange={(e) => setProtokollNotizen(e.target.value)} className="min-h-[100px] resize-none" />
+        </div>
+
+        {/* Tenant Emails - only for Auszug */}
+        {!isEinzug && mieterData.length > 0 && (
+          <div className="space-y-3 border-t pt-4">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Mail className="h-4 w-4" />
+              E-Mail-Adressen der Mieter
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Diese werden für die Bestätigungsmail nach der Übergabe verwendet.
+            </p>
+            <div className="space-y-2">
+              {mieterData.map((m) => (
+                <div key={m.id} className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground">{m.vorname} {m.nachname || ""}</Label>
+                    <Input type="email" placeholder="E-Mail-Adresse eingeben..." value={mieterEmails[m.id] || ""} onChange={(e) => updateMieterEmail(m.id, e.target.value)} className="h-10" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
-        <Textarea placeholder="Zustand der Wohnung, Mängel, Besonderheiten..." value={protokollNotizen} onChange={(e) => setProtokollNotizen(e.target.value)} className="min-h-[100px] resize-none" />
-      </div>
 
-      {/* Tenant Emails - only for Auszug */}
-      {!isEinzug && mieterData.length > 0 && (
-        <div className="space-y-3 border-t pt-4">
-          <Label className="text-sm font-medium flex items-center gap-2">
-            <Mail className="h-4 w-4" />
-            E-Mail-Adressen der Mieter
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Diese werden für die Bestätigungsmail nach der Übergabe verwendet.
-          </p>
-          <div className="space-y-2">
-            {mieterData.map((m) => (
-              <div key={m.id} className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Label className="text-xs text-muted-foreground">{m.vorname} {m.nachname || ""}</Label>
-                  <Input type="email" placeholder="E-Mail-Adresse eingeben..." value={mieterEmails[m.id] || ""} onChange={(e) => updateMieterEmail(m.id, e.target.value)} className="h-10" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Versorger benachrichtigen */}
-      {versorgerData.length > 0 && (
-        <div className="space-y-3 border-t pt-4">
-          <Label className="text-sm font-medium flex items-center gap-2">
-            <Zap className="h-4 w-4" />
-            Versorger benachrichtigen
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Ausgewählte Versorger erhalten nach Abschluss eine E-Mail mit dem Übergabeprotokoll als PDF-Anhang.
-          </p>
-          <div className="space-y-2">
-            {versorgerData.map(v => {
-              const Icon = v.typ === 'strom' ? Zap : v.typ === 'gas' ? Flame : Droplets;
-              return (
-                <div key={v.typ} className="flex items-center justify-between border rounded-lg p-3">
-                  <div className="flex items-center gap-2.5">
-                    <Checkbox
-                      id={`versorger-${v.typ}`}
-                      checked={versorgerSelected.has(v.typ)}
-                      onCheckedChange={() => {
-                        setVersorgerSelected(prev => {
-                          const next = new Set(prev);
-                          if (next.has(v.typ)) next.delete(v.typ); else next.add(v.typ);
-                          return next;
-                        });
-                      }}
-                    />
-                    <Label htmlFor={`versorger-${v.typ}`} className="flex items-center gap-1.5 cursor-pointer text-sm">
-                      <Icon className="h-3.5 w-3.5" />
-                      {v.label}
-                      {v.name && <span className="text-muted-foreground text-xs">({v.name})</span>}
-                    </Label>
+        {/* Versorger benachrichtigen */}
+        {versorgerData.length > 0 && (
+          <div className="space-y-3 border-t pt-4">
+            <Label className="text-sm font-medium flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Versorger benachrichtigen
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Ausgewählte Versorger erhalten nach Abschluss eine E-Mail mit dem Übergabeprotokoll als PDF-Anhang.
+            </p>
+            <div className="space-y-2">
+              {versorgerData.map(v => {
+                const Icon = v.typ === 'strom' ? Zap : v.typ === 'gas' ? Flame : Droplets;
+                return (
+                  <div key={v.typ} className="flex items-center justify-between border rounded-lg p-3">
+                    <div className="flex items-center gap-2.5">
+                      <Checkbox
+                        id={`versorger-${v.typ}`}
+                        checked={versorgerSelected.has(v.typ)}
+                        onCheckedChange={() => {
+                          setVersorgerSelected(prev => {
+                            const next = new Set(prev);
+                            if (next.has(v.typ)) next.delete(v.typ); else next.add(v.typ);
+                            return next;
+                          });
+                        }}
+                      />
+                      <Label htmlFor={`versorger-${v.typ}`} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <Icon className="h-3.5 w-3.5" />
+                        {v.label}
+                        {v.name && <span className="text-muted-foreground text-xs">({v.name})</span>}
+                      </Label>
+                    </div>
+                    {v.email && <span className="text-xs text-muted-foreground">{v.email}</span>}
                   </div>
-                  {v.email && <span className="text-xs text-muted-foreground">{v.email}</span>}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Signatures */}
+        <div className="space-y-4 border-t pt-4">
+          <h4 className="text-sm font-semibold">Digitale Unterschriften</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* key: nach "Formular zurücksetzen" ein leeres Feld statt der alten Unterschrift */}
+            <SignatureCanvas key={`vermieter-${formResetKey}`} label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} initialValue={vermieterSignature} />
+            <SignatureCanvas key={`mieter-${formResetKey}`} label="Mieter" onSignatureChange={setMieterSignature} initialValue={mieterSignature} />
           </div>
         </div>
-      )}
-
-      {/* Signatures */}
-      <div className="space-y-4 border-t pt-4">
-        <h4 className="text-sm font-semibold">Digitale Unterschriften</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* key: nach "Formular zurücksetzen" ein leeres Feld statt der alten Unterschrift */}
-          <SignatureCanvas key={`vermieter-${formResetKey}`} label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} initialValue={vermieterSignature} />
-          <SignatureCanvas key={`mieter-${formResetKey}`} label="Mieter" onSignatureChange={setMieterSignature} initialValue={mieterSignature} />
-        </div>
-      </div>
+      </fieldset>
 
       {/* Fehler: Eingabe nicht als Zahl lesbar */}
       {ungueltigeZaehlerstaende.length > 0 && (

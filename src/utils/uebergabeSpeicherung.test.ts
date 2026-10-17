@@ -41,6 +41,7 @@ describe("dateiendung", () => {
   it("nimmt ohne Punkt im Namen den MIME-Typ statt des ganzen Namens", () => {
     expect(dateiendung("Zählerfoto", "image/jpeg")).toBe("jpg");
     expect(dateiendung("foto", "image/png")).toBe("png");
+    expect(dateiendung("foto", "image/png; charset=x")).toBe("png");
   });
 
   it("fällt bei unbrauchbarer Endung und unbekanntem Typ auf jpg zurück", () => {

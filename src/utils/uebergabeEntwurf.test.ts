@@ -25,6 +25,8 @@ class TestAblage implements Ablage {
 }
 
 const V1 = "vertrag-1";
+/** Fester Bezugspunkt — der Entwurf verfällt nach 30 Tagen, die Tests sollen das nicht mit der Uhr tun. */
+const JETZT = new Date("2026-10-17T10:00:00Z");
 
 const leer = (): UebergabeEingaben => ({
   uebergabeDatum: "2026-10-16",
@@ -88,7 +90,7 @@ describe("Entwurf schreiben und lesen", () => {
     const schluessel = entwurfSchluessel([V1], true);
     expect(entwurfSchreiben(ablage, schluessel, e, new Date("2026-10-16T14:29:03Z"))).toBe(true);
 
-    const gelesen = entwurfLesen(ablage, schluessel, [V1]);
+    const gelesen = entwurfLesen(ablage, schluessel, [V1], JETZT);
     expect(gelesen).toEqual({ version: 1, gespeichertAm: "2026-10-16T14:29:03.000Z", ...e });
   });
 
@@ -96,8 +98,8 @@ describe("Entwurf schreiben und lesen", () => {
     const ablage = new TestAblage();
     const e = leer();
     e.zaehlerstaende = { [V1]: { strom: "5", gas: "", wasser: "", warmwasser: "" }, fremd: { strom: "9", gas: "", wasser: "", warmwasser: "" } };
-    entwurfSchreiben(ablage, "k", e, new Date());
-    const gelesen = entwurfLesen(ablage, "k", [V1, "vertrag-2"]);
+    entwurfSchreiben(ablage, "k", e, JETZT);
+    const gelesen = entwurfLesen(ablage, "k", [V1, "vertrag-2"], JETZT);
     expect(Object.keys(gelesen!.zaehlerstaende).sort()).toEqual([V1, "vertrag-2"]);
     expect(gelesen!.zaehlerstaende[V1].strom).toBe("5");
     expect(gelesen!.zaehlerstaende["vertrag-2"]).toEqual({ strom: "", gas: "", wasser: "", warmwasser: "" });
@@ -108,30 +110,65 @@ describe("Entwurf schreiben und lesen", () => {
     ablage.setItem("kaputt", "{nicht json");
     ablage.setItem("fremd", JSON.stringify({ version: 2 }));
     ablage.setItem("liste", "[]");
-    expect(entwurfLesen(ablage, "kaputt", [V1])).toBeNull();
-    expect(entwurfLesen(ablage, "fremd", [V1])).toBeNull();
-    expect(entwurfLesen(ablage, "liste", [V1])).toBeNull();
-    expect(entwurfLesen(ablage, "fehlt", [V1])).toBeNull();
+    expect(entwurfLesen(ablage, "kaputt", [V1], JETZT)).toBeNull();
+    expect(entwurfLesen(ablage, "fremd", [V1], JETZT)).toBeNull();
+    expect(entwurfLesen(ablage, "liste", [V1], JETZT)).toBeNull();
+    expect(entwurfLesen(ablage, "fehlt", [V1], JETZT)).toBeNull();
   });
 
   it("räumt falsche Typen auf, statt sie ins Formular zu tragen", () => {
     const ablage = new TestAblage();
     ablage.setItem("k", JSON.stringify({
       version: 1,
+      gespeichertAm: "2026-10-16T14:29:03.000Z",
       uebergabeDatum: "16.10.2026",
       schluessel: { haustuer: 2 },
       zaehlerstaende: { [V1]: { strom: 123 } },
       zaehlerfotos: { [V1]: { strom: ["a.jpg", 4] } },
       notizenFotos: "a.jpg",
       unterschriftMieter: "",
+      unterschriftVermieter: "data:image/svg+xml;base64,PHN2Zz4=",
     }));
-    const gelesen = entwurfLesen(ablage, "k", [V1])!;
+    const gelesen = entwurfLesen(ablage, "k", [V1], JETZT)!;
     expect(gelesen.uebergabeDatum).toBeNull();
     expect(gelesen.schluessel.haustuer).toBe("");
     expect(gelesen.zaehlerstaende[V1].strom).toBe("");
     expect(gelesen.zaehlerfotos[V1].strom).toEqual(["a.jpg"]);
     expect(gelesen.notizenFotos).toEqual([]);
     expect(gelesen.unterschriftMieter).toBeNull();
+    expect(gelesen.unterschriftVermieter).toBeNull();
+  });
+
+  it("nimmt ein unmögliches Datum nicht ins Formular — format() würde bei jedem Öffnen abstürzen", () => {
+    const ablage = new TestAblage();
+    const e = leer();
+    e.uebergabeDatum = "2026-02-31";
+    entwurfSchreiben(ablage, "k", e, JETZT);
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)!.uebergabeDatum).toBeNull();
+  });
+
+  it("verwirft und entfernt einen Entwurf ohne gültigen Zeitstempel", () => {
+    const ablage = new TestAblage();
+    ablage.setItem("k", JSON.stringify({ version: 1, gespeichertAm: "gestern" }));
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)).toBeNull();
+    expect(ablage.getItem("k")).toBeNull();
+  });
+
+  it("verfällt nach 30 Tagen ohne Änderung und wird dabei entfernt", () => {
+    const ablage = new TestAblage();
+    const e = leer();
+    e.notizen = "alt";
+    entwurfSchreiben(ablage, "k", e, new Date("2026-09-17T09:00:00Z"));
+    expect(entwurfLesen(ablage, "k", [V1], new Date("2026-10-17T08:00:00Z"))?.notizen).toBe("alt");
+    expect(entwurfLesen(ablage, "k", [V1], new Date("2026-10-17T10:00:00Z"))).toBeNull();
+    expect(ablage.getItem("k")).toBeNull();
+  });
+
+  it("entfernt einen unlesbaren Eintrag", () => {
+    const ablage = new TestAblage();
+    ablage.setItem("k", "{nicht json");
+    entwurfLesen(ablage, "k", [V1], JETZT);
+    expect(ablage.getItem("k")).toBeNull();
   });
 
   it("meldet einen vollen Speicher, statt still nichts zu sichern", () => {
@@ -143,9 +180,9 @@ describe("Entwurf schreiben und lesen", () => {
 
   it("löscht den Entwurf", () => {
     const ablage = new TestAblage();
-    entwurfSchreiben(ablage, "k", leer(), new Date());
+    entwurfSchreiben(ablage, "k", leer(), JETZT);
     entwurfLoeschen(ablage, "k");
-    expect(entwurfLesen(ablage, "k", [V1])).toBeNull();
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)).toBeNull();
     expect(() => entwurfLoeschen(null, "k")).not.toThrow();
   });
 });
