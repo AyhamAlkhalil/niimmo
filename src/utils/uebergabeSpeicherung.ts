@@ -144,38 +144,61 @@ export interface HochladeErgebnis {
   fehlgeschlagen: number;
 }
 
+/** Höchstdauer eines Upload-Versuchs: ein 8-MB-Foto über langsames Mobilnetz braucht gut eine Minute. */
+export const UPLOAD_ZEITLIMIT_MS = 120_000;
+
 /**
  * Lädt Fotos einzeln hoch, jedes mit einem zweiten Versuch nach kurzer Pause.
  * Bis zum 17.10.2026 brach der erste Fehler die ganze Auswahl ab: Bei
  * schwachem Netz (Keller, Zählerraum) fielen damit auch die schon
  * hochgeladenen Fotos derselben Auswahl aus dem Protokoll. Der Pfad bleibt je
  * Datei derselbe, ein Wiederholen überschreibt also höchstens die eigene Datei.
+ *
+ * Ein Versuch, der nach `zeitlimitMs` weder Antwort noch Fehler hat (Netz mitten
+ * im Upload weg), zählt als gescheitert — sonst blieben Vorschau und Speichern
+ * im Dialog für immer gesperrt.
  */
 export async function dateienHochladen(
   dateien: ArrayLike<File>,
   pfadFuer: (datei: File, index: number) => string,
   hochladen: (pfad: string, datei: File) => PromiseLike<{ error: unknown }>,
   fortschritt?: (fertig: number, gesamt: number) => void,
-  pauseMs = 1000
+  pauseMs = 1000,
+  zeitlimitMs = UPLOAD_ZEITLIMIT_MS
 ): Promise<HochladeErgebnis> {
   const pfade: string[] = [];
   let fehlgeschlagen = 0;
   for (let i = 0; i < dateien.length; i++) {
     const datei = dateien[i];
-    const pfad = pfadFuer(datei, i);
     let angekommen = false;
-    for (let versuch = 0; versuch < 2 && !angekommen; versuch++) {
+    let pfad: string | null = null;
+    try {
+      pfad = pfadFuer(datei, i);
+    } catch {
+      pfad = null;
+    }
+    for (let versuch = 0; versuch < 2 && pfad && !angekommen; versuch++) {
       if (versuch > 0) await new Promise((r) => setTimeout(r, pauseMs));
+      let zeitgeber: ReturnType<typeof setTimeout> | undefined;
       try {
-        const { error } = await hochladen(pfad, datei);
+        const zuSpaet = new Promise<{ error: unknown }>((r) => {
+          zeitgeber = setTimeout(() => r({ error: new Error("Zeitlimit überschritten") }), zeitlimitMs);
+        });
+        const { error } = await Promise.race([Promise.resolve(hochladen(pfad, datei)), zuSpaet]);
         angekommen = !error;
       } catch {
         angekommen = false;
+      } finally {
+        clearTimeout(zeitgeber);
       }
     }
-    if (angekommen) pfade.push(pfad);
+    if (angekommen && pfad) pfade.push(pfad);
     else fehlgeschlagen++;
-    fortschritt?.(i + 1, dateien.length);
+    try {
+      fortschritt?.(i + 1, dateien.length);
+    } catch {
+      // Eine fehlerhafte Anzeige darf keinen Upload abbrechen
+    }
   }
   return { pfade, fehlgeschlagen };
 }

@@ -82,6 +82,8 @@ import { dateiendung, dateienHochladen } from "@/utils/uebergabeSpeicherung";
           variant: "destructive",
         });
       }
+    } catch {
+      if (istEingehaengt.current) toast({ title: "Fehler", description: "Fotos konnten nicht hochgeladen werden.", variant: "destructive" });
     } finally {
       if (istEingehaengt.current) {
         setUploading(false);

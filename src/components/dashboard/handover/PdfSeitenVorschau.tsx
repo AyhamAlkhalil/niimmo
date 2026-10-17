@@ -15,8 +15,21 @@ interface PdfSeitenVorschauProps {
  * Übergabeprotokoll auf dem Handy deshalb vor dem Speichern nicht ansehen.
  *
  * Die Seiten werden direkt in den Behälter gezeichnet; React rendert dort
- * nichts hinein, damit sich beides nicht in die Quere kommt.
+ * nichts hinein, damit sich beides nicht in die Quere kommt. Eine neue Fassung
+ * ersetzt die alte erst, wenn alle Seiten fertig sind (kein Springen beim
+ * Aktualisieren); scheitert sie, verschwindet die alte, damit niemand eine
+ * überholte Fassung für die aktuelle hält.
  */
+
+/** Gibt den Pixelspeicher frei — iOS Safari tut das bei verworfenen Canvas nur verzögert. */
+const freigeben = (behaelter: HTMLElement) => {
+  behaelter.querySelectorAll("canvas").forEach((c) => {
+    c.width = 0;
+    c.height = 0;
+  });
+  behaelter.replaceChildren();
+};
+
 export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
   const behaelterRef = useRef<HTMLDivElement>(null);
   const [zustand, setZustand] = useState<"laedt" | "fertig" | "fehler">("laedt");
@@ -37,6 +50,7 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
         const breite = behaelter.clientWidth || 360;
         // Mehr als doppelte Auflösung bringt auf dem Handy nichts, kostet aber Speicher
         const aufloesung = Math.min(window.devicePixelRatio || 1, 2);
+        const seiten: HTMLCanvasElement[] = [];
         for (let nummer = 1; nummer <= geladen.numPages; nummer++) {
           const seite = await geladen.getPage(nummer);
           if (abgebrochen) return;
@@ -46,16 +60,24 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
           leinwand.height = Math.floor(ansicht.height);
           leinwand.className = "w-full rounded border bg-white";
           leinwand.setAttribute("aria-label", `Seite ${nummer} von ${geladen.numPages}`);
-          await seite.render({ canvasContext: leinwand.getContext("2d"), viewport: ansicht }).promise;
-          if (abgebrochen) return;
-          // Erste Seite sofort zeigen, statt auf alle zu warten
-          if (nummer === 1) behaelter.replaceChildren(leinwand);
-          else behaelter.appendChild(leinwand);
+          seiten.push(leinwand);
+          const zeichenflaeche = leinwand.getContext("2d");
+          if (!zeichenflaeche) throw new Error("Kein Zeichenkontext");
+          await seite.render({ canvasContext: zeichenflaeche, viewport: ansicht }).promise;
+          if (abgebrochen) {
+            seiten.forEach((c) => { c.width = 0; c.height = 0; });
+            return;
+          }
         }
+        freigeben(behaelter);
+        behaelter.append(...seiten);
         setZustand("fertig");
       } catch (fehler) {
         console.error("PDF-Vorschau konnte nicht gezeichnet werden:", fehler);
-        if (!abgebrochen) setZustand("fehler");
+        if (!abgebrochen) {
+          freigeben(behaelter);
+          setZustand("fehler");
+        }
       } finally {
         dokument?.destroy();
       }
@@ -65,6 +87,14 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
       abgebrochen = true;
     };
   }, [pdf]);
+
+  // Beim Aushängen den Speicher der gezeichneten Seiten freigeben
+  useEffect(() => {
+    const behaelter = behaelterRef.current;
+    return () => {
+      if (behaelter) freigeben(behaelter);
+    };
+  }, []);
 
   return (
     <div className="space-y-2">

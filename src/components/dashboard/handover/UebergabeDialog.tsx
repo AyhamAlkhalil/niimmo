@@ -1245,21 +1245,25 @@ export const UebergabeDialog = ({
         <AlertDialogHeader>
           <AlertDialogTitle>Übergabe noch nicht gespeichert</AlertDialogTitle>
           <AlertDialogDescription>
-            {entwurfGesichert
-              ? "Die Eingaben bleiben als Entwurf auf diesem Gerät erhalten. Wenn Sie diesen Vertrag wieder öffnen, geht es an derselben Stelle weiter. Gespeichert ist das Protokoll erst mit „Protokoll speichern“."
-              : "Die Eingaben konnten auf diesem Gerät nicht zwischengespeichert werden und gehen beim Schließen verloren."}
+            {/* Ein laufender Upload wird beim Schließen verworfen — das Foto
+                landet dann nicht im Entwurf, also darf der Text das nicht versprechen. */}
+            {fotosLaden
+              ? "Ein Foto wird gerade noch hochgeladen. Wenn Sie jetzt schließen, fehlt es im Entwurf und muss neu aufgenommen werden."
+              : entwurfGesichert
+                ? "Die Eingaben bleiben als Entwurf auf diesem Gerät erhalten. Wenn Sie diesen Vertrag wieder öffnen, geht es an derselben Stelle weiter. Gespeichert ist das Protokoll erst mit „Protokoll speichern“."
+                : "Die Eingaben konnten auf diesem Gerät nicht zwischengespeichert werden und gehen beim Schließen verloren."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Weiter bearbeiten</AlertDialogCancel>
           <AlertDialogAction
-            className={cn(!entwurfGesichert && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+            className={cn((!entwurfGesichert || fotosLaden) && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
             onClick={() => {
               setSchliessenFragen(false);
               onClose();
             }}
           >
-            {entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
+            {fotosLaden ? "Trotzdem schließen" : entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

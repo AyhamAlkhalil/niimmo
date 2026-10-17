@@ -111,6 +111,8 @@ export const MeterPhotoUpload = ({
           variant: "destructive",
         });
       }
+    } catch {
+      if (istEingehaengt.current) toast({ title: "Fehler", description: "Foto konnte nicht hochgeladen werden.", variant: "destructive" });
     } finally {
       if (istEingehaengt.current) {
         setUploading(false);

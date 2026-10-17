@@ -160,4 +160,32 @@ describe("dateienHochladen", () => {
     await dateienHochladen([datei("a.jpg"), datei("b.jpg")], pfadFuer, async () => ({ error: null }), (f, g) => stand.push(`${f}/${g}`), 0);
     expect(stand).toEqual(["1/2", "2/2"]);
   });
+
+  it("wertet einen hängenden Versuch nach dem Zeitlimit als gescheitert und versucht es erneut", async () => {
+    let aufrufe = 0;
+    const hochladen = () => {
+      aufrufe++;
+      return aufrufe === 1 ? new Promise<{ error: unknown }>(() => {}) : Promise.resolve({ error: null });
+    };
+    const ergebnis = await dateienHochladen([datei("a.jpg")], pfadFuer, hochladen, undefined, 0, 20);
+    expect(ergebnis).toEqual({ pfade: ["zaehlerfotos/v/0_a.jpg"], fehlgeschlagen: 0 });
+    expect(aufrufe).toBe(2);
+  });
+
+  it("zählt eine Datei, deren Pfad sich nicht bilden lässt, als gescheitert und macht weiter", async () => {
+    const pfad = (d: File, i: number) => {
+      if (i === 1) throw new Error("kaputt");
+      return `x/${i}`;
+    };
+    const ergebnis = await dateienHochladen([datei("a"), datei("b"), datei("c")], pfad, async () => ({ error: null }), undefined, 0);
+    expect(ergebnis).toEqual({ pfade: ["x/0", "x/2"], fehlgeschlagen: 1 });
+  });
+
+  it("lässt sich von einer werfenden Fortschrittsanzeige nicht abbrechen", async () => {
+    const ergebnis = await dateienHochladen([datei("a"), datei("b")], pfadFuer, async () => ({ error: null }), () => {
+      throw new Error("Anzeige");
+    }, 0);
+    expect(ergebnis.pfade).toHaveLength(2);
+  });
 });
+

@@ -16,10 +16,17 @@ let pdfjsPromise: Promise<any> | null = null;
 
 export async function ladePdfjs(): Promise<any> {
   if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs').then((pdfjsLib: any) => {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
-      return pdfjsLib;
-    });
+    pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs')
+      .then((pdfjsLib: any) => {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
+        return pdfjsLib;
+      })
+      .catch((fehler) => {
+        // Ein abgebrochener Chunk-Download (Mobilnetz) darf nicht bis zum
+        // Neuladen der Seite jede weitere Vorschau scheitern lassen
+        pdfjsPromise = null;
+        throw fehler;
+      });
   }
   return pdfjsPromise;
 }
