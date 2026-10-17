@@ -142,11 +142,16 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
+  // Ein leeres Feld heißt „nicht erfasst“, nicht „null Stück“: Sonst behauptet ein
+  // unterschriebenes Protokoll, es seien keine Schlüssel übergeben worden — genau
+  // die Angabe, gegen die beim Auszug die Rückgabe geprüft wird. Wie bei den
+  // Zählerständen steht dann ein Strich.
+  const anzahl = (wert: string) => (wert?.trim() ? `${wert.trim()} Stück` : '–');
   const schluesselItems = [
-    ['Haustür:', data.schluessel.haustuer || '0'],
-    ['Wohnung:', data.schluessel.wohnung || '0'],
-    ['Briefkasten:', data.schluessel.briefkasten || '0'],
-    ['Keller:', data.schluessel.keller || '0'],
+    ['Haustür:', anzahl(data.schluessel.haustuer)],
+    ['Wohnung:', anzahl(data.schluessel.wohnung)],
+    ['Briefkasten:', anzahl(data.schluessel.briefkasten)],
+    ['Keller:', anzahl(data.schluessel.keller)],
   ];
 
   // Two columns
@@ -154,13 +159,13 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
     doc.setFont('helvetica', 'bold');
     doc.text(schluesselItems[i][0], marginLeft + 5, y);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${schluesselItems[i][1]} Stück`, marginLeft + 30, y);
+    doc.text(schluesselItems[i][1], marginLeft + 30, y);
 
     if (i + 1 < schluesselItems.length) {
       doc.setFont('helvetica', 'bold');
       doc.text(schluesselItems[i + 1][0], marginLeft + 80, y);
       doc.setFont('helvetica', 'normal');
-      doc.text(`${schluesselItems[i + 1][1]} Stück`, marginLeft + 105, y);
+      doc.text(schluesselItems[i + 1][1], marginLeft + 105, y);
     }
     y += 6;
   }

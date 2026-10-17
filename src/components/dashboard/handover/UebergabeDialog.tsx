@@ -914,19 +914,19 @@ export const UebergabeDialog = ({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Haustür</Label>
-              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselHaustuer} onChange={(e) => setSchluesselHaustuer(e.target.value)} className="h-10" />
+              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselHaustuer} onChange={(e) => setSchluesselHaustuer(e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Wohnung</Label>
-              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselWohnung} onChange={(e) => setSchluesselWohnung(e.target.value)} className="h-10" />
+              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselWohnung} onChange={(e) => setSchluesselWohnung(e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Briefkasten</Label>
-              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselBriefkasten} onChange={(e) => setSchluesselBriefkasten(e.target.value)} className="h-10" />
+              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselBriefkasten} onChange={(e) => setSchluesselBriefkasten(e.target.value)} className="h-10" />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Keller</Label>
-              <Input type="number" inputMode="numeric" placeholder="0" min="0" value={schluesselKeller} onChange={(e) => setSchluesselKeller(e.target.value)} className="h-10" />
+              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselKeller} onChange={(e) => setSchluesselKeller(e.target.value)} className="h-10" />
             </div>
           </div>
         </div>

@@ -72,6 +72,18 @@ describe('generateUebergabePdf', () => {
     expect(ohneFotos).toContain('3242');
   });
 
+  it('gibt erfasste Schlüssel mit Stückzahl aus', () => {
+    expect(ohneFotos).toContain('(2 Stück)');
+    expect(ohneFotos).toContain('(1 Stück)');
+  });
+
+  it('behauptet bei leerem Schlüsselfeld nicht „0 Stück“, eine eingetragene 0 bleibt stehen', async () => {
+    const pdf = await renderText({ ...baseData, schluessel: { haustuer: '2', wohnung: '', briefkasten: '0', keller: ' ' } });
+    expect(pdf.match(/\(0 Stück\)/g)).toHaveLength(1);
+    expect(pdf.match(/\(2 Stück\)/g)).toHaveLength(1);
+    expect(pdf.match(/ Stück\)/g)).toHaveLength(2);
+  });
+
   it('rendert den Notizen-Abschnitt', () => {
     expect(ohneFotos).toContain('Bemerkungen / Zustand');
   });
