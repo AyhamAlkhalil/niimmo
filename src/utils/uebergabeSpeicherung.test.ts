@@ -1,0 +1,123 @@
+import { describe, it, expect } from "vitest";
+import {
+  STORAGE_PFAD,
+  uebergabePdfPfad,
+  dateiendung,
+  vertragsStaende,
+  historieEintraege,
+  historieAufteilen,
+  fehlendeDokumente,
+  LEERE_ZAEHLER,
+} from "./uebergabeSpeicherung";
+
+const VERTRAG = "faa7c50f-dfe1-4900-b8cd-000000000001";
+
+describe("uebergabePdfPfad", () => {
+  it("enthält nur Zeichen, die Supabase Storage annimmt", () => {
+    const pfad = uebergabePdfPfad(VERTRAG, true, new Date(2026, 9, 16, 16, 29, 3));
+    expect(pfad).toBe(`uebergabeprotokolle/${VERTRAG}/Uebergabeprotokoll_Einzug_2026-10-16_162903.pdf`);
+    expect(STORAGE_PFAD.test(pfad)).toBe(true);
+  });
+
+  it("unterscheidet zwei Speicherläufe am selben Tag", () => {
+    const a = uebergabePdfPfad(VERTRAG, false, new Date(2026, 9, 16, 9, 0, 0));
+    const b = uebergabePdfPfad(VERTRAG, false, new Date(2026, 9, 16, 9, 0, 1));
+    expect(a).not.toBe(b);
+    expect(a).toContain("_Auszug_");
+  });
+
+  it("die Prüfung erkennt Umlaute als ungültig — genau daran scheiterte das alte Schema", () => {
+    expect(STORAGE_PFAD.test("uebergabeprotokolle/x/Uebergabeprotokoll_Einzug_Ä_Ö_ü.pdf")).toBe(false);
+    expect(STORAGE_PFAD.test("uebergabeprotokolle/x/Uebergabeprotokoll_Einzug_é.pdf")).toBe(false);
+  });
+});
+
+describe("dateiendung", () => {
+  it("übernimmt eine normale Endung klein geschrieben", () => {
+    expect(dateiendung("IMG_1234.HEIC", "image/heic")).toBe("heic");
+    expect(dateiendung("image.jpg", "image/jpeg")).toBe("jpg");
+  });
+
+  it("nimmt ohne Punkt im Namen den MIME-Typ statt des ganzen Namens", () => {
+    expect(dateiendung("Zählerfoto", "image/jpeg")).toBe("jpg");
+    expect(dateiendung("foto", "image/png")).toBe("png");
+  });
+
+  it("fällt bei unbrauchbarer Endung und unbekanntem Typ auf jpg zurück", () => {
+    expect(dateiendung("bild.jpg ü", "")).toBe("jpg");
+    expect(dateiendung("bild", "application/octet-stream")).toBe("jpg");
+  });
+
+  it("ergibt immer einen gültigen Storage-Pfad", () => {
+    for (const [name, typ] of [["Küche.jpg", "image/jpeg"], ["ohne", ""], ["a.ÄÖÜ", "image/webp"]]) {
+      expect(STORAGE_PFAD.test(`zaehlerfotos/${VERTRAG}/strom_einzug_1_0.${dateiendung(name, typ)}`)).toBe(true);
+    }
+  });
+});
+
+describe("vertragsStaende", () => {
+  it("schreibt nur erfasste Werte — ein leeres Feld überschreibt keinen vorhandenen Stand", () => {
+    expect(vertragsStaende({ ...LEERE_ZAEHLER, strom: "1.234,5" }, true)).toEqual({ strom_einzug: 1234.5 });
+  });
+
+  it("ordnet Kaltwasser und Auszug den richtigen Spalten zu", () => {
+    expect(vertragsStaende({ strom: "1", gas: "2", wasser: "3,5", warmwasser: "4" }, false)).toEqual({
+      strom_auszug: 1,
+      gas_auszug: 2,
+      kaltwasser_auszug: 3.5,
+      warmwasser_auszug: 4,
+    });
+  });
+
+  it("liefert für ein leeres Formular nichts", () => {
+    expect(vertragsStaende(LEERE_ZAEHLER, true)).toEqual({});
+  });
+});
+
+describe("historieEintraege", () => {
+  it("legt je erfasstem Zähler einen Eintrag an, Wasser als kaltwasser", () => {
+    const eintraege = historieEintraege("e1", "i1", { ...LEERE_ZAEHLER, wasser: "12,5", gas: "0" }, "2026-10-16", "Übergabe (Einzug)", "u1");
+    expect(eintraege).toEqual([
+      { einheit_id: "e1", immobilie_id: "i1", zaehler_typ: "gas", stand: 0, datum: "2026-10-16", quelle: "Übergabe (Einzug)", erstellt_von: "u1" },
+      { einheit_id: "e1", immobilie_id: "i1", zaehler_typ: "kaltwasser", stand: 12.5, datum: "2026-10-16", quelle: "Übergabe (Einzug)", erstellt_von: "u1" },
+    ]);
+  });
+});
+
+describe("historieAufteilen", () => {
+  const neu = historieEintraege("e1", null, { strom: "10", gas: "20", wasser: "", warmwasser: "" }, "2026-10-16", "Übergabe (Auszug)", null);
+
+  it("trägt beim ersten Lauf alles ein", () => {
+    expect(historieAufteilen(neu, [])).toEqual({ einfuegen: neu, aktualisieren: [] });
+  });
+
+  it("aktualisiert beim Wiederholen, was schon steht, statt es zu verdoppeln", () => {
+    const { einfuegen, aktualisieren } = historieAufteilen(neu, [{ einheit_id: "e1", zaehler_typ: "strom" }]);
+    expect(aktualisieren.map((e) => e.zaehler_typ)).toEqual(["strom"]);
+    expect(einfuegen.map((e) => e.zaehler_typ)).toEqual(["gas"]);
+  });
+
+  it("trennt nach Einheit", () => {
+    const { einfuegen } = historieAufteilen(neu, [{ einheit_id: "e2", zaehler_typ: "strom" }]);
+    expect(einfuegen).toHaveLength(2);
+  });
+});
+
+describe("fehlendeDokumente", () => {
+  const zeile = (pfad: string, mietvertrag_id: string) => ({ pfad, mietvertrag_id, titel: "t" });
+
+  it("lässt bereits eingetragene Pfade weg", () => {
+    const geplant = [zeile("zaehlerfotos/v1/a.jpg", "v1"), zeile("zaehlerfotos/v1/b.jpg", "v1")];
+    expect(fehlendeDokumente(geplant, [{ pfad: "zaehlerfotos/v1/a.jpg", mietvertrag_id: "v1" }])).toEqual([geplant[1]]);
+  });
+
+  it("betrachtet denselben Pfad an einem anderen Vertrag als fehlend", () => {
+    const geplant = [zeile("uebergabefotos/v1/a.jpg", "v2")];
+    expect(fehlendeDokumente(geplant, [{ pfad: "uebergabefotos/v1/a.jpg", mietvertrag_id: "v1" }])).toEqual(geplant);
+  });
+
+  it("entfernt Doppelte innerhalb eines Laufs", () => {
+    const geplant = [zeile("x.jpg", "v1"), zeile("x.jpg", "v1")];
+    expect(fehlendeDokumente(geplant, [])).toHaveLength(1);
+  });
+});

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,15 @@ import { generateUebergabePdf, type UebergabePdfData } from "@/utils/uebergabePd
 import { blobToPdfImage, type PdfImage } from "@/utils/pdfImageUtils";
 import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe } from "@/utils/zaehlerstandUtils";
 import { getVertragsende } from "@/utils/contractUtils";
+import { alleSeiten } from "@/utils/supabaseSeiten";
+import {
+  uebergabePdfPfad,
+  vertragsStaende,
+  historieEintraege,
+  historieAufteilen,
+  fehlendeDokumente,
+  LEERE_ZAEHLER,
+} from "@/utils/uebergabeSpeicherung";
 
 const METER_TYPEN = ["strom", "gas", "wasser", "warmwasser"] as const;
 type MeterTyp = (typeof METER_TYPEN)[number];
@@ -147,6 +156,15 @@ export const UebergabeDialog = ({
   // Entwertet das Ergebnis eines Vorschaulaufs, der von einem neueren Lauf
   // oder einem Reset überholt wurde
   const previewLaufRef = React.useRef(0);
+
+  // Eingabestand, aus dem die aktuelle Vorschau entstand. Stimmt er beim
+  // Speichern noch, wird das Vorschau-PDF übernommen statt alle Fotos ein
+  // zweites Mal zu laden und aufzubereiten — auf dem Handy dauerte das so
+  // lange wie die Vorschau selbst.
+  const vorschauStandRef = useRef<string | null>(null);
+  // PDF, das ein abgebrochener Speicherlauf schon abgelegt hat. Ein zweiter
+  // Versuch mit unverändertem Stand legt keine zweite Datei an.
+  const hochgeladenesPdfRef = useRef<{ stand: string; pfad: string } | null>(null);
   
   // Preview state
   const [showPreview, setShowPreview] = useState(false);
@@ -173,6 +191,26 @@ export const UebergabeDialog = ({
   // Tenant data
   const [mieterData, setMieterData] = useState<MieterData[]>([]);
   const [mieterEmails, setMieterEmails] = useState<{ [mieterId: string]: string }>({});
+
+  // Alles, was ins PDF eingeht — Vergleichswert für die Wiederverwendung der Vorschau
+  const pdfStand = useMemo(
+    () =>
+      JSON.stringify([
+        uebergabeDatum ? format(uebergabeDatum, "yyyy-MM-dd") : null,
+        schluesselHaustuer,
+        schluesselWohnung,
+        schluesselBriefkasten,
+        schluesselKeller,
+        zaehlerstaendePerContract,
+        meterPhotosPerContract,
+        protokollNotizen,
+        notizenPhotos,
+        vermieterSignature,
+        mieterSignature,
+      ]),
+    [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller,
+      zaehlerstaendePerContract, meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature]
+  );
 
   // Fetch tenant data
   useEffect(() => {
@@ -273,6 +311,8 @@ export const UebergabeDialog = ({
     // Laufende Vorschau entwerten, damit sie die zurückgesetzten Daten nicht
     // nachträglich wieder einblendet
     previewLaufRef.current += 1;
+    vorschauStandRef.current = null;
+    hochgeladenesPdfRef.current = null;
     setIsGeneratingPreview(false);
   };
 
@@ -384,6 +424,7 @@ export const UebergabeDialog = ({
     setIsGeneratingPreview(true);
     const laufNummer = previewLaufRef.current + 1;
     previewLaufRef.current = laufNummer;
+    const stand = pdfStand;
 
     try {
       const pdfData = await buildPdfData();
@@ -395,6 +436,7 @@ export const UebergabeDialog = ({
       // Ergebnis ungültig — sonst zeigt die Vorschau verworfene Daten.
       if (previewLaufRef.current !== laufNummer) return;
 
+      vorschauStandRef.current = stand;
       setPdfBlob(blob);
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
@@ -429,28 +471,40 @@ export const UebergabeDialog = ({
       return;
     }
     setIsSubmitting(true);
+    // Der Stand beim Klick — Tippen während des Speicherns gehört nicht mehr zu diesem Lauf
+    const stand = pdfStand;
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // supabase-js wirft bei Query-Fehlern nicht — ohne diese Prüfungen würde
+      // 1. Zuerst das PDF: Fotos laden und aufbereiten ist der aufwendigste und
+      // anfälligste Schritt. Scheitert er, ist noch nichts geschrieben.
+      // Die Vorschau wird nur übernommen, wenn seitdem nichts geändert wurde und
+      // alle Fotos drin sind — sonst passte das archivierte und versendete
+      // Protokoll nicht zu den gespeicherten Daten.
+      let aktuellesPdf: Blob;
+      if (pdfBlob && vorschauStandRef.current === stand && nichtEingebetteteFotos === 0) {
+        aktuellesPdf = pdfBlob;
+      } else {
+        const pdfData = await buildPdfData();
+        if (!pdfData) throw new Error("Übergabedatum fehlt");
+        aktuellesPdf = await generateUebergabePdf(pdfData);
+        vorschauStandRef.current = stand;
+        setPdfBlob(aktuellesPdf);
+        if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+        setPdfBlobUrl(URL.createObjectURL(aktuellesPdf));
+      }
+
+      // Ab hier ist jeder Schritt wiederholbar: Ein zweiter Klick nach einem
+      // Abbruch ergänzt, was fehlt, statt Historie und Dokumente zu verdoppeln.
+      // supabase-js wirft bei Query-Fehlern nicht — ohne die Prüfungen würde
       // ein fehlgeschlagenes Update (RLS, Netzwerk) mit "Protokoll gespeichert"
       // quittiert und der eben erfasste Zählerstand wäre still verloren.
-      for (const contract of contracts) {
-        const zaehlerstaende = zaehlerstaendePerContract[contract.id] || { strom: "", gas: "", wasser: "", warmwasser: "" };
-        const staende = isEinzug
-          ? {
-              strom_einzug: parseZaehlerstand(zaehlerstaende.strom),
-              gas_einzug: parseZaehlerstand(zaehlerstaende.gas),
-              kaltwasser_einzug: parseZaehlerstand(zaehlerstaende.wasser),
-              warmwasser_einzug: parseZaehlerstand(zaehlerstaende.warmwasser),
-            }
-          : {
-              strom_auszug: parseZaehlerstand(zaehlerstaende.strom),
-              gas_auszug: parseZaehlerstand(zaehlerstaende.gas),
-              kaltwasser_auszug: parseZaehlerstand(zaehlerstaende.wasser),
-              warmwasser_auszug: parseZaehlerstand(zaehlerstaende.warmwasser),
-            };
+      const vertragIdListe = contracts.map((c) => c.id);
 
+      // 2. Zählerstände am Vertrag — ein leeres Feld lässt den vorhandenen Stand stehen
+      for (const contract of contracts) {
+        const staende = vertragsStaende(zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER, isEinzug);
+        if (Object.keys(staende).length === 0) continue;
         const { error: vertragError } = await supabase
           .from("mietvertrag")
           .update(staende)
@@ -458,41 +512,65 @@ export const UebergabeDialog = ({
         if (vertragError) throw vertragError;
       }
 
-      // Zählerstände in zaehlerstand_historie eintragen
+      // 3. Ablesehistorie — je Einheit, Zähler, Tag und Übergabeart ein Eintrag
       const historieDatum = format(uebergabeDatum, "yyyy-MM-dd");
       const historieQuelle = isEinzug ? "Übergabe (Einzug)" : "Übergabe (Auszug)";
-      const historieEintraege = contracts.flatMap((contract) => {
-        const z = zaehlerstaendePerContract[contract.id] || { strom: "", gas: "", wasser: "", warmwasser: "" };
-        const einheitId = contract.einheit.id;
-        const immobilieId = contract.einheit.immobilie_id ?? contract.einheit.immobilie?.id ?? null;
-        return (
-          [
-            { typ: "strom", wert: z.strom },
-            { typ: "gas", wert: z.gas },
-            { typ: "kaltwasser", wert: z.wasser },
-            { typ: "warmwasser", wert: z.warmwasser },
-          ] as const
+      const historie = contracts.flatMap((contract) =>
+        historieEintraege(
+          contract.einheit.id,
+          contract.einheit.immobilie_id ?? contract.einheit.immobilie?.id ?? null,
+          zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER,
+          historieDatum,
+          historieQuelle,
+          user?.id ?? null
         )
-          .map(({ typ, wert }) => ({ typ, stand: parseZaehlerstand(wert) }))
-          .filter((eintrag): eintrag is { typ: typeof eintrag.typ; stand: number } => eintrag.stand !== null)
-          .map(({ typ, stand }) => ({
-            einheit_id: einheitId,
-            immobilie_id: immobilieId,
-            zaehler_typ: typ,
-            stand,
-            datum: historieDatum,
-            quelle: historieQuelle,
-            erstellt_von: user?.id ?? null,
-          }));
-      });
-      if (historieEintraege.length > 0) {
-        const { error: historieError } = await supabase
-          .from("zaehlerstand_historie")
-          .insert(historieEintraege);
-        if (historieError) throw historieError;
+      );
+      if (historie.length > 0) {
+        const vorhandeneAblesungen = await alleSeiten<{ einheit_id: string; zaehler_typ: string }>((von, bis, mitZaehlung) =>
+          supabase
+            .from("zaehlerstand_historie")
+            .select("einheit_id, zaehler_typ", { count: mitZaehlung ? "exact" : undefined })
+            .in("einheit_id", [...new Set(historie.map((e) => e.einheit_id))])
+            .eq("datum", historieDatum)
+            .eq("quelle", historieQuelle)
+            .order("id")
+            .range(von, bis)
+        );
+        const { einfuegen, aktualisieren } = historieAufteilen(historie, vorhandeneAblesungen);
+        for (const eintrag of aktualisieren) {
+          const { error: aktualisierFehler } = await supabase
+            .from("zaehlerstand_historie")
+            .update({ stand: eintrag.stand })
+            .eq("einheit_id", eintrag.einheit_id)
+            .eq("zaehler_typ", eintrag.zaehler_typ)
+            .eq("datum", eintrag.datum)
+            .eq("quelle", eintrag.quelle);
+          if (aktualisierFehler) throw aktualisierFehler;
+        }
+        if (einfuegen.length > 0) {
+          const { error: historieError } = await supabase
+            .from("zaehlerstand_historie")
+            .insert(einfuegen);
+          if (historieError) throw historieError;
+        }
       }
 
-      // Zählerfotos als Einträge in der dokumente-Tabelle speichern
+      // 4. PDF ablegen. Der Pfad trägt Datum und Uhrzeit statt des Mieternamens:
+      // Supabase Storage lehnt Umlaute im Pfad ab (InvalidKey) — daran scheiterte
+      // jedes Protokoll für Mieter mit Umlaut im Namen.
+      let filePath: string;
+      if (hochgeladenesPdfRef.current?.stand === stand) {
+        filePath = hochgeladenesPdfRef.current.pfad;
+      } else {
+        filePath = uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
+        const { error: pdfUploadError } = await supabase.storage
+          .from("dokumente")
+          .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false });
+        if (pdfUploadError) throw pdfUploadError;
+        hochgeladenesPdfRef.current = { stand, pfad: filePath };
+      }
+
+      // 5. Fotos und PDF als Dokumente — in einem Insert, ohne schon Eingetragenes
       const uebergabeTypLabel = isEinzug ? "Einzug" : "Auszug";
       const datumLabel = format(uebergabeDatum!, "dd.MM.yyyy", { locale: de });
       const dokumenteInserts = contracts.flatMap((contract) => {
@@ -533,54 +611,44 @@ export const UebergabeDialog = ({
         )
       );
 
-      if (dokumenteInserts.length > 0) {
-        const { error: dokError } = await supabase.from("dokumente").insert(dokumenteInserts);
+      const pdfDokInserts = contracts.map((contract) => ({
+        pfad: filePath,
+        titel: `Übergabeprotokoll (${uebergabeTypLabel}) – ${datumLabel}`,
+        kategorie: "Übergabeprotokoll" as const,
+        dateityp: "application/pdf",
+        groesse_bytes: aktuellesPdf.size,
+        mietvertrag_id: contract.id,
+        immobilie_id: null,
+        erstellt_von: user?.id ?? null,
+        hochgeladen_am: new Date().toISOString(),
+        geloescht: false,
+      }));
+
+      const vorhandeneDokumente = await alleSeiten<{ pfad: string; mietvertrag_id: string | null }>((von, bis, mitZaehlung) =>
+        supabase
+          .from("dokumente")
+          .select("pfad, mietvertrag_id", { count: mitZaehlung ? "exact" : undefined })
+          .in("mietvertrag_id", vertragIdListe)
+          .eq("kategorie", "Übergabeprotokoll")
+          .order("id")
+          .range(von, bis)
+      );
+      const neueDokumente = fehlendeDokumente([...dokumenteInserts, ...pdfDokInserts], vorhandeneDokumente);
+      if (neueDokumente.length > 0) {
+        const { error: dokError } = await supabase.from("dokumente").insert(neueDokumente);
         if (dokError) throw dokError;
       }
 
-      // PDF-Protokoll in Storage hochladen und als Dokument speichern
-      // → unabhängig davon, ob E-Mail versendet wird
-      //
-      // Das PDF wird hier neu erzeugt statt die letzte Vorschau zu verwenden:
-      // wer nach dem Erstellen der Vorschau noch einen Zählerstand korrigiert
-      // und dann speichert, bekäme sonst ein archiviertes und versendetes
-      // Protokoll, das nicht zu den gespeicherten Daten passt.
-      const pdfData = await buildPdfData();
-      const aktuellesPdf = pdfData ? await generateUebergabePdf(pdfData) : null;
-
-      if (aktuellesPdf) {
-        setPdfBlob(aktuellesPdf);
-        if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
-        setPdfBlobUrl(URL.createObjectURL(aktuellesPdf));
-
-        const fileName = getPdfFileName();
-        const filePath = `uebergabeprotokolle/${contracts[0].id}/${fileName}`;
-        const { error: pdfUploadError } = await supabase.storage
-          .from("dokumente")
-          .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: true });
-        if (pdfUploadError) throw pdfUploadError;
-
-        const pdfDokInserts = contracts.map((contract) => ({
-          pfad: filePath,
-          titel: `Übergabeprotokoll (${uebergabeTypLabel}) – ${datumLabel}`,
-          kategorie: "Übergabeprotokoll" as const,
-          dateityp: "application/pdf",
-          groesse_bytes: aktuellesPdf.size,
-          mietvertrag_id: contract.id,
-          immobilie_id: null,
-          erstellt_von: user?.id ?? null,
-          hochgeladen_am: new Date().toISOString(),
-          geloescht: false,
-        }));
-        const { error: pdfDokError } = await supabase.from("dokumente").insert(pdfDokInserts);
-        if (pdfDokError) throw pdfDokError;
-        setSavedPdfPath(filePath);
-      }
-
+      setSavedPdfPath(filePath);
       setIsSaved(true);
       toast({ title: "Protokoll gespeichert", description: "Das Übergabeprotokoll wurde erfolgreich gespeichert." });
     } catch (error) {
-      toast({ title: "Fehler", description: "Die Übergabe konnte nicht gespeichert werden.", variant: "destructive" });
+      console.error("Übergabe konnte nicht gespeichert werden:", error);
+      toast({
+        title: "Fehler",
+        description: "Die Übergabe konnte nicht gespeichert werden. Die Eingaben bleiben erhalten — bitte erneut auf „Protokoll speichern“ tippen.",
+        variant: "destructive",
+      });
     } finally {
       setIsSubmitting(false);
     }

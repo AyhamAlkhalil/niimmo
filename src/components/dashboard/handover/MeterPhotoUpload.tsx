@@ -3,6 +3,7 @@ import { Camera, X, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { dateiendung } from "@/utils/uebergabeSpeicherung";
 
 interface MeterPhotoUploadProps {
   contractId: string;
@@ -73,7 +74,8 @@ export const MeterPhotoUpload = ({
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const fileExt = file.name.split(".").pop();
+        // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
+        const fileExt = dateiendung(file.name, file.type);
         const fileName = `${meterType}_${uebergabeTyp}_${Date.now()}_${i}.${fileExt}`;
         const filePath = `zaehlerfotos/${contractId}/${fileName}`;
 
