@@ -94,7 +94,7 @@ export const MeterPhotoUpload = ({
       onPhotosChange(updatedPhotos);
 
       toast({
-        title: "Foto gespeichert",
+        title: "Foto hochgeladen",
         description: `${files.length} ${meterLabels[meterType]}-Zählerfoto(s) hochgeladen.`,
       });
     } catch {

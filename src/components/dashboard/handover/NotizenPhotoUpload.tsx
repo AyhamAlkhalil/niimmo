@@ -68,7 +68,7 @@ import { dateiendung } from "@/utils/uebergabeSpeicherung";
 
        toast({
          title: "Fotos hochgeladen",
-         description: `${files.length} Foto(s) wurden gespeichert.`,
+         description: `${files.length} Foto(s) hochgeladen.`,
        });
      } catch (error) {
        toast({

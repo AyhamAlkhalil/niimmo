@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.5.1",
+    datum: "2026-10-17",
+    aenderungen: [
+      { art: "neu", titel: "Übergabe: Eingaben bleiben als Entwurf erhalten und kommen beim nächsten Öffnen zurück" },
+    ],
+  },
+  {
     version: "1.5.0",
     datum: "2026-10-06",
     aenderungen: [

@@ -5,6 +5,12 @@ import { RotateCcw } from "lucide-react";
 interface SignatureCanvasProps {
   onSignatureChange: (dataUrl: string | null) => void;
   label: string;
+  /**
+   * Bereits geleistete Unterschrift, die beim Einhängen gezeichnet wird — aus dem
+   * Entwurf oder nach einem Wechsel zwischen Handy- und Desktopansicht. Wirkt nur
+   * beim Mount; zum Leeren wird die Komponente über `key` neu eingehängt.
+   */
+  initialValue?: string | null;
 }
 
 // Fixed logical drawing space. The canvas is rendered at LOGICAL_W×LOGICAL_H
@@ -14,10 +20,11 @@ interface SignatureCanvasProps {
 const LOGICAL_W = 600;
 const LOGICAL_H = 200;
 
-export const SignatureCanvas = ({ onSignatureChange, label }: SignatureCanvasProps) => {
+export const SignatureCanvas = ({ onSignatureChange, label, initialValue }: SignatureCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
-  const [hasSignature, setHasSignature] = useState(false);
+  const [hasSignature, setHasSignature] = useState(!!initialValue);
+  const anfangswertRef = useRef(initialValue);
   // Stable ref so event listeners never need re-registration when the prop changes
   const onSignatureChangeRef = useRef(onSignatureChange);
   useEffect(() => {
@@ -43,6 +50,14 @@ export const SignatureCanvas = ({ onSignatureChange, label }: SignatureCanvasPro
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.fillStyle = "#000000";
+
+    // Gespeicherte Unterschrift zurückholen. Sie wurde mit derselben Auflösung
+    // exportiert; ins logische Format gezeichnet füllt sie das Feld wieder ganz.
+    if (anfangswertRef.current) {
+      const bild = new Image();
+      bild.onload = () => ctx.drawImage(bild, 0, 0, LOGICAL_W, LOGICAL_H);
+      bild.src = anfangswertRef.current;
+    }
 
     // Map a mouse/touch event to logical canvas coordinates.
     // We always recompute the scale from the current CSS rect so the result is

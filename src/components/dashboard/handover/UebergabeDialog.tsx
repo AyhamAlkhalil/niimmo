@@ -8,11 +8,21 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
 import { de } from "date-fns/locale";
-import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save, AlertTriangle } from "lucide-react";
+import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save, AlertTriangle, History, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -34,6 +44,15 @@ import {
   fehlendeDokumente,
   LEERE_ZAEHLER,
 } from "@/utils/uebergabeSpeicherung";
+import {
+  browserAblage,
+  entwurfSchluessel,
+  entwurfLesen,
+  entwurfSchreiben,
+  entwurfLoeschen,
+  hatEingaben,
+  type UebergabeEingaben,
+} from "@/utils/uebergabeEntwurf";
 
 const METER_TYPEN = ["strom", "gas", "wasser", "warmwasser"] as const;
 type MeterTyp = (typeof METER_TYPEN)[number];
@@ -106,30 +125,39 @@ export const UebergabeDialog = ({
   onSuccess,
   isEinzug = false,
 }: UebergabeDialogProps) => {
-  const [uebergabeDatum, setUebergabeDatum] = useState<Date | undefined>(
-    getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date()
+  // Entwurf auf dem Gerät (utils/uebergabeEntwurf.ts): Jede Eingabe wird sofort
+  // gesichert und beim nächsten Öffnen desselben Vertrags wiederhergestellt.
+  const entwurfKey = entwurfSchluessel(vertragIds, isEinzug);
+  const [ablage] = useState(browserAblage);
+  const [geladenerEntwurf] = useState(() => entwurfLesen(ablage, entwurfKey, contracts.map((c) => c.id)));
+  const [wiederhergestelltAm, setWiederhergestelltAm] = useState<string | null>(geladenerEntwurf?.gespeichertAm || null);
+  const [entwurfGesichert, setEntwurfGesichert] = useState(true);
+
+  const standardDatum = () => (getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date());
+  const [uebergabeDatum, setUebergabeDatum] = useState<Date | undefined>(() =>
+    geladenerEntwurf?.uebergabeDatum ? parse(geladenerEntwurf.uebergabeDatum, "yyyy-MM-dd", new Date()) : standardDatum()
   );
-  const [schluesselHaustuer, setSchluesselHaustuer] = useState<string>("");
-  const [schluesselWohnung, setSchluesselWohnung] = useState<string>("");
-  const [schluesselBriefkasten, setSchluesselBriefkasten] = useState<string>("");
-  const [schluesselKeller, setSchluesselKeller] = useState<string>("");
+  const [schluesselHaustuer, setSchluesselHaustuer] = useState<string>(geladenerEntwurf?.schluessel.haustuer ?? "");
+  const [schluesselWohnung, setSchluesselWohnung] = useState<string>(geladenerEntwurf?.schluessel.wohnung ?? "");
+  const [schluesselBriefkasten, setSchluesselBriefkasten] = useState<string>(geladenerEntwurf?.schluessel.briefkasten ?? "");
+  const [schluesselKeller, setSchluesselKeller] = useState<string>(geladenerEntwurf?.schluessel.keller ?? "");
   const [zaehlerstaendePerContract, setZaehlerstaendePerContract] = useState<ZaehlerstaendePerContract>(() => {
     const initial: ZaehlerstaendePerContract = {};
     contracts.forEach(c => {
-      initial[c.id] = { strom: "", gas: "", wasser: "", warmwasser: "" };
+      initial[c.id] = { ...LEERE_ZAEHLER, ...geladenerEntwurf?.zaehlerstaende[c.id] };
     });
     return initial;
   });
   const [meterPhotosPerContract, setMeterPhotosPerContract] = useState<MeterPhotosPerContract>(() => {
     const initial: MeterPhotosPerContract = {};
     contracts.forEach(c => {
-      initial[c.id] = {};
+      initial[c.id] = { ...geladenerEntwurf?.zaehlerfotos[c.id] };
     });
     return initial;
   });
-  const [protokollNotizen, setProtokollNotizen] = useState("");
-  const [vermieterSignature, setVermieterSignature] = useState<string | null>(null);
-  const [mieterSignature, setMieterSignature] = useState<string | null>(null);
+  const [protokollNotizen, setProtokollNotizen] = useState(geladenerEntwurf?.notizen ?? "");
+  const [vermieterSignature, setVermieterSignature] = useState<string | null>(geladenerEntwurf?.unterschriftVermieter ?? null);
+  const [mieterSignature, setMieterSignature] = useState<string | null>(geladenerEntwurf?.unterschriftMieter ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const isMobile = useIsMobile();
@@ -142,7 +170,7 @@ export const UebergabeDialog = ({
   );
 
   // Notes photos
-  const [notizenPhotos, setNotizenPhotos] = useState<string[]>([]);
+  const [notizenPhotos, setNotizenPhotos] = useState<string[]>(geladenerEntwurf?.notizenFotos ?? []);
 
   // Die Upload-Komponenten halten ihre Fotoliste in eigenem State, der nur beim
   // Mount aus existingPhotos übernommen wird. Ohne Remount würden sie nach
@@ -186,11 +214,14 @@ export const UebergabeDialog = ({
 
   // Inline Versorger state
   const [versorgerData, setVersorgerData] = useState<Array<{ typ: 'strom' | 'gas' | 'wasser'; label: string; name: string; email: string }>>([]);
-  const [versorgerSelected, setVersorgerSelected] = useState<Set<string>>(new Set());
-  
+  const [versorgerSelected, setVersorgerSelected] = useState<Set<string>>(() => new Set(geladenerEntwurf?.versorgerAuswahl ?? []));
+
   // Tenant data
   const [mieterData, setMieterData] = useState<MieterData[]>([]);
-  const [mieterEmails, setMieterEmails] = useState<{ [mieterId: string]: string }>({});
+  const [mieterEmails, setMieterEmails] = useState<{ [mieterId: string]: string }>(geladenerEntwurf?.mieterEmails ?? {});
+
+  // Abfrage vor dem Schließen, solange ungespeicherte Eingaben da sind
+  const [schliessenFragen, setSchliessenFragen] = useState(false);
 
   // Alles, was ins PDF eingeht — Vergleichswert für die Wiederverwendung der Vorschau
   const pdfStand = useMemo(
@@ -212,6 +243,55 @@ export const UebergabeDialog = ({
       zaehlerstaendePerContract, meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature]
   );
 
+  const eingaben = useMemo<UebergabeEingaben>(
+    () => ({
+      uebergabeDatum: uebergabeDatum ? format(uebergabeDatum, "yyyy-MM-dd") : null,
+      schluessel: { haustuer: schluesselHaustuer, wohnung: schluesselWohnung, briefkasten: schluesselBriefkasten, keller: schluesselKeller },
+      zaehlerstaende: zaehlerstaendePerContract,
+      zaehlerfotos: meterPhotosPerContract,
+      notizen: protokollNotizen,
+      notizenFotos: notizenPhotos,
+      unterschriftVermieter: vermieterSignature,
+      unterschriftMieter: mieterSignature,
+      versorgerAuswahl: [...versorgerSelected].sort(),
+      mieterEmails,
+    }),
+    [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller, zaehlerstaendePerContract,
+      meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected, mieterEmails]
+  );
+  const ungespeicherteEingaben = !isSaved && hatEingaben(eingaben);
+
+  // Jede Änderung sofort als Entwurf sichern. Der erste Lauf nach dem Öffnen
+  // gibt nur den geladenen Entwurf wieder und schreibt nicht — sonst stünde
+  // dort der Zeitpunkt des Öffnens statt der letzten Eingabe.
+  const geschriebenerStandRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isSaved) return;
+    const stand = JSON.stringify(eingaben);
+    if (stand === geschriebenerStandRef.current) return;
+    const ersterLauf = geschriebenerStandRef.current === null;
+    geschriebenerStandRef.current = stand;
+    if (ersterLauf && geladenerEntwurf) return;
+    if (!hatEingaben(eingaben)) {
+      entwurfLoeschen(ablage, entwurfKey);
+      setEntwurfGesichert(true);
+      return;
+    }
+    setEntwurfGesichert(entwurfSchreiben(ablage, entwurfKey, eingaben, new Date()));
+  }, [eingaben, isSaved, ablage, entwurfKey, geladenerEntwurf]);
+
+  // Neu laden oder Tab schließen: nur warnen, wenn sonst wirklich etwas verloren
+  // geht — während des Speicherns oder wenn der Entwurf nicht gesichert werden konnte.
+  useEffect(() => {
+    if (!isOpen || !(isSubmitting || (ungespeicherteEingaben && !entwurfGesichert))) return;
+    const warnen = (ereignis: BeforeUnloadEvent) => {
+      ereignis.preventDefault();
+      ereignis.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnen);
+    return () => window.removeEventListener("beforeunload", warnen);
+  }, [isOpen, isSubmitting, ungespeicherteEingaben, entwurfGesichert]);
+
   // Fetch tenant data
   useEffect(() => {
     const fetchMieterData = async () => {
@@ -228,11 +308,14 @@ export const UebergabeDialog = ({
           .in("id", mieterIds);
         if (mieter) {
           setMieterData(mieter);
-          const emails: { [key: string]: string } = {};
-          mieter.forEach((m) => {
-            emails[m.id] = m.hauptmail || "";
+          // Eine im Entwurf schon eingetragene Adresse hat Vorrang vor der Stammadresse
+          setMieterEmails((vorher) => {
+            const emails: { [key: string]: string } = {};
+            mieter.forEach((m) => {
+              emails[m.id] = vorher[m.id] || m.hauptmail || "";
+            });
+            return emails;
           });
-          setMieterEmails(emails);
         }
       }
     };
@@ -284,7 +367,9 @@ export const UebergabeDialog = ({
   };
 
   const resetForm = () => {
-    setUebergabeDatum(getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date());
+    entwurfLoeschen(ablage, entwurfKey);
+    setWiederhergestelltAm(null);
+    setUebergabeDatum(standardDatum());
     setSchluesselHaustuer("");
     setSchluesselWohnung("");
     setSchluesselBriefkasten("");
@@ -641,6 +726,7 @@ export const UebergabeDialog = ({
 
       setSavedPdfPath(filePath);
       setIsSaved(true);
+      entwurfLoeschen(ablage, entwurfKey);
       toast({ title: "Protokoll gespeichert", description: "Das Übergabeprotokoll wurde erfolgreich gespeichert." });
     } catch (error) {
       console.error("Übergabe konnte nicht gespeichert werden:", error);
@@ -665,6 +751,22 @@ export const UebergabeDialog = ({
   const handleClose = () => {
     onSuccess?.();
     onClose();
+  };
+
+  // Einziger Weg aus dem Dialog — ob X, Escape, Tippen daneben oder der Knopf im
+  // Handy-Panel. Bis zum 17.10.2026 schloss jeder davon ohne Rückfrage und nahm
+  // alle Eingaben mit.
+  const schliessenAnfragen = () => {
+    if (isSubmitting) {
+      toast({ title: "Wird gespeichert", description: "Bitte warten, bis das Protokoll gespeichert ist." });
+      return;
+    }
+    if (ungespeicherteEingaben) {
+      setSchliessenFragen(true);
+      return;
+    }
+    if (isSaved) handleClose();
+    else onClose();
   };
 
   const updateMieterEmail = (mieterId: string, email: string) => {
@@ -704,6 +806,31 @@ export const UebergabeDialog = ({
   // ============ FORM CONTENT ============
   const formContent = (
     <div className="space-y-6 p-1">
+      {wiederhergestelltAm && !isSaved && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
+          <History className="h-4 w-4 flex-shrink-0 mt-0.5 text-warning" />
+          <div>
+            <p className="font-medium">Entwurf wiederhergestellt</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Stand vom {format(new Date(wiederhergestelltAm), "dd.MM.yyyy 'um' HH:mm 'Uhr'", { locale: de })}. Gespeichert
+              ist das Protokoll erst mit „Protokoll speichern“.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!entwurfGesichert && ungespeicherteEingaben && (
+        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Entwurf kann auf diesem Gerät nicht gesichert werden</p>
+            <p className="text-xs mt-0.5">
+              Der Browser lässt kein Zwischenspeichern zu. Den Dialog bitte erst nach „Protokoll speichern“ schließen.
+            </p>
+          </div>
+        </div>
+      )}
+
       {mieterName && (
         <div className="bg-muted/50 rounded-lg p-3 sm:p-4">
           <p className="text-xs text-muted-foreground">Mieter</p>
@@ -888,8 +1015,9 @@ export const UebergabeDialog = ({
       <div className="space-y-4 border-t pt-4">
         <h4 className="text-sm font-semibold">Digitale Unterschriften</h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SignatureCanvas label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} />
-          <SignatureCanvas label="Mieter" onSignatureChange={setMieterSignature} />
+          {/* key: nach "Formular zurücksetzen" ein leeres Feld statt der alten Unterschrift */}
+          <SignatureCanvas key={`vermieter-${formResetKey}`} label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} initialValue={vermieterSignature} />
+          <SignatureCanvas key={`mieter-${formResetKey}`} label="Mieter" onSignatureChange={setMieterSignature} initialValue={mieterSignature} />
         </div>
       </div>
 
@@ -1051,17 +1179,51 @@ export const UebergabeDialog = ({
     />
   );
 
+  const schliessenAbfrage = (
+    <AlertDialog open={schliessenFragen} onOpenChange={setSchliessenFragen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Übergabe noch nicht gespeichert</AlertDialogTitle>
+          <AlertDialogDescription>
+            {entwurfGesichert
+              ? "Die Eingaben bleiben als Entwurf auf diesem Gerät erhalten. Wenn Sie diesen Vertrag wieder öffnen, geht es an derselben Stelle weiter. Gespeichert ist das Protokoll erst mit „Protokoll speichern“."
+              : "Die Eingaben konnten auf diesem Gerät nicht zwischengespeichert werden und gehen beim Schließen verloren."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Weiter bearbeiten</AlertDialogCancel>
+          <AlertDialogAction
+            className={cn(!entwurfGesichert && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+            onClick={() => {
+              setSchliessenFragen(false);
+              onClose();
+            }}
+          >
+            {entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (isMobile) {
     return (
-      <Drawer open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      // dismissible={false}: kein Schließen durch Wischen oder Tippen daneben.
+      // Bei einem langen Formular reichte ein Zug nach unten am oberen Rand, und
+      // alles war weg. Geschlossen wird nur über den Knopf im Kopf.
+      <Drawer open={isOpen} dismissible={false}>
         {emailDialogComponent}
         {versorgerDialogComponent}
+        {schliessenAbfrage}
         <DrawerContent className="max-h-[95vh]">
-          <DrawerHeader className="pb-2">
+          <DrawerHeader className="pb-2 flex items-center justify-between gap-2">
             <DrawerTitle className="flex items-center gap-2 text-lg">
               <DialogIcon className={cn("h-5 w-5", isEinzug ? "text-green-600" : "text-orange-600")} />
               {dialogTitle}
             </DrawerTitle>
+            <Button variant="ghost" size="icon" onClick={schliessenAnfragen} aria-label="Übergabe schließen">
+              <X className="h-5 w-5" />
+            </Button>
           </DrawerHeader>
           <div className="overflow-y-auto px-4 pb-6" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
             {formContent}
@@ -1089,9 +1251,10 @@ export const UebergabeDialog = ({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && schliessenAnfragen()}>
       {emailDialogComponent}
       {versorgerDialogComponent}
+      {schliessenAbfrage}
       <DialogContent className={cn(
         "max-h-[90vh] overflow-hidden flex flex-col",
         showPreview ? "sm:max-w-[1200px]" : "sm:max-w-[900px]"
