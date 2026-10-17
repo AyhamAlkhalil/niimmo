@@ -1192,6 +1192,11 @@ export const UebergabeDialog = ({
   const dialogTitle = isEinzug ? "Übergabe (Einzug)" : "Übergabe (Auszug)";
   const DialogIcon = KeyRound;
 
+  // Ablagename für die Ausweich-Uploads der Mail-Dialoge. Ohne Mieternamen:
+  // Supabase Storage lehnt Umlaute ab. Der Download-Name fürs eigene Gerät
+  // (getPdfFileName) darf den Namen behalten.
+  const pdfAblageName = (savedPdfPath ?? uebergabePdfPfad(contracts[0].id, isEinzug, new Date())).split("/").pop() ?? "Uebergabeprotokoll.pdf";
+
   // Email dialog
   const emailDialogComponent = showEmailDialog && uebergabeDatum && (
     <UebergabeEmailDialog
@@ -1205,7 +1210,7 @@ export const UebergabeDialog = ({
       uebergabeDatum={uebergabeDatum}
       mieterName={mieterName || ""}
       pdfBlob={pdfBlob}
-      pdfFileName={getPdfFileName()}
+      pdfFileName={pdfAblageName}
       preSavedPdfPath={savedPdfPath ?? undefined}
     />
   );
@@ -1232,7 +1237,7 @@ export const UebergabeDialog = ({
       einheitBezeichnung={contracts[0]?.einheit?.etage || undefined}
       isEinzug={isEinzug}
       pdfBlob={pdfBlob}
-      pdfFileName={getPdfFileName()}
+      pdfFileName={pdfAblageName}
       contractIds={vertragIds}
       initialSelected={versorgerSelected}
       preSavedPdfPath={savedPdfPath ?? undefined}
