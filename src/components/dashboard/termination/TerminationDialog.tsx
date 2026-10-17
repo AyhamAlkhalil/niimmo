@@ -297,7 +297,13 @@ export const TerminationDialog = ({
         })
         .eq('id', vertragId);
 
-      if (updateError) throw new Error('Vertragsaktualisierung fehlgeschlagen: ' + updateError.message);
+      if (updateError) {
+        // Ohne gekündigten Vertrag gehört das Schreiben nirgends hin. Eine Datei
+        // ohne dokumente-Zeile wäre im UI unsichtbar, und jeder neue Versuch legt
+        // wegen der Uhrzeit im Pfad eine weitere an — also wieder entfernen.
+        await supabase.storage.from('dokumente').remove([filePath]);
+        throw new Error('Vertragsaktualisierung fehlgeschlagen: ' + updateError.message);
+      }
 
       const kuendigungsdatumFormatted = new Date(kuendigungsdatum + 'T12:00:00').toLocaleDateString('de-DE');
       await supabase.from('dokumente').insert({
