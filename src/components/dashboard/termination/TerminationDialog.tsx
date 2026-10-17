@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { generateKuendigungPdf, type KuendigungPdfData, type KuendigungsTyp } from "@/utils/kuendigungPdfGenerator";
 import { terminationWebhookService } from "@/services/terminationWebhookService";
+import { schriftstueckPfad, dateiendung } from "@/utils/storagePfad";
 import { DocumentDragDropZone } from "../DocumentDragDropZone";
 import { Progress } from "@/components/ui/progress";
 
@@ -267,18 +268,17 @@ export const TerminationDialog = ({
 
     setIsSubmitting(true);
     try {
-      const vorname = mieterList[0]?.vorname || 'Mieter';
-      const nachname = mieterList[0]?.nachname || '';
-      const datum = new Date().toLocaleDateString('de-DE').replace(/\./g, '-');
-      const fileName = `Kuendigung_${vorname}_${nachname}_${datum}.pdf`;
-      const filePath = `kuendigungen/${vertragId}/${fileName}`;
+      // Pfad ohne Mieternamen: Supabase Storage lehnt Umlaute ab (InvalidKey).
+      // Weil der Upload vor dem Vertrags-Update steht, ließ sich ein Mieter mit
+      // Umlaut im Namen hier gar nicht kündigen.
+      const filePath = schriftstueckPfad('kuendigungen', vertragId, 'Kuendigung', new Date());
 
       const arrayBuffer = await pdfBlob.arrayBuffer();
       const uint8 = new Uint8Array(arrayBuffer);
 
       const { error: uploadError } = await supabase.storage
         .from('dokumente')
-        .upload(filePath, uint8, { contentType: 'application/pdf', upsert: true });
+        .upload(filePath, uint8, { contentType: 'application/pdf', upsert: false });
 
       if (uploadError) throw new Error('Upload fehlgeschlagen: ' + uploadError.message);
 
@@ -361,7 +361,8 @@ export const TerminationDialog = ({
         progressInterval = setInterval(() => {
           setUploadProgress(prev => Math.min(prev + 10, 80));
         }, 100);
-        const fileExtension = selectedFile.name.split('.').pop();
+        // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
+        const fileExtension = dateiendung(selectedFile.name, selectedFile.type, 'pdf');
         const fileName = `kuendigung_${vertragId}_${Date.now()}.${fileExtension}`;
         const { data: uploadData, error: storageError } = await supabase.storage
           .from('dokumente')
