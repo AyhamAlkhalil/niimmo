@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
 import { kappungsgrenzeProzent, maximaleKaltmiete, wirksamAb } from '@/utils/mieterhoehungRegeln';
+import { schriftstueckPfad } from '@/utils/storagePfad';
 
 interface RentIncreaseModalProps {
   isOpen: boolean;
@@ -204,19 +205,16 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     if (!contractData || !pdfBlob) return;
     setIsSubmitting(true);
     try {
-      const mieterList = contractData.mieter || [];
-      const vorname = mieterList[0]?.vorname || 'Mieter';
-      const nachname = mieterList[0]?.nachname || '';
-      const datum = new Date().toLocaleDateString('de-DE').replace(/\./g, '-');
-      const fileName = `Mieterhoehung_${vorname}_${nachname}_${datum}.pdf`;
-      const filePath = `mieterhoehungen/${contractData.mietvertrag_id}/${fileName}`;
+      // Pfad ohne Mieternamen: Supabase Storage lehnt Umlaute ab (InvalidKey),
+      // die Mieterhöhung war für diese Mieter nicht speicherbar.
+      const filePath = schriftstueckPfad('mieterhoehungen', contractData.mietvertrag_id, 'Mieterhoehung', new Date());
 
       const arrayBuffer = await pdfBlob.arrayBuffer();
       const uint8 = new Uint8Array(arrayBuffer);
 
       const { error: uploadError } = await supabase.storage
         .from('dokumente')
-        .upload(filePath, uint8, { contentType: 'application/pdf', upsert: true });
+        .upload(filePath, uint8, { contentType: 'application/pdf', upsert: false });
       if (uploadError) throw uploadError;
 
       await supabase.from('dokumente').insert({
