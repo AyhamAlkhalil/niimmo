@@ -61,6 +61,8 @@ function gewerbe(u: Partial<GewerbeDaten> = {}): GewerbeDaten {
       ortsteil: null,
       istAngespannt: true,
       heizungsart: 'zentral',
+      warmwasser: 'zentral',
+      gesamtwohnflaecheQm: null,
       heizkostenSchluessel: '70/30',
       energieausweisTyp: null,
       energieKennwert: null,

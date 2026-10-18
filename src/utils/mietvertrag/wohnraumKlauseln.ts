@@ -181,7 +181,11 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       text: `Der Vermieter vermietet dem Mieter im Hause ${objektAdresse}, ${d.einheit.bezeichnung}, ${d.einheit.lage}, folgende Wohn- und Nebenräume: ${d.einheit.raumaufstellung}.`,
     },
     {
-      text: `Die Wohnfläche beträgt ${d.einheit.wohnflaecheQm.toLocaleString('de-DE')} m². Die Angabe der Wohnfläche dient der Beschreibung der Mietsache und ist Grundlage der Betriebskostenverteilung.`,
+      text: `Die Wohnfläche beträgt ${d.einheit.wohnflaecheQm.toLocaleString('de-DE')} m². Die Angabe der Wohnfläche dient der Beschreibung der Mietsache und ist Grundlage der Betriebskostenverteilung.${
+        d.objekt.gesamtwohnflaecheQm
+          ? ` Die Gesamtwohnfläche des Hauses, auf die nach Wohnfläche umgelegte Kosten verteilt werden, beträgt ${d.objekt.gesamtwohnflaecheQm.toLocaleString('de-DE')} m².`
+          : ''
+      }`,
     },
   ];
 
@@ -327,10 +331,14 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     });
   }
 
+  // Bei dezentraler Warmwasserbereitung (Durchlauferhitzer, Boiler) laufen
+  // nur die Heizkosten über die Anlage des Vermieters.
+  const waermeUndWasser = d.objekt.warmwasser === 'dezentral' ? 'Wärme' : 'Wärme und Warmwasser';
+
   if (heizkosten > 0) {
     p4.push({
       nummer: '3.',
-      text: `Auf die Kosten der Versorgung mit Wärme und Warmwasser leistet der Mieter eine gesonderte monatliche Vorauszahlung von ${formatEur(heizkosten)}. Diese Kosten werden ausschließlich nach den Bestimmungen der Heizkostenverordnung abgerechnet; der verbrauchsabhängige Anteil beträgt ${d.objekt.heizkostenSchluessel.split('/')[0]} %, der übrige Anteil wird nach der Wohnfläche verteilt. Auf die Kosten der Versorgung mit Wärme und Warmwasser wird der auf den Vermieter entfallende Anteil der Kohlendioxidkosten nach dem Kohlendioxidkostenaufteilungsgesetz angerechnet.`,
+      text: `Auf die Kosten der Versorgung mit ${waermeUndWasser} leistet der Mieter eine gesonderte monatliche Vorauszahlung von ${formatEur(heizkosten)}. Diese Kosten werden ausschließlich nach den Bestimmungen der Heizkostenverordnung abgerechnet; der verbrauchsabhängige Anteil beträgt ${d.objekt.heizkostenSchluessel.split('/')[0]} %, der übrige Anteil wird nach der Wohnfläche verteilt. Auf die Kosten der Versorgung mit ${waermeUndWasser} wird der auf den Vermieter entfallende Anteil der Kohlendioxidkosten nach dem Kohlendioxidkostenaufteilungsgesetz angerechnet.`,
     });
   } else if (d.objekt.heizungsart === 'etage') {
     p4.push({
@@ -354,7 +362,10 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
   }
   if (heizkosten > 0) {
     summenZeilen.push({
-      links: 'Vorauszahlung auf Heiz- und Warmwasserkosten',
+      links:
+        d.objekt.warmwasser === 'dezentral'
+          ? 'Vorauszahlung auf Heizkosten'
+          : 'Vorauszahlung auf Heiz- und Warmwasserkosten',
       rechts: formatEur(heizkosten),
     });
   }
@@ -1108,11 +1119,17 @@ function heizungAbsaetze(d: MietvertragDaten): Absatz[] {
 
   const quelle = d.objekt.heizungsart === 'fernwaerme' ? 'Fernwärme' : 'eine zentrale Heizungsanlage';
   const [verbrauch, flaeche] = d.objekt.heizkostenSchluessel.split('/');
+  const dezentral = d.objekt.warmwasser === 'dezentral';
 
   return [
     {
       nummer: '1.',
-      text: `Die Wohnung wird über ${quelle} mit Wärme und Warmwasser versorgt. Der Vermieter hält die Anlage vom 1. Oktober bis 30. April in Betrieb und darüber hinaus, wenn die Witterung es erfordert. Er stellt sicher, dass tagsüber eine Raumtemperatur von mindestens 20 °C erreicht werden kann.`,
+      text: `Die Wohnung wird über ${quelle} mit ${dezentral ? 'Wärme' : 'Wärme und Warmwasser'} versorgt. Der Vermieter hält die Anlage vom 1. Oktober bis 30. April in Betrieb und darüber hinaus, wenn die Witterung es erfordert. Er stellt sicher, dass tagsüber eine Raumtemperatur von mindestens 20 °C erreicht werden kann.${
+        // Wortlaut nach § 24 der Word-Hausvorlage (dezentrale Warmwasserversorgung)
+        dezentral
+          ? ' Das Warmwasser wird dezentral in der Wohnung bereitet. Der Mieter betreibt die Warmwassergeräte auf eigene Kosten; die Kosten ihrer Reinigung und Wartung trägt er als Betriebskosten nach § 4.'
+          : ''
+      }`,
     },
     {
       nummer: '2.',

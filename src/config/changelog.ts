@@ -37,6 +37,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.6.0",
+    datum: "2026-10-18",
+    aenderungen: [
+      { art: "neu", titel: "Neuer Mietvertrag entsteht als Entwurf mit PDF-Vorschau und wird erst nach der Unterschrift aktiviert" },
+      { art: "neu", titel: "Selbstauskunft hochladen: Interessenten werden automatisch übernommen" },
+      { art: "neu", titel: "Werte aus dem Vorvertrag der Einheit werden übernommen und gekennzeichnet" },
+    ],
+  },
+  {
     version: "1.5.1",
     datum: "2026-10-17",
     aenderungen: [

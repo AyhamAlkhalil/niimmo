@@ -66,7 +66,8 @@ const REFERENZ: MietvertragDaten = {
   ],
   objekt: {
     strasse: 'Liebigstraße', hausnummer: '12', plz: '30851', ort: 'Langenhagen',
-    ortsteil: null, istAngespannt: true, heizungsart: 'zentral', heizkostenSchluessel: '70/30',
+    ortsteil: null, istAngespannt: true, heizungsart: 'zentral', warmwasser: 'zentral',
+    gesamtwohnflaecheQm: null, heizkostenSchluessel: '70/30',
     energieausweisTyp: null, energieKennwert: null, energietraeger: null,
     energieausweisGueltigBis: null, energieeffizienzklasse: null,
   },

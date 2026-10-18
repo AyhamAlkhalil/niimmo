@@ -20,9 +20,33 @@ Dokumentenbestand von NiImmo lagen — Aufbau, Paragraphenfolge und Ton wurden
 | Stellplatz/Garage | `src/utils/mietvertrag/nebenvertraege.ts` | 8 §§ |
 | Einbauküche | `src/utils/mietvertrag/nebenvertraege.ts` | 8 §§ (Leihe nach §§ 598 ff. BGB) |
 
-Bedienung: Mietvertrag öffnen → „Mietvertrag erzeugen". Links das Formular,
-rechts die Live-Vorschau. Gespeichert wird nach `mietvertraege/{vertrag_id}/`
-mit einem Eintrag in `dokumente` unter der Kategorie „Mietvertrag".
+Bedienung (seit 18.10.2026): Einheitskarte → „Neuen Mietvertrag anlegen" (oder
+„Neuer Mietvertrag" im Kopf). Es entsteht ein **Entwurf** in `mietvertrag_entwuerfe`,
+kein Vertrag: Die Einheit bleibt frei, es entstehen keine Forderungen.
+
+1. Selbstauskunft hochladen — die KI liest Name, Geburtsdatum, Anschrift, Kontakt,
+   weitere Personen und den Einzugswunsch (nicht: Einkommen, Arbeitgeber, Schufa).
+   Je Person „Mitmieter" (Vertragspartei) oder „Mitbewohner" (nur Personenzahl).
+   Vorhandene Mieter werden als Dublette erkannt, Treffer der Bewerber-Blacklist gewarnt.
+2. Vorbelegung, jedes Feld mit Herkunft gekennzeichnet, bis es geändert wird:
+   Objekt (Vermieter, Heizung, Warmwasser, Schließanlage, Einrichtungen,
+   Gesamtwohnfläche), Einheit (Lage, Wohnfläche), Vorvertrag derselben Einheit
+   (Kaltmiete, Betriebskosten, Vormiete aus der Datenbank; Räume, Kostenaufstellung,
+   Heizkostenanteil per KI aus dem alten Word- oder PDF-Vertrag). Kaution = 3 Kaltmieten.
+3. Live-Vorschau; fehlende Pflichtangaben stehen im Vorschaubereich. Gespeichert wird
+   auch ohne PDF, das PDF entsteht, sobald nichts mehr fehlt.
+4. Nach der Unterschrift auf der Einheitskarte „Unterschrieben – aktivieren": Upload
+   der unterschriebenen Fassung ist Pflicht. Erst dann entstehen Mieter, Vertrag,
+   Verknüpfung (mit Rolle und Position) und Dokumente; Forderungen seit Mietbeginn
+   holt `mietforderungen_nachholen()` nach. Weitere Entwürfe der Einheit lassen sich
+   dabei verwerfen.
+
+Ein bereits unterschriebener Vertrag wird über „Bereits unterschriebenen Vertrag
+direkt erfassen" wie bisher sofort aktiv angelegt. Gewerbe, Garage und Stellplatz
+bekommen einen Entwurf ohne PDF — abgenommen ist nur die Wohnraum-Vorlage.
+
+Für bestehende Verträge: Mietvertrag öffnen → „Mietvertrag erzeugen". Gespeichert wird
+nach `mietvertraege/{vertrag_id}/` mit einem Eintrag in `dokumente` unter „Mietvertrag".
 
 ## Fehler, die in den Bestandsvorlagen gefunden wurden
 
@@ -193,9 +217,10 @@ Wir haben nichts eingetragen: Wohin Miete und Kaution fließen, entscheidet NiIm
 - **Auskunftsdokument zur Mietpreisbremse** nach § 556g Abs. 1a BGB. Der
   Generator verlangt das Datum der Auskunft, erstellt das Dokument aber nicht.
 - **Nachtrag zum Mietvertrag** als eigene Vorlage.
-- **Heizungsart je Objekt.** Das Datenmodell kennt sie nicht; der Generator
-  nimmt Zentralversorgung an. Bei Etagenheizungen muss das vor der Erzeugung
-  geprüft werden — sonst legt der Vertrag Heizkosten um, die es nicht gibt.
+- ~~Heizungsart je Objekt~~ — seit 18.10.2026 am Objekt gepflegt (`immobilien.heizungsart`,
+  `warmwasser`, `schliessanlage_art`, `gemeinschaftseinrichtungen`, `gesamtwohnflaeche`),
+  bearbeitbar im Objektdetail unter „Für Mietverträge". Fehlt die Heizungsart, sperrt die
+  Pflichtprüfung das PDF, statt eine Zentralheizung anzunehmen.
 
 ## Technisches
 

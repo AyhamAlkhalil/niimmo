@@ -7,6 +7,8 @@ import { useAutoExpireContract } from "@/hooks/useAutoExpireContracts";
 import { EinheitHistorieView } from "./EinheitHistorieView";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { NewTenantContractDialog } from "./NewTenantContractDialog";
+import { MietvertragEntwurfDialog } from "./mietvertrag-entwurf/MietvertragEntwurfDialog";
+import { EntwuerfeAnEinheit } from "./mietvertrag-entwurf/EntwuerfeAnEinheit";
 
 import { useToast } from "@/hooks/use-toast";
 import { useLinkedContracts } from "@/hooks/useLinkedContracts";
@@ -57,6 +59,9 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
   const [showHistorie, setShowHistorie] = useState(false);
   const [showMietvertragDetails, setShowMietvertragDetails] = useState(false);
   const [showNewTenantDialog, setShowNewTenantDialog] = useState(false);
+  // Neuer Vertrag entsteht seit 18.10.2026 als Entwurf; der direkte Weg bleibt für unterschriebene Altverträge
+  const [showEntwurfDialog, setShowEntwurfDialog] = useState(false);
+  const [bearbeiteEntwurfId, setBearbeiteEntwurfId] = useState<string | null>(null);
   const [autoOpenContract, setAutoOpenContract] = useState(false);
   const [showContractHighlight, setShowContractHighlight] = useState(false);
   const [currentVertragId, setCurrentVertragId] = useState<string | null>(null);
@@ -383,13 +388,24 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
             </div>
           )}
 
+          {/* Offene Entwürfe belegen die Einheit nicht, stehen aber hier bis zur Aktivierung */}
+          <EntwuerfeAnEinheit
+            einheitId={einheit.id}
+            einheitentyp={einheit.einheitentyp}
+            onBearbeiten={(id) => {
+              setBearbeiteEntwurfId(id);
+              setShowEntwurfDialog(true);
+            }}
+          />
+
           {/* New contract button - only for vacant or terminated contracts */}
           {(!vertrag || vertrag.status === 'gekuendigt' || vertrag.status === 'beendet') && (
             <div className="pt-3 border-t border-gray-200">
               <Button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setShowNewTenantDialog(true);
+                  setBearbeiteEntwurfId(null);
+                  setShowEntwurfDialog(true);
                 }}
                 className={`w-full ${
                   !vertrag 
@@ -422,7 +438,21 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
         />
       )}
 
-      {/* New Tenant Contract Dialog */}
+      <MietvertragEntwurfDialog
+        isOpen={showEntwurfDialog}
+        onClose={() => {
+          setShowEntwurfDialog(false);
+          setBearbeiteEntwurfId(null);
+        }}
+        einheitId={einheit.id}
+        entwurfId={bearbeiteEntwurfId}
+        onDirektErfassen={() => {
+          setShowEntwurfDialog(false);
+          setShowNewTenantDialog(true);
+        }}
+      />
+
+      {/* Bereits unterschriebenen Vertrag direkt erfassen (bisheriger Weg) */}
       <NewTenantContractDialog
         isOpen={showNewTenantDialog}
         onClose={() => setShowNewTenantDialog(false)}

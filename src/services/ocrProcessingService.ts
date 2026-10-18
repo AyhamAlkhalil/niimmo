@@ -73,7 +73,124 @@ export class OCRProcessingService {
     }
   }
 
-  static async extractTextFromPDF(file: File): Promise<string> {
+  /**
+   * Liest eine Selbstauskunft oder einen Vorvertrag über `process-contract-ocr`.
+   *
+   * Word-Dateien und PDFs mit Textebene gehen als Text, gescannte PDFs als
+   * mehrere Seitenbilder — die Kostenaufstellung eines alten Vertrags steht
+   * auf Seite 2 oder 3, die weiteren Personen der Selbstauskunft auf Seite 2.
+   * Der Dateiname geht nicht mit: er enthält meist den Namen des Mieters.
+   */
+  static async liesDokument<T>(
+    datei: Blob,
+    dateiname: string,
+    art: 'selbstauskunft' | 'vorvertrag'
+  ): Promise<{ success: boolean; extractedData?: T; error?: string }> {
+    const name = dateiname.toLowerCase();
+    const typ = datei.type;
+    let textContent = '';
+    let fileContents: string[] = [];
+
+    try {
+      if (typ.includes('wordprocessingml') || name.endsWith('.docx')) {
+        textContent = await this.extractTextFromDocx(datei);
+      } else if (name.endsWith('.doc')) {
+        return {
+          success: false,
+          error: 'Word-Dateien im alten .doc-Format lassen sich nicht lesen. Bitte als PDF oder .docx ablegen.',
+        };
+      } else if (typ === 'application/pdf' || name.endsWith('.pdf')) {
+        textContent = await this.extractTextFromPDF(datei);
+        // Unter 200 Zeichen ist es ein Scan mit Kopfzeile, kein Textdokument
+        if (textContent.replace(/Seite \d+:/g, '').trim().length < 200) {
+          textContent = '';
+          fileContents = await this.renderPdfSeitenZuBase64(datei, art === 'vorvertrag' ? 4 : 3);
+        }
+      } else if (typ.startsWith('image/') || /\.(jpe?g|png)$/.test(name)) {
+        fileContents = [await this.fileToBase64(datei)];
+      } else {
+        return { success: false, error: 'Dieses Dateiformat wird nicht unterstützt. Bitte PDF, Word (.docx), JPG oder PNG.' };
+      }
+    } catch (e) {
+      return {
+        success: false,
+        error: `Das Dokument ließ sich nicht öffnen (${e instanceof Error ? e.message : String(e)}).`,
+      };
+    }
+
+    if (!textContent.trim() && fileContents.length === 0) {
+      return { success: false, error: 'Das Dokument enthält weder Text noch eine darstellbare Seite.' };
+    }
+
+    const { supabase } = await import('@/integrations/supabase/client');
+    const { data, error } = await supabase.functions.invoke('process-contract-ocr', {
+      body: { art, textContent, fileContents },
+    });
+    if (error) return { success: false, error: error.message || 'Auslesen fehlgeschlagen.' };
+    return (data as { success: boolean; extractedData?: T; error?: string }) ?? {
+      success: false,
+      error: 'Leere Antwort vom Server',
+    };
+  }
+
+  /**
+   * Text aus einer .docx: Absätze als Zeilen, Tabulatoren bleiben erhalten.
+   * Ankreuzfelder stehen in den NiImmo-Vorlagen als „[x]" im Text.
+   */
+  static async extractTextFromDocx(datei: Blob): Promise<string> {
+    const { unzipSync, strFromU8 } = await import('fflate');
+    const dateien = unzipSync(new Uint8Array(await datei.arrayBuffer()), {
+      filter: f => f.name === 'word/document.xml',
+    });
+    const xml = dateien['word/document.xml'];
+    if (!xml) throw new Error('keine Word-Datei');
+    return strFromU8(xml)
+      .replace(/<\/w:p>/g, '\n')
+      .replace(/<w:tab\/>/g, '\t')
+      .replace(/<w:br\/>/g, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&')
+      .split('\n')
+      .map(z => z.trim())
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  /** Die ersten Seiten eines PDFs als JPEG (base64), für gescannte Dokumente. */
+  static async renderPdfSeitenZuBase64(datei: Blob, maxSeiten: number): Promise<string[]> {
+    const pdfjsLib = await ladePdfjs();
+    const pdf = await pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
+    const seiten: string[] = [];
+
+    for (let nr = 1; nr <= Math.min(pdf.numPages, maxSeiten); nr++) {
+      const page = await pdf.getPage(nr);
+      const rendere = async (scale: number, quality: number): Promise<string> => {
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const context = canvas.getContext('2d');
+        if (!context) return '';
+        await page.render({ canvasContext: context, viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        canvas.width = 0;
+        canvas.height = 0;
+        const komma = dataUrl.indexOf(',');
+        return komma >= 0 ? dataUrl.slice(komma + 1) : '';
+      };
+      // Mehrere Seiten in einer Anfrage: je Seite unter ~1,5 MB bleiben
+      let bild = await rendere(1.2, 0.7);
+      if (bild.length > 1.5 * 1024 * 1024) bild = await rendere(0.9, 0.55);
+      if (bild.startsWith('/9j/')) seiten.push(bild);
+    }
+    return seiten;
+  }
+
+  static async extractTextFromPDF(file: Blob): Promise<string> {
     const pdfjsLib = await ladePdfjs();
 
     const arrayBuffer = await file.arrayBuffer();
@@ -129,7 +246,7 @@ export class OCRProcessingService {
     return result;
   }
 
-  private static fileToBase64(file: File): Promise<string> {
+  private static fileToBase64(file: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.readAsDataURL(file);

@@ -9,6 +9,7 @@ Schema (`src/integrations/supabase/types.ts`), Stand 06.09.2026. Maßgeblich fü
 ```
 immobilien ─┬─ einheiten ──┬─ mietvertrag.einheit_id       Hauptobjekt des Vertrags (1:n)
             │              ├─ mietvertrag_einheiten        Nebenobjekte — im UI nicht befüllbar
+            │              ├─ mietvertrag_entwuerfe        Vertrag vor der Unterschrift (seit 18.10.2026), zählt nirgends mit
             │              └─ nebenkosten_anteile          Altstruktur, ungenutzt
             ├─ nebenkostenarten ─ kostenpositionen ─ kostenposition_anteile ─→ einheiten
             ├─ versicherungen · darlehen_immobilien ─ darlehen ─ darlehen_zahlungen (ungenutzt)

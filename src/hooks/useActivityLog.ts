@@ -18,6 +18,9 @@ export type ActivityAction =
   | "pdf_generiert"
   | "mietforderung_erstellt"
   | "mietvertrag_pdf_erzeugt"
+  | "mietvertrag_entwurf_gespeichert"
+  | "mietvertrag_entwurf_aktiviert"
+  | "mietvertrag_entwurf_verworfen"
   | "zählerstand_geaendert";
 
 export const useActivityLog = () => {

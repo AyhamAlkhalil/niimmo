@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { EinheitCard } from "./EinheitCard";
+import { HausangabenFuerVertraege } from "./HausangabenFuerVertraege";
 import { ArrowLeft, Building, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame, Search } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -310,6 +311,8 @@ export const ImmobilienDetail = ({
                   <p className="text-lg font-bold text-foreground">€{gesamtWarmmiete.toLocaleString()}</p>
                 </div>
               </div>
+
+              {immobilie && <HausangabenFuerVertraege immobilie={immobilie} summeEinheitenQm={gesamtQm} />}
 
               {/* Allgemeine Zähler (Hausanschluss) - editable */}
               {(() => {

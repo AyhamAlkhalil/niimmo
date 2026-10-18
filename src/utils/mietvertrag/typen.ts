@@ -16,6 +16,7 @@ export type SchliessanlageArt = 'einzel' | 'zentral';
 export type Anrede = 'Herr' | 'Frau' | 'Divers' | 'Firma';
 export type Vertretungsart = 'einzel' | 'gesamt';
 export type Heizungsart = 'zentral' | 'etage' | 'fernwaerme' | 'keine';
+export type Warmwasserart = 'zentral' | 'dezentral';
 
 export interface VermieterDaten {
   firmenname: string;
@@ -67,7 +68,12 @@ export interface ObjektDaten {
   ortsteil: string | null;
   /** Gebiet mit angespanntem Wohnungsmarkt — löst die Mietpreisbremse aus. */
   istAngespannt: boolean;
-  heizungsart: Heizungsart;
+  /** Am Objekt gepflegt (`immobilien.heizungsart`). Leer = Vertrag wird nicht erzeugt. */
+  heizungsart: Heizungsart | null;
+  /** Zentral über die Heizung oder dezentral in der Wohnung. Leer = Vertrag wird nicht erzeugt. */
+  warmwasser: Warmwasserart | null;
+  /** Bezugsgröße der Umlage nach Fläche; wird in § 1 genannt, wenn gepflegt. */
+  gesamtwohnflaecheQm: number | null;
   heizkostenSchluessel: string;
   energieausweisTyp: 'bedarf' | 'verbrauch' | null;
   energieKennwert: number | null;

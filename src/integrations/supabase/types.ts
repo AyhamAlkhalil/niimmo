@@ -862,11 +862,14 @@ export type Database = {
           energieeffizienzklasse: string | null
           energietraeger: string | null
           erstellt_am: string | null
+          gemeinschaftseinrichtungen: string[] | null
+          gesamtwohnflaeche: number | null
           hat_gas: boolean
           hat_strom: boolean
           hat_wasser: boolean
           hausnummer: string | null
           heizkosten_schluessel: string
+          heizungsart: string | null
           id: string
           ist_angespannt: boolean
           kaufpreis: number | null
@@ -878,6 +881,9 @@ export type Database = {
           ortsteil: string | null
           plz: string | null
           restschuld: number | null
+          schliessanlage_art:
+            | Database["public"]["Enums"]["schliessanlage_art"]
+            | null
           strasse: string | null
           vermieter_id: string | null
           versorger_gas_email: string | null
@@ -886,6 +892,7 @@ export type Database = {
           versorger_strom_name: string | null
           versorger_wasser_email: string | null
           versorger_wasser_name: string | null
+          warmwasser: string | null
         }
         Insert: {
           adresse: string
@@ -921,11 +928,14 @@ export type Database = {
           energieeffizienzklasse?: string | null
           energietraeger?: string | null
           erstellt_am?: string | null
+          gemeinschaftseinrichtungen?: string[] | null
+          gesamtwohnflaeche?: number | null
           hat_gas?: boolean
           hat_strom?: boolean
           hat_wasser?: boolean
           hausnummer?: string | null
           heizkosten_schluessel?: string
+          heizungsart?: string | null
           id?: string
           ist_angespannt?: boolean
           kaufpreis?: number | null
@@ -937,6 +947,9 @@ export type Database = {
           ortsteil?: string | null
           plz?: string | null
           restschuld?: number | null
+          schliessanlage_art?:
+            | Database["public"]["Enums"]["schliessanlage_art"]
+            | null
           strasse?: string | null
           vermieter_id?: string | null
           versorger_gas_email?: string | null
@@ -945,6 +958,7 @@ export type Database = {
           versorger_strom_name?: string | null
           versorger_wasser_email?: string | null
           versorger_wasser_name?: string | null
+          warmwasser?: string | null
         }
         Update: {
           adresse?: string
@@ -980,11 +994,14 @@ export type Database = {
           energieeffizienzklasse?: string | null
           energietraeger?: string | null
           erstellt_am?: string | null
+          gemeinschaftseinrichtungen?: string[] | null
+          gesamtwohnflaeche?: number | null
           hat_gas?: boolean
           hat_strom?: boolean
           hat_wasser?: boolean
           hausnummer?: string | null
           heizkosten_schluessel?: string
+          heizungsart?: string | null
           id?: string
           ist_angespannt?: boolean
           kaufpreis?: number | null
@@ -996,6 +1013,9 @@ export type Database = {
           ortsteil?: string | null
           plz?: string | null
           restschuld?: number | null
+          schliessanlage_art?:
+            | Database["public"]["Enums"]["schliessanlage_art"]
+            | null
           strasse?: string | null
           vermieter_id?: string | null
           versorger_gas_email?: string | null
@@ -1004,6 +1024,7 @@ export type Database = {
           versorger_strom_name?: string | null
           versorger_wasser_email?: string | null
           versorger_wasser_name?: string | null
+          warmwasser?: string | null
         }
         Relationships: [
           {
@@ -1527,9 +1548,11 @@ export type Database = {
           vorlage_version: string | null
           vormiete_bis: string | null
           vormiete_netto: number | null
+          vorvertrag_id: string | null
           warmwasser_auszug: number | null
           warmwasser_einzug: number | null
           weitere_bankkonten: string | null
+          werte_herkunft: Json | null
           zusatzflaechen: string | null
           zusatzvereinbarungen: string | null
         }
@@ -1607,9 +1630,11 @@ export type Database = {
           vorlage_version?: string | null
           vormiete_bis?: string | null
           vormiete_netto?: number | null
+          vorvertrag_id?: string | null
           warmwasser_auszug?: number | null
           warmwasser_einzug?: number | null
           weitere_bankkonten?: string | null
+          werte_herkunft?: Json | null
           zusatzflaechen?: string | null
           zusatzvereinbarungen?: string | null
         }
@@ -1687,9 +1712,11 @@ export type Database = {
           vorlage_version?: string | null
           vormiete_bis?: string | null
           vormiete_netto?: number | null
+          vorvertrag_id?: string | null
           warmwasser_auszug?: number | null
           warmwasser_einzug?: number | null
           weitere_bankkonten?: string | null
+          werte_herkunft?: Json | null
           zusatzflaechen?: string | null
           zusatzvereinbarungen?: string | null
         }
@@ -1699,6 +1726,13 @@ export type Database = {
             columns: ["einheit_id"]
             isOneToOne: false
             referencedRelation: "einheiten"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mietvertrag_vorvertrag_id_fkey"
+            columns: ["vorvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
             referencedColumns: ["id"]
           },
         ]
@@ -1742,6 +1776,60 @@ export type Database = {
           {
             foreignKeyName: "mietvertrag_einheiten_mietvertrag_id_fkey"
             columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mietvertrag_entwuerfe: {
+        Row: {
+          aktualisiert_am: string
+          dateien: Json
+          daten: Json
+          einheit_id: string
+          erstellt_am: string
+          erstellt_von: string | null
+          herkunft: Json
+          id: string
+          personen: Json
+          vorvertrag_id: string | null
+        }
+        Insert: {
+          aktualisiert_am?: string
+          dateien?: Json
+          daten: Json
+          einheit_id: string
+          erstellt_am?: string
+          erstellt_von?: string | null
+          herkunft?: Json
+          id?: string
+          personen?: Json
+          vorvertrag_id?: string | null
+        }
+        Update: {
+          aktualisiert_am?: string
+          dateien?: Json
+          daten?: Json
+          einheit_id?: string
+          erstellt_am?: string
+          erstellt_von?: string | null
+          herkunft?: Json
+          id?: string
+          personen?: Json
+          vorvertrag_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mietvertrag_entwuerfe_einheit_id_fkey"
+            columns: ["einheit_id"]
+            isOneToOne: false
+            referencedRelation: "einheiten"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mietvertrag_entwuerfe_vorvertrag_id_fkey"
+            columns: ["vorvertrag_id"]
             isOneToOne: false
             referencedRelation: "mietvertrag"
             referencedColumns: ["id"]
@@ -2595,6 +2683,16 @@ export type Database = {
       }
     }
     Functions: {
+      aktiviere_mietvertrag_entwurf: {
+        Args: {
+          p_dokumente: Json
+          p_entwurf_id: string
+          p_neue_mieter: Json
+          p_verknuepfungen: Json
+          p_vertrag: Json
+        }
+        Returns: Json
+      }
       calculate_zeitanteil: {
         Args: {
           abrechnungs_bis: string
@@ -2663,6 +2761,10 @@ export type Database = {
         Returns: undefined
       }
       mein_app_benutzer_id: { Args: never; Returns: string }
+      mietforderungen_nachholen: {
+        Args: { p_mietvertrag_id: string }
+        Returns: number
+      }
       replace_kostenposition_anteile: {
         Args: { p_anteile: Json; p_kostenposition_ids: string[] }
         Returns: number

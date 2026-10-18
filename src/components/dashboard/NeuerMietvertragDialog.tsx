@@ -3,7 +3,8 @@
  *
  * Bisher ging ein neuer Vertrag nur über die Kachel der jeweiligen Einheit —
  * man musste erst wissen, wo die Wohnung liegt. Hier wählt man Objekt und
- * Einheit direkt aus und landet dann im gewohnten Erfassungsdialog.
+ * Einheit direkt aus und landet dann im Vertragsentwurf (seit 18.10.2026);
+ * ein bereits unterschriebener Vertrag lässt sich von dort direkt erfassen.
  */
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -29,6 +30,8 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { getVertragsende, sortPropertiesByName } from '@/utils/contractUtils';
 import { NewTenantContractDialog } from './NewTenantContractDialog';
+import { MietvertragEntwurfDialog } from './mietvertrag-entwurf/MietvertragEntwurfDialog';
+import { useMietvertragEntwuerfe } from '@/hooks/useMietvertragEntwurf';
 
 interface Props {
   isOpen: boolean;
@@ -51,6 +54,8 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
   const [immobilieId, setImmobilieId] = useState<string>('');
   const [suche, setSuche] = useState('');
   const [gewaehlteEinheit, setGewaehlteEinheit] = useState<EinheitZeile | null>(null);
+  const [direktErfassen, setDirektErfassen] = useState(false);
+  const { data: entwuerfe } = useMietvertragEntwuerfe(isOpen);
 
   const { data: immobilien, isLoading: immobilienLaden } = useQuery({
     queryKey: ['immobilien-auswahl'],
@@ -136,6 +141,7 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
     setImmobilieId('');
     setSuche('');
     setGewaehlteEinheit(null);
+    setDirektErfassen(false);
     onClose();
   }
 
@@ -149,7 +155,8 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
               Neuer Mietvertrag
             </DialogTitle>
             <DialogDescription>
-              Objekt und Einheit wählen — die Mieterdaten werden im nächsten Schritt erfasst.
+              Objekt und Einheit wählen. Im nächsten Schritt entsteht ein Vertragsentwurf mit Vorschau —
+              aktiviert wird er erst nach der Unterschrift.
             </DialogDescription>
           </DialogHeader>
 
@@ -215,6 +222,7 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
                   <div className="border rounded-md divide-y max-h-[45vh] overflow-y-auto">
                     {gefiltert.map(e => {
                       const belegt = e.belegtVon.length > 0;
+                      const offeneEntwuerfe = (entwuerfe ?? []).filter(x => x.einheitId === e.id).length;
                       return (
                         <button
                           key={e.id}
@@ -245,9 +253,16 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
                                 </p>
                               )}
                             </div>
-                            <Badge variant={belegt ? 'secondary' : 'default'} className="shrink-0">
-                              {belegt ? 'belegt' : 'frei'}
-                            </Badge>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <Badge variant={belegt ? 'secondary' : 'default'}>
+                                {belegt ? 'belegt' : 'frei'}
+                              </Badge>
+                              {offeneEntwuerfe > 0 && (
+                                <Badge variant="outline" className="text-[10px]">
+                                  {offeneEntwuerfe === 1 ? '1 Entwurf' : `${offeneEntwuerfe} Entwürfe`}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </button>
                       );
@@ -265,7 +280,16 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
         </DialogContent>
       </Dialog>
 
-      {gewaehlteEinheit && immobilie && (
+      {gewaehlteEinheit && immobilie && !direktErfassen && (
+        <MietvertragEntwurfDialog
+          isOpen={true}
+          onClose={schliessen}
+          einheitId={gewaehlteEinheit.id}
+          onDirektErfassen={() => setDirektErfassen(true)}
+        />
+      )}
+
+      {gewaehlteEinheit && immobilie && direktErfassen && (
         <NewTenantContractDialog
           isOpen={true}
           onClose={schliessen}

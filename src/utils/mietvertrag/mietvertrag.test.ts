@@ -55,6 +55,8 @@ function basisVertrag(ueberschreibungen: Partial<MietvertragDaten> = {}): Mietve
       ortsteil: null,
       istAngespannt: false,
       heizungsart: 'zentral',
+      warmwasser: 'zentral',
+      gesamtwohnflaecheQm: null,
       heizkostenSchluessel: '70/30',
       energieausweisTyp: 'verbrauch',
       energieKennwert: 120,
@@ -345,6 +347,72 @@ describe('Klauseltexte', () => {
     const text24 = p24!.absaetze.map(a => a.text).join(' ');
     expect(text24).toMatch(/eigenverantwortlich auf eigene Kosten betreibt/);
     expect(text24).not.toMatch(/Heizkostenverordnung abgerechnet/);
+  });
+
+  it('beschreibt dezentrales Warmwasser als Sache des Mieters', () => {
+    const d = basisVertrag({ heizkostenVorauszahlung: 50 });
+    d.objekt.warmwasser = 'dezentral';
+
+    const text4 = wohnraumParagraphen(d).find(p => p.nummer === '§ 4')!.absaetze.map(a => a.text).join(' ');
+    expect(text4).toMatch(/Versorgung mit Wärme leistet der Mieter/);
+    expect(text4).not.toMatch(/Wärme und Warmwasser/);
+
+    const text24 = wohnraumParagraphen(d).find(p => p.nummer === '§ 24')!.absaetze.map(a => a.text).join(' ');
+    expect(text24).toMatch(/Warmwasser wird dezentral in der Wohnung bereitet/);
+  });
+
+  it('nennt die Gesamtwohnfläche nur, wenn sie am Objekt gepflegt ist', () => {
+    const ohne = wohnraumParagraphen(basisVertrag()).find(p => p.nummer === '§ 1')!;
+    expect(ohne.absaetze.map(a => a.text).join(' ')).not.toMatch(/Gesamtwohnfläche/);
+
+    const d = basisVertrag();
+    d.objekt.gesamtwohnflaecheQm = 612.5;
+    const mit = wohnraumParagraphen(d).find(p => p.nummer === '§ 1')!;
+    expect(mit.absaetze.map(a => a.text).join(' ')).toMatch(/Gesamtwohnfläche des Hauses.*612,5 m²/);
+  });
+});
+
+describe('Objektangaben', () => {
+  it('blockiert ohne Heizungsart, statt eine Zentralheizung anzunehmen', () => {
+    const d = basisVertrag();
+    d.objekt.heizungsart = null;
+    expect(pruefeVertragsdaten(d).some(f => f.feld === 'objekt.heizungsart' && f.schwere === 'blocker')).toBe(true);
+  });
+
+  it('verlangt bei Zentralheizung die Art der Warmwasserbereitung', () => {
+    const d = basisVertrag();
+    d.objekt.warmwasser = null;
+    expect(pruefeVertragsdaten(d).some(f => f.feld === 'objekt.warmwasser' && f.schwere === 'blocker')).toBe(true);
+  });
+
+  it('verlangt sie bei Etagenheizung nicht', () => {
+    const d = basisVertrag();
+    d.objekt.heizungsart = 'etage';
+    d.objekt.warmwasser = null;
+    expect(pruefeVertragsdaten(d).some(f => f.feld === 'objekt.warmwasser')).toBe(false);
+  });
+
+  it('blockiert eine Heizkostenvorauszahlung bei Etagenheizung', () => {
+    const d = basisVertrag({ heizkostenVorauszahlung: 50 });
+    d.objekt.heizungsart = 'etage';
+    expect(pruefeVertragsdaten(d).some(f => f.feld === 'heizkostenVorauszahlung' && f.schwere === 'blocker')).toBe(true);
+    d.heizkostenVorauszahlung = null;
+    expect(pruefeVertragsdaten(d).some(f => f.feld === 'heizkostenVorauszahlung')).toBe(false);
+  });
+
+  it('blockiert Heizkosten über der Gesamtvorauszahlung mit eigenem Hinweis', () => {
+    const d = basisVertrag({ betriebskostenVorauszahlung: -20, heizkostenVorauszahlung: 60 });
+    const befunde = pruefeVertragsdaten(d);
+    expect(befunde.some(f => f.feld === 'heizkostenVorauszahlung' && f.schwere === 'blocker')).toBe(true);
+    expect(befunde.some(f => f.feld === 'betriebskostenVorauszahlung')).toBe(false);
+  });
+
+  it('warnt ohne Gesamtwohnfläche und blockiert eine zu kleine', () => {
+    const d = basisVertrag();
+    expect(pruefeVertragsdaten(d).find(f => f.feld === 'objekt.gesamtwohnflaecheQm')?.schwere).toBe('warnung');
+
+    d.objekt.gesamtwohnflaecheQm = d.einheit.wohnflaecheQm - 1;
+    expect(pruefeVertragsdaten(d).find(f => f.feld === 'objekt.gesamtwohnflaecheQm')?.schwere).toBe('blocker');
   });
 });
 

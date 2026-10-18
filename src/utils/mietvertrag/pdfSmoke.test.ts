@@ -146,6 +146,8 @@ const WOHNRAUM: MietvertragDaten = {
     ortsteil: null,
     istAngespannt: false,
     heizungsart: 'zentral',
+    warmwasser: 'zentral',
+    gesamtwohnflaecheQm: null,
     heizkostenSchluessel: '70/30',
     energieausweisTyp: 'verbrauch',
     energieKennwert: 118.5,

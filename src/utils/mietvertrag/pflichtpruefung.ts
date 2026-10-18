@@ -82,6 +82,55 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   if (!d.objekt.strasse?.trim() || !d.objekt.plz?.trim() || !d.objekt.ort?.trim()) {
     blocker('objekt.adresse', 'Die Objektadresse ist unvollständig.', 'Straße, PLZ und Ort der Immobilie erfassen.');
   }
+  // Bis 18.10.2026 nahm der Generator stillschweigend eine Zentralheizung an —
+  // bei einer Etagenheizung hätte der Vertrag Heizkosten umgelegt, die es nicht gibt.
+  if (d.vertragsart === 'wohnraum' && !d.objekt.heizungsart) {
+    blocker(
+      'objekt.heizungsart',
+      'Für das Objekt ist keine Heizungsart hinterlegt.',
+      'Heizungsart am Objekt erfassen (zentral, Etagenheizung, Fernwärme oder keine).'
+    );
+  }
+  if (
+    d.vertragsart === 'wohnraum' &&
+    (d.objekt.heizungsart === 'zentral' || d.objekt.heizungsart === 'fernwaerme') &&
+    !d.objekt.warmwasser
+  ) {
+    blocker(
+      'objekt.warmwasser',
+      'Es ist nicht hinterlegt, wie das Warmwasser bereitet wird.',
+      'Am Objekt erfassen, ob das Warmwasser zentral über die Heizung oder dezentral in der Wohnung bereitet wird.'
+    );
+  }
+  if (
+    d.vertragsart === 'wohnraum' &&
+    (d.objekt.heizungsart === 'etage' || d.objekt.heizungsart === 'keine') &&
+    (d.heizkostenVorauszahlung ?? 0) > 0
+  ) {
+    // § 4 würde eine Heizkostenvorauszahlung vereinbaren, § 24 eine Etagenheizung
+    // des Mieters beschreiben — zwei Aussagen, die sich widersprechen.
+    blocker(
+      'heizkostenVorauszahlung',
+      'Es ist eine Heizkostenvorauszahlung eingetragen, das Haus hat aber keine zentrale Heizung.',
+      'Heizkosten entfernen oder die Heizungsart am Objekt korrigieren.'
+    );
+  }
+  if (d.vertragsart === 'wohnraum' && !d.objekt.gesamtwohnflaecheQm) {
+    warnung(
+      'objekt.gesamtwohnflaecheQm',
+      'Für das Objekt ist keine Gesamtwohnfläche hinterlegt.',
+      'Gesamtwohnfläche am Objekt erfassen — ohne sie nennt der Vertrag die Bezugsgröße der Flächenumlage nicht.'
+    );
+  } else if (
+    d.objekt.gesamtwohnflaecheQm &&
+    d.einheit.wohnflaecheQm > d.objekt.gesamtwohnflaecheQm
+  ) {
+    blocker(
+      'objekt.gesamtwohnflaecheQm',
+      'Die Wohnfläche der Einheit ist größer als die Gesamtwohnfläche des Objekts.',
+      'Gesamtwohnfläche am Objekt oder Wohnfläche der Einheit korrigieren.'
+    );
+  }
   if (!d.einheit.bezeichnung?.trim()) {
     blocker(
       'einheit.bezeichnung',
@@ -126,7 +175,14 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   if (!d.kaltmiete || d.kaltmiete <= 0) {
     blocker('kaltmiete', 'Keine Kaltmiete hinterlegt.', 'Nettokaltmiete erfassen.');
   }
-  if (d.betriebskostenModus === 'vorauszahlung' && d.betriebskostenVorauszahlung <= 0) {
+  if (d.betriebskostenVorauszahlung < 0) {
+    // Am Vertrag steht die Gesamtvorauszahlung; der Heizkostenanteil wird abgezogen
+    blocker(
+      'heizkostenVorauszahlung',
+      'Der Heizkostenanteil ist größer als die gesamte Nebenkostenvorauszahlung.',
+      'Heizkosten oder Betriebskosten korrigieren.'
+    );
+  } else if (d.betriebskostenModus === 'vorauszahlung' && d.betriebskostenVorauszahlung <= 0) {
     blocker(
       'betriebskostenVorauszahlung',
       'Es ist eine Vorauszahlung vereinbart, aber der Betrag ist 0,00 €.',
@@ -290,11 +346,23 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
         'Auskunft in Textform vor Vertragsschluss erteilen und das Datum erfassen. Ohne sie kann der Mieter 30 Monate lang rügen und die Überzahlung ab Mietbeginn zurückfordern.'
       );
     }
-    warnung(
-      'mietpreisbremse',
-      `${d.objekt.ort} unterliegt der Mietpreisbremse: Die Miete darf die ortsübliche Vergleichsmiete um höchstens 10 % übersteigen.`,
-      'Vergleichsmiete prüfen oder eine Ausnahme nach §§ 556e, 556f BGB belegen.'
-    );
+    // Die Vormiete kommt seit 18.10.2026 aus dem Vorvertrag derselben Einheit.
+    const vormiete = d.vormieteNetto && d.vormieteNetto > 0 ? d.vormieteNetto : null;
+    if (vormiete !== null && d.kaltmiete > 0 && d.kaltmiete <= vormiete + 0.005) {
+      warnung(
+        'mietpreisbremse',
+        `${d.objekt.ort} unterliegt der Mietpreisbremse. Die Kaltmiete liegt nicht über der Vormiete von ${vormiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € — damit greift die Ausnahme nach § 556e Abs. 1 BGB.`,
+        'Die Vormiete muss in der Auskunft vor Vertragsschluss genannt sein, sonst kann sich der Vermieter nicht auf die Ausnahme berufen. Erhöhungen, die im letzten Jahr vor Ende des Vormietverhältnisses vereinbart wurden, zählen nicht (§ 556e Abs. 1 S. 2 BGB) — bei einer Erhöhung kurz vor dem Auszug bitte prüfen.'
+      );
+    } else {
+      warnung(
+        'mietpreisbremse',
+        `${d.objekt.ort} unterliegt der Mietpreisbremse: Die Miete darf die ortsübliche Vergleichsmiete um höchstens 10 % übersteigen.${
+          vormiete !== null ? ` Sie liegt über der Vormiete von ${vormiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} €.` : ''
+        }`,
+        'Vergleichsmiete prüfen oder eine Ausnahme nach §§ 556e, 556f BGB belegen.'
+      );
+    }
   }
 
   // ─── Energieausweis ─────────────────────────────────────────────────────
