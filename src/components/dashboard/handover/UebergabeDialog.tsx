@@ -184,6 +184,11 @@ export const UebergabeDialog = ({
     /CriOS/.test(navigator.userAgent) ||
     /FxiOS/.test(navigator.userAgent)
   );
+  // Chrome auf Android hat keinen eingebauten PDF-Betrachter, ein Blob-PDF im
+  // iframe bleibt dort leer. Bis zum 19.10.2026 traf das Handys im Querformat
+  // und Tablets: Ab 768 px Breite bekommen sie die Desktop-Ansicht mit iframe.
+  const istAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+  const pdfEinbettbar = !isSafari && !istAndroid;
 
   // Notes photos
   const [notizenPhotos, setNotizenPhotos] = useState<string[]>(geladenerEntwurf?.notizenFotos ?? []);
@@ -1490,22 +1495,25 @@ export const UebergabeDialog = ({
                 </span>
                 {isGeneratingPreview && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               </div>
-              {isSafari ? (
-                <a
-                  href={pdfBlobUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 flex-1 min-h-[350px] lg:min-h-[500px] rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  <Eye className="h-4 w-4" />
-                  PDF in neuem Tab öffnen
-                </a>
-              ) : (
+              {pdfEinbettbar ? (
                 <iframe
                   src={pdfBlobUrl}
                   className="w-full flex-1 min-h-[350px] lg:min-h-[500px] rounded-lg border bg-white"
                   title="Übergabeprotokoll Vorschau"
                 />
+              ) : (
+                <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
+                  {pdfBlob && <PdfSeitenVorschau pdf={pdfBlob} />}
+                  <a
+                    href={pdfBlobUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 w-full h-10 rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted transition-colors"
+                  >
+                    <Eye className="h-4 w-4" />
+                    PDF in neuem Tab öffnen
+                  </a>
+                </div>
               )}
             </div>
           )}
