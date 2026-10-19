@@ -167,7 +167,14 @@ Ihre Hausverwaltung`
       .filter(istMailadresse)
       .map((email) => ({ mieterId: "cc", email: email.trim(), name: "CC" }));
 
-    const allRecipients = [...validEmails, ...validCcEmails];
+    // Dieselbe Adresse als Mieter und als CC bekäme die Mail sonst zweimal
+    const gesehen = new Set<string>();
+    const allRecipients = [...validEmails, ...validCcEmails].filter((r) => {
+      const schluessel = r.email.toLowerCase();
+      if (gesehen.has(schluessel)) return false;
+      gesehen.add(schluessel);
+      return true;
+    });
 
     if (allRecipients.length === 0) {
       toast({

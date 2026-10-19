@@ -307,8 +307,9 @@ export const UebergabeDialog = ({
   );
   const ungespeicherteEingaben = !isSaved && (hatEingaben(eingaben) || fotosLaden);
   // Angehakt, aber nach dem Speichern noch nicht benachrichtigt (Bezeichnungen)
+  // (ohne Mailadresse lässt sich ohnehin nicht benachrichtigen)
   const offeneVersorger = versorgerData
-    .filter((v) => versorgerSelected.has(v.typ) && !versorgerBenachrichtigt.has(v.typ))
+    .filter((v) => v.email && versorgerSelected.has(v.typ) && !versorgerBenachrichtigt.has(v.typ))
     .map((v) => v.label);
 
   // Jede Änderung sofort als Entwurf sichern. Der erste Lauf nach dem Öffnen
@@ -653,10 +654,13 @@ export const UebergabeDialog = ({
       // gespeicherten Daten — und wenn ihr kein Foto fehlte: Dann gibt ein
       // neuer Lauf dem Foto noch eine Chance. Fehlt es danach weiter, wird erst
       // nach Rückfrage gespeichert.
+      // Nach „Ohne diese Fotos speichern“ wird genau das PDF übernommen, für das
+      // die Rückfrage kam — kein zweites Laden aller Fotos über das Handynetz.
       let aktuellesPdf: Blob;
       let fehlendeFotos = 0;
-      if (pdfBlob && vorschauStandRef.current === stand && nichtEingebetteteFotos === 0) {
+      if (pdfBlob && vorschauStandRef.current === stand && (nichtEingebetteteFotos === 0 || ohneFehlendeFotos)) {
         aktuellesPdf = pdfBlob;
+        fehlendeFotos = nichtEingebetteteFotos;
       } else {
         const ergebnis = await buildPdfData();
         if (!ergebnis) throw new Error("Übergabedatum fehlt");
