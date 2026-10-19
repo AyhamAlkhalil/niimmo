@@ -139,7 +139,13 @@ export const UebergabeDialog = ({
     entwuerfeAufraeumen(ablage);
   }, [ablage]);
 
-  const standardDatum = () => (getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date());
+  // Das Vertragsende taugt nur beim Auszug als Vorschlag. Beim Einzug stand dort
+  // bis zum 19.10.2026 bei befristeten Verträgen das Ende in der Zukunft — und
+  // landete so in Protokoll und Ablesehistorie, wenn es niemand bemerkte.
+  const standardDatum = () => {
+    const ende = isEinzug ? null : getVertragsende(contracts[0]);
+    return ende ? new Date(ende) : new Date();
+  };
   const [uebergabeDatum, setUebergabeDatum] = useState<Date | undefined>(() =>
     geladenerEntwurf?.uebergabeDatum ? parse(geladenerEntwurf.uebergabeDatum, "yyyy-MM-dd", new Date()) : standardDatum()
   );
