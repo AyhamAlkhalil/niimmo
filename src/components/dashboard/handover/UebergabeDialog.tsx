@@ -245,6 +245,8 @@ export const UebergabeDialog = ({
   const [schliessenFragen, setSchliessenFragen] = useState(false);
   // Abfrage vor „Formular zurücksetzen“ — der Knopf löscht auch den Entwurf
   const [zuruecksetzenFragen, setZuruecksetzenFragen] = useState(false);
+  // Abfrage beim Speichern, wenn Fotos nicht ins PDF übernommen werden konnten (Anzahl)
+  const [fotoFrage, setFotoFrage] = useState(0);
 
   // Fotos, die gerade hochgeladen werden — je Upload-Feld. Solange etwas läuft,
   // fehlte das Foto in Vorschau und Protokoll, und Schließen verlöre es.
@@ -487,7 +489,9 @@ export const UebergabeDialog = ({
     return { images, fehlgeschlagen };
   };
 
-  const buildPdfData = async (): Promise<UebergabePdfData | null> => {
+  // fotoFehler: so viele Fotos fehlen im PDF. Zurückgegeben statt nur in den
+  // State geschrieben, weil handleSubmit noch im selben Lauf darüber entscheidet.
+  const buildPdfData = async (): Promise<{ daten: UebergabePdfData; fotoFehler: number } | null> => {
     if (!uebergabeDatum) return null;
 
     let fotoFehler = 0;
@@ -520,7 +524,7 @@ export const UebergabeDialog = ({
 
     setNichtEingebetteteFotos(fotoFehler);
 
-    return {
+    const daten: UebergabePdfData = {
       isEinzug,
       uebergabeDatum: format(uebergabeDatum, "dd.MM.yyyy", { locale: de }),
       mieterName: mieterName || "–",
@@ -538,6 +542,7 @@ export const UebergabeDialog = ({
       vermieterSignature,
       mieterSignature,
     };
+    return { daten, fotoFehler };
   };
 
   const handleGeneratePreview = async () => {
@@ -555,10 +560,10 @@ export const UebergabeDialog = ({
     const stand = pdfStand;
 
     try {
-      const pdfData = await buildPdfData();
-      if (!pdfData) return;
+      const ergebnis = await buildPdfData();
+      if (!ergebnis) return;
 
-      const blob = await generateUebergabePdf(pdfData);
+      const blob = await generateUebergabePdf(ergebnis.daten);
 
       // Ein zwischenzeitlich gestarteter Lauf oder ein Reset macht dieses
       // Ergebnis ungültig — sonst zeigt die Vorschau verworfene Daten.
@@ -593,12 +598,21 @@ export const UebergabeDialog = ({
     return `Uebergabeprotokoll_${isEinzug ? "Einzug" : "Auszug"}_${mieterName?.replace(/\s+/g, "_") || "Mieter"}_${datumStr}.pdf`;
   };
 
-  const handleSubmit = async () => {
+  /**
+   * ohneFehlendeFotos: Der Nutzer hat bestätigt, dass ohne die Fotos gespeichert
+   * werden soll, die sich nicht ins PDF übernehmen ließen. Ohne diese Bestätigung
+   * hält das Speichern vorher an — das archivierte Protokoll lässt sich danach
+   * nicht mehr neu erstellen, und bis zum 19.10.2026 meldete es trotzdem
+   * „erfolgreich gespeichert“.
+   */
+  const handleSubmit = async (ohneFehlendeFotos = false) => {
     if (!uebergabeDatum) {
       toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
       return;
     }
-    if (speichertRef.current || fotosLaden) return;
+    // Während einer laufenden Vorschau nicht: Deren Ergebnis käme sonst nach dem
+    // Speichern an und ersetzte das archivierte PDF in Download und Mail.
+    if (speichertRef.current || fotosLaden || isGeneratingPreview) return;
     speichertRef.current = true;
     setIsSubmitting(true);
     // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
@@ -611,19 +625,26 @@ export const UebergabeDialog = ({
       // Die Vorschau wird nur übernommen, wenn seitdem nichts geändert wurde —
       // sonst passte das archivierte und versendete Protokoll nicht zu den
       // gespeicherten Daten — und wenn ihr kein Foto fehlte: Dann gibt ein
-      // neuer Lauf dem Foto noch eine Chance. Fehlt es danach weiter, wird
-      // trotzdem gespeichert und der Hinweis „Fotos fehlen" bleibt stehen.
+      // neuer Lauf dem Foto noch eine Chance. Fehlt es danach weiter, wird erst
+      // nach Rückfrage gespeichert.
       let aktuellesPdf: Blob;
+      let fehlendeFotos = 0;
       if (pdfBlob && vorschauStandRef.current === stand && nichtEingebetteteFotos === 0) {
         aktuellesPdf = pdfBlob;
       } else {
-        const pdfData = await buildPdfData();
-        if (!pdfData) throw new Error("Übergabedatum fehlt");
-        aktuellesPdf = await generateUebergabePdf(pdfData);
+        const ergebnis = await buildPdfData();
+        if (!ergebnis) throw new Error("Übergabedatum fehlt");
+        aktuellesPdf = await generateUebergabePdf(ergebnis.daten);
+        fehlendeFotos = ergebnis.fotoFehler;
         vorschauStandRef.current = stand;
         setPdfBlob(aktuellesPdf);
         if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
         setPdfBlobUrl(URL.createObjectURL(aktuellesPdf));
+      }
+      if (fehlendeFotos > 0 && !ohneFehlendeFotos) {
+        // Noch ist nichts geschrieben
+        setFotoFrage(fehlendeFotos);
+        return;
       }
 
       // Ab hier ist jeder Schritt wiederholbar: Ein zweiter Klick nach einem
@@ -774,7 +795,15 @@ export const UebergabeDialog = ({
       setSavedPdfPath(filePath);
       setIsSaved(true);
       entwurfLoeschen(ablage, entwurfKey);
-      toast({ title: "Protokoll gespeichert", description: "Das Übergabeprotokoll wurde erfolgreich gespeichert." });
+      if (fehlendeFotos > 0) {
+        toast({
+          title: "Protokoll gespeichert – Fotos fehlen",
+          description: `${fehlendeFotos === 1 ? "1 Foto fehlt" : `${fehlendeFotos} Fotos fehlen`} im Protokoll-PDF. Die Fotos selbst sind beim Vertrag unter Dokumente eingetragen.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Protokoll gespeichert", description: "Das Übergabeprotokoll wurde erfolgreich gespeichert." });
+      }
     } catch (error) {
       console.error("Übergabe konnte nicht gespeichert werden:", error);
       toast({
@@ -1153,7 +1182,7 @@ export const UebergabeDialog = ({
                   <FileDown className="mr-2 h-4 w-4" />
                   Download
                 </Button>
-                <Button onClick={handleSubmit} disabled={isSubmitting || fotosLaden || ungueltigeZaehlerstaende.length > 0} className="flex-1 h-10">
+                <Button onClick={() => handleSubmit()} disabled={isSubmitting || isGeneratingPreview || fotosLaden || ungueltigeZaehlerstaende.length > 0} className="flex-1 h-10">
                   {isSubmitting ? (
                     <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird gespeichert...</>
                   ) : (
@@ -1333,6 +1362,41 @@ export const UebergabeDialog = ({
     </AlertDialog>
   );
 
+  const fotoAbfrage = (
+    <AlertDialog open={fotoFrage > 0} onOpenChange={(offen) => !offen && setFotoFrage(0)}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{fotoFrage === 1 ? "1 Foto fehlt im Protokoll" : `${fotoFrage} Fotos fehlen im Protokoll`}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {fotoFrage === 1 ? "Ein Foto konnte" : "Einige Fotos konnten"} nicht geladen werden, meist wegen einer schwachen
+            Verbindung. Wird jetzt ohne sie gespeichert, fehlen sie dauerhaft im archivierten Protokoll und in jeder Mail. Im
+            Dokumentenbereich des Vertrags werden die Fotos trotzdem eingetragen.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          <AlertDialogAction
+            className="mt-2 sm:mt-0 border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground"
+            onClick={() => {
+              setFotoFrage(0);
+              handleSubmit(true);
+            }}
+          >
+            Ohne diese Fotos speichern
+          </AlertDialogAction>
+          <AlertDialogAction
+            onClick={() => {
+              setFotoFrage(0);
+              handleSubmit();
+            }}
+          >
+            Erneut versuchen
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (isMobile) {
     return (
       // dismissible={false}: kein Schließen durch Wischen oder Tippen daneben.
@@ -1343,6 +1407,7 @@ export const UebergabeDialog = ({
         {versorgerDialogComponent}
         {schliessenAbfrage}
         {zuruecksetzenAbfrage}
+        {fotoAbfrage}
         <DrawerContent className="max-h-[95vh] supports-[height:100dvh]:max-h-[95dvh]">
           <DrawerHeader className="pb-2 flex items-center justify-between gap-2">
             <DrawerTitle className="flex items-center gap-2 text-lg">
@@ -1386,6 +1451,7 @@ export const UebergabeDialog = ({
       {versorgerDialogComponent}
       {schliessenAbfrage}
       {zuruecksetzenAbfrage}
+      {fotoAbfrage}
       <DialogContent className={cn(
         "max-h-[90vh] overflow-hidden flex flex-col",
         showPreview ? "sm:max-w-[1200px]" : "sm:max-w-[900px]"
