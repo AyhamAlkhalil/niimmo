@@ -75,6 +75,57 @@ async function mailAbschliessen(
   }
 }
 
+// ── Eingangspruefung (19.10.2026) ─────────────────────────────────────────────
+// Bis dahin pruefte die Function vom Anhang nur das Praefix uebergabeprotokolle/.
+// Der URL-Parser loest aber auch %2e%2e als ".." auf; damit liess sich jede Datei
+// des Buckets anhaengen. Jetzt gilt eine Erlaubnisliste: genau ein PDF direkt im
+// Protokollordner eines der uebergebenen Vertraege (wie send-mahnung).
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PROTOKOLL_PFAD = /^uebergabeprotokolle\/([0-9a-f-]{36})\/([A-Za-z0-9_.-]+\.pdf)$/i;
+const ADRESSE = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+const MAX_EMPFAENGER = 20;
+
+function protokollErlaubt(pfad: string, vertragIds: string[]): boolean {
+  const treffer = PROTOKOLL_PFAD.exec(pfad);
+  if (!treffer || treffer[2].includes('..')) return false;
+  const ordner = treffer[1].toLowerCase();
+  return vertragIds.some((id) => id.toLowerCase() === ordner);
+}
+
+/** Text fuer den HTML-Teil: Der Brief kommt als Klartext aus dem Dialog. */
+function htmlMaskieren(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Prueft die Anfrage; liefert die Fehlermeldung fuer den Dialog oder null. */
+function anfrageFehler(daten: Partial<EmailRequest> | null): string | null {
+  if (!daten || typeof daten !== 'object' || Array.isArray(daten)) return 'Ungültige Anfrage.';
+  const { recipients, subject, body, contractIds, pdfPath } = daten;
+  if (!Array.isArray(recipients) || recipients.length === 0) return 'Keine Empfänger angegeben.';
+  if (recipients.length > MAX_EMPFAENGER) return `Höchstens ${MAX_EMPFAENGER} Empfänger je Versand.`;
+  for (const r of recipients) {
+    if (!r || typeof r.email !== 'string' || r.email.length > 254 || !ADRESSE.test(r.email.trim())) {
+      return 'Mindestens eine Empfängeradresse ist ungültig.';
+    }
+  }
+  if (typeof subject !== 'string' || !subject.trim() || subject.length > 300 || /[\r\n]/.test(subject)) {
+    return 'Der Betreff fehlt oder ist ungültig.';
+  }
+  if (typeof body !== 'string' || !body.trim() || body.length > 20000) return 'Die Nachricht fehlt oder ist zu lang.';
+  if (!Array.isArray(contractIds) || contractIds.length === 0 || contractIds.length > 20 || !contractIds.every((id) => typeof id === 'string' && UUID.test(id))) {
+    return 'Ungültige Vertragsangabe.';
+  }
+  if (pdfPath !== undefined && pdfPath !== null && (typeof pdfPath !== 'string' || !protokollErlaubt(pdfPath, contractIds))) {
+    return 'Als Anhang ist nur das Übergabeprotokoll dieses Vertrags zulässig.';
+  }
+  return null;
+}
+
 /** Grobe Klartextfassung des HTML-Briefs, damit das Protokoll lesbar ist. */
 function htmlZuText(html: string): string {
   return html
@@ -125,15 +176,23 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
-  try {
-    const { recipients, subject, body, pdfPath }: EmailRequest = await req.json();
+  const json = (inhalt: unknown, status: number) =>
+    new Response(JSON.stringify(inhalt), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-    if (!recipients || recipients.length === 0) {
-      throw new Error("Keine Empfänger angegeben");
+  try {
+    let anfrage: Partial<EmailRequest>;
+    try {
+      anfrage = await req.json();
+    } catch {
+      return json({ error: 'Ungültige Anfrage.' }, 400);
     }
-    if (!subject || !body) {
-      throw new Error("Betreff und Nachricht sind erforderlich");
+    const fehler = anfrageFehler(anfrage);
+    if (fehler) {
+      return json({ error: fehler }, fehler.startsWith('Als Anhang') ? 403 : 400);
     }
+    const { subject, body } = anfrage as EmailRequest;
+    const pdfPath = anfrage.pdfPath || undefined;
+    const recipients = (anfrage.recipients as EmailRecipient[]).map((r) => ({ ...r, email: r.email.trim() }));
 
     // SMTP config — dedicated Übergabe secrets with fallback
     const smtpHost = Deno.env.get("UEBERGABE_SMTP_HOST") || Deno.env.get("MAHNUNG_SMTP_HOST") || Deno.env.get("SMTP_HOST");
@@ -144,21 +203,14 @@ serve(async (req) => {
     const smtpFromName = Deno.env.get("UEBERGABE_SMTP_FROM_NAME") || Deno.env.get("MAHNUNG_SMTP_FROM_NAME") || Deno.env.get("SMTP_FROM_NAME") || "NiImmo Hausverwaltung";
 
     if (!smtpHost || !smtpUser || !smtpPass || !smtpFromEmail) {
-      throw new Error("SMTP-Konfiguration unvollständig. Bitte UEBERGABE_SMTP_* oder MAHNUNG_SMTP_* Secrets konfigurieren.");
+      console.error('SMTP-Konfiguration unvollständig (UEBERGABE_SMTP_* / MAHNUNG_SMTP_*)');
+      return json({ error: 'Der Mailversand ist nicht eingerichtet. Es wurde nichts versendet.' }, 500);
     }
 
     // Load PDF attachment if path provided
     let pdfBuffer: Buffer | null = null;
     if (pdfPath) {
-      // Der Pfad kam ungeprueft aus dem Request und wurde mit Service-Role
-      // geladen -- damit liess sich jede Datei des Buckets an eine frei
-      // gewaehlte Adresse schicken. Uebergabeprotokolle liegen ausschliesslich
-      // unter uebergabeprotokolle/.
-      if (!pdfPath.startsWith('uebergabeprotokolle/')) {
-        return new Response(
-          JSON.stringify({ error: 'Als Anhang sind nur Übergabeprotokolle zulässig.' }),
-          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
+      // Pfad ist oben gegen die Erlaubnisliste geprueft (anfrageFehler)
       const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       console.log('Loading PDF from storage:', pdfPath);
       const { data: fileData, error: fileError } = await supabase.storage
@@ -192,7 +244,7 @@ serve(async (req) => {
 
     const sentEmails: string[] = [];
     const failedEmails: { email: string; error: string }[] = [];
-    const htmlBody = body.replace(/\n/g, "<br>");
+    const htmlBody = htmlMaskieren(body).replace(/\n/g, "<br>");
 
     const mailId = await mailVormerken(rollenClient, {
       typ: 'uebergabe',
@@ -229,6 +281,8 @@ serve(async (req) => {
         sentEmails.push(recipient.email);
       } catch (emailError) {
         console.error(`Failed to send email to ${recipient.email}:`, emailError);
+        // Die Ursache vom Mailserver bleibt im Mail-Protokoll und im Log; an den
+        // Browser geht nur, welche Adresse nicht angenommen wurde
         failedEmails.push({
           email: recipient.email,
           error: emailError instanceof Error ? emailError.message : "Unknown error",
@@ -247,30 +301,23 @@ serve(async (req) => {
     );
 
     if (sentEmails.length === 0 && failedEmails.length > 0) {
-      throw new Error(
-        `Alle E-Mails konnten nicht versendet werden: ${failedEmails.map((f) => f.error).join(", ")}`
-      );
+      return json({
+        error: `Keine E-Mail wurde zugestellt (${failedEmails.map((f) => f.email).join(", ")}). Bitte die Adressen prüfen.`,
+        success: false,
+      }, 502);
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        sentEmails,
-        failedEmails,
-        message: `${sentEmails.length} E-Mail(s) erfolgreich versendet${
-          failedEmails.length > 0 ? `, ${failedEmails.length} fehlgeschlagen` : ""
-        }`,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    return json({
+      success: true,
+      sentEmails,
+      failedEmails: failedEmails.map((f) => ({ email: f.email, error: 'nicht zugestellt' })),
+      message: `${sentEmails.length} E-Mail(s) erfolgreich versendet${
+        failedEmails.length > 0 ? `, ${failedEmails.length} fehlgeschlagen` : ""
+      }`,
+    }, 200);
   } catch (error) {
+    // Keine internen Meldungen (SMTP, Storage) an den Browser
     console.error("Error in send-uebergabe-email function:", error);
-    return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Unknown error",
-        success: false,
-      }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    return json({ error: 'Die E-Mails konnten nicht versendet werden.', success: false }, 500);
   }
 });
