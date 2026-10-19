@@ -143,8 +143,10 @@ import { dateiendung } from "@/utils/storagePfad";
                className="relative aspect-square rounded-lg overflow-hidden bg-gray-100"
              >
               <img
-                  src={signedUrls[photoPath] || ""}
+                  src={signedUrls[photoPath] || undefined}
                   alt={`Übergabe Foto ${index + 1}`}
+                  loading="lazy"
+                  decoding="async"
                  className="w-full h-full object-cover"
                />
                <button

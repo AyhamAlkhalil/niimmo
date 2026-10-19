@@ -150,9 +150,13 @@ export const MeterPhotoUpload = ({
               key={i}
               className="relative aspect-square rounded-lg overflow-hidden bg-gray-100"
             >
+              {/* lazy/async: Handyfotos sind 8–12 Megapixel; das Dekodieren vieler
+                  Originale auf einmal brachte den Speicher des iPhones an die Grenze */}
               <img
-                src={signedUrls[path] || ""}
+                src={signedUrls[path] || undefined}
                 alt={`${meterLabels[meterType]} Zähler ${i + 1}`}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
               />
               <button

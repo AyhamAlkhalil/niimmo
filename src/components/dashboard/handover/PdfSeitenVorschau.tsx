@@ -39,6 +39,11 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
     if (!behaelter) return;
     let abgebrochen = false;
     let dokument: { destroy: () => unknown } | null = null;
+    // Gezeichnete, aber (noch) nicht eingehängte Seiten — werden sie nicht
+    // angezeigt, gibt finally ihren Speicher frei, gleich an welcher Stelle der
+    // Lauf abbricht
+    const seiten: HTMLCanvasElement[] = [];
+    let angezeigt = false;
     setZustand("laedt");
 
     (async () => {
@@ -50,7 +55,6 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
         const breite = behaelter.clientWidth || 360;
         // Mehr als doppelte Auflösung bringt auf dem Handy nichts, kostet aber Speicher
         const aufloesung = Math.min(window.devicePixelRatio || 1, 2);
-        const seiten: HTMLCanvasElement[] = [];
         for (let nummer = 1; nummer <= geladen.numPages; nummer++) {
           const seite = await geladen.getPage(nummer);
           if (abgebrochen) return;
@@ -64,13 +68,11 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
           const zeichenflaeche = leinwand.getContext("2d");
           if (!zeichenflaeche) throw new Error("Kein Zeichenkontext");
           await seite.render({ canvasContext: zeichenflaeche, viewport: ansicht }).promise;
-          if (abgebrochen) {
-            seiten.forEach((c) => { c.width = 0; c.height = 0; });
-            return;
-          }
+          if (abgebrochen) return;
         }
         freigeben(behaelter);
         behaelter.append(...seiten);
+        angezeigt = true;
         setZustand("fertig");
       } catch (fehler) {
         console.error("PDF-Vorschau konnte nicht gezeichnet werden:", fehler);
@@ -79,6 +81,7 @@ export const PdfSeitenVorschau = ({ pdf }: PdfSeitenVorschauProps) => {
           setZustand("fehler");
         }
       } finally {
+        if (!angezeigt) seiten.forEach((c) => { c.width = 0; c.height = 0; });
         dokument?.destroy();
       }
     })();
