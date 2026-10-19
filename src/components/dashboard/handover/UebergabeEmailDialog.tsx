@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, Mail, Send, AlertCircle, CheckCircle2, Plus, X, Upload } from "lucide-react";
+import { Loader2, Mail, Send, AlertCircle, CheckCircle2, Plus, X } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
+import { versandAuswerten } from "@/utils/uebergabeMail";
 
 interface Mieter {
   id: string;
@@ -31,43 +33,65 @@ interface ContractInfo {
 interface UebergabeEmailDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  isEinzug: boolean;
+  /** Mieter mit der Mailadresse aus den Stammdaten */
   mieter: Mieter[];
+  /** Im Übergabeformular eingetragene Adressen; haben Vorrang vor den Stammdaten */
+  adressVorschlaege?: { [mieterId: string]: string };
   contracts: ContractInfo[];
   uebergabeDatum: Date;
   mieterName: string;
-  pdfBlob?: Blob | null;
-  pdfFileName?: string;
-  /** Bereits gespeicherter Storage-Pfad aus UebergabeDialog — Upload wird übersprungen */
-  preSavedPdfPath?: string;
+  /** Storage-Pfad des gespeicherten Protokolls — der Dialog öffnet erst nach dem Speichern */
+  pdfPfad: string;
+  /** Meldet die Adressen, an die tatsächlich versendet wurde */
+  onVersendet?: (adressen: string[]) => void;
 }
 
+interface VersandErgebnis {
+  gesendet: string[];
+  fehlgeschlagen: string[];
+}
+
+const istAdresse = (email: string | null | undefined) => !!email && email.includes("@");
+
+/**
+ * Versand des gespeicherten Übergabeprotokolls an die Mieter.
+ *
+ * Der Dialog bleibt nach dem Schließen eingehängt (UebergabeDialog): Bearbeitete
+ * Texte und der Versandstand überleben so ein versehentliches Tippen daneben.
+ * Bis zum 19.10.2026 waren beide danach weg — und wer den Dialog wieder öffnete,
+ * sah nichts davon, dass schon versendet war, und schickte ein zweites Mal.
+ */
 export const UebergabeEmailDialog = ({
   isOpen,
   onClose,
+  isEinzug,
   mieter,
+  adressVorschlaege = {},
   contracts,
   uebergabeDatum,
   mieterName,
-  pdfBlob,
-  pdfFileName,
-  preSavedPdfPath,
+  pdfPfad,
+  onVersendet,
 }: UebergabeEmailDialogProps) => {
   const { toast } = useToast();
   const [isSending, setIsSending] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [emailsSent, setEmailsSent] = useState(false);
-  const [pdfAlreadyUploaded, setPdfAlreadyUploaded] = useState(false);
+  // Ergebnis des letzten Versands — solange gesetzt, zeigt der Dialog die Übersicht statt des Formulars
+  const [ergebnis, setErgebnis] = useState<VersandErgebnis | null>(null);
+  // Alle Adressen, an die in diesem Dialog schon versendet wurde, mit Uhrzeit des letzten Versands
+  const [bisherVersendet, setBisherVersendet] = useState<{ adressen: string[]; am: Date } | null>(null);
 
-  // Initialize email addresses from mieter data
-  const [emailAddresses, setEmailAddresses] = useState<{ [mieterId: string]: string }>(
-    () => {
-      const initial: { [key: string]: string } = {};
-      mieter.forEach((m) => {
-        initial[m.id] = m.hauptmail || "";
-      });
-      return initial;
-    }
-  );
+  const [emailAddresses, setEmailAddresses] = useState<{ [mieterId: string]: string }>(() => {
+    const initial: { [key: string]: string } = {};
+    mieter.forEach((m) => {
+      initial[m.id] = adressVorschlaege[m.id] || m.hauptmail || "";
+    });
+    return initial;
+  });
+  // Eine hier geänderte Adresse geht nur auf ausdrücklichen Wunsch in die
+  // Stammdaten. Bis zum 19.10.2026 überschrieb jeder Versand still die
+  // Mailadresse des Mieters — auch mit einer nur einmal genutzten.
+  const [adresseUebernehmen, setAdresseUebernehmen] = useState<{ [mieterId: string]: boolean }>({});
 
   // Additional CC recipients
   const [ccEmails, setCcEmails] = useState<string[]>([""]);
@@ -75,15 +99,28 @@ export const UebergabeEmailDialog = ({
   const propertyInfo = contracts.length > 0
     ? `${contracts[0].einheit.immobilie.name}, ${contracts[0].einheit.immobilie.adresse}`
     : "Ihre Wohnung";
+  const datum = format(uebergabeDatum, "dd.MM.yyyy", { locale: de });
 
+  // Beim Einzug ohne den Abschied, den die Mail bis zum 19.10.2026 auch neuen Mietern mitgab
   const [emailSubject, setEmailSubject] = useState(
-    `Bestätigung Ihrer Wohnungsübergabe am ${format(uebergabeDatum, "dd.MM.yyyy", { locale: de })}`
+    isEinzug ? `Übergabeprotokoll zu Ihrem Einzug am ${datum}` : `Bestätigung Ihrer Wohnungsübergabe am ${datum}`
   );
 
   const [emailBody, setEmailBody] = useState(
-    `Sehr geehrte/r ${mieterName},
+    isEinzug
+      ? `Sehr geehrte/r ${mieterName},
 
-hiermit bestätigen wir die erfolgreiche Übergabe der Wohnung in ${propertyInfo} am ${format(uebergabeDatum, "dd.MM.yyyy", { locale: de })}.
+hiermit bestätigen wir die Übergabe der Wohnung in ${propertyInfo} an Sie am ${datum}.
+
+Alle Zählerstände wurden dokumentiert und das Übergabeprotokoll wurde erstellt. Eine Kopie des Protokolls finden Sie im Anhang dieser E-Mail.
+
+Wir wünschen Ihnen einen guten Start in Ihrem neuen Zuhause.
+
+Mit freundlichen Grüßen
+Ihre Hausverwaltung`
+      : `Sehr geehrte/r ${mieterName},
+
+hiermit bestätigen wir die erfolgreiche Übergabe der Wohnung in ${propertyInfo} am ${datum}.
 
 Alle Zählerstände wurden dokumentiert und das Übergabeprotokoll wurde erstellt. Eine Kopie des Protokolls finden Sie im Anhang dieser E-Mail.
 
@@ -112,72 +149,22 @@ Ihre Hausverwaltung`
     setCcEmails((prev) => prev.map((e, i) => (i === index ? value : e)));
   };
 
-  const hasValidEmails = Object.values(emailAddresses).some(
-    (email) => email && email.includes("@")
-  );
-
-  // Upload PDF to Supabase and save document reference
-  const uploadPdfAndSaveRef = async (): Promise<string | undefined> => {
-    // PDF wurde bereits in UebergabeDialog gespeichert — direkt Pfad zurückgeben
-    if (preSavedPdfPath) return preSavedPdfPath;
-    if (!pdfBlob || !pdfFileName) return undefined;
-    if (pdfAlreadyUploaded) {
-      return `uebergabeprotokolle/${contracts[0]?.id || 'unknown'}/${pdfFileName}`;
-    }
-
-    const filePath = `uebergabeprotokolle/${contracts[0]?.id || 'unknown'}/${pdfFileName}`;
-    const { error: uploadError } = await supabase.storage
-      .from('dokumente')
-      .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
-
-    if (uploadError) throw uploadError;
-
-    // Save document reference for each contract
-    for (const contract of contracts) {
-      await supabase.from('dokumente').insert({
-        titel: `Übergabeprotokoll ${format(uebergabeDatum, "dd.MM.yyyy")}`,
-        pfad: filePath,
-        kategorie: 'Übergabeprotokoll',
-        dateityp: 'application/pdf',
-        mietvertrag_id: contract.id,
-      });
-    }
-
-    setPdfAlreadyUploaded(true);
-    return filePath;
-  };
-
-  const handleUploadPdf = async () => {
-    if (!pdfBlob || !pdfFileName) {
-      toast({ title: "Kein PDF vorhanden", description: "Bitte erstellen Sie zuerst die Vorschau.", variant: "destructive" });
-      return;
-    }
-    setIsUploading(true);
-    try {
-      await uploadPdfAndSaveRef();
-      toast({ title: "PDF hochgeladen", description: "Das Protokoll wurde in den Dokumenten gespeichert." });
-    } catch (error) {
-      toast({ title: "Fehler", description: "PDF konnte nicht hochgeladen werden.", variant: "destructive" });
-    } finally {
-      setIsUploading(false);
-    }
-  };
+  const hasValidEmails = Object.values(emailAddresses).some(istAdresse);
+  const geaendert = (m: Mieter) => istAdresse(emailAddresses[m.id]) && emailAddresses[m.id].trim() !== (m.hauptmail ?? "").trim();
 
   const handleSendEmails = async () => {
-    const validEmails = Object.entries(emailAddresses)
-      .filter(([_, email]) => email && email.includes("@"))
-      .map(([mieterId, email]) => ({
-        mieterId,
-        email,
-        name: mieter.find((m) => m.id === mieterId)
-          ? `${mieter.find((m) => m.id === mieterId)!.vorname} ${mieter.find((m) => m.id === mieterId)!.nachname || ""}`
-          : "",
+    const validEmails = mieter
+      .filter((m) => istAdresse(emailAddresses[m.id]))
+      .map((m) => ({
+        mieterId: m.id,
+        email: emailAddresses[m.id].trim(),
+        name: `${m.vorname} ${m.nachname || ""}`.trim(),
       }));
 
     // Add CC emails as additional recipients
     const validCcEmails = ccEmails
-      .filter((e) => e && e.includes("@"))
-      .map((email) => ({ mieterId: "cc", email, name: "CC" }));
+      .filter(istAdresse)
+      .map((email) => ({ mieterId: "cc", email: email.trim(), name: "CC" }));
 
     const allRecipients = [...validEmails, ...validCcEmails];
 
@@ -193,20 +180,6 @@ Ihre Hausverwaltung`
     setIsSending(true);
 
     try {
-      // Upload PDF if available (reuses existing upload if already done)
-      let pdfFilePath: string | undefined;
-      try {
-        pdfFilePath = await uploadPdfAndSaveRef();
-      } catch (uploadErr) {
-        // Versand laeuft weiter, aber ohne Anhang - das muss sichtbar sein
-        console.error('PDF-Upload fehlgeschlagen, die E-Mail geht ohne Anhang raus:', uploadErr);
-        toast({
-          title: "Anhang fehlt",
-          description: "Das Protokoll-PDF konnte nicht hochgeladen werden. Die E-Mail wird ohne Anhang versendet.",
-          variant: "destructive",
-        });
-      }
-
       const response = await supabase.functions.invoke("send-uebergabe-email", {
         body: {
           recipients: allRecipients,
@@ -214,7 +187,7 @@ Ihre Hausverwaltung`
           body: emailBody,
           contractIds: contracts.map((c) => c.id),
           uebergabeDatum: format(uebergabeDatum, "yyyy-MM-dd"),
-          pdfPath: pdfFilePath,
+          pdfPath: pdfPfad,
         },
       });
 
@@ -222,7 +195,7 @@ Ihre Hausverwaltung`
         // Tatsächliche Fehlermeldung aus dem Response-Body extrahieren
         let errorMessage = response.error.message || "Unbekannter Fehler";
         try {
-          const ctx = (response.error as any).context;
+          const ctx = (response.error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
           if (ctx && typeof ctx.json === "function") {
             const body = await ctx.json();
             if (body?.error) errorMessage = body.error;
@@ -234,23 +207,46 @@ Ihre Hausverwaltung`
         throw new Error(errorMessage);
       }
 
-      setEmailsSent(true);
-
-      // Update email addresses in database if changed
-      for (const [mieterId, email] of Object.entries(emailAddresses)) {
-        const originalMieter = mieter.find((m) => m.id === mieterId);
-        if (originalMieter && email && email !== originalMieter.hauptmail) {
-          await supabase
-            .from("mieter")
-            .update({ hauptmail: email })
-            .eq("id", mieterId);
-        }
+      // Die Function meldet je Adresse, ob sie angenommen wurde. Bis zum
+      // 19.10.2026 zählte der Dialog einfach alle Empfänger als versendet.
+      const { gesendet, fehlgeschlagen } = versandAuswerten(response.data, allRecipients.map((r) => r.email));
+      setErgebnis({ gesendet, fehlgeschlagen });
+      if (gesendet.length > 0) {
+        setBisherVersendet((vorher) => ({
+          adressen: [...new Set([...(vorher?.adressen ?? []), ...gesendet])],
+          am: new Date(),
+        }));
+        onVersendet?.(gesendet);
       }
 
-      toast({
-        title: "E-Mails versendet",
-        description: `${allRecipients.length} E-Mail(s) wurden erfolgreich versendet.`,
-      });
+      // Nur ausdrücklich gewünschte und tatsächlich angenommene Adressen übernehmen
+      const nichtGespeichert: string[] = [];
+      for (const m of mieter) {
+        const email = emailAddresses[m.id]?.trim();
+        if (!adresseUebernehmen[m.id] || !geaendert(m) || !gesendet.includes(email)) continue;
+        const { error } = await supabase.from("mieter").update({ hauptmail: email }).eq("id", m.id);
+        if (error) nichtGespeichert.push(`${m.vorname} ${m.nachname || ""}`.trim());
+      }
+      if (nichtGespeichert.length > 0) {
+        toast({
+          title: "Adresse nicht übernommen",
+          description: `Die neue Mailadresse von ${nichtGespeichert.join(", ")} konnte nicht beim Mieter gespeichert werden.`,
+          variant: "destructive",
+        });
+      }
+
+      if (fehlgeschlagen.length > 0) {
+        toast({
+          title: `${fehlgeschlagen.length} von ${allRecipients.length} E-Mails nicht versendet`,
+          description: `Nicht zugestellt an: ${fehlgeschlagen.join(", ")}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "E-Mails versendet",
+          description: `${gesendet.length} E-Mail(s) wurden versendet.`,
+        });
+      }
     } catch (error) {
       toast({
         title: "Fehler beim Versenden",
@@ -263,7 +259,8 @@ Ihre Hausverwaltung`
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    // Während des Versands nicht schließbar: Sonst bliebe offen, ob die Mail raus ist
+    <Dialog open={isOpen} onOpenChange={(open) => !open && !isSending && onClose()}>
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -272,50 +269,78 @@ Ihre Hausverwaltung`
           </DialogTitle>
         </DialogHeader>
 
-        {emailsSent ? (
-          <div className="py-8 text-center">
-            <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              E-Mails erfolgreich versendet!
-            </h3>
-            <p className="text-gray-600 mb-6">
-              Die Empfänger wurden über die Wohnungsübergabe informiert.
-            </p>
-            <Button onClick={onClose}>Schließen</Button>
+        {ergebnis ? (
+          <div className="py-4 space-y-4">
+            {ergebnis.gesendet.length > 0 && (
+              <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-lg p-3">
+                <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-green-800">Versendet an</p>
+                  <p className="text-sm text-green-700 break-all">{ergebnis.gesendet.join(", ")}</p>
+                </div>
+              </div>
+            )}
+            {ergebnis.fehlgeschlagen.length > 0 && (
+              <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-3">
+                <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-800">Nicht zugestellt an</p>
+                  <p className="text-sm text-red-700 break-all">{ergebnis.fehlgeschlagen.join(", ")}</p>
+                  <p className="text-xs text-red-700 mt-1">Bitte die Adresse prüfen und erneut senden.</p>
+                </div>
+              </div>
+            )}
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setErgebnis(null)}>
+                {ergebnis.fehlgeschlagen.length > 0 ? "Zurück und erneut senden" : "Weitere E-Mail senden"}
+              </Button>
+              <Button onClick={onClose}>Schließen</Button>
+            </DialogFooter>
           </div>
         ) : (
           <div className="space-y-4">
-            {/* PDF Info */}
-            {pdfBlob && (
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
-                <div className="flex items-center gap-2 text-green-700 text-sm">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>PDF-Protokoll wird als Anhang mitgesendet</span>
-                </div>
-                <Button size="sm" variant="outline" onClick={handleUploadPdf} disabled={isUploading}>
-                  {isUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                  <span className="ml-1 text-xs">Nur speichern</span>
-                </Button>
+            {bisherVersendet && (
+              <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span className="break-all">
+                  Bereits versendet an {bisherVersendet.adressen.join(", ")} (zuletzt{" "}
+                  {format(bisherVersendet.am, "HH:mm", { locale: de })} Uhr).
+                </span>
               </div>
             )}
+
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-green-700 text-sm">
+              <CheckCircle2 className="h-4 w-4" />
+              <span>PDF-Protokoll wird als Anhang mitgesendet</span>
+            </div>
 
             {/* Mieter Recipients */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">Empfänger (Mieter)</Label>
               {mieter.map((m) => (
-                <div key={m.id} className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">
-                      {m.vorname} {m.nachname || ""}
-                    </Label>
-                    <Input
-                      type="email"
-                      placeholder="E-Mail-Adresse eingeben..."
-                      value={emailAddresses[m.id] || ""}
-                      onChange={(e) => updateEmailAddress(m.id, e.target.value)}
-                      className="h-10"
-                    />
-                  </div>
+                <div key={m.id} className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    {m.vorname} {m.nachname || ""}
+                  </Label>
+                  <Input
+                    type="email"
+                    placeholder="E-Mail-Adresse eingeben..."
+                    value={emailAddresses[m.id] || ""}
+                    onChange={(e) => updateEmailAddress(m.id, e.target.value)}
+                    className="h-10"
+                  />
+                  {geaendert(m) && (
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={`adresse-uebernehmen-${m.id}`}
+                        checked={!!adresseUebernehmen[m.id]}
+                        onCheckedChange={(wert) => setAdresseUebernehmen((prev) => ({ ...prev, [m.id]: wert === true }))}
+                      />
+                      <Label htmlFor={`adresse-uebernehmen-${m.id}`} className="text-xs font-normal cursor-pointer">
+                        Als neue Mailadresse beim Mieter speichern
+                      </Label>
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -380,7 +405,7 @@ Ihre Hausverwaltung`
               </Button>
               <Button
                 onClick={handleSendEmails}
-                disabled={isSending || (!hasValidEmails && ccEmails.every(e => !e || !e.includes("@")))}
+                disabled={isSending || (!hasValidEmails && !ccEmails.some(istAdresse))}
               >
                 {isSending ? (
                   <>
@@ -390,7 +415,7 @@ Ihre Hausverwaltung`
                 ) : (
                   <>
                     <Send className="mr-2 h-4 w-4" />
-                    E-Mail senden
+                    {bisherVersendet ? "Erneut senden" : "E-Mail senden"}
                   </>
                 )}
               </Button>

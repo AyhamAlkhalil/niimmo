@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Loader2, Zap, Flame, Droplets, Mail, Copy, Check, Send, CheckCircle2, AlertCircle } from "lucide-react";
+import { Loader2, Zap, Flame, Droplets, Mail, Copy, Check, Send, CheckCircle2, AlertCircle, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -34,13 +34,15 @@ interface VersorgerBenachrichtigungDialogProps {
   adresse: string;
   einheitBezeichnung?: string;
   isEinzug?: boolean;
-  pdfBlob?: Blob | null;
-  pdfFileName?: string;
   contractIds?: string[];
   initialSelected?: Set<string>;
-  /** Bereits gespeicherter Storage-Pfad aus UebergabeDialog — Upload wird übersprungen */
-  preSavedPdfPath?: string;
+  /** Storage-Pfad des gespeicherten Protokolls — der Dialog öffnet erst nach dem Speichern */
+  pdfPfad: string;
+  /** Meldet die Versorger (typ), die tatsächlich benachrichtigt wurden */
+  onVersendet?: (typen: string[]) => void;
 }
+
+type Ladezustand = "offen" | "laedt" | "fertig" | "fehler";
 
 export const VersorgerBenachrichtigungDialog = ({
   isOpen,
@@ -52,11 +54,10 @@ export const VersorgerBenachrichtigungDialog = ({
   adresse,
   einheitBezeichnung,
   isEinzug = false,
-  pdfBlob,
-  pdfFileName,
   contractIds = [],
   initialSelected,
-  preSavedPdfPath,
+  pdfPfad,
+  onVersendet,
 }: VersorgerBenachrichtigungDialogProps) => {
   const { toast } = useToast();
   const [versorger, setVersorger] = useState<VersorgerInfo[]>([]);
@@ -64,27 +65,37 @@ export const VersorgerBenachrichtigungDialog = ({
   const [emailTexte, setEmailTexte] = useState<{ [typ: string]: string }>({});
   const [emailSubjects, setEmailSubjects] = useState<{ [typ: string]: string }>({});
   const [copiedTyp, setCopiedTyp] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Geladen wird beim ersten Öffnen und nur dann. Der Dialog bleibt nach dem
+  // Schließen eingehängt (UebergabeDialog); bis zum 19.10.2026 baute jedes
+  // Öffnen die Texte neu und verwarf Bearbeitungen und die Versandanzeige.
+  const [ladezustand, setLadezustand] = useState<Ladezustand>("offen");
   const [isSending, setIsSending] = useState(false);
   const [sentResult, setSentResult] = useState<{ sent: string[]; failed: string[] } | null>(null);
+  // Versorger, die in diesem Dialog schon benachrichtigt wurden (Bezeichnung)
+  const [bereitsBenachrichtigt, setBereitsBenachrichtigt] = useState<string[]>([]);
 
   const datumFormatiert = format(uebergabeDatum, "dd.MM.yyyy", { locale: de });
   const aktion = isEinzug ? "Einzug" : "Auszug";
 
   useEffect(() => {
-    if (!isOpen || !immobilieId) return;
-    setSentResult(null);
+    if (!isOpen || !immobilieId || ladezustand !== "offen") return;
 
     const fetchVersorger = async () => {
-      setIsLoading(true);
-      const { data } = await supabase
+      setLadezustand("laedt");
+      // Ein Ladefehler ist kein „keine Versorger hinterlegt“ — bis zum
+      // 19.10.2026 sah er genau so aus, oder der Kreisel lief endlos
+      const { data, error } = await supabase
         .from('immobilien')
         .select('versorger_strom_name, versorger_strom_email, versorger_gas_name, versorger_gas_email, versorger_wasser_name, versorger_wasser_email')
         .eq('id', immobilieId)
-        .single();
+        .maybeSingle();
 
+      if (error) {
+        setLadezustand("fehler");
+        return;
+      }
       if (!data) {
-        setIsLoading(false);
+        setLadezustand("fertig");
         return;
       }
 
@@ -129,11 +140,11 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
       }
       setEmailTexte(texte);
       setEmailSubjects(subjects);
-      setIsLoading(false);
+      setLadezustand("fertig");
     };
 
-    fetchVersorger();
-  }, [isOpen, immobilieId, mieterName, datumFormatiert, aktion, adresse, einheitBezeichnung, zaehlerstaende, isEinzug, initialSelected]);
+    fetchVersorger().catch(() => setLadezustand("fehler"));
+  }, [isOpen, immobilieId, ladezustand, mieterName, datumFormatiert, aktion, adresse, einheitBezeichnung, zaehlerstaende, isEinzug, initialSelected]);
 
   const toggleSelected = (typ: string) => {
     setSelected(prev => {
@@ -153,20 +164,6 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
     toast({ title: "In Zwischenablage kopiert", description: `E-Mail-Entwurf für ${v.label} kopiert.` });
   };
 
-  const uploadPdf = async (): Promise<string | undefined> => {
-    // PDF wurde bereits in UebergabeDialog gespeichert — direkt Pfad zurückgeben
-    if (preSavedPdfPath) return preSavedPdfPath;
-    if (!pdfBlob || !pdfFileName || contractIds.length === 0) return undefined;
-    const filePath = `uebergabeprotokolle/${contractIds[0]}/${pdfFileName}`;
-    const { error } = await supabase.storage
-      .from('dokumente')
-      .upload(filePath, pdfBlob, { contentType: 'application/pdf', upsert: true });
-    if (error) {
-      return undefined;
-    }
-    return filePath;
-  };
-
   const handleSend = async () => {
     const selectedVersorger = versorger.filter(v => selected.has(v.typ) && v.email);
     if (selectedVersorger.length === 0) {
@@ -176,22 +173,10 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
 
     setIsSending(true);
     const sent: string[] = [];
+    const sentTypen: string[] = [];
     const failed: string[] = [];
 
     try {
-      let pdfPath: string | undefined;
-      try {
-        pdfPath = await uploadPdf();
-      } catch (e) {
-        // Versand laeuft weiter, aber ohne Anhang - das muss sichtbar sein
-        console.error('PDF-Upload fehlgeschlagen, die Versorger-Mails gehen ohne Anhang raus:', e);
-        toast({
-          title: "Anhang fehlt",
-          description: "Das Protokoll-PDF konnte nicht hochgeladen werden. Die Benachrichtigungen gehen ohne Anhang raus.",
-          variant: "destructive",
-        });
-      }
-
       for (const v of selectedVersorger) {
         try {
           const response = await supabase.functions.invoke("send-uebergabe-email", {
@@ -201,17 +186,22 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
               body: emailTexte[v.typ] || '',
               contractIds,
               uebergabeDatum: format(uebergabeDatum, "yyyy-MM-dd"),
-              pdfPath,
+              pdfPath: pdfPfad,
             },
           });
           if (response.error) throw response.error;
           sent.push(v.label);
+          sentTypen.push(v.typ);
         } catch (e) {
           failed.push(v.label);
         }
       }
 
       setSentResult({ sent, failed });
+      if (sent.length > 0) {
+        setBereitsBenachrichtigt((vorher) => [...new Set([...vorher, ...sent])]);
+        onVersendet?.(sentTypen);
+      }
 
       if (sent.length > 0) {
         toast({ title: "E-Mails versendet", description: `${sent.join(", ")} erfolgreich benachrichtigt.` });
@@ -227,7 +217,8 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
   const selectedWithEmail = versorger.filter(v => selected.has(v.typ) && v.email);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    // Während des Versands nicht schließbar: Sonst bliebe offen, wer benachrichtigt ist
+    <Dialog open={isOpen} onOpenChange={(open) => !open && !isSending && onClose()}>
       <DialogContent className="sm:max-w-[650px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -256,11 +247,28 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setSentResult(null)}>
+                {sentResult.failed.length > 0 ? "Zurück und erneut senden" : "Weitere benachrichtigen"}
+              </Button>
               <Button onClick={onClose}>Schließen</Button>
             </DialogFooter>
           </div>
-        ) : isLoading ? (
+        ) : ladezustand === "fehler" ? (
+          <>
+            <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              Die Versorger-Daten konnten nicht geladen werden.
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={onClose}>Schließen</Button>
+              <Button onClick={() => setLadezustand("offen")}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Erneut laden
+              </Button>
+            </DialogFooter>
+          </>
+        ) : ladezustand !== "fertig" ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
@@ -277,15 +285,19 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
               Wählen Sie die Versorger aus, die über den {aktion} informiert werden sollen.
-              {pdfBlob && " Das Übergabeprotokoll wird als PDF-Anhang mitgesendet."}
             </p>
 
-            {pdfBlob && (
-              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
+            {bereitsBenachrichtigt.length > 0 && (
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                PDF-Protokoll wird als Anhang mitgesendet
+                Bereits benachrichtigt: {bereitsBenachrichtigt.join(", ")}
               </div>
             )}
+
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              PDF-Protokoll wird als Anhang mitgesendet
+            </div>
 
             {versorger.map((v) => {
               const Icon = v.icon;

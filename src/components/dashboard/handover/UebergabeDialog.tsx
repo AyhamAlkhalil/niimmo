@@ -234,6 +234,10 @@ export const UebergabeDialog = ({
 
   // Email dialog
   const [showEmailDialog, setShowEmailDialog] = useState(false);
+  // Adressen, an die das gespeicherte Protokoll schon ging
+  const [mailVersendetAn, setMailVersendetAn] = useState<string[]>([]);
+  // Versorger (typ), die schon benachrichtigt sind
+  const [versorgerBenachrichtigt, setVersorgerBenachrichtigt] = useState<Set<string>>(() => new Set());
 
   // Versorger confirmation dialog
   const [showVersorgerDialog, setShowVersorgerDialog] = useState(false);
@@ -302,6 +306,10 @@ export const UebergabeDialog = ({
       meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected, mieterEmails]
   );
   const ungespeicherteEingaben = !isSaved && (hatEingaben(eingaben) || fotosLaden);
+  // Angehakt, aber nach dem Speichern noch nicht benachrichtigt (Bezeichnungen)
+  const offeneVersorger = versorgerData
+    .filter((v) => versorgerSelected.has(v.typ) && !versorgerBenachrichtigt.has(v.typ))
+    .map((v) => v.label);
 
   // Jede Änderung sofort als Entwurf sichern. Der erste Lauf nach dem Öffnen
   // gibt nur den geladenen Entwurf wieder und schreibt nicht — sonst stünde
@@ -843,7 +851,7 @@ export const UebergabeDialog = ({
       toast({ title: "Wird gespeichert", description: "Bitte warten, bis das Protokoll gespeichert ist." });
       return;
     }
-    if (ungespeicherteEingaben) {
+    if (ungespeicherteEingaben || (isSaved && offeneVersorger.length > 0)) {
       setSchliessenFragen(true);
       return;
     }
@@ -1070,8 +1078,11 @@ export const UebergabeDialog = ({
               <Zap className="h-4 w-4" />
               Versorger benachrichtigen
             </Label>
+            {/* Bis zum 19.10.2026 stand hier, die Versorger „erhalten nach Abschluss
+                eine E-Mail“ — automatisch ging aber nie etwas raus */}
             <p className="text-xs text-muted-foreground">
-              Ausgewählte Versorger erhalten nach Abschluss eine E-Mail mit dem Übergabeprotokoll als PDF-Anhang.
+              Nach dem Speichern lassen sich die ausgewählten Versorger über „Versorger benachrichtigen“ mit dem
+              Übergabeprotokoll als PDF-Anhang anschreiben.
             </p>
             <div className="space-y-2">
               {versorgerData.map(v => {
@@ -1231,10 +1242,16 @@ export const UebergabeDialog = ({
               {mieterData.length > 0 && (
                 <Button variant="outline" onClick={() => setShowEmailDialog(true)} className="flex-1 h-10">
                   <Mail className="mr-2 h-4 w-4" />
-                  E-Mail senden
+                  {mailVersendetAn.length > 0 ? "E-Mail erneut senden" : "E-Mail senden"}
                 </Button>
               )}
             </div>
+            {mailVersendetAn.length > 0 && (
+              <p className="flex items-start gap-1.5 text-xs text-muted-foreground break-all">
+                <Check className="h-3.5 w-3.5 flex-shrink-0 text-success" />
+                Mail versendet an {mailVersendetAn.join(", ")}
+              </p>
+            )}
 
             {versorgerData.length > 0 && (
               <Button variant="outline" onClick={() => setShowVersorgerDialog(true)} className="w-full h-10">
@@ -1242,8 +1259,14 @@ export const UebergabeDialog = ({
                 Versorger benachrichtigen
               </Button>
             )}
+            {offeneVersorger.length > 0 && (
+              <p className="flex items-start gap-1.5 text-xs text-warning">
+                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                Ausgewählt, aber noch nicht benachrichtigt: {offeneVersorger.join(", ")}
+              </p>
+            )}
 
-            <Button onClick={handleClose} className="w-full h-10">
+            <Button onClick={schliessenAnfragen} className="w-full h-10">
               Schließen
             </Button>
           </>
@@ -1255,26 +1278,21 @@ export const UebergabeDialog = ({
   const dialogTitle = isEinzug ? "Übergabe (Einzug)" : "Übergabe (Auszug)";
   const DialogIcon = KeyRound;
 
-  // Ablagename für die Ausweich-Uploads der Mail-Dialoge. Ohne Mieternamen:
-  // Supabase Storage lehnt Umlaute ab. Der Download-Name fürs eigene Gerät
-  // (getPdfFileName) darf den Namen behalten.
-  const pdfAblageName = (savedPdfPath ?? uebergabePdfPfad(contracts[0].id, isEinzug, new Date())).split("/").pop() ?? "Uebergabeprotokoll.pdf";
-
-  // Email dialog
-  const emailDialogComponent = showEmailDialog && uebergabeDatum && (
+  // Beide Mail-Dialoge gibt es erst nach dem Speichern, sie verschicken das
+  // abgelegte Protokoll. Sie bleiben eingehängt, solange der Übergabe-Dialog
+  // offen ist: Schließen und wieder Öffnen behält Texte und Versandstand.
+  const emailDialogComponent = isSaved && savedPdfPath && uebergabeDatum && mieterData.length > 0 && (
     <UebergabeEmailDialog
       isOpen={showEmailDialog}
       onClose={handleEmailDialogClose}
-      mieter={mieterData.map((m) => ({
-        ...m,
-        hauptmail: mieterEmails[m.id] || m.hauptmail,
-      }))}
+      isEinzug={isEinzug}
+      mieter={mieterData}
+      adressVorschlaege={mieterEmails}
       contracts={contracts}
       uebergabeDatum={uebergabeDatum}
       mieterName={mieterName || ""}
-      pdfBlob={pdfBlob}
-      pdfFileName={pdfAblageName}
-      preSavedPdfPath={savedPdfPath ?? undefined}
+      pdfPfad={savedPdfPath}
+      onVersendet={(adressen) => setMailVersendetAn((vorher) => [...new Set([...vorher, ...adressen])])}
     />
   );
 
@@ -1288,7 +1306,7 @@ export const UebergabeDialog = ({
     [firstZaehler.strom, firstZaehler.gas, firstZaehler.wasser]
   );
 
-  const versorgerDialogComponent = showVersorgerDialog && uebergabeDatum && immobilieId && (
+  const versorgerDialogComponent = isSaved && savedPdfPath && uebergabeDatum && immobilieId && (
     <VersorgerBenachrichtigungDialog
       isOpen={showVersorgerDialog}
       onClose={handleVersorgerDialogClose}
@@ -1299,11 +1317,10 @@ export const UebergabeDialog = ({
       adresse={contracts[0]?.einheit?.immobilie?.adresse || ""}
       einheitBezeichnung={contracts[0]?.einheit?.etage || undefined}
       isEinzug={isEinzug}
-      pdfBlob={pdfBlob}
-      pdfFileName={pdfAblageName}
       contractIds={vertragIds}
       initialSelected={versorgerSelected}
-      preSavedPdfPath={savedPdfPath ?? undefined}
+      pdfPfad={savedPdfPath}
+      onVersendet={(typen) => setVersorgerBenachrichtigt((vorher) => new Set([...vorher, ...typen]))}
     />
   );
 
@@ -1311,11 +1328,13 @@ export const UebergabeDialog = ({
     <AlertDialog open={schliessenFragen} onOpenChange={setSchliessenFragen}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Übergabe noch nicht gespeichert</AlertDialogTitle>
+          <AlertDialogTitle>{isSaved ? "Versorger noch nicht benachrichtigt" : "Übergabe noch nicht gespeichert"}</AlertDialogTitle>
           <AlertDialogDescription>
             {/* Ein laufender Upload wird beim Schließen verworfen — das Foto
                 landet dann nicht im Entwurf, also darf der Text das nicht versprechen. */}
-            {fotosLaden
+            {isSaved
+              ? `Das Protokoll ist gespeichert. Ausgewählt, aber noch nicht benachrichtigt: ${offeneVersorger.join(", ")}. Nach dem Schließen geht das nur noch per Hand.`
+              : fotosLaden
               ? "Ein Foto wird gerade noch hochgeladen. Wenn Sie jetzt schließen, fehlt es im Entwurf und muss neu aufgenommen werden."
               : entwurfGesichert
                 ? "Die Eingaben bleiben als Entwurf auf diesem Gerät erhalten. Wenn Sie diesen Vertrag wieder öffnen, geht es an derselben Stelle weiter. Gespeichert ist das Protokoll erst mit „Protokoll speichern“."
@@ -1323,15 +1342,16 @@ export const UebergabeDialog = ({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Weiter bearbeiten</AlertDialogCancel>
+          <AlertDialogCancel>{isSaved ? "Zurück" : "Weiter bearbeiten"}</AlertDialogCancel>
           <AlertDialogAction
-            className={cn((!entwurfGesichert || fotosLaden) && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+            className={cn(!isSaved && (!entwurfGesichert || fotosLaden) && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
             onClick={() => {
               setSchliessenFragen(false);
-              onClose();
+              if (isSaved) handleClose();
+              else onClose();
             }}
           >
-            {fotosLaden ? "Trotzdem schließen" : entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
+            {isSaved ? "Ohne Benachrichtigung schließen" : fotosLaden ? "Trotzdem schließen" : entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
