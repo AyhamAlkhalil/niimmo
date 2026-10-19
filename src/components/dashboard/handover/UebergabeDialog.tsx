@@ -243,6 +243,8 @@ export const UebergabeDialog = ({
 
   // Abfrage vor dem Schließen, solange ungespeicherte Eingaben da sind
   const [schliessenFragen, setSchliessenFragen] = useState(false);
+  // Abfrage vor „Formular zurücksetzen“ — der Knopf löscht auch den Entwurf
+  const [zuruecksetzenFragen, setZuruecksetzenFragen] = useState(false);
 
   // Fotos, die gerade hochgeladen werden — je Upload-Feld. Solange etwas läuft,
   // fehlte das Foto in Vorschau und Protokoll, und Schließen verlöre es.
@@ -423,6 +425,9 @@ export const UebergabeDialog = ({
     setNotizenPhotos([]);
     setVermieterSignature(null);
     setMieterSignature(null);
+    // Sonst blieb der Entwurf mit nur der Versorger-Auswahl gleich wieder stehen
+    setVersorgerSelected(new Set());
+    setMieterEmails(Object.fromEntries(mieterData.map((m) => [m.id, m.hauptmail || ""])));
     setShowPreview(false);
     setPdfBlobUrl(null);
     setPdfBlob(null);
@@ -1158,7 +1163,12 @@ export const UebergabeDialog = ({
               </div>
             )}
 
-            <Button variant="ghost" onClick={resetForm} className="w-full h-10 text-muted-foreground" disabled={isSubmitting || isGeneratingPreview}>
+            <Button
+              variant="ghost"
+              onClick={() => (ungespeicherteEingaben ? setZuruecksetzenFragen(true) : resetForm())}
+              className="w-full h-10 text-muted-foreground"
+              disabled={isSubmitting || isGeneratingPreview || fotosLaden}
+            >
               <RotateCcw className="mr-2 h-4 w-4" />
               Formular zurücksetzen
             </Button>
@@ -1294,6 +1304,35 @@ export const UebergabeDialog = ({
     </AlertDialog>
   );
 
+  // Bis zum 19.10.2026 löschte ein einziger Tipp auf „Formular zurücksetzen“
+  // Eingaben, Fotos, Unterschriften und den Entwurf — auf dem Handy liegt der
+  // Knopf direkt unter „Vorschau“.
+  const zuruecksetzenAbfrage = (
+    <AlertDialog open={zuruecksetzenFragen} onOpenChange={setZuruecksetzenFragen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Formular zurücksetzen?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Alle Eingaben, Fotos und Unterschriften dieser Übergabe werden aus dem Formular und dem Entwurf auf diesem
+            Gerät gelöscht. Das lässt sich nicht rückgängig machen.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => {
+              setZuruecksetzenFragen(false);
+              resetForm();
+            }}
+          >
+            Zurücksetzen
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   if (isMobile) {
     return (
       // dismissible={false}: kein Schließen durch Wischen oder Tippen daneben.
@@ -1303,6 +1342,7 @@ export const UebergabeDialog = ({
         {emailDialogComponent}
         {versorgerDialogComponent}
         {schliessenAbfrage}
+        {zuruecksetzenAbfrage}
         <DrawerContent className="max-h-[95vh] supports-[height:100dvh]:max-h-[95dvh]">
           <DrawerHeader className="pb-2 flex items-center justify-between gap-2">
             <DrawerTitle className="flex items-center gap-2 text-lg">
@@ -1345,6 +1385,7 @@ export const UebergabeDialog = ({
       {emailDialogComponent}
       {versorgerDialogComponent}
       {schliessenAbfrage}
+      {zuruecksetzenAbfrage}
       <DialogContent className={cn(
         "max-h-[90vh] overflow-hidden flex flex-col",
         showPreview ? "sm:max-w-[1200px]" : "sm:max-w-[900px]"
