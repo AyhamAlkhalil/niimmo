@@ -17,8 +17,13 @@ interface SignatureCanvasProps {
 // CSS-pixel coordinates, scaled up by devicePixelRatio for sharp Retina output.
 // getPos always maps from current CSS rect to this fixed logical space so the
 // coordinates are correct regardless of when the element was laid out.
-const LOGICAL_W = 600;
-const LOGICAL_H = 200;
+// Seitenverhältnis 13:5 wie das Unterschriftsfeld im PDF (65 × 25 mm,
+// uebergabePdfGenerator.ts), und das Feld auf dem Bildschirm hat dasselbe. Bis
+// zum 19.10.2026 war das Feld 160 px hoch bei voller Breite: Auf dem Handy
+// (ca. 2:1) kam die Unterschrift im PDF in die Breite gezogen an, am Rechner
+// (ca. 4:1) gestaucht.
+const LOGICAL_W = 650;
+const LOGICAL_H = 250;
 
 export const SignatureCanvas = ({ onSignatureChange, label, initialValue }: SignatureCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -165,7 +170,7 @@ export const SignatureCanvas = ({ onSignatureChange, label, initialValue }: Sign
       <div className="relative border-2 border-dashed border-gray-300 rounded-lg bg-white overflow-hidden">
         <canvas
           ref={canvasRef}
-          className="w-full h-[160px] cursor-crosshair"
+          className="block w-full aspect-[13/5] cursor-crosshair"
           style={{ touchAction: "none" }}
         />
         {!hasSignature && (
