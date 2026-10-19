@@ -346,20 +346,28 @@ export const UebergabeDialog = ({
     return () => window.removeEventListener("beforeunload", warnen);
   }, [isOpen, isSubmitting, ungespeicherteEingaben, entwurfGesichert]);
 
+  // Ladefehler bei Mieter- und Versorgerdaten. Bis zum 19.10.2026 wurden sie
+  // verschluckt: Mailadressen, „E-Mail senden“ und die Versorger-Auswahl fehlten
+  // dann einfach, als gäbe es sie nicht.
+  const [ladeFehler, setLadeFehler] = useState({ mieter: false, versorger: false });
+  const [ladeVersuch, setLadeVersuch] = useState(0);
+
   // Fetch tenant data
   useEffect(() => {
     const fetchMieterData = async () => {
       if (vertragIds.length === 0) return;
-      const { data: mieterLinks } = await supabase
+      const { data: mieterLinks, error: linkFehler } = await supabase
         .from("mietvertrag_mieter")
         .select("mieter_id")
         .in("mietvertrag_id", vertragIds);
+      if (linkFehler) throw linkFehler;
       if (mieterLinks && mieterLinks.length > 0) {
         const mieterIds = mieterLinks.map((l) => l.mieter_id);
-        const { data: mieter } = await supabase
+        const { data: mieter, error: mieterFehler } = await supabase
           .from("mieter")
           .select("id, vorname, nachname, hauptmail")
           .in("id", mieterIds);
+        if (mieterFehler) throw mieterFehler;
         if (mieter) {
           setMieterData(mieter);
           // Eine im Entwurf schon eingetragene Adresse hat Vorrang vor der Stammadresse
@@ -373,19 +381,22 @@ export const UebergabeDialog = ({
         }
       }
     };
-    fetchMieterData().catch(() => {});
-  }, [vertragIds]);
+    fetchMieterData()
+      .then(() => setLadeFehler((f) => (f.mieter ? { ...f, mieter: false } : f)))
+      .catch(() => setLadeFehler((f) => ({ ...f, mieter: true })));
+  }, [vertragIds, ladeVersuch]);
 
   // Fetch Versorger-Daten
   useEffect(() => {
     const immobilieId = contracts[0]?.einheit?.immobilie_id || contracts[0]?.einheit?.immobilie?.id;
     if (!immobilieId) return;
     const fetchVersorger = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('immobilien')
         .select('versorger_strom_name, versorger_strom_email, versorger_gas_name, versorger_gas_email, versorger_wasser_name, versorger_wasser_email')
         .eq('id', immobilieId)
-        .single();
+        .maybeSingle();
+      if (error) throw error;
       if (!data) return;
       const liste: typeof versorgerData = [];
       if (data.versorger_strom_name || data.versorger_strom_email)
@@ -396,8 +407,10 @@ export const UebergabeDialog = ({
         liste.push({ typ: 'wasser', label: 'Wasser', name: data.versorger_wasser_name || '', email: data.versorger_wasser_email || '' });
       setVersorgerData(liste);
     };
-    fetchVersorger().catch(() => {});
-  }, [contracts]);
+    fetchVersorger()
+      .then(() => setLadeFehler((f) => (f.versorger ? { ...f, versorger: false } : f)))
+      .catch(() => setLadeFehler((f) => ({ ...f, versorger: true })));
+  }, [contracts, ladeVersuch]);
 
   // Cleanup blob URL
   useEffect(() => {
@@ -917,6 +930,30 @@ export const UebergabeDialog = ({
             <p className="text-xs mt-0.5">
               Der Browser lässt kein Zwischenspeichern zu. Den Dialog bitte erst nach „Protokoll speichern“ schließen.
             </p>
+          </div>
+        </div>
+      )}
+
+      {(ladeFehler.mieter || ladeFehler.versorger) && (
+        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-medium">
+              {ladeFehler.mieter && ladeFehler.versorger
+                ? "Mieter- und Versorgerdaten konnten nicht geladen werden"
+                : ladeFehler.mieter
+                ? "Mieterdaten konnten nicht geladen werden"
+                : "Versorgerdaten konnten nicht geladen werden"}
+            </p>
+            <p className="text-xs mt-0.5">
+              {ladeFehler.mieter ? "Ohne sie fehlen die Mailadressen und der Mailversand. " : ""}
+              {ladeFehler.versorger ? "Ohne sie fehlt die Versorger-Benachrichtigung. " : ""}
+              Das Protokoll selbst lässt sich trotzdem erfassen.
+            </p>
+            <Button variant="outline" size="sm" className="mt-2 h-8" onClick={() => setLadeVersuch((v) => v + 1)}>
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Erneut laden
+            </Button>
           </div>
         </div>
       )}
