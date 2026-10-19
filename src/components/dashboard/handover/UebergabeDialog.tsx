@@ -897,9 +897,17 @@ export const UebergabeDialog = ({
         </div>
       )}
 
-      {/* Während des Speicherns gesperrt: Was jetzt noch getippt würde, käme in
-          kein Protokoll und ginge mit dem gelöschten Entwurf verloren. */}
-      <fieldset disabled={isSubmitting} className={cn("space-y-6 min-w-0", isSubmitting && "pointer-events-none opacity-60")}>
+      {/* Während und nach dem Speichern gesperrt: Was jetzt noch getippt würde,
+          käme in kein Protokoll und ginge mit dem gelöschten Entwurf verloren.
+          Bis zum 19.10.2026 blieb das Formular nach dem Speichern offen — neue
+          Fotos lagen dann ohne Eintrag (unsichtbar) im Speicher, und die
+          Versorger-Mail nahm geänderte, nirgends gespeicherte Zählerstände mit.
+          pointer-events: Die Unterschriftsfläche ist kein Formularfeld und
+          ließe sich sonst weiter bemalen. */}
+      <fieldset
+        disabled={isSubmitting || isSaved}
+        className={cn("space-y-6 min-w-0", (isSubmitting || isSaved) && "pointer-events-none", isSubmitting && "opacity-60")}
+      >
         {/* Übergabedatum */}
         <div className="space-y-2">
           <Label className="text-sm font-medium">Übergabedatum *</Label>
