@@ -3,10 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, LogIn, LogOut, Loader2, Search } from "lucide-react";
+import { AlertTriangle, ArrowLeft, LogIn, LogOut, Loader2, RotateCcw, Search } from "lucide-react";
 import { UebergabeDialog } from "@/components/dashboard/handover/UebergabeDialog";
 import { UebergabeContractList } from "@/components/dashboard/handover/UebergabeContractList";
 import { cn } from "@/lib/utils";
+import { alleSeiten } from "@/utils/supabaseSeiten";
 import { toast } from "sonner";
 
 interface UebergabeProps {
@@ -50,30 +51,46 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
   const [showDialog, setShowDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const { data: contracts, isLoading, refetch } = useQuery({
+  const { data: contracts, isLoading, isError, refetch } = useQuery({
     queryKey: ['uebergabe-contracts'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('mietvertrag')
-        .select(`
-          id, status, start_datum, ende_datum, kuendigungsdatum,
-          kaltmiete, betriebskosten, strom_einzug, gas_einzug,
-          kaltwasser_einzug, warmwasser_einzug,
-          einheiten!inner (
-            id, etage, zaehler,
-            immobilien!inner ( id, name, adresse )
-          )
-        `)
-        .order('start_datum', { ascending: false });
+      // Seitenweise: PostgREST liefert still höchstens 1000 Zeilen. Fehler werfen
+      // statt verschluckt zu werden — bis zum 19.10.2026 sah ein Ladefehler wie
+      // eine leere Seite aus, ein Fehler bei den Mietern wie „Kein Mieter“.
+      const data = await alleSeiten((von, bis, mitZaehlung) =>
+        supabase
+          .from('mietvertrag')
+          .select(`
+            id, status, start_datum, ende_datum, kuendigungsdatum,
+            kaltmiete, betriebskosten, strom_einzug, gas_einzug,
+            kaltwasser_einzug, warmwasser_einzug,
+            einheiten!inner (
+              id, etage, zaehler,
+              immobilien!inner ( id, name, adresse )
+            )
+          `, { count: mitZaehlung ? 'exact' : undefined })
+          .order('start_datum', { ascending: false })
+          .order('id')
+          .range(von, bis)
+      );
+      if (data.length === 0) return [] as ContractWithDetails[];
 
-      if (error) throw error;
-      if (!data || data.length === 0) return [] as ContractWithDetails[];
-
+      // In Gruppen: Alle Vertrags-IDs in einer Abfrage-URL werden mit dem
+      // Bestand zu lang für die Gateways davor
       const contractIds = data.map(c => c.id);
-      const { data: allMieterData } = await supabase
-        .from('mietvertrag_mieter')
-        .select('mietvertrag_id, mieter:mieter_id (id, vorname, nachname)')
-        .in('mietvertrag_id', contractIds);
+      const allMieterData = [];
+      for (let i = 0; i < contractIds.length; i += 100) {
+        const gruppe = contractIds.slice(i, i + 100);
+        allMieterData.push(...await alleSeiten((von, bis, mitZaehlung) =>
+          supabase
+            .from('mietvertrag_mieter')
+            .select('mietvertrag_id, mieter:mieter_id (id, vorname, nachname)', { count: mitZaehlung ? 'exact' : undefined })
+            .in('mietvertrag_id', gruppe)
+            .order('mietvertrag_id')
+            .order('mieter_id')
+            .range(von, bis)
+        ));
+      }
 
       const mieterByContract = new Map<string, Array<{ id: string; vorname: string; nachname: string }>>();
       (allMieterData || []).forEach(entry => {
@@ -209,7 +226,18 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           </div>
         )}
 
-        {!isLoading && contracts && (
+        {!isLoading && isError && (
+          <div className="glass-card p-6 rounded-xl sm:rounded-2xl flex flex-col items-center gap-3 text-center">
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+            <p className="text-sm font-medium">Die Mietverträge konnten nicht geladen werden.</p>
+            <Button variant="outline" onClick={() => refetch()}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Erneut laden
+            </Button>
+          </div>
+        )}
+
+        {!isLoading && !isError && contracts && (
           <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl">
             <UebergabeContractList
               contracts={contracts}
