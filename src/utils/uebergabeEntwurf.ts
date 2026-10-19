@@ -47,13 +47,22 @@ export interface Ablage {
   removeItem(schluessel: string): void;
 }
 
+/** Zum Aufräumen muss die Ablage ihre Schlüssel aufzählen können. */
+export interface DurchsuchbareAblage extends Ablage {
+  readonly length: number;
+  key(index: number): string | null;
+}
+
+const PRAEFIX = "niimmo-uebergabe-entwurf:";
+
 const ZAEHLER = ["strom", "gas", "wasser", "warmwasser"] as const;
 
 /** Nach so vielen Tagen ohne Änderung wird ein Entwurf verworfen. */
 export const ENTWURF_HALTBAR_TAGE = 30;
+const HALTBAR_MS = ENTWURF_HALTBAR_TAGE * 24 * 60 * 60 * 1000;
 
 /** localStorage, falls der Browser ihn hergibt (privates Fenster, gesperrte Website-Daten: nein). */
-export function browserAblage(): Ablage | null {
+export function browserAblage(): DurchsuchbareAblage | null {
   try {
     return typeof window !== "undefined" && window.localStorage ? window.localStorage : null;
   } catch {
@@ -62,7 +71,7 @@ export function browserAblage(): Ablage | null {
 }
 
 export function entwurfSchluessel(vertragIds: string[], isEinzug: boolean): string {
-  return `niimmo-uebergabe-entwurf:${isEinzug ? "einzug" : "auszug"}:${[...vertragIds].sort().join(",")}`;
+  return `${PRAEFIX}${isEinzug ? "einzug" : "auszug"}:${[...vertragIds].sort().join(",")}`;
 }
 
 /** Hat jemand schon etwas erfasst, das beim Schließen verloren ginge? Das Datum allein zählt nicht. */
@@ -86,6 +95,13 @@ const unterschrift = (v: unknown): string | null =>
 const textListe = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const objekt = (v: unknown): Record<string, unknown> =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+
+/** Richtige Fassung, lesbarer Zeitstempel, nicht älter als ENTWURF_HALTBAR_TAGE. */
+function nochGueltig(roh: unknown, jetzt: Date): boolean {
+  const r = objekt(roh);
+  const gespeichertMs = Date.parse(text(r.gespeichertAm));
+  return r.version === 1 && !Number.isNaN(gespeichertMs) && jetzt.getTime() - gespeichertMs <= HALTBAR_MS;
+}
 
 /**
  * Liest den Entwurf und bringt ihn in Form. Ein beschädigter, fremder oder
@@ -111,17 +127,12 @@ export function entwurfLesen(
     entwurfLoeschen(ablage, schluessel);
     return null;
   }
-  const r = objekt(roh);
-  const gespeichertAm = text(r.gespeichertAm);
-  const gespeichertMs = Date.parse(gespeichertAm);
-  if (
-    r.version !== 1 ||
-    Number.isNaN(gespeichertMs) ||
-    jetzt.getTime() - gespeichertMs > ENTWURF_HALTBAR_TAGE * 24 * 60 * 60 * 1000
-  ) {
+  if (!nochGueltig(roh, jetzt)) {
     entwurfLoeschen(ablage, schluessel);
     return null;
   }
+  const r = objekt(roh);
+  const gespeichertAm = text(r.gespeichertAm);
 
   const schluesselRoh = objekt(r.schluessel);
   const staendeRoh = objekt(r.zaehlerstaende);
@@ -185,4 +196,38 @@ export function entwurfLoeschen(ablage: Ablage | null, schluessel: string): void
   } catch {
     // Nicht entfernbar heißt auch nicht lesbar — beim nächsten Öffnen fällt er ohnehin weg
   }
+}
+
+/**
+ * Entfernt verfallene und unlesbare Entwürfe aller Verträge. entwurfLesen räumt
+ * nur den Entwurf des gerade geöffneten Vertrags ab; ein Entwurf mit
+ * Unterschriften und Mailadressen für einen Vertrag, der nie wieder geöffnet
+ * wurde, blieb bis zum 19.10.2026 unbegrenzt auf dem Gerät liegen.
+ * Liefert die Zahl der entfernten Entwürfe.
+ */
+export function entwuerfeAufraeumen(ablage: DurchsuchbareAblage | null, jetzt: Date = new Date()): number {
+  if (!ablage) return 0;
+  const schluessel: string[] = [];
+  try {
+    for (let i = 0; i < ablage.length; i++) {
+      const k = ablage.key(i);
+      if (k?.startsWith(PRAEFIX)) schluessel.push(k);
+    }
+  } catch {
+    return 0;
+  }
+  let entfernt = 0;
+  for (const k of schluessel) {
+    let roh: unknown = null;
+    try {
+      roh = JSON.parse(ablage.getItem(k) ?? "null");
+    } catch {
+      roh = null;
+    }
+    if (!nochGueltig(roh, jetzt)) {
+      entwurfLoeschen(ablage, k);
+      entfernt++;
+    }
+  }
+  return entfernt;
 }

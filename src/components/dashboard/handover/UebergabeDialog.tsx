@@ -51,6 +51,7 @@ import {
   entwurfLesen,
   entwurfSchreiben,
   entwurfLoeschen,
+  entwuerfeAufraeumen,
   hatEingaben,
   type UebergabeEingaben,
 } from "@/utils/uebergabeEntwurf";
@@ -133,6 +134,10 @@ export const UebergabeDialog = ({
   const [geladenerEntwurf] = useState(() => entwurfLesen(ablage, entwurfKey, contracts.map((c) => c.id)));
   const [wiederhergestelltAm, setWiederhergestelltAm] = useState<string | null>(geladenerEntwurf?.gespeichertAm || null);
   const [entwurfGesichert, setEntwurfGesichert] = useState(true);
+  // Verfallene Entwürfe anderer Verträge gleich mit abräumen
+  useEffect(() => {
+    entwuerfeAufraeumen(ablage);
+  }, [ablage]);
 
   const standardDatum = () => (getVertragsende(contracts[0]) ? new Date(getVertragsende(contracts[0])!) : new Date());
   const [uebergabeDatum, setUebergabeDatum] = useState<Date | undefined>(() =>

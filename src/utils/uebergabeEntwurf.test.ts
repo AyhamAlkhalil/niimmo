@@ -4,14 +4,21 @@ import {
   entwurfLesen,
   entwurfSchreiben,
   entwurfLoeschen,
+  entwuerfeAufraeumen,
   hatEingaben,
-  type Ablage,
+  type DurchsuchbareAblage,
   type UebergabeEingaben,
 } from "./uebergabeEntwurf";
 
-class TestAblage implements Ablage {
+class TestAblage implements DurchsuchbareAblage {
   daten = new Map<string, string>();
   voll = false;
+  get length() {
+    return this.daten.size;
+  }
+  key(i: number) {
+    return [...this.daten.keys()][i] ?? null;
+  }
   getItem(k: string) {
     return this.daten.get(k) ?? null;
   }
@@ -184,5 +191,34 @@ describe("Entwurf schreiben und lesen", () => {
     entwurfLoeschen(ablage, "k");
     expect(entwurfLesen(ablage, "k", [V1], JETZT)).toBeNull();
     expect(() => entwurfLoeschen(null, "k")).not.toThrow();
+  });
+});
+
+describe("entwuerfeAufraeumen", () => {
+  const TAG = 24 * 60 * 60 * 1000;
+
+  it("entfernt verfallene und unlesbare Entwürfe aller Verträge, lässt frische und fremde Einträge stehen", () => {
+    const ablage = new TestAblage();
+    const frisch = entwurfSchluessel(["a"], true);
+    const alt = entwurfSchluessel(["b"], false);
+    const kaputt = entwurfSchluessel(["c"], true);
+    const falscheFassung = entwurfSchluessel(["d"], true);
+    entwurfSchreiben(ablage, frisch, leer(), new Date(JETZT.getTime() - 29 * TAG));
+    entwurfSchreiben(ablage, alt, leer(), new Date(JETZT.getTime() - 31 * TAG));
+    ablage.setItem(kaputt, "{nicht json");
+    ablage.setItem(falscheFassung, JSON.stringify({ version: 2, gespeichertAm: JETZT.toISOString() }));
+    ablage.setItem("andere-anwendung", "{nicht json");
+
+    expect(entwuerfeAufraeumen(ablage, JETZT)).toBe(3);
+    expect([...ablage.daten.keys()].sort()).toEqual(["andere-anwendung", frisch].sort());
+  });
+
+  it("verträgt eine Ablage, die beim Aufzählen wirft, und fehlende Ablage", () => {
+    const ablage = new TestAblage();
+    ablage.key = () => {
+      throw new Error("SecurityError");
+    };
+    expect(entwuerfeAufraeumen(ablage, JETZT)).toBe(0);
+    expect(entwuerfeAufraeumen(null, JETZT)).toBe(0);
   });
 });
