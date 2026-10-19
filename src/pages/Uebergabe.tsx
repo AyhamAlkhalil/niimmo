@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -117,6 +117,28 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
     }
   });
 
+  // Stabil halten: Der Dialog lädt Mieter und Versorger neu, sobald sich diese
+  // Werte ändern. Als frische Arrays je Render lud er bei jedem Neuzeichnen der
+  // Seite neu — etwa wenn die Vertragsliste beim Zurückkehren aus der Kamera-App
+  // aktualisiert wird —, und ein kurzer Netzaussetzer zeigte dann einen Ladefehler.
+  const dialogVertragIds = useMemo(() => selectedContracts.map((c) => c.id), [selectedContracts]);
+  const dialogVertraege = useMemo(
+    () =>
+      selectedContracts.map((c) => ({
+        id: c.id,
+        einheit: {
+          id: c.einheit.id,
+          nummer: c.einheit.zaehler?.toString(),
+          etage: c.einheit.etage || undefined,
+          immobilie_id: c.einheit.immobilie.id,
+          immobilie: { id: c.einheit.immobilie.id, name: c.einheit.immobilie.name, adresse: c.einheit.immobilie.adresse },
+        },
+        kuendigungsdatum: c.kuendigungsdatum || undefined,
+        ende_datum: c.ende_datum || undefined,
+      })),
+    [selectedContracts]
+  );
+
   const handleContractClick = (group: any) => {
     setSelectedContracts(group.contracts);
     setShowDialog(true);
@@ -226,7 +248,8 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           </div>
         )}
 
-        {!isLoading && isError && (
+        {/* Scheitert nur eine Aktualisierung, bleibt die geladene Liste stehen */}
+        {!isLoading && isError && !contracts && (
           <div className="glass-card p-6 rounded-xl sm:rounded-2xl flex flex-col items-center gap-3 text-center">
             <AlertTriangle className="h-6 w-6 text-destructive" />
             <p className="text-sm font-medium">Die Mietverträge konnten nicht geladen werden.</p>
@@ -237,7 +260,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           </div>
         )}
 
-        {!isLoading && !isError && contracts && (
+        {!isLoading && contracts && (
           <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl">
             <UebergabeContractList
               contracts={contracts}
@@ -253,19 +276,8 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
         <UebergabeDialog
           isOpen={showDialog}
           onClose={handleDialogClose}
-          vertragIds={selectedContracts.map(c => c.id)}
-          contracts={selectedContracts.map(c => ({
-            id: c.id,
-            einheit: {
-              id: c.einheit.id,
-              nummer: c.einheit.zaehler?.toString(),
-              etage: c.einheit.etage || undefined,
-              immobilie_id: c.einheit.immobilie.id,
-              immobilie: { id: c.einheit.immobilie.id, name: c.einheit.immobilie.name, adresse: c.einheit.immobilie.adresse }
-            },
-            kuendigungsdatum: c.kuendigungsdatum || undefined,
-            ende_datum: c.ende_datum || undefined
-          }))}
+          vertragIds={dialogVertragIds}
+          contracts={dialogVertraege}
           mieterName={selectedContracts[0].mieter.map(m => `${m.vorname} ${m.nachname}`).join(", ")}
           onSuccess={handleSuccess}
           isEinzug={uebergabeType === "einzug"}
