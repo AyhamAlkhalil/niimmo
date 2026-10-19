@@ -9,8 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Mail, Send, AlertCircle, CheckCircle2, Plus, X } from "lucide-react";
 import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import { de } from "date-fns/locale";
-import { versandAuswerten } from "@/utils/uebergabeMail";
+import { istMailadresse, versandAuswerten } from "@/utils/uebergabeMail";
 
 interface Mieter {
   id: string;
@@ -51,8 +52,6 @@ interface VersandErgebnis {
   gesendet: string[];
   fehlgeschlagen: string[];
 }
-
-const istAdresse = (email: string | null | undefined) => !!email && email.includes("@");
 
 /**
  * Versand des gespeicherten Übergabeprotokolls an die Mieter.
@@ -149,12 +148,14 @@ Ihre Hausverwaltung`
     setCcEmails((prev) => prev.map((e, i) => (i === index ? value : e)));
   };
 
-  const hasValidEmails = Object.values(emailAddresses).some(istAdresse);
-  const geaendert = (m: Mieter) => istAdresse(emailAddresses[m.id]) && emailAddresses[m.id].trim() !== (m.hauptmail ?? "").trim();
+  const hasValidEmails = Object.values(emailAddresses).some(istMailadresse);
+  // Etwas eingetragen, aber keine vollständige Adresse
+  const ungueltig = (email: string | undefined) => !!email?.trim() && !istMailadresse(email);
+  const geaendert = (m: Mieter) => istMailadresse(emailAddresses[m.id]) && emailAddresses[m.id].trim() !== (m.hauptmail ?? "").trim();
 
   const handleSendEmails = async () => {
     const validEmails = mieter
-      .filter((m) => istAdresse(emailAddresses[m.id]))
+      .filter((m) => istMailadresse(emailAddresses[m.id]))
       .map((m) => ({
         mieterId: m.id,
         email: emailAddresses[m.id].trim(),
@@ -163,7 +164,7 @@ Ihre Hausverwaltung`
 
     // Add CC emails as additional recipients
     const validCcEmails = ccEmails
-      .filter(istAdresse)
+      .filter(istMailadresse)
       .map((email) => ({ mieterId: "cc", email: email.trim(), name: "CC" }));
 
     const allRecipients = [...validEmails, ...validCcEmails];
@@ -327,8 +328,11 @@ Ihre Hausverwaltung`
                     placeholder="E-Mail-Adresse eingeben..."
                     value={emailAddresses[m.id] || ""}
                     onChange={(e) => updateEmailAddress(m.id, e.target.value)}
-                    className="h-10"
+                    className={cn("h-10", ungueltig(emailAddresses[m.id]) && "border-destructive focus-visible:ring-destructive")}
                   />
+                  {ungueltig(emailAddresses[m.id]) && (
+                    <p className="text-xs text-destructive">Adresse unvollständig — an sie wird nicht versendet.</p>
+                  )}
                   {geaendert(m) && (
                     <div className="flex items-center gap-2">
                       <Checkbox
@@ -368,7 +372,7 @@ Ihre Hausverwaltung`
                     placeholder="z.B. hausverwaltung@firma.de"
                     value={email}
                     onChange={(e) => updateCcEmail(index, e.target.value)}
-                    className="h-10 flex-1"
+                    className={cn("h-10 flex-1", ungueltig(email) && "border-destructive focus-visible:ring-destructive")}
                   />
                   {ccEmails.length > 1 && (
                     <Button variant="ghost" size="sm" onClick={() => removeCcEmail(index)} className="h-10 px-2">
@@ -405,7 +409,7 @@ Ihre Hausverwaltung`
               </Button>
               <Button
                 onClick={handleSendEmails}
-                disabled={isSending || (!hasValidEmails && !ccEmails.some(istAdresse))}
+                disabled={isSending || (!hasValidEmails && !ccEmails.some(istMailadresse))}
               >
                 {isSending ? (
                   <>

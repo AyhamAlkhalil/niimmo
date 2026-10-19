@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { versandAuswerten } from "./uebergabeMail";
+import { istMailadresse, versandAuswerten } from "./uebergabeMail";
 
 describe("versandAuswerten", () => {
   it("trennt angenommene von abgelehnten Adressen", () => {
@@ -28,4 +28,17 @@ describe("versandAuswerten", () => {
       fehlgeschlagen: ["b@x.de"],
     });
   });
+});
+
+describe("istMailadresse", () => {
+  it.each(["a@b.de", " mieter.name@web.de ", "x+y@sub.firma.de"])("nimmt %s an", (a) => {
+    expect(istMailadresse(a)).toBe(true);
+  });
+
+  it.each(["", "   ", "a@b", "@b.de", "a b@c.de", "a@b.de, c@d.de", "a@b.de\r\nBcc: x@y.de", null, undefined])(
+    "lehnt %j ab",
+    (a) => {
+      expect(istMailadresse(a)).toBe(false);
+    }
+  );
 });

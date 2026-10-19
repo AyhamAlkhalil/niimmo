@@ -6,6 +6,14 @@
  * Maildialog nur den Statuscode aus und meldete jeden Teilversand als vollen
  * Erfolg — eine abgelehnte Adresse fiel niemandem auf.
  */
+/**
+ * Dieselbe Prüfung wie in send-uebergabe-email. Eine ungültige Adresse lehnt die
+ * Function für den ganzen Versand ab — der Dialog markiert sie deshalb vorher.
+ */
+export function istMailadresse(email: string | null | undefined): boolean {
+  return !!email && email.trim().length <= 254 && /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/.test(email.trim());
+}
+
 export interface VersandAuswertung {
   gesendet: string[];
   fehlgeschlagen: string[];
