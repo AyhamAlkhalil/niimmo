@@ -84,6 +84,17 @@ describe('generateUebergabePdf', () => {
     expect(pdf.match(/ Stück\)/g)).toHaveLength(2);
   });
 
+  it('führt Zählernummern nur, wenn die Einheit welche kennt', async () => {
+    expect(ohneFotos).not.toContain('Zählernummer');
+    const mitNummern = await renderText({
+      ...baseData,
+      einheiten: [{ ...baseData.einheiten[0], zaehlernummern: { strom: '1ESY1160234567', wasser: ' ', gas: null } }],
+    });
+    expect(mitNummern).toContain('Zählernummer');
+    expect(mitNummern).toContain('1ESY1160234567');
+    expect(mitNummern).toContain('128,456');
+  });
+
   it('rendert den Notizen-Abschnitt', () => {
     expect(ohneFotos).toContain('Bemerkungen / Zustand');
   });

@@ -28,6 +28,13 @@ export interface UebergabePdfData {
       wasser: string;
       warmwasser: string;
     };
+    /** Zählernummern aus den Stammdaten der Einheit — ohne sie ist ein Stand keinem Zähler sicher zuzuordnen */
+    zaehlernummern?: {
+      strom?: string | null;
+      gas?: string | null;
+      wasser?: string | null;
+      warmwasser?: string | null;
+    };
     // Zählerfotos, gruppiert nach Zählertyp
     zaehlerfotos?: {
       strom?: PdfImage[];
@@ -186,14 +193,22 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
     doc.setTextColor(0, 0, 0);
     y += 7;
 
+    // Spalte Zählernummer nur, wenn die Einheit welche kennt (20.10.2026: bei
+    // 82 von 113 Einheiten hinterlegt, bis dahin in keinem Protokoll)
+    const nummern = einheit.zaehlernummern ?? {};
+    const mitNummer = Object.values(nummern).some((n) => !!n?.trim());
+    const spalteStand = mitNummer ? 95 : 70;
+    const spalteEinheit = mitNummer ? 135 : 120;
+
     // Table header
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
     doc.setFillColor(245, 245, 245);
     doc.rect(marginLeft, y - 4, contentWidth, 7, 'F');
     doc.text('Zählerart', marginLeft + 3, y);
-    doc.text('Zählerstand', marginLeft + 70, y);
-    doc.text('Einheit', marginLeft + 120, y);
+    if (mitNummer) doc.text('Zählernummer', marginLeft + 38, y);
+    doc.text('Zählerstand', marginLeft + spalteStand, y);
+    doc.text('Einheit', marginLeft + spalteEinheit, y);
     y += 5;
     doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.2);
@@ -202,16 +217,21 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
 
     doc.setFont('helvetica', 'normal');
     const readings = [
-      ['Strom', einheit.zaehlerstaende.strom || '–', 'kWh'],
-      ['Gas', einheit.zaehlerstaende.gas || '–', 'm³'],
-      ['Kaltwasser', einheit.zaehlerstaende.wasser || '–', 'm³'],
-      ['Warmwasser', einheit.zaehlerstaende.warmwasser || '–', 'm³'],
+      ['Strom', einheit.zaehlerstaende.strom || '–', 'kWh', nummern.strom],
+      ['Gas', einheit.zaehlerstaende.gas || '–', 'm³', nummern.gas],
+      ['Kaltwasser', einheit.zaehlerstaende.wasser || '–', 'm³', nummern.wasser],
+      ['Warmwasser', einheit.zaehlerstaende.warmwasser || '–', 'm³', nummern.warmwasser],
     ];
 
-    for (const [type, value, unit] of readings) {
+    for (const [type, value, unit, nummer] of readings) {
       doc.text(type, marginLeft + 3, y);
-      doc.text(value, marginLeft + 70, y);
-      doc.text(unit, marginLeft + 120, y);
+      if (mitNummer) {
+        // Lange Nummern nicht in die Standspalte laufen lassen
+        const passend = doc.splitTextToSize(nummer?.trim() || '–', spalteStand - 38 - 3)[0] ?? '–';
+        doc.text(passend, marginLeft + 38, y);
+      }
+      doc.text(value, marginLeft + spalteStand, y);
+      doc.text(unit, marginLeft + spalteEinheit, y);
       y += 5;
     }
     y += 5;
