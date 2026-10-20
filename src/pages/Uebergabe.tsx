@@ -3,11 +3,25 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, ArrowLeft, LogIn, LogOut, Loader2, RotateCcw, Search } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ChevronRight, History, LogIn, LogOut, Loader2, RotateCcw, Search, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { format } from "date-fns";
+import { de } from "date-fns/locale";
 import { UebergabeDialog } from "@/components/dashboard/handover/UebergabeDialog";
 import { UebergabeContractList } from "@/components/dashboard/handover/UebergabeContractList";
 import { cn } from "@/lib/utils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
+import { browserAblage, entwuerfeAuflisten, entwurfLoeschen, type EntwurfEintrag } from "@/utils/uebergabeEntwurf";
+import { letzteProtokolle, type ProtokollZeile } from "@/utils/uebergabeProtokolle";
 import { toast } from "sonner";
 
 interface UebergabeProps {
@@ -139,70 +153,214 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
     [selectedContracts]
   );
 
+  // Angefangene Übergaben auf diesem Gerät. Der Entwurf liegt nur hier
+  // (utils/uebergabeEntwurf.ts) — ohne diese Liste musste man sich merken, bei
+  // welchem Vertrag man angefangen hatte.
+  const [entwuerfe, setEntwuerfe] = useState<EntwurfEintrag[]>(() => entwuerfeAuflisten(browserAblage()));
+  // Entwurf zu einem Vertrag, den es nicht mehr gibt — sonst bliebe er unlöschbar liegen
+  const [entwurfEntfernen, setEntwurfEntfernen] = useState<EntwurfEintrag | null>(null);
+
+  // Schon gespeicherte Protokolle: Ein zweites entstand bisher oft nur, weil
+  // niemand sah, dass es schon eines gab. Ein Ladefehler blendet nur den Hinweis aus.
+  const { data: protokolle, refetch: protokolleNeuLaden } = useQuery({
+    queryKey: ['uebergabe-protokolle'],
+    queryFn: async () =>
+      letzteProtokolle(
+        await alleSeiten<ProtokollZeile>((von, bis, mitZaehlung) =>
+          supabase
+            .from('dokumente')
+            .select('mietvertrag_id, titel, pfad, dateityp, hochgeladen_am', { count: mitZaehlung ? 'exact' : undefined })
+            .eq('kategorie', 'Übergabeprotokoll')
+            .eq('geloescht', false)
+            .order('id')
+            .range(von, bis)
+        )
+      ),
+  });
+
+  const entwurfJeVertrag = useMemo(
+    () =>
+      new Map(
+        entwuerfe
+          .filter((e) => e.vertragIds.length === 1 && e.isEinzug === (uebergabeType === "einzug"))
+          .map((e) => [e.vertragIds[0], e.gespeichertAm] as const)
+      ),
+    [entwuerfe, uebergabeType]
+  );
+  const protokollJeVertrag = useMemo(() => {
+    const m = new Map<string, string>();
+    if (!uebergabeType) return m;
+    protokolle?.forEach((arten, vertragId) => {
+      const am = arten[uebergabeType];
+      if (am) m.set(vertragId, am);
+    });
+    return m;
+  }, [protokolle, uebergabeType]);
+
   const handleContractClick = (group: any) => {
     setSelectedContracts(group.contracts);
+    setShowDialog(true);
+  };
+
+  const entwurfOeffnen = (e: EntwurfEintrag) => {
+    const gefunden = e.vertragIds
+      .map((id) => contracts?.find((c) => c.id === id))
+      .filter((c): c is ContractWithDetails => !!c);
+    if (gefunden.length !== e.vertragIds.length) {
+      toast.error("Der Vertrag zu diesem Entwurf wurde nicht gefunden.");
+      return;
+    }
+    setUebergabeType(e.isEinzug ? "einzug" : "auszug");
+    setSelectedContracts(gefunden);
     setShowDialog(true);
   };
 
   const handleDialogClose = () => {
     setShowDialog(false);
     setSelectedContracts([]);
+    setEntwuerfe(entwuerfeAuflisten(browserAblage()));
   };
 
   const handleSuccess = () => {
     refetch();
+    protokolleNeuLaden();
     handleDialogClose();
     toast.success("Übergabe erfolgreich dokumentiert");
   };
 
+  const vertragsTitel = (ids: string[]) => {
+    const vertraege = ids.map((id) => contracts?.find((c) => c.id === id)).filter((c): c is ContractWithDetails => !!c);
+    if (vertraege.length === 0) return null;
+    const mieter = vertraege[0].mieter.map((m) => `${m.vorname} ${m.nachname}`).join(", ") || "Kein Mieter";
+    const objekt = [vertraege[0].einheit.immobilie.name, vertraege[0].einheit.etage].filter(Boolean).join(", ");
+    return { mieter, objekt: vertraege.length > 1 ? `${objekt} (+${vertraege.length - 1})` : objekt };
+  };
+
   if (!uebergabeType) {
+    // Immer zeigen — auch während die Verträge laden oder wenn das scheitert. Ein
+    // Entwurf mit Unterschriften und Fotos darf nicht unsichtbar werden.
+    const offene = entwuerfe.map((e) => ({ eintrag: e, titel: vertragsTitel(e.vertragIds) }));
     return (
       <div className="min-h-screen modern-dashboard-bg">
         <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-          <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl mb-6">
+          <div className="glass-card mb-6 rounded-xl p-4 sm:rounded-2xl sm:p-6">
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={onBack} className="hover:bg-white/50">
-                <ArrowLeft className="h-4 w-4 mr-1" /> Zurück
+              <Button variant="ghost" size="sm" onClick={onBack}>
+                <ArrowLeft className="mr-1 h-4 w-4" /> Zurück
               </Button>
               <div>
-                <h1 className="text-xl sm:text-2xl lg:text-3xl font-sans font-bold text-gradient-red">Übergabe</h1>
-                <p className="text-gray-600 font-sans text-xs sm:text-sm">Wählen Sie den Übergabetyp</p>
+                <h1 className="text-gradient-red font-sans text-xl font-bold sm:text-2xl lg:text-3xl">Übergabe</h1>
+                <p className="font-sans text-xs text-muted-foreground sm:text-sm">Einzug oder Auszug wählen</p>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 max-w-4xl mx-auto">
-            <button
-              onClick={() => setUebergabeType("einzug")}
-              className="glass-card p-6 sm:p-8 rounded-2xl hover:shadow-xl transition-all duration-300 group text-left"
-            >
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-3 sm:p-4 rounded-xl bg-green-100 group-hover:bg-green-200 transition-colors">
-                  <LogIn className="h-6 sm:h-8 w-6 sm:w-8 text-green-600" />
-                </div>
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">EINZUG</h2>
-              </div>
-              <p className="text-gray-600 text-sm sm:text-base">
-                Übergabeprotokoll für Einzug erstellen.
-              </p>
-            </button>
+          <div className="mx-auto max-w-4xl space-y-6">
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
+              {([
+                ["einzug", LogIn, "Einzug", "Schlüssel, Zählerstände und Zustand der Wohnung beim Einzug festhalten.", "bg-success/10 text-success"],
+                ["auszug", LogOut, "Auszug", "Rückgabe der Wohnung mit Zählerständen für Abrechnung und Versorger.", "bg-warning/10 text-warning"],
+              ] as const).map(([art, Symbol, titel, text, farbe]) => (
+                <button
+                  key={art}
+                  onClick={() => setUebergabeType(art)}
+                  className="glass-card group rounded-2xl p-5 text-left transition-all duration-300 hover:shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-7"
+                >
+                  <div className="mb-3 flex items-center gap-4">
+                    <div className={cn("rounded-xl p-3 transition-transform group-hover:scale-105", farbe)}>
+                      <Symbol className="h-6 w-6 sm:h-7 sm:w-7" />
+                    </div>
+                    <h2 className="text-xl font-bold sm:text-2xl">{titel}</h2>
+                    <ChevronRight className="ml-auto h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm text-muted-foreground sm:text-base">{text}</p>
+                </button>
+              ))}
+            </div>
 
-            <button
-              onClick={() => setUebergabeType("auszug")}
-              className="glass-card p-6 sm:p-8 rounded-2xl hover:shadow-xl transition-all duration-300 group text-left"
-            >
-              <div className="flex items-center gap-4 mb-4">
-                <div className="p-3 sm:p-4 rounded-xl bg-orange-100 group-hover:bg-orange-200 transition-colors">
-                  <LogOut className="h-6 sm:h-8 w-6 sm:w-8 text-orange-600" />
+            {offene.length > 0 && (
+              <section className="glass-card space-y-3 rounded-2xl p-4 sm:p-6">
+                <div>
+                  <h2 className="flex items-center gap-2 text-sm font-semibold">
+                    <History className="h-4 w-4 text-primary" />
+                    Angefangen auf diesem Gerät
+                  </h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Noch nicht gespeichert — hier geht es an derselben Stelle weiter.</p>
                 </div>
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-800">AUSZUG</h2>
-              </div>
-              <p className="text-gray-600 text-sm sm:text-base">
-                Übergabeprotokoll für Auszug erstellen.
-              </p>
-            </button>
+                {isError && !contracts && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span className="flex-1">Die Verträge zu den Entwürfen konnten nicht geladen werden.</span>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>
+                      <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                      Erneut laden
+                    </Button>
+                  </div>
+                )}
+                <ul className="space-y-2">
+                  {offene.map(({ eintrag, titel }) => (
+                    <li key={eintrag.schluessel} className="flex items-center gap-2">
+                      <button
+                        onClick={() => entwurfOeffnen(eintrag)}
+                        disabled={!titel}
+                        className="flex w-full items-center gap-3 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:hover:border-border"
+                      >
+                        <span
+                          className={cn(
+                            "rounded-md px-2 py-0.5 text-xs font-medium",
+                            eintrag.isEinzug ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+                          )}
+                        >
+                          {eintrag.isEinzug ? "Einzug" : "Auszug"}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">
+                            {titel ? titel.mieter : isLoading ? "Vertrag wird geladen …" : isError ? "Vertrag nicht geladen" : "Vertrag nicht gefunden"}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {titel ? `${titel.objekt} · ` : ""}zuletzt {format(new Date(eintrag.gespeichertAm), "dd.MM., HH:mm", { locale: de })} Uhr
+                          </span>
+                        </span>
+                        {titel && <span className="hidden text-sm text-primary sm:inline">Weiter</span>}
+                        {titel ? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : isLoading && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
+                      </button>
+                      {!titel && contracts && (
+                        <Button variant="ghost" size="icon" aria-label="Entwurf löschen" onClick={() => setEntwurfEntfernen(eintrag)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
         </div>
+
+        <AlertDialog open={!!entwurfEntfernen} onOpenChange={(offen) => !offen && setEntwurfEntfernen(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Entwurf löschen?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Der Vertrag zu diesem Entwurf ist nicht mehr vorhanden. Eingaben, Fotos und Unterschriften des Entwurfs werden von
+                diesem Gerät gelöscht.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (entwurfEntfernen) entwurfLoeschen(browserAblage(), entwurfEntfernen.schluessel);
+                  setEntwurfEntfernen(null);
+                  setEntwuerfe(entwuerfeAuflisten(browserAblage()));
+                }}
+              >
+                Löschen
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
@@ -210,33 +368,29 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
   return (
     <div className="min-h-screen modern-dashboard-bg">
       <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-        <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <div className="flex items-center gap-3 flex-1">
-              <Button
-                variant="ghost" size="sm"
-                onClick={() => { setUebergabeType(null); setSearchQuery(""); }}
-                className="hover:bg-white/50"
-              >
-                <ArrowLeft className="h-4 w-4 mr-1" /> Zurück
+        <div className="glass-card mb-6 rounded-xl p-4 sm:rounded-2xl sm:p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex flex-1 items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={() => { setUebergabeType(null); setSearchQuery(""); }}>
+                <ArrowLeft className="mr-1 h-4 w-4" /> Zurück
               </Button>
-              <div className={cn("p-2 rounded-lg", uebergabeType === "einzug" ? "bg-green-100" : "bg-orange-100")}>
-                {uebergabeType === "einzug" ? <LogIn className="h-5 w-5 text-green-600" /> : <LogOut className="h-5 w-5 text-orange-600" />}
+              <div className={cn("rounded-lg p-2", uebergabeType === "einzug" ? "bg-success/10 text-success" : "bg-warning/10 text-warning")}>
+                {uebergabeType === "einzug" ? <LogIn className="h-5 w-5" /> : <LogOut className="h-5 w-5" />}
               </div>
               <div>
-                <h1 className="text-xl sm:text-2xl lg:text-3xl font-sans font-bold text-gradient-red">
-                  {uebergabeType === "einzug" ? "Einzug-Übergabe" : "Auszug-Übergabe"}
+                <h1 className="text-gradient-red font-sans text-xl font-bold sm:text-2xl lg:text-3xl">
+                  {uebergabeType === "einzug" ? "Einzug" : "Auszug"}
                 </h1>
-                <p className="text-gray-600 font-sans text-xs sm:text-sm">Mietvertrag auswählen</p>
+                <p className="font-sans text-xs text-muted-foreground sm:text-sm">Mietvertrag auswählen</p>
               </div>
             </div>
             <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Mieter, Objekt oder Adresse suchen..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 h-11"
+                className="h-11 pl-9"
               />
             </div>
           </div>
@@ -244,13 +398,13 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
 
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-red-500" />
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         )}
 
         {/* Scheitert nur eine Aktualisierung, bleibt die geladene Liste stehen */}
         {!isLoading && isError && !contracts && (
-          <div className="glass-card p-6 rounded-xl sm:rounded-2xl flex flex-col items-center gap-3 text-center">
+          <div className="glass-card flex flex-col items-center gap-3 rounded-xl p-6 text-center sm:rounded-2xl">
             <AlertTriangle className="h-6 w-6 text-destructive" />
             <p className="text-sm font-medium">Die Mietverträge konnten nicht geladen werden.</p>
             <Button variant="outline" onClick={() => refetch()}>
@@ -261,12 +415,14 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
         )}
 
         {!isLoading && contracts && (
-          <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl">
+          <div className="glass-card rounded-xl p-4 sm:rounded-2xl sm:p-6">
             <UebergabeContractList
               contracts={contracts}
               uebergabeType={uebergabeType}
               searchQuery={searchQuery}
               onContractClick={handleContractClick}
+              entwuerfe={entwurfJeVertrag}
+              protokolle={protokollJeVertrag}
             />
           </div>
         )}

@@ -37,6 +37,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.6.2",
+    datum: "2026-10-20",
+    aenderungen: [
+      { art: "neu", titel: "Übergabe als geführter Ablauf in fünf Schritten, mit Zusammenfassung direkt vor den Unterschriften" },
+      { art: "neu", titel: "Zählerstände mit Zählernummer und Vergleich zum letzten Stand – Tippfehler fallen sofort auf" },
+      { art: "neu", titel: "Angefangene Übergaben und schon vorhandene Protokolle stehen in der Übergabe-Liste" },
+    ],
+  },
+  {
     version: "1.6.1",
     datum: "2026-10-20",
     aenderungen: [

@@ -32,6 +32,8 @@ export interface UebergabeEingaben {
   unterschriftMieter: string | null;
   versorgerAuswahl: string[];
   mieterEmails: Record<string, string>;
+  /** Schritt des Ablaufs, an dem zuletzt gearbeitet wurde — „geht an derselben Stelle weiter" */
+  schritt?: string;
 }
 
 export interface UebergabeEntwurf extends UebergabeEingaben {
@@ -175,6 +177,7 @@ export function entwurfLesen(
     unterschriftMieter: unterschrift(r.unterschriftMieter),
     versorgerAuswahl: textListe(r.versorgerAuswahl),
     mieterEmails,
+    ...(text(r.schritt) ? { schritt: text(r.schritt) } : {}),
   };
 }
 
@@ -230,4 +233,46 @@ export function entwuerfeAufraeumen(ablage: DurchsuchbareAblage | null, jetzt: D
     }
   }
   return entfernt;
+}
+
+export interface EntwurfEintrag {
+  schluessel: string;
+  isEinzug: boolean;
+  vertragIds: string[];
+  gespeichertAm: string;
+}
+
+/**
+ * Angefangene Übergaben auf diesem Gerät, jüngste zuerst — für die Übersicht
+ * „Weiter bearbeiten". Verfallene, unlesbare und leere Entwürfe fehlen.
+ */
+export function entwuerfeAuflisten(ablage: DurchsuchbareAblage | null, jetzt: Date = new Date()): EntwurfEintrag[] {
+  if (!ablage) return [];
+  const eintraege: EntwurfEintrag[] = [];
+  let schluessel: string[] = [];
+  try {
+    for (let i = 0; i < ablage.length; i++) {
+      const k = ablage.key(i);
+      if (k?.startsWith(PRAEFIX)) schluessel.push(k);
+    }
+  } catch {
+    schluessel = [];
+  }
+  for (const k of schluessel) {
+    const teile = k.slice(PRAEFIX.length).split(":");
+    if (teile.length !== 2 || (teile[0] !== "einzug" && teile[0] !== "auszug")) continue;
+    const vertragIds = teile[1].split(",").filter(Boolean);
+    if (vertragIds.length === 0) continue;
+    let roh: unknown = null;
+    try {
+      roh = JSON.parse(ablage.getItem(k) ?? "null");
+    } catch {
+      continue;
+    }
+    if (!nochGueltig(roh, jetzt)) continue;
+    const entwurf = entwurfLesen(ablage, k, vertragIds, jetzt);
+    if (!entwurf || !hatEingaben(entwurf)) continue;
+    eintraege.push({ schluessel: k, isEinzug: teile[0] === "einzug", vertragIds, gespeichertAm: entwurf.gespeichertAm });
+  }
+  return eintraege.sort((a, b) => b.gespeichertAm.localeCompare(a.gespeichertAm));
 }

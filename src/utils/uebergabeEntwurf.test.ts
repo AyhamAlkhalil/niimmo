@@ -5,6 +5,7 @@ import {
   entwurfSchreiben,
   entwurfLoeschen,
   entwuerfeAufraeumen,
+  entwuerfeAuflisten,
   hatEingaben,
   type DurchsuchbareAblage,
   type UebergabeEingaben,
@@ -220,5 +221,36 @@ describe("entwuerfeAufraeumen", () => {
     };
     expect(entwuerfeAufraeumen(ablage, JETZT)).toBe(0);
     expect(entwuerfeAufraeumen(null, JETZT)).toBe(0);
+  });
+});
+
+describe("entwuerfeAuflisten", () => {
+  it("listet angefangene Übergaben mit Art und Verträgen, jüngste zuerst", () => {
+    const ablage = new TestAblage();
+    const mitStand = () => {
+      const e = leer();
+      e.zaehlerstaende[V1].strom = "12";
+      return e;
+    };
+    entwurfSchreiben(ablage, entwurfSchluessel([V1], true), mitStand(), new Date(JETZT.getTime() - 60_000));
+    entwurfSchreiben(ablage, entwurfSchluessel(["b", V1], false), { ...mitStand(), zaehlerstaende: { b: { strom: "1", gas: "", wasser: "", warmwasser: "" } } }, JETZT);
+    // leer, kaputt und fremd erscheinen nicht
+    entwurfSchreiben(ablage, entwurfSchluessel(["leer"], true), leer(), JETZT);
+    ablage.setItem(entwurfSchluessel(["kaputt"], true), "{");
+    ablage.setItem("niimmo-uebergabe-entwurf:quatsch", JSON.stringify({ version: 1, gespeichertAm: JETZT.toISOString() }));
+
+    const liste = entwuerfeAuflisten(ablage, JETZT);
+    expect(liste.map((e) => [e.isEinzug, e.vertragIds])).toEqual([
+      [false, ["b", V1]],
+      [true, [V1]],
+    ]);
+  });
+
+  it("merkt sich den Schritt im Entwurf", () => {
+    const ablage = new TestAblage();
+    entwurfSchreiben(ablage, "k", { ...leer(), schritt: "zaehler" }, JETZT);
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)?.schritt).toBe("zaehler");
+    entwurfSchreiben(ablage, "k", leer(), JETZT);
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)?.schritt).toBeUndefined();
   });
 });

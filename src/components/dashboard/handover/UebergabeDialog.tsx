@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MOBILE_BREAKPOINT } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,21 +22,43 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { format, parse } from "date-fns";
 import { de } from "date-fns/locale";
-import { CalendarIcon, KeyRound, ClipboardList, Loader2, Building2, FileDown, RotateCcw, Mail, Eye, Zap, Flame, Droplets, Save, AlertTriangle, History, X, Check } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  CalendarIcon,
+  Check,
+  CheckCircle2,
+  Eye,
+  FileDown,
+  History,
+  KeyRound,
+  Loader2,
+  MoreVertical,
+  RotateCcw,
+  Save,
+  Trash2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SignatureCanvas } from "./SignatureCanvas";
-import { MeterPhotoUpload } from "./MeterPhotoUpload";
-import { NotizenPhotoUpload } from "./NotizenPhotoUpload";
+import { FotoAufnahme } from "./FotoAufnahme";
+import { AnzahlFeld } from "./AnzahlFeld";
+import { ZaehlerFeld } from "./ZaehlerFeld";
+import { UebergabeSchrittleiste } from "./UebergabeSchrittleiste";
+import { UebergabeZusammenfassung } from "./UebergabeZusammenfassung";
+import { UebergabeAbschluss } from "./UebergabeAbschluss";
 import { PdfSeitenVorschau } from "./PdfSeitenVorschau";
 import { UebergabeEmailDialog } from "./UebergabeEmailDialog";
 import { VersorgerBenachrichtigungDialog } from "./VersorgerBenachrichtigungDialog";
 import { generateUebergabePdf, type UebergabePdfData } from "@/utils/uebergabePdfGenerator";
 import { blobToPdfImage, type PdfImage } from "@/utils/pdfImageUtils";
-import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe } from "@/utils/zaehlerstandUtils";
+import { sanitizeZaehlerstand } from "@/utils/zaehlerstandUtils";
 import { getVertragsende } from "@/utils/contractUtils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
+import { dateiendung } from "@/utils/storagePfad";
 import {
   uebergabePdfPfad,
   vertragsStaende,
@@ -55,16 +77,27 @@ import {
   hatEingaben,
   type UebergabeEingaben,
 } from "@/utils/uebergabeEntwurf";
+import {
+  UEBERGABE_SCHRITTE,
+  SCHRITT_TITEL,
+  NOTIZ_BAUSTEINE,
+  ZAEHLER_BEZEICHNUNG,
+  ZAEHLER_DB_TYP,
+  ZAEHLER_TYPEN,
+  bausteinAnhaengen,
+  istUebergabeSchritt,
+  pruefpunkte,
+  referenzstand,
+  schrittZustaende,
+  zaehlerHinweise,
+  type Referenzstand,
+  type UebergabeSchritt,
+  type ZaehlerTyp,
+} from "@/utils/uebergabeAblauf";
 
-const METER_TYPEN = ["strom", "gas", "wasser", "warmwasser"] as const;
-type MeterTyp = (typeof METER_TYPEN)[number];
-
-const METER_LABELS: Record<MeterTyp, string> = {
-  strom: "Strom",
-  gas: "Gas",
-  wasser: "Kaltwasser",
-  warmwasser: "Warmwasser",
-};
+const METER_TYPEN = ZAEHLER_TYPEN;
+type MeterTyp = ZaehlerTyp;
+const METER_LABELS = ZAEHLER_BEZEICHNUNG;
 
 interface ContractInfo {
   id: string;
@@ -118,6 +151,35 @@ interface MeterPhotosPerContract {
   };
 }
 
+/** Zählernummern und Einzugsstände je Vertrag — für Vergleich und Protokoll */
+interface VertragsZaehler {
+  start: string | null;
+  nummern: Partial<Record<MeterTyp, string | null>>;
+  einzug: Partial<Record<MeterTyp, number | null>>;
+}
+
+interface Ablesung {
+  einheit_id: string;
+  zaehler_typ: string;
+  stand: number | null;
+  datum: string | null;
+}
+
+/**
+ * Übergabe (Ein- oder Auszug) als geführter Ablauf — seit 20.10.2026:
+ *
+ *   Datum & Schlüssel → Zählerstände → Zustand → Unterschriften → Prüfen & Speichern
+ *
+ * danach der Abschluss mit Mail an den Mieter und Benachrichtigung der
+ * Versorger. Alle Eingabeschritte bleiben eingehängt und werden nur aus- und
+ * eingeblendet: Ein Foto, das noch hochlädt, während jemand auf „Weiter"
+ * tippt, käme sonst nie im Entwurf an.
+ *
+ * Was hier gegen Datenverlust steht (16./17.10.2026), gilt unverändert:
+ * Entwurf auf dem Gerät nach jeder Eingabe, Rückfrage vor jedem Schließen,
+ * Sperre während Uploads und Speichern, wiederholbares Speichern ohne
+ * Dubletten, Pfade ohne Umlaute.
+ */
 export const UebergabeDialog = ({
   isOpen,
   onClose,
@@ -188,15 +250,24 @@ export const UebergabeDialog = ({
   // iframe bleibt dort leer. Bis zum 19.10.2026 traf das Handys im Querformat
   // und Tablets: Ab 768 px Breite bekommen sie die Desktop-Ansicht mit iframe.
   const istAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
-  const pdfEinbettbar = !isSafari && !istAndroid;
+  const pdfEinbettbar = !isMobile && !isSafari && !istAndroid;
+
+  // Ablauf: Schritt aus dem Entwurf übernehmen — „geht an derselben Stelle weiter"
+  const [schritt, setSchritt] = useState<UebergabeSchritt>(() =>
+    istUebergabeSchritt(geladenerEntwurf?.schritt) ? geladenerEntwurf!.schritt as UebergabeSchritt : "allgemein"
+  );
+  const [besucht, setBesucht] = useState<Set<UebergabeSchritt>>(() => {
+    const bis = UEBERGABE_SCHRITTE.indexOf(schritt);
+    return new Set(UEBERGABE_SCHRITTE.slice(0, bis));
+  });
+  const inhaltRef = useRef<HTMLDivElement>(null);
 
   // Notes photos
   const [notizenPhotos, setNotizenPhotos] = useState<string[]>(geladenerEntwurf?.notizenFotos ?? []);
 
-  // Die Upload-Komponenten halten ihre Fotoliste in eigenem State, der nur beim
-  // Mount aus existingPhotos übernommen wird. Ohne Remount würden sie nach
-  // "Formular zurücksetzen" weiterhin Fotos anzeigen, die der Dialog nicht mehr
-  // kennt — und die damit auch nicht mehr ins Protokoll wandern.
+  // Die Foto- und Unterschriftsbausteine halten eigenen State, der nur beim
+  // Mount übernommen wird. Ohne Remount zeigten sie nach „Entwurf verwerfen"
+  // weiterhin Fotos und Striche, die der Dialog nicht mehr kennt.
   const [formResetKey, setFormResetKey] = useState(0);
 
   // Anzahl Fotos, die beim letzten PDF-Aufbau nicht eingebettet werden konnten
@@ -211,6 +282,9 @@ export const UebergabeDialog = ({
   // zweites Mal zu laden und aufzubereiten — auf dem Handy dauerte das so
   // lange wie die Vorschau selbst.
   const vorschauStandRef = useRef<string | null>(null);
+  // Stand, für den die Vorschau beim Betreten von „Prüfen" schon angestoßen
+  // wurde — ein gescheiterter Lauf wird so nicht endlos wiederholt
+  const autoVorschauRef = useRef<string | null>(null);
   // PDF, das ein abgebrochener Speicherlauf schon abgelegt hat. Ein zweiter
   // Versuch mit genau diesem PDF legt keine zweite Datei an. Gemerkt wird der
   // Blob selbst, nicht der Eingabestand: Wird neu gebaut (etwa weil beim ersten
@@ -219,18 +293,19 @@ export const UebergabeDialog = ({
   const hochgeladenesPdfRef = useRef<{ pdf: Blob; pfad: string } | null>(null);
   // Sperre gegen einen zweiten Klick, bevor isSubmitting gerendert ist
   const speichertRef = useRef(false);
-  
+
   // Preview state
-  const [showPreview, setShowPreview] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
-  
+  const [vorschauFehler, setVorschauFehler] = useState(false);
+
   // Gespeicherter PDF-Pfad (nach handleSubmit) — wird an Email/Versorger-Dialog weitergegeben
   const [savedPdfPath, setSavedPdfPath] = useState<string | null>(null);
 
   // Protokoll wurde gespeichert
   const [isSaved, setIsSaved] = useState(false);
+  const [gespeichertAm, setGespeichertAm] = useState<Date | null>(null);
 
   // Email dialog
   const [showEmailDialog, setShowEmailDialog] = useState(false);
@@ -242,17 +317,22 @@ export const UebergabeDialog = ({
   // Versorger confirmation dialog
   const [showVersorgerDialog, setShowVersorgerDialog] = useState(false);
 
-  // Inline Versorger state
   const [versorgerData, setVersorgerData] = useState<Array<{ typ: 'strom' | 'gas' | 'wasser'; label: string; name: string; email: string }>>([]);
+  // Nur noch aus älteren Entwürfen: Dort wurden die Versorger im Formular angehakt
   const [versorgerSelected, setVersorgerSelected] = useState<Set<string>>(() => new Set(geladenerEntwurf?.versorgerAuswahl ?? []));
 
   // Tenant data
   const [mieterData, setMieterData] = useState<MieterData[]>([]);
+  // Nur noch aus älteren Entwürfen: Adressen aus dem früheren Formularfeld beim Auszug
   const [mieterEmails, setMieterEmails] = useState<{ [mieterId: string]: string }>(geladenerEntwurf?.mieterEmails ?? {});
+
+  // Zählernummern, Einzugsstände und Ablesungen für den Vergleich
+  const [vertragsZaehler, setVertragsZaehler] = useState<Record<string, VertragsZaehler>>({});
+  const [ablesungen, setAblesungen] = useState<Ablesung[]>([]);
 
   // Abfrage vor dem Schließen, solange ungespeicherte Eingaben da sind
   const [schliessenFragen, setSchliessenFragen] = useState(false);
-  // Abfrage vor „Formular zurücksetzen“ — der Knopf löscht auch den Entwurf
+  // Abfrage vor „Entwurf verwerfen“ — der Knopf löscht alles
   const [zuruecksetzenFragen, setZuruecksetzenFragen] = useState(false);
   // Abfrage beim Speichern, wenn Fotos nicht ins PDF übernommen werden konnten (Anzahl)
   const [fotoFrage, setFotoFrage] = useState(0);
@@ -284,9 +364,10 @@ export const UebergabeDialog = ({
         notizenPhotos,
         vermieterSignature,
         mieterSignature,
+        vertragsZaehler,
       ]),
     [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller,
-      zaehlerstaendePerContract, meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature]
+      zaehlerstaendePerContract, meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, vertragsZaehler]
   );
 
   const eingaben = useMemo<UebergabeEingaben>(
@@ -301,16 +382,12 @@ export const UebergabeDialog = ({
       unterschriftMieter: mieterSignature,
       versorgerAuswahl: [...versorgerSelected].sort(),
       mieterEmails,
+      schritt,
     }),
     [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller, zaehlerstaendePerContract,
-      meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected, mieterEmails]
+      meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected, mieterEmails, schritt]
   );
   const ungespeicherteEingaben = !isSaved && (hatEingaben(eingaben) || fotosLaden);
-  // Angehakt, aber nach dem Speichern noch nicht benachrichtigt (Bezeichnungen)
-  // (ohne Mailadresse lässt sich ohnehin nicht benachrichtigen)
-  const offeneVersorger = versorgerData
-    .filter((v) => v.email && versorgerSelected.has(v.typ) && !versorgerBenachrichtigt.has(v.typ))
-    .map((v) => v.label);
 
   // Jede Änderung sofort als Entwurf sichern. Der erste Lauf nach dem Öffnen
   // gibt nur den geladenen Entwurf wieder und schreibt nicht — sonst stünde
@@ -347,11 +424,13 @@ export const UebergabeDialog = ({
     return () => window.removeEventListener("beforeunload", warnen);
   }, [isOpen, isSubmitting, ungespeicherteEingaben, entwurfGesichert]);
 
-  // Ladefehler bei Mieter- und Versorgerdaten. Bis zum 19.10.2026 wurden sie
-  // verschluckt: Mailadressen, „E-Mail senden“ und die Versorger-Auswahl fehlten
-  // dann einfach, als gäbe es sie nicht.
-  const [ladeFehler, setLadeFehler] = useState({ mieter: false, versorger: false });
+  // Ladefehler bei Mieter-, Versorger- und Zählerdaten. Bis zum 19.10.2026
+  // wurden sie verschluckt: Mailadressen, „E-Mail senden“ und die Versorger
+  // fehlten dann einfach, als gäbe es sie nicht.
+  const [ladeFehler, setLadeFehler] = useState({ mieter: false, versorger: false, zaehler: false });
   const [ladeVersuch, setLadeVersuch] = useState(0);
+  const fehlerSetzen = (art: keyof typeof ladeFehler, wert: boolean) =>
+    setLadeFehler((f) => (f[art] === wert ? f : { ...f, [art]: wert }));
 
   // Fetch tenant data
   useEffect(() => {
@@ -369,22 +448,15 @@ export const UebergabeDialog = ({
           .select("id, vorname, nachname, hauptmail")
           .in("id", mieterIds);
         if (mieterFehler) throw mieterFehler;
-        if (mieter) {
-          setMieterData(mieter);
-          // Eine im Entwurf schon eingetragene Adresse hat Vorrang vor der Stammadresse
-          setMieterEmails((vorher) => {
-            const emails: { [key: string]: string } = {};
-            mieter.forEach((m) => {
-              emails[m.id] = vorher[m.id] || m.hauptmail || "";
-            });
-            return emails;
-          });
-        }
+        // Die Stammadressen bleiben aus dem Entwurf heraus — sonst schriebe schon
+        // das bloße Öffnen den Entwurf neu und verschöbe seinen Zeitstempel. Der
+        // Maildialog nimmt sie selbst, wenn kein Vorschlag aus dem Entwurf da ist.
+        if (mieter) setMieterData(mieter);
       }
     };
     fetchMieterData()
-      .then(() => setLadeFehler((f) => (f.mieter ? { ...f, mieter: false } : f)))
-      .catch(() => setLadeFehler((f) => ({ ...f, mieter: true })));
+      .then(() => fehlerSetzen("mieter", false))
+      .catch(() => fehlerSetzen("mieter", true));
   }, [vertragIds, ladeVersuch]);
 
   // Fetch Versorger-Daten
@@ -409,9 +481,49 @@ export const UebergabeDialog = ({
       setVersorgerData(liste);
     };
     fetchVersorger()
-      .then(() => setLadeFehler((f) => (f.versorger ? { ...f, versorger: false } : f)))
-      .catch(() => setLadeFehler((f) => ({ ...f, versorger: true })));
+      .then(() => fehlerSetzen("versorger", false))
+      .catch(() => fehlerSetzen("versorger", true));
   }, [contracts, ladeVersuch]);
+
+  // Zählernummern, Einzugsstände und bisherige Ablesungen: zeigen vor Ort, welcher
+  // Zähler gemeint ist, und machen Tippfehler sichtbar, bevor sie im Protokoll stehen
+  useEffect(() => {
+    const ladeZaehler = async () => {
+      if (vertragIds.length === 0) return;
+      const { data, error } = await supabase
+        .from("mietvertrag")
+        .select("id, start_datum, strom_einzug, gas_einzug, kaltwasser_einzug, warmwasser_einzug, einheiten(strom_zaehler, gas_zaehler, kaltwasser_zaehler, warmwasser_zaehler)")
+        .in("id", vertragIds);
+      if (error) throw error;
+      const neu: Record<string, VertragsZaehler> = {};
+      for (const v of data ?? []) {
+        const e = (Array.isArray(v.einheiten) ? v.einheiten[0] : v.einheiten) as
+          | { strom_zaehler: string | null; gas_zaehler: string | null; kaltwasser_zaehler: string | null; warmwasser_zaehler: string | null }
+          | null;
+        neu[v.id] = {
+          start: v.start_datum ?? null,
+          nummern: { strom: e?.strom_zaehler, gas: e?.gas_zaehler, wasser: e?.kaltwasser_zaehler, warmwasser: e?.warmwasser_zaehler },
+          einzug: { strom: v.strom_einzug, gas: v.gas_einzug, wasser: v.kaltwasser_einzug, warmwasser: v.warmwasser_einzug },
+        };
+      }
+      const einheitIds = [...new Set(contracts.map((c) => c.einheit.id).filter(Boolean))];
+      const liste = einheitIds.length
+        ? await alleSeiten<Ablesung>((von, bis, mitZaehlung) =>
+            supabase
+              .from("zaehlerstand_historie")
+              .select("einheit_id, zaehler_typ, stand, datum", { count: mitZaehlung ? "exact" : undefined })
+              .in("einheit_id", einheitIds)
+              .order("id")
+              .range(von, bis)
+          )
+        : [];
+      setVertragsZaehler(neu);
+      setAblesungen(liste);
+    };
+    ladeZaehler()
+      .then(() => fehlerSetzen("zaehler", false))
+      .catch(() => fehlerSetzen("zaehler", true));
+  }, [vertragIds, contracts, ladeVersuch]);
 
   // Cleanup blob URL
   useEffect(() => {
@@ -433,6 +545,15 @@ export const UebergabeDialog = ({
       [contractId]: { ...prev[contractId], [meterType]: paths }
     }));
   };
+
+  const geheZu = (ziel: UebergabeSchritt) => {
+    setBesucht((vorher) => (vorher.has(schritt) ? vorher : new Set(vorher).add(schritt)));
+    // Der Hinweis auf den fortgesetzten Entwurf ist nach dem ersten Schritt gelesen
+    setWiederhergestelltAm(null);
+    setSchritt(ziel);
+    inhaltRef.current?.scrollTo({ top: 0 });
+  };
+  const schrittIndex = UEBERGABE_SCHRITTE.indexOf(schritt);
 
   const resetForm = () => {
     entwurfLoeschen(ablage, entwurfKey);
@@ -456,18 +577,21 @@ export const UebergabeDialog = ({
     setMieterSignature(null);
     // Sonst blieb der Entwurf mit nur der Versorger-Auswahl gleich wieder stehen
     setVersorgerSelected(new Set());
-    setMieterEmails(Object.fromEntries(mieterData.map((m) => [m.id, m.hauptmail || ""])));
-    setShowPreview(false);
+    setMieterEmails({});
     setPdfBlobUrl(null);
     setPdfBlob(null);
+    setVorschauFehler(false);
     setSavedPdfPath(null);
     setIsSaved(false);
     setFormResetKey((k) => k + 1);
     setNichtEingebetteteFotos(0);
+    setSchritt("allgemein");
+    setBesucht(new Set());
     // Laufende Vorschau entwerten, damit sie die zurückgesetzten Daten nicht
     // nachträglich wieder einblendet
     previewLaufRef.current += 1;
     vorschauStandRef.current = null;
+    autoVorschauRef.current = null;
     hochgeladenesPdfRef.current = null;
     setIsGeneratingPreview(false);
   };
@@ -540,6 +664,7 @@ export const UebergabeDialog = ({
           etage: c.einheit.etage || "",
           qm: null,
           zaehlerstaende: zaehlerstaendePerContract[c.id] || { strom: "", gas: "", wasser: "", warmwasser: "" },
+          zaehlernummern: vertragsZaehler[c.id]?.nummern,
           zaehlerfotos: Object.keys(zaehlerfotos).length > 0 ? zaehlerfotos : undefined,
         };
       })
@@ -548,8 +673,6 @@ export const UebergabeDialog = ({
     const notizen = await loadPdfImages(notizenPhotos);
     fotoFehler += notizen.fehlgeschlagen;
     const notizenFotos = notizen.images;
-
-    setNichtEingebetteteFotos(fotoFehler);
 
     const daten: UebergabePdfData = {
       isEinzug,
@@ -580,8 +703,9 @@ export const UebergabeDialog = ({
     }
 
     // Vor dem Laden setzen: das Aufbereiten der Fotos dauert, und solange darf
-    // das Formular nicht zurückgesetzt oder ein zweiter Lauf gestartet werden.
+    // das Formular nicht verworfen oder ein zweiter Lauf gestartet werden.
     setIsGeneratingPreview(true);
+    setVorschauFehler(false);
     const laufNummer = previewLaufRef.current + 1;
     previewLaufRef.current = laufNummer;
     const stand = pdfStand;
@@ -596,13 +720,13 @@ export const UebergabeDialog = ({
       // Ergebnis ungültig — sonst zeigt die Vorschau verworfene Daten.
       if (previewLaufRef.current !== laufNummer) return;
 
+      setNichtEingebetteteFotos(ergebnis.fotoFehler);
       vorschauStandRef.current = stand;
       setPdfBlob(blob);
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
-      setShowPreview(true);
     } catch (error) {
-      toast({ title: "Fehler", description: "PDF-Vorschau konnte nicht erstellt werden.", variant: "destructive" });
+      if (previewLaufRef.current === laufNummer) setVorschauFehler(true);
     } finally {
       if (previewLaufRef.current === laufNummer) setIsGeneratingPreview(false);
     }
@@ -620,11 +744,6 @@ export const UebergabeDialog = ({
     document.body.removeChild(a);
   };
 
-  const getPdfFileName = () => {
-    const datumStr = uebergabeDatum ? format(uebergabeDatum, "dd-MM-yyyy") : "datum";
-    return `Uebergabeprotokoll_${isEinzug ? "Einzug" : "Auszug"}_${mieterName?.replace(/\s+/g, "_") || "Mieter"}_${datumStr}.pdf`;
-  };
-
   /**
    * ohneFehlendeFotos: Der Nutzer hat bestätigt, dass ohne die Fotos gespeichert
    * werden soll, die sich nicht ins PDF übernehmen ließen. Ohne diese Bestätigung
@@ -639,7 +758,7 @@ export const UebergabeDialog = ({
     }
     // Während einer laufenden Vorschau nicht: Deren Ergebnis käme sonst nach dem
     // Speichern an und ersetzte das archivierte PDF in Download und Mail.
-    if (speichertRef.current || fotosLaden || isGeneratingPreview) return;
+    if (speichertRef.current || fotosLaden || isGeneratingPreview || speichernGesperrt) return;
     speichertRef.current = true;
     setIsSubmitting(true);
     // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
@@ -666,6 +785,7 @@ export const UebergabeDialog = ({
         if (!ergebnis) throw new Error("Übergabedatum fehlt");
         aktuellesPdf = await generateUebergabePdf(ergebnis.daten);
         fehlendeFotos = ergebnis.fotoFehler;
+        setNichtEingebetteteFotos(fehlendeFotos);
         vorschauStandRef.current = stand;
         setPdfBlob(aktuellesPdf);
         if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
@@ -824,15 +944,15 @@ export const UebergabeDialog = ({
 
       setSavedPdfPath(filePath);
       setIsSaved(true);
+      setGespeichertAm(new Date());
       entwurfLoeschen(ablage, entwurfKey);
+      inhaltRef.current?.scrollTo({ top: 0 });
       if (fehlendeFotos > 0) {
         toast({
           title: "Protokoll gespeichert – Fotos fehlen",
           description: `${fehlendeFotos === 1 ? "1 Foto fehlt" : `${fehlendeFotos} Fotos fehlen`} im Protokoll-PDF. Die Fotos selbst sind beim Vertrag unter Dokumente eingetragen.`,
           variant: "destructive",
         });
-      } else {
-        toast({ title: "Protokoll gespeichert", description: "Das Übergabeprotokoll wurde erfolgreich gespeichert." });
       }
     } catch (error) {
       console.error("Übergabe konnte nicht gespeichert werden:", error);
@@ -847,28 +967,20 @@ export const UebergabeDialog = ({
     }
   };
 
-  const handleEmailDialogClose = () => {
-    setShowEmailDialog(false);
-  };
-
-  const handleVersorgerDialogClose = () => {
-    setShowVersorgerDialog(false);
-  };
-
   const handleClose = () => {
     onSuccess?.();
     onClose();
   };
 
-  // Einziger Weg aus dem Dialog — ob X, Escape, Tippen daneben oder der Knopf im
-  // Handy-Panel. Bis zum 17.10.2026 schloss jeder davon ohne Rückfrage und nahm
-  // alle Eingaben mit.
+  // Einziger Weg aus dem Dialog — ob X, Escape, Tippen daneben oder „Fertig“.
+  // Bis zum 17.10.2026 schloss jeder davon ohne Rückfrage und nahm alle
+  // Eingaben mit.
   const schliessenAnfragen = () => {
     if (isSubmitting) {
       toast({ title: "Wird gespeichert", description: "Bitte warten, bis das Protokoll gespeichert ist." });
       return;
     }
-    if (ungespeicherteEingaben || (isSaved && offeneVersorger.length > 0)) {
+    if (ungespeicherteEingaben) {
       setSchliessenFragen(true);
       return;
     }
@@ -876,82 +988,126 @@ export const UebergabeDialog = ({
     else onClose();
   };
 
-  const updateMieterEmail = (mieterId: string, email: string) => {
-    setMieterEmails((prev) => ({ ...prev, [mieterId]: email }));
-  };
+  // ============ ABGELEITETES ============
+  const datumText = uebergabeDatum ? format(uebergabeDatum, "yyyy-MM-dd") : null;
+  const referenzen = useMemo(() => {
+    const r: Record<string, Partial<Record<MeterTyp, Referenzstand | null>>> = {};
+    for (const c of contracts) {
+      r[c.id] = {};
+      const daten = vertragsZaehler[c.id];
+      for (const typ of METER_TYPEN) {
+        const eigene = ablesungen
+          .filter((a) => a.einheit_id === c.einheit.id && a.zaehler_typ === ZAEHLER_DB_TYP[typ])
+          .map((a) => ({ stand: a.stand === null ? null : Number(a.stand), datum: a.datum }));
+        // Beim Einzug ist der eigene Einzugsstand kein Vergleich — er entsteht gerade
+        const einzug = !isEinzug && daten ? { stand: daten.einzug[typ] ?? null, datum: daten.start } : null;
+        r[c.id][typ] = referenzstand(eigene, einzug, datumText);
+      }
+    }
+    return r;
+  }, [contracts, vertragsZaehler, ablesungen, isEinzug, datumText]);
 
-  // Sicherheitsnetz: Zählerfoto hochgeladen, aber kein Zählerstand erfasst.
-  // Genau diese Kombination hat schon einmal zu einem Protokoll ohne
-  // Wasserstände geführt, ohne dass es beim Ausfüllen auffiel.
-  const fehlendeZaehlerstaende = contracts.flatMap((contract) =>
-    METER_TYPEN.filter((typ) => {
-      const hatFoto = (meterPhotosPerContract[contract.id]?.[typ]?.length ?? 0) > 0;
-      const hatWert = parseZaehlerstand(zaehlerstaendePerContract[contract.id]?.[typ] ?? "") !== null;
-      return hatFoto && !hatWert;
-    }).map((typ) => ({
-      key: `${contract.id}-${typ}`,
-      label: METER_LABELS[typ],
-      einheit: contracts.length > 1 ? contract.einheit.immobilie.name : null,
-    }))
+  const fotoAnzahl = useMemo(() => {
+    const r: Record<string, Partial<Record<MeterTyp, number>>> = {};
+    for (const c of contracts) {
+      r[c.id] = {};
+      for (const typ of METER_TYPEN) r[c.id][typ] = meterPhotosPerContract[c.id]?.[typ]?.length ?? 0;
+    }
+    return r;
+  }, [contracts, meterPhotosPerContract]);
+
+  const punkte = useMemo(
+    () =>
+      pruefpunkte(
+        {
+          uebergabeDatum: datumText,
+          zaehlerstaende: zaehlerstaendePerContract,
+          zaehlerfotos: fotoAnzahl,
+          referenzen,
+          unterschriftVermieter: !!vermieterSignature,
+          unterschriftMieter: !!mieterSignature,
+        },
+        contracts.map((c) => c.id)
+      ),
+    [datumText, zaehlerstaendePerContract, fotoAnzahl, referenzen, vermieterSignature, mieterSignature, contracts]
+  );
+  const zustaende = schrittZustaende(punkte);
+  const speichernGesperrt = punkte.some((p) => p.art === "fehler");
+  const zaehlerfotoGesamt = Object.values(fotoAnzahl).reduce((s, f) => s + Object.values(f).reduce((a, b) => a + (b ?? 0), 0), 0);
+
+  // Beim Betreten von „Prüfen" die Vorschau bauen — einmal je Eingabestand
+  useEffect(() => {
+    if (schritt !== "pruefen" || isSaved || fotosLaden || isGeneratingPreview || isSubmitting || speichernGesperrt) return;
+    if (vorschauStandRef.current === pdfStand || autoVorschauRef.current === pdfStand) return;
+    autoVorschauRef.current = pdfStand;
+    void handleGeneratePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schritt, pdfStand, isSaved, fotosLaden, isGeneratingPreview, isSubmitting, speichernGesperrt]);
+  const vorschauAktuell = !!pdfBlob && vorschauStandRef.current === pdfStand;
+
+  const objektTitel = (c: ContractInfo) => [c.einheit.immobilie.name, c.einheit.etage].filter(Boolean).join(", ");
+  const untertitel = [mieterName, contracts[0] && objektTitel(contracts[0]) + (contracts.length > 1 ? ` (+${contracts.length - 1})` : "")]
+    .filter(Boolean)
+    .join(" · ");
+
+  const statusZeile = isSaved ? null : !entwurfGesichert && ungespeicherteEingaben ? (
+    <span className="flex items-center gap-1.5 text-xs text-destructive">
+      <AlertTriangle className="h-3.5 w-3.5" />
+      Nicht zwischengespeichert
+    </span>
+  ) : zwischengespeichertAm && entwurfGesichert ? (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground" aria-live="polite">
+      <Check className="h-3.5 w-3.5 text-success" />
+      Zwischengespeichert auf diesem Gerät · {format(zwischengespeichertAm, "HH:mm", { locale: de })} Uhr
+    </span>
+  ) : (
+    <span className="text-xs text-muted-foreground">Eingaben werden auf diesem Gerät zwischengespeichert</span>
   );
 
-  // Eingaben, die sich nicht eindeutig als Zahl lesen lassen (z.B. "12,34,5").
-  // Sie werden markiert statt beim Speichern still zu null zu werden.
-  const ungueltigeZaehlerstaende = contracts.flatMap((contract) =>
-    METER_TYPEN.filter(
-      (typ) => !istGueltigeZaehlerstandEingabe(zaehlerstaendePerContract[contract.id]?.[typ])
-    ).map((typ) => ({
-      key: `${contract.id}-${typ}`,
-      label: METER_LABELS[typ],
-      einheit: contracts.length > 1 ? contract.einheit.immobilie.name : null,
-    }))
-  );
-
-  const istZaehlerstandUngueltig = (contractId: string, typ: MeterTyp): boolean =>
-    !istGueltigeZaehlerstandEingabe(zaehlerstaendePerContract[contractId]?.[typ]);
-
-  // ============ FORM CONTENT ============
-  const formContent = (
-    <div className="space-y-6 p-1">
+  // ============ SCHRITTE ============
+  const hinweisKarten = (
+    <>
       {wiederhergestelltAm && !isSaved && (
         <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">
-          <History className="h-4 w-4 flex-shrink-0 mt-0.5 text-warning" />
-          <div>
-            <p className="font-medium">Entwurf wiederhergestellt</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Stand vom {format(new Date(wiederhergestelltAm), "dd.MM.yyyy 'um' HH:mm 'Uhr'", { locale: de })}. Gespeichert
-              ist das Protokoll erst mit „Protokoll speichern“.
+          <History className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
+          <div className="flex-1">
+            <p className="font-medium">Entwurf fortgesetzt</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Stand vom {format(new Date(wiederhergestelltAm), "dd.MM.yyyy 'um' HH:mm 'Uhr'", { locale: de })}. Gespeichert ist das
+              Protokoll erst mit „Protokoll speichern“.
             </p>
           </div>
+          <button type="button" onClick={() => setWiederhergestelltAm(null)} aria-label="Hinweis ausblenden" className="rounded p-1 text-muted-foreground hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
       {!entwurfGesichert && ungespeicherteEingaben && (
-        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 rounded-lg border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <div>
             <p className="font-medium">Entwurf kann auf diesem Gerät nicht gesichert werden</p>
-            <p className="text-xs mt-0.5">
-              Der Browser lässt kein Zwischenspeichern zu. Den Dialog bitte erst nach „Protokoll speichern“ schließen.
-            </p>
+            <p className="mt-0.5 text-xs">Der Browser lässt kein Zwischenspeichern zu. Den Dialog bitte erst nach „Protokoll speichern“ schließen.</p>
           </div>
         </div>
       )}
 
-      {(ladeFehler.mieter || ladeFehler.versorger) && (
-        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      {(ladeFehler.mieter || ladeFehler.versorger || ladeFehler.zaehler) && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive bg-destructive/10 p-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
           <div className="flex-1">
             <p className="font-medium">
-              {ladeFehler.mieter && ladeFehler.versorger
-                ? "Mieter- und Versorgerdaten konnten nicht geladen werden"
-                : ladeFehler.mieter
-                ? "Mieterdaten konnten nicht geladen werden"
-                : "Versorgerdaten konnten nicht geladen werden"}
+              {[ladeFehler.mieter && "Mieterdaten", ladeFehler.versorger && "Versorgerdaten", ladeFehler.zaehler && "Zählerdaten"]
+                .filter(Boolean)
+                .join(", ")
+                .replace(/, ([^,]*)$/, " und $1")}{" "}
+              konnten nicht geladen werden
             </p>
-            <p className="text-xs mt-0.5">
+            <p className="mt-0.5 text-xs">
               {ladeFehler.mieter ? "Ohne sie fehlen die Mailadressen und der Mailversand. " : ""}
               {ladeFehler.versorger ? "Ohne sie fehlt die Versorger-Benachrichtigung. " : ""}
+              {ladeFehler.zaehler ? "Ohne sie fehlen Zählernummern und Vergleichswerte, auch im Protokoll. " : ""}
               Das Protokoll selbst lässt sich trotzdem erfassen.
             </p>
             <Button variant="outline" size="sm" className="mt-2 h-8" onClick={() => setLadeVersuch((v) => v + 1)}>
@@ -961,363 +1117,415 @@ export const UebergabeDialog = ({
           </div>
         </div>
       )}
+    </>
+  );
 
-      {mieterName && (
-        <div className="bg-muted/50 rounded-lg p-3 sm:p-4">
-          <p className="text-xs text-muted-foreground">Mieter</p>
-          <p className="text-sm font-medium">{mieterName}</p>
-        </div>
-      )}
-
-      {contracts.length > 1 && (
-        <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
-          <p className="text-xs text-blue-700 font-medium mb-2">
-            {contracts.length} verbundene Einheiten werden gemeinsam übergeben:
-          </p>
-          <ul className="space-y-1">
-            {contracts.map(c => (
-              <li key={c.id} className="text-xs text-blue-600 flex items-center gap-1">
-                <Building2 className="h-3 w-3" />
-                {c.einheit.immobilie.name} - {c.einheit.etage || "–"} / Nr. {c.einheit.nummer || "–"}
+  const schrittAllgemein = (
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+          {mieterName && <p className="font-medium">{mieterName}</p>}
+          <ul className="mt-1 space-y-0.5 text-muted-foreground">
+            {contracts.map((c) => (
+              <li key={c.id} className="flex items-start gap-1.5">
+                <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {objektTitel(c)}
+                  {c.einheit.nummer ? ` · Nr. ${c.einheit.nummer}` : ""} · {c.einheit.immobilie.adresse}
+                </span>
               </li>
             ))}
           </ul>
         </div>
-      )}
 
-      {/* Während und nach dem Speichern gesperrt: Was jetzt noch getippt würde,
-          käme in kein Protokoll und ginge mit dem gelöschten Entwurf verloren.
-          Bis zum 19.10.2026 blieb das Formular nach dem Speichern offen — neue
-          Fotos lagen dann ohne Eintrag (unsichtbar) im Speicher, und die
-          Versorger-Mail nahm geänderte, nirgends gespeicherte Zählerstände mit.
-          pointer-events: Die Unterschriftsfläche ist kein Formularfeld und
-          ließe sich sonst weiter bemalen. */}
-      <fieldset
-        disabled={isSubmitting || isSaved}
-        className={cn("space-y-6 min-w-0", (isSubmitting || isSaved) && "pointer-events-none", isSubmitting && "opacity-60")}
-      >
-        {/* Übergabedatum */}
         <div className="space-y-2">
-          <Label className="text-sm font-medium">Übergabedatum *</Label>
+          <Label className="text-sm font-medium">Übergabedatum</Label>
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" className={cn("w-full justify-start text-left font-normal h-12 sm:h-10", !uebergabeDatum && "text-muted-foreground")}>
+              <Button variant="outline" className={cn("h-11 w-full justify-start text-left font-normal", !uebergabeDatum && "text-muted-foreground")}>
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {uebergabeDatum ? format(uebergabeDatum, "PPP", { locale: de }) : <span>Datum auswählen</span>}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar mode="single" selected={uebergabeDatum} onSelect={setUebergabeDatum} locale={de} />
+              {/* Ein zweiter Tipp auf den gewählten Tag hob die Auswahl auf — das Datum ist Pflicht */}
+              <Calendar mode="single" selected={uebergabeDatum} onSelect={(d) => d && setUebergabeDatum(d)} locale={de} />
             </PopoverContent>
           </Popover>
+          {!uebergabeDatum && <p className="text-xs text-destructive">Ohne Datum lässt sich das Protokoll nicht speichern.</p>}
         </div>
+      </section>
 
-        {/* Schlüssel */}
-        <div className="space-y-2">
-          <Label className="text-sm font-medium flex items-center gap-2">
-            <KeyRound className="h-4 w-4" />
+      <section className="space-y-2">
+        <div>
+          <h3 className="flex items-center gap-2 text-sm font-medium">
+            <KeyRound className="h-4 w-4 text-muted-foreground" />
             Übergebene Schlüssel
-          </Label>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Haustür</Label>
-              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselHaustuer} onChange={(e) => setSchluesselHaustuer(e.target.value)} className="h-10" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Wohnung</Label>
-              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselWohnung} onChange={(e) => setSchluesselWohnung(e.target.value)} className="h-10" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Briefkasten</Label>
-              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselBriefkasten} onChange={(e) => setSchluesselBriefkasten(e.target.value)} className="h-10" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Keller</Label>
-              <Input type="number" inputMode="numeric" placeholder="Anzahl" min="0" value={schluesselKeller} onChange={(e) => setSchluesselKeller(e.target.value)} className="h-10" />
-            </div>
-          </div>
+          </h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">Leer lassen, was nicht übergeben wird — im Protokoll steht dann ein Strich.</p>
         </div>
+        <div className="divide-y rounded-lg border px-3">
+          <AnzahlFeld id="schluessel-haustuer" label="Haustür" wert={schluesselHaustuer} onChange={setSchluesselHaustuer} />
+          <AnzahlFeld id="schluessel-wohnung" label="Wohnung" wert={schluesselWohnung} onChange={setSchluesselWohnung} />
+          <AnzahlFeld id="schluessel-briefkasten" label="Briefkasten" wert={schluesselBriefkasten} onChange={setSchluesselBriefkasten} />
+          <AnzahlFeld id="schluessel-keller" label="Keller" wert={schluesselKeller} onChange={setSchluesselKeller} />
+        </div>
+      </section>
+    </div>
+  );
 
-        {/* Zählerstände per Contract */}
-        {contracts.map((contract) => (
-          <div key={contract.id} className="space-y-3">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              {contracts.length > 1 && (
-                <span className="bg-muted px-2 py-0.5 rounded text-xs">
-                  {contract.einheit.immobilie.name} - {contract.einheit.etage || "–"}
-                </span>
-              )}
-              Zählerstände bei {isEinzug ? "Einzug" : "Auszug"}
-            </Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Strom (kWh)</Label>
-                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.strom || ""} onChange={(e) => updateZaehlerstand(contract.id, "strom", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "strom") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`strom-${formResetKey}`} contractId={contract.id} meterType="strom" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "strom", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.strom ?? []} onUploadingChange={uploadMelden(`${contract.id}-strom`)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Gas (m³)</Label>
-                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.gas || ""} onChange={(e) => updateZaehlerstand(contract.id, "gas", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "gas") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`gas-${formResetKey}`} contractId={contract.id} meterType="gas" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "gas", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.gas ?? []} onUploadingChange={uploadMelden(`${contract.id}-gas`)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Kaltwasser (m³)</Label>
-                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.wasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "wasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "wasser") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`wasser-${formResetKey}`} contractId={contract.id} meterType="wasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "wasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.wasser ?? []} onUploadingChange={uploadMelden(`${contract.id}-wasser`)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Warmwasser (m³)</Label>
-                <Input type="text" inputMode="decimal" placeholder="0" value={zaehlerstaendePerContract[contract.id]?.warmwasser || ""} onChange={(e) => updateZaehlerstand(contract.id, "warmwasser", e.target.value)} className={cn("h-10", istZaehlerstandUngueltig(contract.id, "warmwasser") && "border-destructive focus-visible:ring-destructive")} />
-                <MeterPhotoUpload key={`warmwasser-${formResetKey}`} contractId={contract.id} meterType="warmwasser" isEinzug={isEinzug} onPhotosChange={(paths) => updateMeterPhotos(contract.id, "warmwasser", paths)} existingPhotos={meterPhotosPerContract[contract.id]?.warmwasser ?? []} onUploadingChange={uploadMelden(`${contract.id}-warmwasser`)} />
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* Notizen */}
-        <div className="space-y-2">
-          <Label className="text-sm font-medium flex items-center gap-2">
-            <ClipboardList className="h-4 w-4" />
-            Übergabeprotokoll Notizen
-          </Label>
-          {contracts.length > 0 && (
-            <div className="mb-3">
-              <Label className="text-xs text-muted-foreground mb-2 block">Fotos (z.B. Mängel, Zustand)</Label>
-              <NotizenPhotoUpload key={formResetKey} contractId={contracts[0].id} isEinzug={isEinzug} onPhotosChange={setNotizenPhotos} existingPhotos={notizenPhotos} onUploadingChange={uploadMelden("notizen")} />
-            </div>
+  const schrittZaehler = (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">
+        Stand ablesen und den Zähler fotografieren — das Foto kommt mit ins Protokoll.
+      </p>
+      {contracts.map((contract) => (
+        <section key={contract.id} className="space-y-3">
+          {contracts.length > 1 && (
+            <h3 className="flex items-center gap-2 text-sm font-medium">
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+              {objektTitel(contract)}
+            </h3>
           )}
-          <Textarea placeholder="Zustand der Wohnung, Mängel, Besonderheiten..." value={protokollNotizen} onChange={(e) => setProtokollNotizen(e.target.value)} className="min-h-[100px] resize-none" />
-        </div>
-
-        {/* Tenant Emails - only for Auszug */}
-        {!isEinzug && mieterData.length > 0 && (
-          <div className="space-y-3 border-t pt-4">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              <Mail className="h-4 w-4" />
-              E-Mail-Adressen der Mieter
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              Diese werden für die Bestätigungsmail nach der Übergabe verwendet.
-            </p>
-            <div className="space-y-2">
-              {mieterData.map((m) => (
-                <div key={m.id} className="flex items-center gap-2">
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">{m.vorname} {m.nachname || ""}</Label>
-                    <Input type="email" placeholder="E-Mail-Adresse eingeben..." value={mieterEmails[m.id] || ""} onChange={(e) => updateMieterEmail(m.id, e.target.value)} className="h-10" />
-                  </div>
-                </div>
-              ))}
-            </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {METER_TYPEN.map((typ) => (
+              <ZaehlerFeld
+                key={`${typ}-${formResetKey}`}
+                contractId={contract.id}
+                typ={typ}
+                isEinzug={isEinzug}
+                wert={zaehlerstaendePerContract[contract.id]?.[typ] || ""}
+                onWertChange={(w) => updateZaehlerstand(contract.id, typ, w)}
+                fotos={meterPhotosPerContract[contract.id]?.[typ] ?? []}
+                onFotosChange={(pfade) => updateMeterPhotos(contract.id, typ, pfade)}
+                onUploadingChange={uploadMelden(`${contract.id}-${typ}`)}
+                nummer={vertragsZaehler[contract.id]?.nummern[typ]}
+                referenz={referenzen[contract.id]?.[typ] ?? null}
+                hinweise={zaehlerHinweise(
+                  zaehlerstaendePerContract[contract.id]?.[typ],
+                  fotoAnzahl[contract.id]?.[typ] ?? 0,
+                  referenzen[contract.id]?.[typ] ?? null
+                )}
+              />
+            ))}
           </div>
-        )}
+        </section>
+      ))}
+    </div>
+  );
 
-        {/* Versorger benachrichtigen */}
-        {versorgerData.length > 0 && (
-          <div className="space-y-3 border-t pt-4">
-            <Label className="text-sm font-medium flex items-center gap-2">
-              <Zap className="h-4 w-4" />
-              Versorger benachrichtigen
-            </Label>
-            {/* Bis zum 19.10.2026 stand hier, die Versorger „erhalten nach Abschluss
-                eine E-Mail“ — automatisch ging aber nie etwas raus */}
-            <p className="text-xs text-muted-foreground">
-              Nach dem Speichern lassen sich die ausgewählten Versorger über „Versorger benachrichtigen“ mit dem
-              Übergabeprotokoll als PDF-Anhang anschreiben.
-            </p>
-            <div className="space-y-2">
-              {versorgerData.map(v => {
-                const Icon = v.typ === 'strom' ? Zap : v.typ === 'gas' ? Flame : Droplets;
-                return (
-                  <div key={v.typ} className="flex items-center justify-between border rounded-lg p-3">
-                    <div className="flex items-center gap-2.5">
-                      <Checkbox
-                        id={`versorger-${v.typ}`}
-                        checked={versorgerSelected.has(v.typ)}
-                        onCheckedChange={() => {
-                          setVersorgerSelected(prev => {
-                            const next = new Set(prev);
-                            if (next.has(v.typ)) next.delete(v.typ); else next.add(v.typ);
-                            return next;
-                          });
-                        }}
-                      />
-                      <Label htmlFor={`versorger-${v.typ}`} className="flex items-center gap-1.5 cursor-pointer text-sm">
-                        <Icon className="h-3.5 w-3.5" />
-                        {v.label}
-                        {v.name && <span className="text-muted-foreground text-xs">({v.name})</span>}
-                      </Label>
-                    </div>
-                    {v.email && <span className="text-xs text-muted-foreground">{v.email}</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Signatures */}
-        <div className="space-y-4 border-t pt-4">
-          <h4 className="text-sm font-semibold">Digitale Unterschriften</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* key: nach "Formular zurücksetzen" ein leeres Feld statt der alten Unterschrift */}
-            <SignatureCanvas key={`vermieter-${formResetKey}`} label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} initialValue={vermieterSignature} />
-            <SignatureCanvas key={`mieter-${formResetKey}`} label="Mieter" onSignatureChange={setMieterSignature} initialValue={mieterSignature} />
-          </div>
-        </div>
-      </fieldset>
-
-      {/* Fehler: Eingabe nicht als Zahl lesbar */}
-      {ungueltigeZaehlerstaende.length > 0 && (
-        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Zählerstand nicht lesbar</p>
-            <p className="text-xs mt-0.5">
-              {ungueltigeZaehlerstaende.map((f) => (f.einheit ? `${f.label} (${f.einheit})` : f.label)).join(", ")}{" "}
-              enthält mehrere Trennzeichen. Bitte als Zahl mit höchstens einem Komma eintragen, z.B. 128,456.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Fehler: Foto konnte nicht ins PDF übernommen werden */}
-      {nichtEingebetteteFotos > 0 && (
-        <div className="flex items-start gap-2 bg-destructive/10 border border-destructive rounded-lg p-3 text-destructive text-sm">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">
-              {nichtEingebetteteFotos === 1 ? "1 Foto fehlt im Protokoll" : `${nichtEingebetteteFotos} Fotos fehlen im Protokoll`}
-            </p>
-            <p className="text-xs mt-0.5">
-              Konnte nicht geladen werden. Bitte Vorschau erneut erstellen und vor dem Speichern prüfen,
-              ob alle Fotos enthalten sind.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Warnung: Foto da, Zählerstand fehlt */}
-      {!isSaved && fehlendeZaehlerstaende.length > 0 && (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-lg p-3 text-amber-900 text-sm">
-          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Zählerstand fehlt</p>
-            <p className="text-xs mt-0.5">
-              Für {fehlendeZaehlerstaende.map((f) => (f.einheit ? `${f.label} (${f.einheit})` : f.label)).join(", ")}{" "}
-              wurde ein Foto hochgeladen, aber kein Zählerstand eingetragen. Diese Werte fehlen sonst im Protokoll.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
-      <div className="flex flex-col gap-3 pt-4 border-t">
-        {!isSaved ? (
-          <>
-            {zwischengespeichertAm && entwurfGesichert && (
-              <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground" aria-live="polite">
-                <Check className="h-3.5 w-3.5 text-success" />
-                Zwischengespeichert auf diesem Gerät · {format(zwischengespeichertAm, "HH:mm", { locale: de })} Uhr
-              </p>
-            )}
-            <Button onClick={handleGeneratePreview} className="w-full h-12 sm:h-10" disabled={isGeneratingPreview || isSubmitting || fotosLaden || ungueltigeZaehlerstaende.length > 0}>
-              {fotosLaden ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Fotos werden hochgeladen...</>
-              ) : isGeneratingPreview ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Vorschau wird erstellt...</>
-              ) : showPreview ? (
-                <><Eye className="mr-2 h-4 w-4" />Vorschau aktualisieren</>
-              ) : (
-                <><Eye className="mr-2 h-4 w-4" />Vorschau erstellen</>
-              )}
-            </Button>
-
-            {showPreview && (
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handleDownloadPdf} disabled={!pdfBlobUrl} className="flex-1 h-10">
-                  <FileDown className="mr-2 h-4 w-4" />
-                  Download
-                </Button>
-                <Button onClick={() => handleSubmit()} disabled={isSubmitting || isGeneratingPreview || fotosLaden || ungueltigeZaehlerstaende.length > 0} className="flex-1 h-10">
-                  {isSubmitting ? (
-                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Wird gespeichert...</>
-                  ) : (
-                    <><Save className="mr-2 h-4 w-4" />Protokoll speichern</>
-                  )}
-                </Button>
-              </div>
-            )}
-
+  const schrittZustand = (
+    <div className="space-y-6">
+      <section className="space-y-2">
+        <Label htmlFor="uebergabe-notizen" className="text-sm font-medium">
+          Zustand der Wohnung
+        </Label>
+        <div className="flex flex-wrap gap-2">
+          {NOTIZ_BAUSTEINE.map((b) => (
             <Button
-              variant="ghost"
-              onClick={() => (ungespeicherteEingaben ? setZuruecksetzenFragen(true) : resetForm())}
-              className="w-full h-10 text-muted-foreground"
-              disabled={isSubmitting || isGeneratingPreview || fotosLaden}
+              key={b}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-full px-3 text-xs"
+              onClick={() => setProtokollNotizen((n) => bausteinAnhaengen(n, b))}
             >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Formular zurücksetzen
+              + {b.replace(/\.$/, "")}
             </Button>
+          ))}
+        </div>
+        <Textarea
+          id="uebergabe-notizen"
+          placeholder="Mängel, Schäden, Besonderheiten …"
+          value={protokollNotizen}
+          onChange={(e) => setProtokollNotizen(e.target.value)}
+          className="min-h-[140px] text-base sm:text-sm"
+        />
+      </section>
+      {contracts.length > 0 && (
+        <section className="space-y-2">
+          <div>
+            <h3 className="text-sm font-medium">Fotos zum Zustand</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">Mängel, Schäden, Zustand einzelner Räume — sie kommen mit ins Protokoll.</p>
+          </div>
+          <FotoAufnahme
+            key={`notizen-${formResetKey}`}
+            inputId={`zustandsfotos-${contracts[0].id}`}
+            bezeichnung="Zustandsfoto"
+            knopfText="Fotos aufnehmen"
+            pfadFuer={(file, i) =>
+              // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
+              `uebergabefotos/${contracts[0].id}/notizen_${isEinzug ? "einzug" : "auszug"}_${Date.now()}_${i}.${dateiendung(file.name, file.type)}`
+            }
+            existingPhotos={notizenPhotos}
+            onPhotosChange={setNotizenPhotos}
+            onUploadingChange={uploadMelden("notizen")}
+          />
+        </section>
+      )}
+    </div>
+  );
 
-            {/* Zweiter Ausgang auf dem Handy: Das Panel schließt weder per Wischen
-                noch per Tippen daneben, und der Kopf mit dem X kann bei
-                eingeblendeter Adressleiste aus dem Bild rutschen. */}
-            {isMobile && (
-              <Button variant="outline" onClick={schliessenAnfragen} className="w-full h-10" disabled={isSubmitting}>
-                Schließen
-              </Button>
-            )}
-          </>
+  const zusammenfassung = (
+    <UebergabeZusammenfassung
+      isEinzug={isEinzug}
+      uebergabeDatum={uebergabeDatum}
+      mieterName={mieterName}
+      schluessel={{ haustuer: schluesselHaustuer, wohnung: schluesselWohnung, briefkasten: schluesselBriefkasten, keller: schluesselKeller }}
+      einheiten={contracts.map((c) => ({ id: c.id, titel: objektTitel(c), zaehlerstaende: zaehlerstaendePerContract[c.id] ?? {} }))}
+      zaehlerfotos={zaehlerfotoGesamt}
+      zustandsfotos={notizenPhotos.length}
+      notizen={protokollNotizen}
+    />
+  );
+
+  const schrittUnterschriften = (
+    <div className="space-y-5">
+      <p className="text-sm text-muted-foreground">Mit der Unterschrift bestätigen beide Seiten diese Angaben:</p>
+      {zusammenfassung}
+      {isMobile && <p className="text-xs text-muted-foreground">Zum Unterschreiben das Gerät an den Mieter geben.</p>}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {/* key: nach „Entwurf verwerfen" ein leeres Feld statt der alten Unterschrift */}
+        <SignatureCanvas key={`vermieter-${formResetKey}`} label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} initialValue={vermieterSignature} />
+        <SignatureCanvas key={`mieter-${formResetKey}`} label="Mieter" onSignatureChange={setMieterSignature} initialValue={mieterSignature} />
+      </div>
+    </div>
+  );
+
+  const vorschauFlaeche = (
+    <div className="flex min-h-0 flex-col rounded-lg border bg-muted/30">
+      <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium">
+          <Eye className="h-4 w-4 text-muted-foreground" />
+          Vorschau
+          {isGeneratingPreview && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        </span>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8"
+            onClick={() => void handleGeneratePreview()}
+            disabled={isGeneratingPreview || isSubmitting || fotosLaden || speichernGesperrt}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Aktualisieren
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8" onClick={handleDownloadPdf} disabled={!pdfBlobUrl || !vorschauAktuell}>
+            <FileDown className="h-3.5 w-3.5" />
+            PDF
+          </Button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {speichernGesperrt ? (
+          <p className="py-8 text-center text-sm text-muted-foreground">Die Vorschau entsteht, sobald kein roter Punkt mehr offen ist.</p>
+        ) : fotosLaden ? (
+          <p className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Fotos werden noch hochgeladen …
+          </p>
+        ) : vorschauFehler ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-destructive">
+            <AlertTriangle className="h-5 w-5" />
+            Die Vorschau ließ sich nicht erstellen.
+            <Button variant="outline" size="sm" onClick={() => void handleGeneratePreview()}>
+              Erneut versuchen
+            </Button>
+          </div>
+        ) : pdfBlob && pdfBlobUrl && vorschauAktuell ? (
+          pdfEinbettbar ? (
+            <iframe src={pdfBlobUrl} className="h-[65vh] w-full rounded border bg-white" title="Übergabeprotokoll Vorschau" />
+          ) : (
+            <div className="space-y-3">
+              <PdfSeitenVorschau pdf={pdfBlob} />
+              <a
+                href={pdfBlobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed text-sm text-muted-foreground transition-colors hover:bg-muted"
+              >
+                <Eye className="h-4 w-4" />
+                PDF in neuem Tab öffnen
+              </a>
+            </div>
+          )
         ) : (
-          <>
-            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-green-700 text-sm">
-              <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-              Protokoll wurde gespeichert.
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleDownloadPdf} disabled={!pdfBlobUrl} className="flex-1 h-10">
-                <FileDown className="mr-2 h-4 w-4" />
-                Download
-              </Button>
-              {mieterData.length > 0 && (
-                <Button variant="outline" onClick={() => setShowEmailDialog(true)} className="flex-1 h-10">
-                  <Mail className="mr-2 h-4 w-4" />
-                  {mailVersendetAn.length > 0 ? "E-Mail erneut senden" : "E-Mail senden"}
-                </Button>
-              )}
-            </div>
-            {mailVersendetAn.length > 0 && (
-              <p className="flex items-start gap-1.5 text-xs text-muted-foreground break-all">
-                <Check className="h-3.5 w-3.5 flex-shrink-0 text-success" />
-                Mail versendet an {mailVersendetAn.join(", ")}
-              </p>
-            )}
-
-            {versorgerData.length > 0 && (
-              <Button variant="outline" onClick={() => setShowVersorgerDialog(true)} className="w-full h-10">
-                <Zap className="mr-2 h-4 w-4" />
-                Versorger benachrichtigen
-              </Button>
-            )}
-            {offeneVersorger.length > 0 && (
-              <p className="flex items-start gap-1.5 text-xs text-warning">
-                <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-                Ausgewählt, aber noch nicht benachrichtigt: {offeneVersorger.join(", ")}
-              </p>
-            )}
-
-            <Button onClick={schliessenAnfragen} className="w-full h-10">
-              Schließen
-            </Button>
-          </>
+          <p className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Vorschau wird erstellt …
+          </p>
         )}
       </div>
     </div>
   );
 
-  const dialogTitle = isEinzug ? "Übergabe (Einzug)" : "Übergabe (Auszug)";
-  const DialogIcon = KeyRound;
+  const schrittPruefen = (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      <div className="space-y-4">
+        <ul className="space-y-2">
+          {punkte.map((p, i) => (
+            <li
+              key={i}
+              className={cn(
+                "flex items-start gap-2.5 rounded-lg border p-3 text-sm",
+                p.art === "fehler" && "border-destructive bg-destructive/10",
+                p.art === "hinweis" && "border-warning/40 bg-warning/10"
+              )}
+            >
+              {p.art === "ok" ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+              ) : p.art === "hinweis" ? (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              ) : (
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              )}
+              <span className="flex-1">{p.text}</span>
+              {p.art !== "ok" && (
+                <Button variant="link" size="sm" className="h-auto p-0 text-sm" onClick={() => geheZu(p.schritt)}>
+                  Ändern
+                </Button>
+              )}
+            </li>
+          ))}
+          {nichtEingebetteteFotos > 0 && vorschauAktuell && (
+            <li className="flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <span className="flex-1">
+                {nichtEingebetteteFotos === 1 ? "1 Foto fehlt" : `${nichtEingebetteteFotos} Fotos fehlen`} in der Vorschau — es ließ sich
+                nicht laden. Beim Speichern wird es noch einmal versucht.
+              </span>
+              <Button variant="link" size="sm" className="h-auto p-0 text-sm" onClick={() => void handleGeneratePreview()} disabled={isGeneratingPreview}>
+                Neu laden
+              </Button>
+            </li>
+          )}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          Nach dem Speichern liegt das Protokoll mit allen Fotos beim Vertrag. Danach lässt es sich an den Mieter schicken und die
+          Versorger können benachrichtigt werden.
+        </p>
+      </div>
+      {vorschauFlaeche}
+    </div>
+  );
+
+  const schritte: Record<Exclude<UebergabeSchritt, "pruefen">, React.ReactNode> = {
+    allgemein: schrittAllgemein,
+    zaehler: schrittZaehler,
+    zustand: schrittZustand,
+    unterschriften: schrittUnterschriften,
+  };
+
+  const inhalt = isSaved && gespeichertAm ? (
+    <UebergabeAbschluss
+      isEinzug={isEinzug}
+      gespeichertAm={gespeichertAm}
+      onDownload={handleDownloadPdf}
+      mieterVorhanden={mieterData.length > 0}
+      mailVersendetAn={mailVersendetAn}
+      onMail={() => setShowEmailDialog(true)}
+      versorger={versorgerData}
+      benachrichtigt={versorgerBenachrichtigt}
+      onVersorger={() => setShowVersorgerDialog(true)}
+    />
+  ) : (
+    <div className="space-y-5">
+      {hinweisKarten}
+      {/* Während des Speicherns gesperrt: Was jetzt noch getippt würde, käme in
+          kein Protokoll und ginge mit dem gelöschten Entwurf verloren.
+          pointer-events: Die Unterschriftsfläche ist kein Formularfeld und
+          ließe sich sonst weiter bemalen. Alle Schritte bleiben eingehängt und
+          werden nur ausgeblendet — ein laufender Upload überlebt so „Weiter“. */}
+      <fieldset
+        disabled={isSubmitting || isSaved}
+        className={cn("min-w-0", (isSubmitting || isSaved) && "pointer-events-none", isSubmitting && "opacity-60")}
+      >
+        <legend className="sr-only">{SCHRITT_TITEL[schritt]}</legend>
+        {(Object.keys(schritte) as Array<keyof typeof schritte>).map((s) => (
+          <section key={s} hidden={schritt !== s} aria-label={SCHRITT_TITEL[s]}>
+            {schritte[s]}
+          </section>
+        ))}
+        {schritt === "pruefen" && <section aria-label={SCHRITT_TITEL.pruefen}>{schrittPruefen}</section>}
+      </fieldset>
+    </div>
+  );
+
+  // ============ FUSSLEISTE ============
+  const naechster = UEBERGABE_SCHRITTE[schrittIndex + 1];
+  const vorheriger = UEBERGABE_SCHRITTE[schrittIndex - 1];
+  const speichernKnopf = (
+    <Button
+      onClick={() => handleSubmit()}
+      disabled={isSubmitting || isGeneratingPreview || fotosLaden || speichernGesperrt}
+      className="h-11 sm:h-10"
+    >
+      {isSubmitting ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Wird gespeichert …
+        </>
+      ) : fotosLaden ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Fotos laden …
+        </>
+      ) : (
+        <>
+          <Save className="h-4 w-4" />
+          Protokoll speichern
+        </>
+      )}
+    </Button>
+  );
+  const knoepfe = isSaved ? (
+    <Button onClick={schliessenAnfragen} className="h-11 sm:h-10">
+      Fertig
+    </Button>
+  ) : (
+    <>
+      {vorheriger && (
+        <Button variant="outline" onClick={() => geheZu(vorheriger)} disabled={isSubmitting} className="h-11 sm:h-10">
+          <ArrowLeft className="h-4 w-4" />
+          Zurück
+        </Button>
+      )}
+      {naechster ? (
+        <Button onClick={() => geheZu(naechster)} disabled={isSubmitting} className="h-11 sm:h-10">
+          {isMobile ? "Weiter" : `Weiter: ${SCHRITT_TITEL[naechster]}`}
+          <ArrowRight className="h-4 w-4" />
+        </Button>
+      ) : (
+        speichernKnopf
+      )}
+    </>
+  );
+
+  const menue = !isSaved && (
+    // modal={false}: Öffnet aus dem Menü die Rückfrage, räumt Radix sonst die
+    // Sperre am <body> nicht immer ab — die Seite bliebe danach unklickbar
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Weitere Aktionen" className="h-9 w-9 shrink-0">
+          <MoreVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          disabled={isSubmitting || isGeneratingPreview || fotosLaden}
+          onSelect={() => (ungespeicherteEingaben ? setZuruecksetzenFragen(true) : resetForm())}
+          className="text-destructive focus:text-destructive"
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Entwurf verwerfen
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const dialogTitle = isSaved ? `${isEinzug ? "Einzug" : "Auszug"} übergeben` : `Übergabe · ${isEinzug ? "Einzug" : "Auszug"}`;
+  const symbol = <KeyRound className={cn("h-5 w-5 shrink-0", isEinzug ? "text-success" : "text-warning")} />;
 
   // Beide Mail-Dialoge gibt es erst nach dem Speichern, sie verschicken das
   // abgelegte Protokoll. Sie bleiben eingehängt, solange der Übergabe-Dialog
@@ -1325,7 +1533,7 @@ export const UebergabeDialog = ({
   const emailDialogComponent = isSaved && savedPdfPath && uebergabeDatum && mieterData.length > 0 && (
     <UebergabeEmailDialog
       isOpen={showEmailDialog}
-      onClose={handleEmailDialogClose}
+      onClose={() => setShowEmailDialog(false)}
       isEinzug={isEinzug}
       mieter={mieterData}
       adressVorschlaege={mieterEmails}
@@ -1339,9 +1547,8 @@ export const UebergabeDialog = ({
 
   const immobilieId = contracts[0]?.einheit?.immobilie_id || contracts[0]?.einheit?.immobilie?.id;
   const firstZaehler = zaehlerstaendePerContract[contracts[0]?.id] || { strom: "", gas: "", wasser: "", warmwasser: "" };
-  // Stabil halten: Der Versorger-Dialog baut Betreff und Text in einem Effekt neu,
-  // sobald sich dieses Objekt ändert. Als Literal war es nach jedem Render neu —
-  // jeder Toast hier verwarf so die bearbeiteten Texte und die Versandanzeige.
+  // Stabil halten: Der Versorger-Dialog baut Betreff und Text beim ersten Öffnen
+  // aus diesen Werten — als Literal wäre es nach jedem Render neu.
   const versorgerZaehlerstaende = useMemo(
     () => ({ strom: firstZaehler.strom, gas: firstZaehler.gas, wasser: firstZaehler.wasser }),
     [firstZaehler.strom, firstZaehler.gas, firstZaehler.wasser]
@@ -1350,7 +1557,7 @@ export const UebergabeDialog = ({
   const versorgerDialogComponent = isSaved && savedPdfPath && uebergabeDatum && immobilieId && (
     <VersorgerBenachrichtigungDialog
       isOpen={showVersorgerDialog}
-      onClose={handleVersorgerDialogClose}
+      onClose={() => setShowVersorgerDialog(false)}
       immobilieId={immobilieId}
       mieterName={mieterName || ""}
       uebergabeDatum={uebergabeDatum}
@@ -1369,13 +1576,11 @@ export const UebergabeDialog = ({
     <AlertDialog open={schliessenFragen} onOpenChange={setSchliessenFragen}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{isSaved ? "Versorger noch nicht benachrichtigt" : "Übergabe noch nicht gespeichert"}</AlertDialogTitle>
+          <AlertDialogTitle>Übergabe noch nicht gespeichert</AlertDialogTitle>
           <AlertDialogDescription>
             {/* Ein laufender Upload wird beim Schließen verworfen — das Foto
                 landet dann nicht im Entwurf, also darf der Text das nicht versprechen. */}
-            {isSaved
-              ? `Das Protokoll ist gespeichert. Ausgewählt, aber noch nicht benachrichtigt: ${offeneVersorger.join(", ")}. Nach dem Schließen geht das nur noch per Hand.`
-              : fotosLaden
+            {fotosLaden
               ? "Ein Foto wird gerade noch hochgeladen. Wenn Sie jetzt schließen, fehlt es im Entwurf und muss neu aufgenommen werden."
               : entwurfGesichert
                 ? "Die Eingaben bleiben als Entwurf auf diesem Gerät erhalten. Wenn Sie diesen Vertrag wieder öffnen, geht es an derselben Stelle weiter. Gespeichert ist das Protokoll erst mit „Protokoll speichern“."
@@ -1383,16 +1588,15 @@ export const UebergabeDialog = ({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>{isSaved ? "Zurück" : "Weiter bearbeiten"}</AlertDialogCancel>
+          <AlertDialogCancel>Weiter bearbeiten</AlertDialogCancel>
           <AlertDialogAction
-            className={cn(!isSaved && (!entwurfGesichert || fotosLaden) && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
+            className={cn((!entwurfGesichert || fotosLaden) && "bg-destructive text-destructive-foreground hover:bg-destructive/90")}
             onClick={() => {
               setSchliessenFragen(false);
-              if (isSaved) handleClose();
-              else onClose();
+              onClose();
             }}
           >
-            {isSaved ? "Ohne Benachrichtigung schließen" : fotosLaden ? "Trotzdem schließen" : entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
+            {fotosLaden ? "Trotzdem schließen" : entwurfGesichert ? "Schließen" : "Verwerfen und schließen"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1400,16 +1604,15 @@ export const UebergabeDialog = ({
   );
 
   // Bis zum 19.10.2026 löschte ein einziger Tipp auf „Formular zurücksetzen“
-  // Eingaben, Fotos, Unterschriften und den Entwurf — auf dem Handy liegt der
-  // Knopf direkt unter „Vorschau“.
+  // Eingaben, Fotos, Unterschriften und den Entwurf.
   const zuruecksetzenAbfrage = (
     <AlertDialog open={zuruecksetzenFragen} onOpenChange={setZuruecksetzenFragen}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Formular zurücksetzen?</AlertDialogTitle>
+          <AlertDialogTitle>Entwurf verwerfen?</AlertDialogTitle>
           <AlertDialogDescription>
-            Alle Eingaben, Fotos und Unterschriften dieser Übergabe werden aus dem Formular und dem Entwurf auf diesem
-            Gerät gelöscht. Das lässt sich nicht rückgängig machen.
+            Alle Eingaben, Fotos und Unterschriften dieser Übergabe werden aus dem Formular und dem Entwurf auf diesem Gerät
+            gelöscht. Das lässt sich nicht rückgängig machen.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -1421,7 +1624,7 @@ export const UebergabeDialog = ({
               resetForm();
             }}
           >
-            Zurücksetzen
+            Verwerfen
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1463,48 +1666,53 @@ export const UebergabeDialog = ({
     </AlertDialog>
   );
 
+  const abfragen = (
+    <>
+      {emailDialogComponent}
+      {versorgerDialogComponent}
+      {schliessenAbfrage}
+      {zuruecksetzenAbfrage}
+      {fotoAbfrage}
+    </>
+  );
+
+  const schrittleiste = !isSaved && (
+    <UebergabeSchrittleiste
+      schritte={UEBERGABE_SCHRITTE}
+      aktuell={schritt}
+      zustaende={zustaende}
+      besucht={besucht}
+      onWaehle={geheZu}
+      kompakt={isMobile}
+    />
+  );
+
   if (isMobile) {
     return (
       // dismissible={false}: kein Schließen durch Wischen oder Tippen daneben.
       // Bei einem langen Formular reichte ein Zug nach unten am oberen Rand, und
-      // alles war weg. Geschlossen wird nur über den Knopf im Kopf.
+      // alles war weg. Geschlossen wird nur über das X im Kopf oder „Fertig“.
       <Drawer open={isOpen} dismissible={false}>
-        {emailDialogComponent}
-        {versorgerDialogComponent}
-        {schliessenAbfrage}
-        {zuruecksetzenAbfrage}
-        {fotoAbfrage}
-        <DrawerContent className="max-h-[95vh] supports-[height:100dvh]:max-h-[95dvh]">
-          <DrawerHeader className="pb-2 flex items-center justify-between gap-2">
-            <DrawerTitle className="flex items-center gap-2 text-lg">
-              <DialogIcon className={cn("h-5 w-5", isEinzug ? "text-green-600" : "text-orange-600")} />
-              {dialogTitle}
-            </DrawerTitle>
-            <Button variant="ghost" size="icon" onClick={schliessenAnfragen} aria-label="Übergabe schließen">
+        {abfragen}
+        <DrawerContent className="flex h-[96vh] max-h-[96vh] flex-col supports-[height:100dvh]:h-[96dvh] supports-[height:100dvh]:max-h-[96dvh]">
+          <DrawerHeader className="flex items-start gap-2 px-4 pb-2 pt-3 text-left">
+            {symbol}
+            <div className="min-w-0 flex-1">
+              <DrawerTitle className="text-base">{dialogTitle}</DrawerTitle>
+              <DrawerDescription className="truncate text-xs">{untertitel}</DrawerDescription>
+            </div>
+            {menue}
+            <Button variant="ghost" size="icon" onClick={schliessenAnfragen} aria-label="Übergabe schließen" className="h-9 w-9 shrink-0">
               <X className="h-5 w-5" />
             </Button>
           </DrawerHeader>
-          <div className="overflow-y-auto px-4 pb-6" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
-            {formContent}
-            {showPreview && pdfBlob && (
-              <div className="mt-4 border-t pt-4 space-y-3">
-                <p className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Eye className="h-4 w-4" />
-                  PDF-Vorschau
-                </p>
-                <PdfSeitenVorschau pdf={pdfBlob} />
-                {pdfBlobUrl && (
-                  <a
-                    href={pdfBlobUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full h-10 rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted transition-colors"
-                  >
-                    PDF in neuem Tab öffnen
-                  </a>
-                )}
-              </div>
-            )}
+          {schrittleiste}
+          <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+            {inhalt}
+          </div>
+          <div className="space-y-2 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+            {statusZeile && <div className="flex justify-center">{statusZeile}</div>}
+            <div className={cn("grid gap-2", !isSaved && vorheriger ? "grid-cols-[auto_1fr]" : "grid-cols-1")}>{knoepfe}</div>
           </div>
         </DrawerContent>
       </Drawer>
@@ -1513,71 +1721,26 @@ export const UebergabeDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && schliessenAnfragen()}>
-      {emailDialogComponent}
-      {versorgerDialogComponent}
-      {schliessenAbfrage}
-      {zuruecksetzenAbfrage}
-      {fotoAbfrage}
-      <DialogContent className={cn(
-        "max-h-[90vh] overflow-hidden flex flex-col",
-        showPreview ? "sm:max-w-[1200px]" : "sm:max-w-[900px]"
-      )}>
-        <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <DialogIcon className={cn("h-5 w-5", isEinzug ? "text-green-600" : "text-orange-600")} />
-            {dialogTitle}
-          </DialogTitle>
-        </DialogHeader>
-        <div className={cn(
-          "flex-1 min-h-0",
-          showPreview
-            ? "flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden"
-            : "overflow-hidden"
-        )}>
-          {/* Form (always visible) */}
-          <div
-            className={cn(
-              showPreview
-                ? "lg:w-[480px] lg:flex-shrink-0 lg:border-r lg:pr-2 lg:overflow-y-auto lg:max-h-[calc(90vh-80px)]"
-                : "w-full overflow-y-auto max-h-[calc(90vh-80px)]"
-            )}
-            style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-          >
-            {formContent}
+      {abfragen}
+      <DialogContent className="flex h-[92vh] max-h-[960px] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="flex-row items-start gap-3 space-y-0 border-b px-6 py-4 pr-14 text-left">
+          {symbol}
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-lg">{dialogTitle}</DialogTitle>
+            <DialogDescription className="truncate">{untertitel}</DialogDescription>
           </div>
-
-          {/* PDF Preview — rechts auf Desktop, unten auf Tablet */}
-          {showPreview && pdfBlobUrl && (
-            <div className="lg:flex-1 flex flex-col min-w-0 lg:pl-4 pt-4 lg:pt-0 border-t lg:border-t-0">
-              <div className="flex items-center justify-between pb-2 mb-2 border-b flex-shrink-0">
-                <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Eye className="h-4 w-4" />
-                  PDF-Vorschau
-                </span>
-                {isGeneratingPreview && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              </div>
-              {pdfEinbettbar ? (
-                <iframe
-                  src={pdfBlobUrl}
-                  className="w-full flex-1 min-h-[350px] lg:min-h-[500px] rounded-lg border bg-white"
-                  title="Übergabeprotokoll Vorschau"
-                />
-              ) : (
-                <div className="flex-1 min-h-0 overflow-y-auto space-y-3">
-                  {pdfBlob && <PdfSeitenVorschau pdf={pdfBlob} />}
-                  <a
-                    href={pdfBlobUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full h-10 rounded-lg border border-dashed text-sm text-muted-foreground hover:bg-muted transition-colors"
-                  >
-                    <Eye className="h-4 w-4" />
-                    PDF in neuem Tab öffnen
-                  </a>
-                </div>
-              )}
-            </div>
-          )}
+          {menue}
+        </DialogHeader>
+        {schrittleiste}
+        <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className={cn("mx-auto p-6", schritt === "pruefen" && !isSaved ? "max-w-none" : "max-w-3xl")}>
+            {!isSaved && <h2 className="mb-4 text-base font-semibold">{SCHRITT_TITEL[schritt]}</h2>}
+            {inhalt}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background px-6 py-3">
+          <div className="min-w-0">{statusZeile}</div>
+          <div className="flex items-center gap-2">{knoepfe}</div>
         </div>
       </DialogContent>
     </Dialog>

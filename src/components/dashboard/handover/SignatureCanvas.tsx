@@ -152,8 +152,9 @@ export const SignatureCanvas = ({ onSignatureChange, label, initialValue }: Sign
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-700">{label}</span>
+      {/* feste Höhe: sonst steht das Feld mit „Löschen“ tiefer als das ohne */}
+      <div className="flex h-8 items-center justify-between">
+        <span className="text-sm font-medium">{label}</span>
         {hasSignature && (
           <Button
             type="button"
@@ -161,13 +162,15 @@ export const SignatureCanvas = ({ onSignatureChange, label, initialValue }: Sign
             size="sm"
             onClick={clearSignature}
             className="h-8 text-xs"
+            aria-label={`Unterschrift ${label} löschen`}
           >
             <RotateCcw className="h-3 w-3 mr-1" />
-            Neu
+            Löschen
           </Button>
         )}
       </div>
-      <div className="relative border-2 border-dashed border-gray-300 rounded-lg bg-white overflow-hidden">
+      {/* Weiß auch im dunklen Modus: Die Unterschrift ist schwarz und geht so ins PDF */}
+      <div className="relative overflow-hidden rounded-lg border-2 border-dashed border-input bg-white">
         <canvas
           ref={canvasRef}
           className="block w-full aspect-[13/5] cursor-crosshair"
@@ -175,7 +178,7 @@ export const SignatureCanvas = ({ onSignatureChange, label, initialValue }: Sign
         />
         {!hasSignature && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-gray-400 text-sm">Hier unterschreiben</span>
+            <span className="text-sm text-muted-foreground">Hier unterschreiben</span>
           </div>
         )}
       </div>
