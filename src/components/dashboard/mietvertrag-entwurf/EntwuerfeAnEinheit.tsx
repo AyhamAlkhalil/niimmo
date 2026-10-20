@@ -1,11 +1,11 @@
 /**
- * Offene Mietvertragsentwürfe einer Einheit auf der Einheitskarte.
- * Ein Entwurf belegt die Einheit nicht — er steht hier, bis er aktiviert
- * oder verworfen wird.
+ * Offene Mietvertragsentwürfe einer Einheit auf der Einheitskarte, mit ihrem
+ * Stand im Ablauf. Ein Entwurf belegt die Einheit nicht — er steht hier, bis
+ * er aktiviert oder verworfen wird.
  */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, FileText, Loader2, PenLine, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, Loader2, PenLine, Trash2 } from 'lucide-react';
 
 import {
   AlertDialog,
@@ -23,12 +23,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
 import { useMietvertragEntwuerfe } from '@/hooks/useMietvertragEntwurf';
 import { entwurfDateiLink, verwirfEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
-import { EntwurfAktivierenDialog } from './EntwurfAktivierenDialog';
+import { istSchrittId, schrittTitel, type SchrittId } from '@/utils/mietvertrag/entwurfProzess';
 
 interface Props {
   einheitId: string;
-  einheitentyp: string | null | undefined;
-  onBearbeiten: (entwurfId: string) => void;
+  /** Wohnung/Haus: Es gibt eine Vorlage und damit ein PDF. */
+  wohnraum: boolean;
+  /** Öffnet den Ablauf; ohne Schritt dort, wo zuletzt gespeichert wurde. */
+  onOeffnen: (entwurfId: string, schritt?: SchrittId) => void;
 }
 
 function namen(e: EntwurfZeile): string {
@@ -36,19 +38,32 @@ function namen(e: EntwurfZeile): string {
     .filter(p => p.rolle === 'mitmieter')
     .map(p => (p.istUnternehmen ? p.firmenname : `${p.vorname} ${p.nachname}`.trim()))
     .filter(Boolean);
-  return liste.length > 0 ? liste.join(', ') : 'ohne Mieter';
+  return liste.length > 0 ? liste.join(', ') : 'noch ohne Mieter';
 }
 
-export function EntwuerfeAnEinheit({ einheitId, einheitentyp, onBearbeiten }: Props) {
+function stand(e: EntwurfZeile, wohnraum: boolean): string {
+  if (e.dateien.some(d => d.art === 'entwurf_pdf')) return 'PDF erstellt · wartet auf Unterschrift';
+  return istSchrittId(e.schritt) ? `in Bearbeitung · ${schrittTitel(e.schritt, wohnraum)}` : 'in Bearbeitung';
+}
+
+export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
-  const { data } = useMietvertragEntwuerfe();
-  const [aktivieren, setAktivieren] = useState<EntwurfZeile | null>(null);
+  const { data, error } = useMietvertragEntwuerfe();
   const [verwerfen, setVerwerfen] = useState<EntwurfZeile | null>(null);
   const [verwirft, setVerwirft] = useState(false);
 
   const entwuerfe = (data ?? []).filter(e => e.einheitId === einheitId);
+  // Ein Ladefehler darf nicht wie „keine Entwürfe" aussehen — sonst entsteht ein zweiter
+  if (error) {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-destructive" onClick={e => e.stopPropagation()}>
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        Offene Mietvertragsentwürfe konnten nicht geladen werden ({error.message}).
+      </p>
+    );
+  }
   if (entwuerfe.length === 0) return null;
 
   async function pdfOeffnen(e: EntwurfZeile) {
@@ -88,25 +103,23 @@ export function EntwuerfeAnEinheit({ einheitId, einheitentyp, onBearbeiten }: Pr
         const hatPdf = e.dateien.some(d => d.art === 'entwurf_pdf');
         return (
           <div key={e.id} className="space-y-2 rounded-lg border border-dashed border-primary/50 bg-primary/5 p-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 text-xs">
-                <div className="flex items-center gap-1.5">
-                  <Badge variant="outline" className="border-primary/50 px-1.5 py-0 text-[10px] text-primary">
-                    Entwurf
-                  </Badge>
-                  <span className="truncate font-medium">{namen(e)}</span>
-                </div>
-                <p className="mt-0.5 text-muted-foreground">
-                  ab {e.daten.mietbeginn ? new Date(`${e.daten.mietbeginn}T12:00:00`).toLocaleDateString('de-DE') : '—'} ·{' '}
-                  {e.daten.kaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € kalt
-                  {!hatPdf && ' · noch ohne PDF'}
-                </p>
+            <div className="min-w-0 text-xs">
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="border-primary/50 px-1.5 py-0 text-[10px] text-primary">
+                  Entwurf
+                </Badge>
+                <span className="truncate font-medium">{namen(e)}</span>
               </div>
+              <p className="mt-0.5 text-muted-foreground">
+                ab {e.daten.mietbeginn ? new Date(`${e.daten.mietbeginn}T12:00:00`).toLocaleDateString('de-DE') : '—'} ·{' '}
+                {e.daten.kaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € kalt
+              </p>
+              <p className="text-muted-foreground">{stand(e, wohnraum)}</p>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onBearbeiten(e.id)}>
+              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onOeffnen(e.id)}>
                 <PenLine className="h-3 w-3" />
-                Bearbeiten
+                Fortsetzen
               </Button>
               {hatPdf && (
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void pdfOeffnen(e)}>
@@ -114,9 +127,9 @@ export function EntwuerfeAnEinheit({ einheitId, einheitentyp, onBearbeiten }: Pr
                   PDF
                 </Button>
               )}
-              <Button size="sm" className="h-7 text-xs" onClick={() => setAktivieren(e)}>
+              <Button size="sm" className="h-7 text-xs" onClick={() => onOeffnen(e.id, 'start')}>
                 <CheckCircle2 className="h-3 w-3" />
-                Unterschrieben – aktivieren
+                Unterschrift &amp; Start
               </Button>
               <Button
                 size="sm"
@@ -132,23 +145,13 @@ export function EntwuerfeAnEinheit({ einheitId, einheitentyp, onBearbeiten }: Pr
         );
       })}
 
-      {aktivieren && (
-        <EntwurfAktivierenDialog
-          isOpen={true}
-          onClose={() => setAktivieren(null)}
-          entwurf={aktivieren}
-          andere={entwuerfe.filter(e => e.id !== aktivieren.id)}
-          einheitentyp={einheitentyp}
-        />
-      )}
-
       <AlertDialog open={!!verwerfen} onOpenChange={o => !o && !verwirft && setVerwerfen(null)}>
         <AlertDialogContent onClick={e => e.stopPropagation()}>
           <AlertDialogHeader>
             <AlertDialogTitle>Entwurf verwerfen?</AlertDialogTitle>
             <AlertDialogDescription>
-              {verwerfen ? namen(verwerfen) : ''} — Entwurf, Entwurfs-PDF und Selbstauskunft werden gelöscht. Ein
-              Mieter wurde für den Entwurf noch nicht angelegt.
+              {verwerfen ? namen(verwerfen) : ''} — Entwurf, Entwurfs-PDF und Selbstauskunft werden gelöscht. Ein Mieter
+              wurde für den Entwurf noch nicht angelegt.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

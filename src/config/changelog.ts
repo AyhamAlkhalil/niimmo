@@ -37,6 +37,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.6.1",
+    datum: "2026-10-20",
+    aenderungen: [
+      { art: "neu", titel: "Neuer Mietvertrag als geführter Ablauf in acht Schritten, mit Zwischenspeichern und Abbrechen" },
+      { art: "neu", titel: "Prüfschritt zeigt jeden Platzhalter des Vertrags mit Wert und Herkunft, jeder Wert bleibt änderbar" },
+      { art: "neu", titel: "Staffel- und Indexmiete, Schlüssel, Nebenräume und Einbauküche im Vertrag erfassbar" },
+    ],
+  },
+  {
     version: "1.6.0",
     datum: "2026-10-18",
     aenderungen: [

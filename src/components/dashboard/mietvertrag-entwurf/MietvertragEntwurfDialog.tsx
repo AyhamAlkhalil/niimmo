@@ -1,22 +1,35 @@
 /**
- * „Neuen Mietvertrag anlegen": Entwurf mit Vorschau statt sofort aktivem Vertrag.
+ * „Neuen Mietvertrag anlegen" als geführter Ablauf (20.10.2026).
  *
- * Bis 18.10.2026 legte der Knopf Mieter und Vertrag direkt aktiv an der
- * Einheit an. Beim Test mit einer Selbstauskunft entstand so eine echte
- * Monatsforderung für eine leere Wohnung. Jetzt:
- *   1. Selbstauskunft lesen (oder von Hand erfassen)
- *   2. Vertragsdaten — vorbelegt aus Objekt, Einheit und Vorvertrag, gekennzeichnet
- *   3. Vorschau des PDFs, daneben die Pflichtprüfung
- *   4. Entwurf speichern: Einheit bleibt frei, keine Forderungen
- * Aktiviert wird nach der Unterschrift über die Einheitskarte.
+ * Die Vorlage ist fest; der Ablauf befüllt ihre Platzhalter aus Objekt,
+ * Einheit, Vorvertrag, Selbstauskunft und Eingaben — jeder Wert bleibt
+ * änderbar und zeigt seine Quelle. Am Ende steht das PDF:
+ *
+ *   Grundlagen → Mieter → Miete & Laufzeit → Mietsache & Haus →
+ *   Betriebskosten → Vereinbarungen → Prüfen & PDF → Unterschrift & Start
+ *
+ * Bis zum Aktivieren ist alles ein Entwurf (`mietvertrag_entwuerfe`): Die
+ * Einheit bleibt frei, es entstehen keine Forderungen. Zwischenspeichern geht
+ * jederzeit, Abbrechen fragt bei ungespeicherten Änderungen nach.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ChevronUp, FileSignature, Info, Loader2, PenLine, Save } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, FileCheck2, FileSignature, Info, Loader2, PenLine, Save } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -24,21 +37,26 @@ import { useActivityLog } from '@/hooks/useActivityLog';
 import {
   useEntwurfGrundlagen,
   useMieterAbgleich,
+  useMietvertragEntwuerfe,
   useMietvertragEntwurf,
   wahrscheinlichsterVertrag,
   type EntwurfGrundlagenDaten,
 } from '@/hooks/useMietvertragEntwurf';
+import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
 import { supabase } from '@/integrations/supabase/client';
 import type { TablesUpdate } from '@/integrations/supabase/types';
 import { OCRProcessingService } from '@/services/ocrProcessingService';
-import { speichereEntwurf } from '@/services/mietvertragEntwurfService';
+import { speichereEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
 import { getVertragsende } from '@/utils/contractUtils';
 import { objektDaten, vermieterDaten } from '@/utils/mietvertrag/datenAusDb';
 import {
   baueEntwurf,
+  hatNamen,
+  indexVorschlag,
   istLeerePerson,
   istWohnraumEinheit,
   leerePerson,
+  mitMietbeginn,
   mitPersonen,
   ohneHerkunft,
   personenAusSelbstauskunft,
@@ -48,30 +66,53 @@ import {
   wendeVorvertragAuslese,
   type EntwurfDatei,
   type EntwurfPerson,
+  type Herkunft,
   type HerkunftKarte,
   type SelbstauskunftAuslese,
   type VorvertragAuslese,
 } from '@/utils/mietvertrag/entwurf';
+import {
+  entwurfLuecken,
+  istSchrittId,
+  platzhalterUebersicht,
+  schritteFuer,
+  schrittTitel,
+  schrittZustaende,
+  type SchrittId,
+} from '@/utils/mietvertrag/entwurfProzess';
 import { hatBlocker, pruefeVertragsdaten } from '@/utils/mietvertrag/pflichtpruefung';
+import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 import {
+  AnlagenFelder,
   BetriebskostenEditor,
-  KlauselFelder,
+  EnergieausweisFelder,
+  KleinreparaturFelder,
   MietsacheFelder,
   ObjektAngabenFelder,
+  PersonenzahlFeld,
+  SchluesselFelder,
+  UebergabeFelder,
+  UnterzeichnungFelder,
+  ZusatzvereinbarungFeld,
 } from '../mietvertrag-formular/Abschnitte';
-import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
-import { HerkunftHinweis, PruefungsHinweise, VertragsVorschau } from '../mietvertrag-formular/Bausteine';
+import { Feldname, HerkunftHinweis, PruefungsHinweise, VertragsVorschau } from '../mietvertrag-formular/Bausteine';
+import { GrundlagenSchritt } from './GrundlagenSchritt';
 import { InteressentenAbschnitt } from './InteressentenAbschnitt';
-import { KonditionenAbschnitt } from './KonditionenAbschnitt';
-import { VorvertragAbschnitt, type AusleseStatus } from './VorvertragAbschnitt';
+import { MieteSchritt } from './MieteSchritt';
+import { PruefenSchritt } from './PruefenSchritt';
+import { Schrittleiste } from './Schrittleiste';
+import { StartSchritt } from './StartSchritt';
+import type { AusleseStatus } from './VorvertragAbschnitt';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   einheitId: string;
-  /** Vorhandenen Entwurf bearbeiten; ohne ID entsteht ein neuer. */
+  /** Vorhandenen Entwurf fortsetzen; ohne ID entsteht ein neuer. */
   entwurfId?: string | null;
+  /** In diesem Schritt einsteigen, z. B. „start" für „Unterschrieben – aktivieren". */
+  startSchritt?: SchrittId | null;
   /** Ein bereits unterschriebener Vertrag wird weiter direkt erfasst (bisheriger Dialog). */
   onDirektErfassen?: () => void;
 }
@@ -86,7 +127,56 @@ function heuteIso(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId = null, onDirektErfassen }: Props) {
+/** Vergleich unabhängig von der Schlüsselreihenfolge — jsonb ordnet die Schlüssel beim Speichern um. */
+function stabil(wert: unknown): string {
+  return JSON.stringify(wert, (_schluessel, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.entries(v as Record<string, unknown>)
+            .map(([k, w]) => [k, w === undefined ? null : w])
+            .sort(([a], [b]) => String(a).localeCompare(String(b)))
+        )
+      : v
+  );
+}
+
+/** Was nicht im Entwurf, sondern am Objekt und beim Vermieter gepflegt wird. */
+function stammdatenTeil(d: MietvertragDaten) {
+  return {
+    vermieter: d.vermieter,
+    objekt: d.objekt,
+    schliessanlageArt: d.schliessanlageArt,
+    // Am Objekt als Liste gespeichert — „Waschkeller,Hof" und „Waschkeller, Hof" sind dasselbe
+    mitbenutzungEinrichtungen: (d.mitbenutzungEinrichtungen ?? '')
+      .split(/\s*,\s*/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .join(', '),
+  };
+}
+
+/** Rückschreiben ans Objekt bzw. an die Einheit — getrennt, weil beide Updates einzeln scheitern können. */
+const FELDER_AM_OBJEKT = [
+  'objekt.heizungsart',
+  'objekt.warmwasser',
+  'objekt.heizkostenSchluessel',
+  'objekt.gesamtwohnflaecheQm',
+  'schliessanlageArt',
+  'mitbenutzungEinrichtungen',
+  'objekt.energieausweis',
+];
+const FELDER_AN_EINHEIT = ['einheit.nebenraeume', 'einheit.einbaukueche'];
+
+type Verlassen = 'schliessen' | 'direkt';
+
+export function MietvertragEntwurfDialog({
+  isOpen,
+  onClose,
+  einheitId,
+  entwurfId = null,
+  startSchritt = null,
+  onDirektErfassen,
+}: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
@@ -94,9 +184,11 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
   const grundlagen = useEntwurfGrundlagen(einheitId, isOpen);
   const vorhanden = useMietvertragEntwurf(entwurfId, isOpen);
   const { mieter: bestand, blacklist } = useMieterAbgleich(isOpen);
+  const { data: alleEntwuerfe } = useMietvertragEntwuerfe(isOpen);
   const g = grundlagen.data;
 
   const [id, setId] = useState('');
+  const [gespeichert, setGespeichert] = useState(false);
   const [stand, setStand] = useState<Stand | null>(null);
   const [personen, setPersonen] = useState<EntwurfPerson[]>([]);
   const [dateien, setDateien] = useState<EntwurfDatei[]>([]);
@@ -108,32 +200,54 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
   const [zeigeVermieter, setZeigeVermieter] = useState(false);
   const [zeigeHinweise, setZeigeHinweise] = useState(false);
   const [aktualisiertAm, setAktualisiertAm] = useState<string | null>(null);
+  const [schritt, setSchritt] = useState<SchrittId>('grundlagen');
+  const [besucht, setBesucht] = useState<Set<SchrittId>>(new Set(['grundlagen']));
+  const [ungespeichert, setUngespeichert] = useState(false);
+  const [frageSchliessen, setFrageSchliessen] = useState<Verlassen | null>(null);
+  const [zuletztGespeichert, setZuletztGespeichert] = useState<Date | null>(null);
   const initialisiert = useRef(false);
   /** Felder, die in dieser Sitzung von Hand geändert wurden — nur die gehen ans Objekt zurück. */
-  const sitzungGeaendert = useRef(new Set<string>());
+  /** Je Feld ein Zähler: So erkennt das Speichern, ob ein Feld währenddessen erneut geändert wurde. */
+  const sitzungGeaendert = useRef(new Map<string, number>());
   /** Zählt Öffnungen; eine KI-Antwort aus einer früheren Sitzung wird verworfen. */
   const sitzung = useRef(0);
+  /** Zählt Eingaben; was während des Speicherns geändert wird, bleibt ungespeichert. */
+  const aenderungen = useRef(0);
+  const formular = useRef<HTMLDivElement>(null);
 
   const wohnraum = istWohnraumEinheit(g?.einheit.einheitentyp);
+  const schritte = useMemo(() => schritteFuer(wohnraum), [wohnraum]);
 
   // ─── Schließen setzt alles zurück ────────────────────────────────────────
   useEffect(() => {
     if (isOpen) return;
     sitzung.current += 1;
     initialisiert.current = false;
-    sitzungGeaendert.current = new Set();
+    sitzungGeaendert.current = new Map();
+    aenderungen.current = 0;
     setAktualisiertAm(null);
+    setGespeichert(false);
     setStand(null);
     setPersonen([]);
     setDateien([]);
     setNeueSelbstauskuenfte([]);
     setVorvertragPfad(null);
     setAusleseStatus({ art: 'bereit' });
+    setSchritt('grundlagen');
+    setBesucht(new Set(['grundlagen']));
+    setUngespeichert(false);
+    setFrageSchliessen(null);
+    setZuletztGespeichert(null);
   }, [isOpen]);
+
+  const markiereUngespeichert = useCallback(() => {
+    aenderungen.current += 1;
+    setUngespeichert(true);
+  }, []);
 
   // ─── Vorvertrag lesen ────────────────────────────────────────────────────
   const liesVorvertrag = useCallback(
-    async (grundlage: EntwurfGrundlagenDaten, pfad: string) => {
+    async (grundlage: EntwurfGrundlagenDaten, pfad: string, vonHand: boolean) => {
       const dokument = grundlage.vorvertragDokumente.find(d => d.pfad === pfad);
       if (!dokument) return;
       const meineSitzung = sitzung.current;
@@ -147,6 +261,7 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
         const auslese = antwort.extractedData;
         const gesamt = grundlage.vorvertrag ? Number(grundlage.vorvertrag.betriebskosten ?? 0) : null;
         setStand(s => (s ? wendeVorvertragAuslese(s.daten, s.herkunft, auslese, gesamt) : s));
+        if (vonHand) markiereUngespeichert();
 
         const gefunden = [
           auslese.raumaufstellung && 'Räume',
@@ -154,6 +269,7 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
           auslese.betriebskosten_positionen.length > 0 && `${auslese.betriebskosten_positionen.length} Kostenpositionen`,
           auslese.heizkosten_vorauszahlung && 'Heizkosten',
           auslese.schliessanlage && 'Schließanlage',
+          auslese.mindestlaufzeit_monate && 'Mindestlaufzeit',
         ].filter(Boolean);
         setAusleseStatus({
           art: 'fertig',
@@ -165,41 +281,59 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
         }
       }
     },
-    []
+    [markiereUngespeichert]
   );
 
   // ─── Erste Fassung ───────────────────────────────────────────────────────
   useEffect(() => {
     // Erst mit frisch geladenen Daten belegen: Der Cache liefert sonst den Stand vor dem letzten Speichern.
     if (!isOpen || initialisiert.current || !g || grundlagen.isFetching) return;
+    const verfuegbar = schritteFuer(istWohnraumEinheit(g.einheit.einheitentyp));
+    const beginneBei = (s: SchrittId) => {
+      const ziel = verfuegbar.includes(s) ? s : 'grundlagen';
+      setSchritt(ziel);
+      setBesucht(new Set(verfuegbar.slice(0, verfuegbar.indexOf(ziel) + 1)));
+    };
 
     if (entwurfId) {
       if (!vorhanden.data || vorhanden.isFetching) return;
       const z = vorhanden.data;
       setId(z.id);
+      setGespeichert(true);
       setAktualisiertAm(z.aktualisiertAm);
       // Haus- und Vermieterangaben gelten wie gespeichert am Objekt, nicht wie im
       // Entwurf festgehalten — sonst schriebe das Speichern einen alten Stand zurück.
       const aktuell = objektDaten(g.immobilie);
       const einrichtungen = (g.immobilie.gemeinschaftseinrichtungen ?? []).filter(Boolean);
-      setStand({
-        daten: {
-          ...z.daten,
-          vermieter: vermieterDaten(g.vermieter, g.immobilie),
-          objekt: {
-            ...aktuell,
-            heizungsart: aktuell.heizungsart ?? z.daten.objekt.heizungsart,
-            warmwasser: aktuell.warmwasser ?? z.daten.objekt.warmwasser,
-            gesamtwohnflaecheQm: aktuell.gesamtwohnflaecheQm ?? z.daten.objekt.gesamtwohnflaecheQm,
-          },
-          schliessanlageArt: g.immobilie.schliessanlage_art ?? z.daten.schliessanlageArt,
-          mitbenutzungEinrichtungen: einrichtungen.length > 0 ? einrichtungen.join(', ') : z.daten.mitbenutzungEinrichtungen,
+      const daten: MietvertragDaten = {
+        ...z.daten,
+        vermieter: vermieterDaten(g.vermieter, g.immobilie),
+        objekt: {
+          ...aktuell,
+          heizungsart: aktuell.heizungsart ?? z.daten.objekt.heizungsart,
+          warmwasser: aktuell.warmwasser ?? z.daten.objekt.warmwasser,
+          gesamtwohnflaecheQm: aktuell.gesamtwohnflaecheQm ?? z.daten.objekt.gesamtwohnflaecheQm,
         },
-        herkunft: z.herkunft,
-      });
+        schliessanlageArt: g.immobilie.schliessanlage_art ?? z.daten.schliessanlageArt,
+        mitbenutzungEinrichtungen: einrichtungen.length > 0 ? einrichtungen.join(', ') : z.daten.mitbenutzungEinrichtungen,
+      };
+      setStand({ daten, herkunft: z.herkunft });
+      // Haben sich Objekt oder Vermieter seitdem geändert, ist der gespeicherte Stand
+      // (und ein PDF dazu) veraltet — das muss sichtbar sein, nicht still mitlaufen.
+      if (stabil(stammdatenTeil(daten)) !== stabil(stammdatenTeil(z.daten))) {
+        markiereUngespeichert();
+        if (z.dateien.some(f => f.art === 'entwurf_pdf')) {
+          toast({
+            title: 'Stammdaten haben sich geändert',
+            description:
+              'Seit dem PDF wurden Angaben zum Haus oder zum Vermieter geändert. Der Entwurf zeigt den aktuellen Stand; beim Speichern entsteht das PDF neu.',
+          });
+        }
+      }
       setPersonen(z.personen.length > 0 ? z.personen : [leerePerson()]);
       setDateien(z.dateien);
       setVorvertragPfad(wahrscheinlichsterVertrag(g.vorvertragDokumente)?.pfad ?? null);
+      beginneBei(startSchritt ?? (istSchrittId(z.schritt) ? z.schritt : 'grundlagen'));
       initialisiert.current = true;
       return;
     }
@@ -213,11 +347,13 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
       heute: heuteIso(),
     });
     setId(crypto.randomUUID());
+    setGespeichert(false);
     setStand(neu);
     setPersonen([leerePerson()]);
     setDateien([]);
     const vorschlag = wahrscheinlichsterVertrag(g.vorvertragDokumente);
     setVorvertragPfad(vorschlag?.pfad ?? null);
+    beginneBei(startSchritt ?? 'grundlagen');
     initialisiert.current = true;
 
     // Was nur im alten Dokument steht, gleich mitlesen — solange der
@@ -225,9 +361,9 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
     const hatAufstellung =
       Array.isArray(g.vorvertrag?.betriebskosten_positionen) && g.vorvertrag.betriebskosten_positionen.length > 0;
     if (g.vorvertrag && vorschlag && !hatAufstellung && istWohnraumEinheit(g.einheit.einheitentyp)) {
-      void liesVorvertrag(g, vorschlag.pfad);
+      void liesVorvertrag(g, vorschlag.pfad, false);
     }
-  }, [isOpen, g, grundlagen.isFetching, entwurfId, vorhanden.data, vorhanden.isFetching, liesVorvertrag]);
+  }, [isOpen, g, grundlagen.isFetching, entwurfId, startSchritt, vorhanden.data, vorhanden.isFetching, liesVorvertrag, markiereUngespeichert, toast]);
 
   // ─── Personenzahl folgt der Personenliste, bis sie von Hand geändert wird ─
   useEffect(() => {
@@ -245,42 +381,87 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
     });
   }, [personen]);
 
+  // Beim Schrittwechsel oben beginnen
+  useEffect(() => {
+    formular.current?.scrollTo({ top: 0 });
+  }, [schritt]);
+
   // ─── Formular-Schnittstelle ──────────────────────────────────────────────
   const setDaten = useCallback(
     (aenderung: (d: MietvertragDaten) => MietvertragDaten) => setStand(s => (s ? { ...s, daten: aenderung(s.daten) } : s)),
     []
   );
-  const geaendert = useCallback((feld: string) => {
-    sitzungGeaendert.current.add(feld);
-    setStand(s => (s ? { ...s, herkunft: ohneHerkunft(s.herkunft, feld) } : s));
-  }, []);
+  /** Für die Formulare: jede Eingabe gilt als ungespeicherte Änderung. */
+  const setDatenVonHand = useCallback(
+    (aenderung: (d: MietvertragDaten) => MietvertragDaten) => {
+      setDaten(aenderung);
+      markiereUngespeichert();
+    },
+    [setDaten, markiereUngespeichert]
+  );
+  const setPersonenVonHand = useCallback(
+    (aenderung: (p: EntwurfPerson[]) => EntwurfPerson[]) => {
+      setPersonen(aenderung);
+      markiereUngespeichert();
+    },
+    [markiereUngespeichert]
+  );
+  const geaendert = useCallback(
+    (feld: string) => {
+      sitzungGeaendert.current.set(feld, (sitzungGeaendert.current.get(feld) ?? 0) + 1);
+      setStand(s => (s ? { ...s, herkunft: ohneHerkunft(s.herkunft, feld) } : s));
+      markiereUngespeichert();
+    },
+    [markiereUngespeichert]
+  );
+  const setzeHerkunft = useCallback(
+    (feld: string, quelle: Herkunft) => setStand(s => (s ? { ...s, herkunft: { ...s.herkunft, [feld]: quelle } } : s)),
+    []
+  );
   const markierung = useCallback(
     (feld: string) => <HerkunftHinweis quelle={stand?.herkunft[feld]} vorvertragBeginn={g?.vorvertrag?.start_datum} />,
     [stand?.herkunft, g?.vorvertrag?.start_datum]
   );
+  const formularProps = stand
+    ? { entwurf: stand.daten, setEntwurf: setDatenVonHand, markierung, geaendert, setzeHerkunft }
+    : null;
 
   const vertrag = useMemo(() => (stand ? mitPersonen(stand.daten, personen) : null), [stand, personen]);
   const befunde = useMemo(() => (vertrag && wohnraum ? pruefeVertragsdaten(vertrag) : []), [vertrag, wohnraum]);
   const blockiert = hatBlocker(befunde);
   const vorschau = useVertragsvorschau(vertrag, isOpen && wohnraum, blockiert);
-
+  // Für das Speichern: der jeweils letzte Stand der Vorschau, auch während eines await
+  const vorschauJetzt = useRef(vorschau);
+  useEffect(() => {
+    vorschauJetzt.current = vorschau;
+  });
+  const luecken = useMemo(() => (stand ? entwurfLuecken(stand.daten, personen) : []), [stand, personen]);
+  const zustaende = useMemo(() => schrittZustaende(befunde, luecken), [befunde, luecken]);
+  const platzhalter = useMemo(
+    () => (vertrag && stand ? platzhalterUebersicht(vertrag, stand.herkunft, personen, befunde, wohnraum) : []),
+    [vertrag, stand, personen, befunde, wohnraum]
+  );
   const blacklistTreffer = useMemo(() => pruefeBlacklist(personen, blacklist.data ?? []), [personen, blacklist.data]);
+  const vollstaendig = luecken.length === 0 && (!wohnraum || !blockiert);
 
-  // Was der Entwurf selbst braucht — unabhängig von der Vorlage
-  const entwurfFehler = useMemo(() => {
-    const f: string[] = [];
-    const mitmieter = personen.filter(p => p.rolle === 'mitmieter' && !istLeerePerson(p));
-    if (mitmieter.length === 0) f.push('Mindestens ein Mitmieter mit Namen.');
-    if (!stand?.daten.mietbeginn) f.push('Mietbeginn.');
-    if (!(stand && stand.daten.kaltmiete > 0)) f.push('Kaltmiete.');
-    return f;
-  }, [personen, stand]);
+  // ─── Navigation ──────────────────────────────────────────────────────────
+  const geheZu = useCallback(
+    (s: SchrittId) => {
+      // Ohne Vorlage gibt es z. B. „Mietsache & Haus" nicht — dorthin führt kein Sprung
+      if (!schritte.includes(s)) return;
+      setSchritt(s);
+      setBesucht(b => new Set([...b, s]));
+    },
+    [schritte]
+  );
+  const index = schritte.indexOf(schritt);
 
   // ─── Selbstauskunft ──────────────────────────────────────────────────────
   async function liesSelbstauskunft(datei: File) {
     // Die Datei wird auch dann abgelegt, wenn die Auslese scheitert — dann eben von Hand.
     const meineSitzung = sitzung.current;
     setNeueSelbstauskuenfte(l => [...l, datei]);
+    markiereUngespeichert();
     setLiestSelbstauskunft(true);
     try {
       const antwort = await OCRProcessingService.liesDokument<SelbstauskunftAuslese>(datei, datei.name, 'selbstauskunft');
@@ -300,7 +481,7 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
         toast({ title: 'Keine Personen erkannt', description: 'Bitte die Personen von Hand erfassen.', variant: 'destructive' });
         return;
       }
-      setPersonen(alt => (alt.every(istLeerePerson) ? neu : [...alt, ...neu]));
+      setPersonenVonHand(alt => (alt.every(istLeerePerson) ? neu : [...alt, ...neu]));
 
       const wunsch = auslese.einzug_ab && auslese.einzug_ab !== 'sofort' ? auslese.einzug_ab : null;
       if (wunsch) {
@@ -308,7 +489,8 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
           if (!s || s.herkunft.mietbeginn !== 'berechnet') return s;
           const beginn = standardMietbeginn(heuteIso(), getVertragsende(g?.vorvertrag ?? null), wunsch);
           return {
-            daten: { ...s.daten, mietbeginn: beginn },
+            // Ein aus dem Vorvertrag übernommener Verzicht („mindestens 12 Monate") wandert mit
+            daten: mitMietbeginn(s.daten, beginn, !!s.herkunft.kuendigungsverzichtBis),
             herkunft: { ...s.herkunft, mietbeginn: beginn === wunsch ? 'selbstauskunft' : 'berechnet' },
           };
         });
@@ -324,8 +506,14 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
 
   // ─── Speichern ───────────────────────────────────────────────────────────
   /** Angaben fürs ganze Haus und leere Felder der Einheit dorthin, wo sie hingehören. */
-  async function schreibeStammdatenZurueck(grundlage: EntwurfGrundlagenDaten, d: MietvertragDaten): Promise<string[]> {
+  async function schreibeStammdatenZurueck(
+    grundlage: EntwurfGrundlagenDaten,
+    d: MietvertragDaten,
+    marker: Map<string, number>
+  ): Promise<{ hinweise: string[]; offen: string[] }> {
     const hinweise: string[] = [];
+    // Was nicht gespeichert werden konnte, bleibt als Handänderung vorgemerkt — sonst ginge es beim nächsten Speichern verloren
+    const offen: string[] = [];
     const imm = grundlage.immobilie;
     const einrichtungen = (d.mitbenutzungEinrichtungen ?? '')
       .split(/\s*,\s*/)
@@ -333,7 +521,7 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
       .filter(Boolean);
 
     // Zurück ans Objekt geht nur, was dort fehlt oder in dieser Sitzung von Hand geändert wurde.
-    const geaendertJetzt = (feld: string) => sitzungGeaendert.current.has(feld);
+    const geaendertJetzt = (feld: string) => marker.has(feld);
     const objekt: TablesUpdate<'immobilien'> = {};
     const zentral = d.objekt.heizungsart === 'zentral' || d.objekt.heizungsart === 'fernwaerme';
     if (d.objekt.heizungsart && d.objekt.heizungsart !== imm.heizungsart && (!imm.heizungsart || geaendertJetzt('objekt.heizungsart'))) {
@@ -343,6 +531,9 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
     if (warmwasser !== imm.warmwasser && (!imm.warmwasser || geaendertJetzt('objekt.warmwasser') || 'heizungsart' in objekt)) {
       objekt.warmwasser = warmwasser;
     }
+    if (geaendertJetzt('objekt.heizkostenSchluessel') && d.objekt.heizkostenSchluessel !== imm.heizkosten_schluessel) {
+      objekt.heizkosten_schluessel = d.objekt.heizkostenSchluessel;
+    }
     if (
       d.objekt.gesamtwohnflaecheQm &&
       d.objekt.gesamtwohnflaecheQm !== Number(imm.gesamtwohnflaeche ?? 0) &&
@@ -350,11 +541,7 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
     ) {
       objekt.gesamtwohnflaeche = d.objekt.gesamtwohnflaecheQm;
     }
-    if (
-      d.schliessanlageArt &&
-      d.schliessanlageArt !== imm.schliessanlage_art &&
-      (!imm.schliessanlage_art || geaendertJetzt('schliessanlageArt'))
-    ) {
+    if (d.schliessanlageArt && d.schliessanlageArt !== imm.schliessanlage_art && (!imm.schliessanlage_art || geaendertJetzt('schliessanlageArt'))) {
       objekt.schliessanlage_art = d.schliessanlageArt;
     }
     if (
@@ -364,9 +551,22 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
     ) {
       objekt.gemeinschaftseinrichtungen = einrichtungen;
     }
+    if (geaendertJetzt('objekt.energieausweis')) {
+      // Die fünf Angaben gehören zusammen — von Hand geändert, gehen sie gemeinsam ans Objekt
+      objekt.energieausweis_typ = d.objekt.energieausweisTyp;
+      objekt.energie_kennwert = d.objekt.energieausweisTyp ? d.objekt.energieKennwert : null;
+      objekt.energietraeger = d.objekt.energieausweisTyp ? d.objekt.energietraeger?.trim() || null : null;
+      objekt.energieeffizienzklasse = d.objekt.energieausweisTyp ? d.objekt.energieeffizienzklasse : null;
+      // Ein halb getipptes Datum wird nicht geschrieben — das bisherige am Objekt bleibt stehen
+      const gueltigBis = d.objekt.energieausweisGueltigBis;
+      if (!gueltigBis || istPlausiblesDatum(gueltigBis)) objekt.energieausweis_gueltig_bis = gueltigBis || null;
+    }
     if (Object.keys(objekt).length > 0) {
-      const { error } = await supabase.from('immobilien').update(objekt).eq('id', imm.id);
-      if (error) hinweise.push(`Angaben zum Haus wurden nicht am Objekt gespeichert (${error.message}).`);
+      const { data, error } = await supabase.from('immobilien').update(objekt).eq('id', imm.id).select('id');
+      if (error || !data?.length) {
+        hinweise.push(`Angaben zum Haus wurden nicht am Objekt gespeichert (${error?.message ?? 'keine Berechtigung'}).`);
+        offen.push(...FELDER_AM_OBJEKT.filter(geaendertJetzt));
+      }
     }
 
     // An der Einheit nur leere Felder füllen — die Lage im Vertrag kann anders formuliert sein.
@@ -375,25 +575,45 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
     if (!e.bezeichnung?.trim() && d.einheit.bezeichnung.trim()) einheit.bezeichnung = d.einheit.bezeichnung.trim();
     if (!e.etage?.trim() && d.einheit.lage.trim()) einheit.etage = d.einheit.lage.trim();
     if (!(Number(e.qm ?? 0) > 0) && d.einheit.wohnflaecheQm > 0) einheit.qm = d.einheit.wohnflaecheQm;
-    if (Object.keys(einheit).length > 0) {
-      const { error } = await supabase.from('einheiten').update(einheit).eq('id', e.id);
-      if (error) hinweise.push(`Angaben zur Einheit wurden nicht gespeichert (${error.message}).`);
+    const nebenraeume = d.einheit.nebenraeume?.trim() || null;
+    if (nebenraeume && nebenraeume !== e.nebenraeume && (!e.nebenraeume?.trim() || geaendertJetzt('einheit.nebenraeume'))) {
+      einheit.nebenraeume = nebenraeume;
     }
-    return hinweise;
+    if (geaendertJetzt('einheit.einbaukueche') && d.einheit.einbaukueche !== (e.einbaukueche ?? false)) {
+      einheit.einbaukueche = d.einheit.einbaukueche;
+    }
+    if (Object.keys(einheit).length > 0) {
+      const { data, error } = await supabase.from('einheiten').update(einheit).eq('id', e.id).select('id');
+      if (error || !data?.length) {
+        hinweise.push(`Angaben zur Einheit wurden nicht gespeichert (${error?.message ?? 'keine Berechtigung'}).`);
+        offen.push(...FELDER_AN_EINHEIT.filter(geaendertJetzt));
+      }
+    }
+    return { hinweise, offen };
   }
 
-  async function speichern() {
-    if (!stand || !vertrag || !g) return;
-    if (entwurfFehler.length > 0) {
-      toast({ title: 'Es fehlt noch', description: entwurfFehler.join(' '), variant: 'destructive' });
-      return;
-    }
+  async function speichern(opt: { naechsterSchritt?: SchrittId; danach?: () => void } = {}): Promise<boolean> {
+    if (!stand || !vertrag || !g || speichert) return false;
     setSpeichert(true);
+    const standZaehler = aenderungen.current;
+    const zielSchritt = opt.naechsterSchritt ?? schritt;
+    // Was während des Speicherns dazukommt, bleibt für das nächste Speichern liegen
+    const hochzuladen = neueSelbstauskuenfte;
+    const marker = new Map(sitzungGeaendert.current);
     try {
-      const pdf = wohnraum && vorschau.aktuell ? vorschau.pdfBlob : null;
-      const neueDateien = await speichereEntwurf({
+      // Wird das PDF gerade erzeugt, kurz darauf warten — sonst ginge der Entwurf ohne PDF
+      if (wohnraum && !blockiert) {
+        for (let i = 0; i < 40 && !vorschauJetzt.current.aktuell && !vorschauJetzt.current.fehlgeschlagen; i++) {
+          await new Promise(r => setTimeout(r, 150));
+        }
+      }
+      // Das PDF wandert nur mit, wenn es genau diesen Stand zeigt — wer währenddessen
+      // weitergetippt hat, speichert ohne PDF und behält ungespeicherte Änderungen
+      const v = vorschauJetzt.current;
+      const pdf = wohnraum && v.aktuell && aenderungen.current === standZaehler ? v.pdfBlob : null;
+      const ergebnis = await speichereEntwurf({
         id,
-        istNeu: !entwurfId,
+        istNeu: !gespeichert,
         aktualisiertAm,
         einheitId,
         vorvertragId: g.vorvertrag?.id ?? null,
@@ -402,44 +622,73 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
         herkunft: stand.herkunft,
         bisherigeDateien: dateien,
         pdf,
-        selbstauskuenfte: neueSelbstauskuenfte,
+        // Unverändert seit dem letzten Speichern: Das vorhandene PDF zeigt noch genau diesen Stand
+        pdfBehalten: !ungespeichert,
+        selbstauskuenfte: hochzuladen,
+        schritt: zielSchritt,
       });
-      setDateien(neueDateien);
-      setNeueSelbstauskuenfte([]);
+      setDateien(ergebnis.dateien);
+      setAktualisiertAm(ergebnis.aktualisiertAm);
+      setGespeichert(true);
+      setNeueSelbstauskuenfte(l => l.filter(f => !hochzuladen.includes(f)));
+      setUngespeichert(aenderungen.current !== standZaehler);
+      setZuletztGespeichert(new Date());
 
-      const hinweise = await schreibeStammdatenZurueck(g, stand.daten);
-      logActivity('mietvertrag_entwurf_gespeichert', 'mietvertrag_entwurf', id, { mit_pdf: !!pdf });
+      const { hinweise, offen } = await schreibeStammdatenZurueck(g, stand.daten, marker);
+      // Nur erledigte Marker entfernen: Was während des Speicherns geändert wurde, bleibt vorgemerkt
+      for (const [feld, zaehler] of marker) {
+        // Nur erledigte Marker entfernen — wer das Feld währenddessen erneut geändert hat, behält ihn
+        if (!offen.includes(feld) && sitzungGeaendert.current.get(feld) === zaehler) sitzungGeaendert.current.delete(feld);
+      }
+      logActivity('mietvertrag_entwurf_gespeichert', 'mietvertrag_entwurf', id, { mit_pdf: !!pdf, schritt: zielSchritt });
 
       queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwuerfe'] });
       // Nicht nur als veraltet markieren: beim nächsten Öffnen darf kein alter Stand aufblitzen
       queryClient.removeQueries({ queryKey: ['mietvertrag-entwurf', id] });
-      queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwurf-grundlagen'] });
       queryClient.invalidateQueries({ queryKey: ['immobilie', g.immobilie.id] });
       queryClient.invalidateQueries({ queryKey: ['einheiten', g.immobilie.id] });
+      void grundlagen.refetch();
 
-      toast({
-        title: entwurfId ? 'Entwurf gespeichert' : 'Entwurf erstellt',
-        description: [
-          pdf
-            ? 'Das PDF liegt am Entwurf. Nach der Unterschrift auf der Einheitskarte aktivieren.'
-            : wohnraum
-              ? 'Ohne PDF — es entsteht, sobald alle Pflichtangaben erfasst sind.'
-              : 'Die Einheit bleibt frei, bis der Entwurf aktiviert wird.',
-          ...hinweise,
-        ].join(' '),
-        variant: hinweise.length > 0 ? 'destructive' : undefined,
-      });
-      onClose();
+      if (hinweise.length > 0) {
+        toast({ title: 'Entwurf gespeichert, aber', description: hinweise.join(' '), variant: 'destructive' });
+      }
+      if (opt.naechsterSchritt) geheZu(opt.naechsterSchritt);
+      opt.danach?.();
+      return true;
     } catch (e) {
       toast({
         title: 'Speichern fehlgeschlagen',
         description: e instanceof Error ? e.message : 'Unbekannter Fehler',
         variant: 'destructive',
       });
+      return false;
     } finally {
       setSpeichert(false);
     }
   }
+
+  function verlassen(ziel: Verlassen) {
+    if (ziel === 'direkt') onDirektErfassen?.();
+    else onClose();
+  }
+
+  /** Schließen oder zum direkten Erfassen wechseln — bei ungespeicherten Änderungen erst nachfragen. */
+  function versucheSchliessen(ziel: Verlassen = 'schliessen') {
+    if (speichert) return;
+    if (ungespeichert) setFrageSchliessen(ziel);
+    else verlassen(ziel);
+  }
+
+  // Neu laden oder Tab schließen: Eingaben, die noch nicht gespeichert sind, wären weg
+  useEffect(() => {
+    if (!isOpen || !(ungespeichert || speichert)) return;
+    const warnen = (ereignis: BeforeUnloadEvent) => {
+      ereignis.preventDefault();
+      ereignis.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnen);
+    return () => window.removeEventListener('beforeunload', warnen);
+  }, [isOpen, ungespeichert, speichert]);
 
   // ─── Darstellung ─────────────────────────────────────────────────────────
   const laedt = !stand && (grundlagen.isFetching || (!!entwurfId && vorhanden.isFetching));
@@ -453,26 +702,186 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
         .filter(Boolean)
         .join(' · ')
     : '';
-  const speichernGesperrt =
-    speichert ||
-    !stand ||
-    liestSelbstauskunft ||
-    ausleseStatus.art === 'laeuft' ||
-    (wohnraum && !blockiert && !vorschau.aktuell && !vorschau.fehlgeschlagen);
+  const hauptmieter = (() => {
+    const p = personen.find(x => x.rolle === 'mitmieter' && hatNamen(x));
+    if (!p) return null;
+    return p.istUnternehmen ? p.firmenname ?? null : `${p.vorname} ${p.nachname}`.trim() || null;
+  })();
+  const hatPdf = dateien.some(d => d.art === 'entwurf_pdf');
+  const vorvertragId = g?.vorvertrag?.id ?? null;
+  const gespeicherterEntwurf: EntwurfZeile | null = useMemo(
+    () =>
+      gespeichert && stand && vertrag
+        ? {
+            id,
+            einheitId,
+            vorvertragId,
+            daten: vertrag,
+            personen: personen.filter(p => !istLeerePerson(p)),
+            herkunft: stand.herkunft,
+            dateien,
+            erstelltAm: '',
+            aktualisiertAm: aktualisiertAm ?? '',
+            schritt,
+          }
+        : null,
+    [gespeichert, stand, vertrag, id, einheitId, vorvertragId, personen, dateien, aktualisiertAm, schritt]
+  );
+  const andere = (alleEntwuerfe ?? []).filter(e => e.einheitId === einheitId && e.id !== id);
+  const pdfBereit = wohnraum && vollstaendig && vorschau.aktuell;
+  const blockiertWeil = liestSelbstauskunft || ausleseStatus.art === 'laeuft';
+
+  const statusText = speichert
+    ? 'Speichert …'
+    : ungespeichert
+      ? 'Ungespeicherte Änderungen'
+      : zuletztGespeichert
+        ? `Gespeichert um ${zuletztGespeichert.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
+        : gespeichert
+          ? 'Gespeicherter Entwurf'
+          : 'Noch nicht gespeichert';
+
+  function schrittInhalt() {
+    if (!stand || !g || !formularProps) return null;
+    switch (schritt) {
+      case 'grundlagen':
+        return (
+          <GrundlagenSchritt
+            g={g}
+            daten={stand.daten}
+            vorvertragPfad={vorvertragPfad}
+            setVorvertragPfad={setVorvertragPfad}
+            ausleseStatus={ausleseStatus}
+            onAuslesen={() => vorvertragPfad && void liesVorvertrag(g, vorvertragPfad, true)}
+            onVermieterBearbeiten={() => setZeigeVermieter(true)}
+            onDirektErfassen={!gespeichert && onDirektErfassen ? () => versucheSchliessen('direkt') : undefined}
+          />
+        );
+      case 'mieter':
+        return (
+          <div className="space-y-5">
+            {(bestand.error || blacklist.error) && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  {bestand.error && 'Der Abgleich mit dem Mieterbestand ist gerade nicht möglich — Dubletten werden nicht erkannt. '}
+                  {blacklist.error && 'Die Bewerber-Blacklist konnte nicht geprüft werden. '}
+                  Bitte den Ablauf später neu öffnen oder von Hand prüfen.
+                </AlertDescription>
+              </Alert>
+            )}
+            <InteressentenAbschnitt
+              personen={personen}
+              setPersonen={setPersonenVonHand}
+              bestand={bestand.data ?? []}
+              blacklistTreffer={blacklistTreffer}
+              onSelbstauskunft={datei => void liesSelbstauskunft(datei)}
+              liestSelbstauskunft={liestSelbstauskunft}
+              selbstauskuenfte={selbstauskuenfte}
+            />
+            <Separator />
+            <PersonenzahlFeld {...formularProps} />
+          </div>
+        );
+      case 'miete':
+        return (
+          <MieteSchritt
+            {...formularProps}
+            kautionFolgtMiete={stand.herkunft.kautionBetrag === 'berechnet' || stand.daten.kautionBetrag === 0}
+            verzichtFolgtBeginn={!!stand.herkunft.kuendigungsverzichtBis}
+            indexVorschlag={indexVorschlag(g.vpi)}
+            hauptmieter={hauptmieter}
+          />
+        );
+      case 'mietsache':
+        return (
+          <div className="space-y-5">
+            <MietsacheFelder {...formularProps} mitPersonenzahl={false} />
+            <SchluesselFelder {...formularProps} />
+            <Separator />
+            <ObjektAngabenFelder {...formularProps} gesamtflaecheVorschlag={g.summeEinheitenQm} />
+            <Separator />
+            <EnergieausweisFelder {...formularProps} />
+          </div>
+        );
+      case 'betriebskosten':
+        return <BetriebskostenEditor {...formularProps} />;
+      case 'vereinbarungen':
+        return (
+          <div className="space-y-5">
+            <UebergabeFelder {...formularProps} />
+            <KleinreparaturFelder {...formularProps} />
+            <Separator />
+            <div className="space-y-2">
+              <Feldname htmlFor="besichtigt" marke={markierung('besichtigtAm')}>
+                Wohnung besichtigt am
+              </Feldname>
+              <Input
+                id="besichtigt"
+                type="date"
+                value={stand.daten.besichtigtAm ?? ''}
+                onChange={e => {
+                  setDatenVonHand(d => ({ ...d, besichtigtAm: e.target.value || null }));
+                  geaendert('besichtigtAm');
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Nach einer Besichtigung besteht kein Widerrufsrecht; ohne Datum wird die Widerrufsbelehrung beigefügt.
+              </p>
+            </div>
+            <AnlagenFelder {...formularProps} />
+            <Separator />
+            <ZusatzvereinbarungFeld {...formularProps} />
+            <UnterzeichnungFelder {...formularProps} />
+          </div>
+        );
+      case 'pruefen':
+        return (
+          <PruefenSchritt
+            gruppen={platzhalter}
+            befunde={befunde}
+            luecken={luecken}
+            wohnraum={wohnraum}
+            schritte={schritte}
+            vorvertragBeginn={g.vorvertrag?.start_datum ?? null}
+            onGeheZu={geheZu}
+            onVermieterOeffnen={() => setZeigeVermieter(true)}
+          />
+        );
+      case 'start':
+        return (
+          <StartSchritt
+            entwurf={gespeicherterEntwurf}
+            ungespeichert={ungespeichert}
+            wohnraum={wohnraum}
+            vollstaendig={vollstaendig}
+            luecken={luecken}
+            andere={andere}
+            speichert={speichert}
+            onSpeichern={() => speichern()}
+            onGeheZu={geheZu}
+            onAktiviert={() => {
+              setUngespeichert(false);
+              onClose();
+            }}
+          />
+        );
+    }
+  }
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={o => !o && !speichert && onClose()}>
-        <DialogContent className="flex h-[92vh] max-w-[95vw] flex-col gap-0 p-0">
-          <DialogHeader className="border-b px-6 py-4">
+      <Dialog open={isOpen} onOpenChange={o => !o && versucheSchliessen()}>
+        <DialogContent className="flex h-[94vh] max-w-[96vw] flex-col gap-0 p-0">
+          <DialogHeader className="border-b px-6 py-3">
             <DialogTitle className="flex items-center gap-2">
               <PenLine className="h-5 w-5" />
-              {entwurfId ? 'Mietvertragsentwurf bearbeiten' : 'Neuer Mietvertrag — Entwurf'}
+              {entwurfId ? 'Mietvertrag fortsetzen' : 'Neuer Mietvertrag'}
+              {stand && <span className="text-sm font-normal text-muted-foreground">— {schrittTitel(schritt, wohnraum)}</span>}
             </DialogTitle>
             <DialogDescription>
               {ueberschrift && <span className="font-medium text-foreground">{ueberschrift}. </span>}
-              Der Vertrag wird erst nach der Unterschrift aktiviert. Bis dahin bleibt die Einheit frei und es entstehen
-              keine Forderungen.
+              Bis zum Aktivieren ist alles ein Entwurf: Die Einheit bleibt frei und es entstehen keine Forderungen.
             </DialogDescription>
           </DialogHeader>
 
@@ -483,7 +892,7 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
             </div>
           )}
 
-          {ladefehler && (
+          {ladefehler && !stand && (
             <div className="flex flex-1 items-center justify-center p-8">
               <Alert variant="destructive" className="max-w-lg">
                 <AlertDescription>Die Daten konnten nicht geladen werden: {String(ladefehler.message ?? ladefehler)}</AlertDescription>
@@ -491,159 +900,136 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
             </div>
           )}
 
-          {stand && vertrag && g && !laedt && !ladefehler && (
-            <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(420px,38%)_1fr]">
-              {/* ── Formular ── */}
-              <div className="space-y-5 overflow-y-auto border-r p-5">
-                {entwurfFehler.length > 0 && (
-                  <Alert>
-                    <AlertDescription className="text-xs">
-                      <span className="font-medium">Für den Entwurf fehlt noch: </span>
-                      {entwurfFehler.join(' ')}
-                    </AlertDescription>
-                  </Alert>
-                )}
-                <VorvertragAbschnitt
-                  vorvertrag={g.vorvertrag}
-                  mieter={g.vorvertragMieter}
-                  dokumente={g.vorvertragDokumente}
-                  gewaehlt={vorvertragPfad}
-                  setGewaehlt={setVorvertragPfad}
-                  status={ausleseStatus}
-                  onAuslesen={() => vorvertragPfad && void liesVorvertrag(g, vorvertragPfad)}
-                />
+          {stand && vertrag && g && !laedt && (
+            <>
+              <Schrittleiste
+                schritte={schritte}
+                aktuell={schritt}
+                zustaende={zustaende}
+                besucht={besucht}
+                wohnraum={wohnraum}
+                onWaehle={geheZu}
+              />
 
-                <InteressentenAbschnitt
-                  personen={personen}
-                  setPersonen={setPersonen}
-                  bestand={bestand.data ?? []}
-                  blacklistTreffer={blacklistTreffer}
-                  onSelbstauskunft={datei => void liesSelbstauskunft(datei)}
-                  liestSelbstauskunft={liestSelbstauskunft}
-                  selbstauskuenfte={selbstauskuenfte}
-                />
+              <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(460px,42%)_1fr]">
+                {/* ── Schritt ── */}
+                <div ref={formular} className="overflow-y-auto border-r p-5">
+                  {schrittInhalt()}
+                </div>
 
-                <Separator />
-                <KonditionenAbschnitt
-                  entwurf={stand.daten}
-                  setEntwurf={setDaten}
-                  markierung={markierung}
-                  geaendert={geaendert}
-                  kautionFolgtMiete={stand.herkunft.kautionBetrag === 'berechnet' || stand.daten.kautionBetrag === 0}
-                  onKautionBerechnet={() =>
-                    setStand(s =>
-                      s && s.herkunft.kautionBetrag !== 'berechnet'
-                        ? { ...s, herkunft: { ...s.herkunft, kautionBetrag: 'berechnet' } }
-                        : s
+                {/* ── Vorschau ── */}
+                <div className="hidden flex-col overflow-hidden bg-muted/30 lg:flex">
+                  {wohnraum && blockiert ? (
+                    schritt === 'pruefen' ? (
+                      <div className="flex flex-1 items-center justify-center p-8 text-center">
+                        <div className="max-w-sm space-y-2">
+                          <AlertTriangle className="mx-auto h-8 w-8 text-muted-foreground" />
+                          <p className="font-medium">Vorschau gesperrt</p>
+                          <p className="text-sm text-muted-foreground">Sobald links nichts mehr fehlt, erscheint hier der Vertrag.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      // Statt einer leeren Fläche: was fehlt, steht dort, wo sonst der Vertrag stünde
+                      <div className="flex-1 space-y-4 overflow-y-auto p-6">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                          <div>
+                            <p className="font-medium">Vorschau gesperrt</p>
+                            <p className="text-sm text-muted-foreground">
+                              Solange Pflichtangaben fehlen, entsteht kein PDF — ein Vertrag darf nichts behaupten, was nicht
+                              erfasst ist. Zwischenspeichern geht trotzdem.
+                            </p>
+                          </div>
+                        </div>
+                        <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
+                      </div>
                     )
-                  }
-                />
-
-                {wohnraum && (
-                  <>
-                    <Separator />
-                    <ObjektAngabenFelder
-                      entwurf={stand.daten}
-                      setEntwurf={setDaten}
-                      markierung={markierung}
-                      geaendert={geaendert}
-                      gesamtflaecheVorschlag={g.summeEinheitenQm}
-                    />
-                    <Separator />
-                    <MietsacheFelder entwurf={stand.daten} setEntwurf={setDaten} markierung={markierung} geaendert={geaendert} />
-                    <Separator />
-                    <BetriebskostenEditor entwurf={stand.daten} setEntwurf={setDaten} markierung={markierung} geaendert={geaendert} />
-                    <Separator />
-                    <KlauselFelder entwurf={stand.daten} setEntwurf={setDaten} geaendert={geaendert} />
-                  </>
-                )}
-              </div>
-
-              {/* ── Vorschau ── */}
-              <div className="flex flex-col overflow-hidden bg-muted/30">
-                {wohnraum && blockiert ? (
-                  // Statt einer leeren Fläche: was fehlt, steht dort, wo sonst der Vertrag stünde
-                  <div className="flex-1 space-y-4 overflow-y-auto p-6">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">Vorschau gesperrt</p>
+                  ) : wohnraum ? (
+                    <>
+                      {befunde.length > 0 && (
+                        <div className="border-b bg-background px-4 py-2">
+                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setZeigeHinweise(z => !z)}>
+                            <Info className="h-3.5 w-3.5" />
+                            {befunde.length} {befunde.length === 1 ? 'Hinweis' : 'Hinweise'} zur Vorlage
+                            {zeigeHinweise ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </Button>
+                          {zeigeHinweise && (
+                            <div className="max-h-64 overflow-y-auto pb-2 pt-1">
+                              <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <VertragsVorschau gesperrt={false} pdfUrl={vorschau.pdfUrl} erzeugt={vorschau.erzeugt} />
+                    </>
+                  ) : (
+                    <div className="flex flex-1 items-center justify-center p-8">
+                      <div className="max-w-md space-y-2 text-center">
+                        <FileSignature className="mx-auto h-8 w-8 text-muted-foreground" />
+                        <p className="font-medium">Keine Vorlage für {g.einheit.einheitentyp ?? 'diesen Einheitstyp'}</p>
                         <p className="text-sm text-muted-foreground">
-                          Solange Pflichtangaben fehlen, entsteht kein PDF — ein Vertrag darf nichts behaupten, was nicht
-                          erfasst ist. Der Entwurf lässt sich trotzdem speichern und später vervollständigen.
+                          Abgenommen ist bisher nur die Wohnraum-Vorlage. Der Entwurf hält Mieter und Konditionen fest; den
+                          unterschriebenen Vertrag lädst du im letzten Schritt hoch.
                         </p>
                       </div>
                     </div>
-                    <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
-                  </div>
-                ) : wohnraum ? (
-                  <>
-                    {befunde.length > 0 && (
-                      <div className="border-b bg-background px-4 py-2">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setZeigeHinweise(z => !z)}
-                        >
-                          <Info className="h-3.5 w-3.5" />
-                          {befunde.length} {befunde.length === 1 ? 'Hinweis' : 'Hinweise'} zur Vorlage
-                          {zeigeHinweise ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                        </Button>
-                        {zeigeHinweise && (
-                          <div className="max-h-64 overflow-y-auto pb-2 pt-1">
-                            <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <VertragsVorschau gesperrt={false} pdfUrl={vorschau.pdfUrl} erzeugt={vorschau.erzeugt} />
-                  </>
-                ) : (
-                  <div className="flex flex-1 items-center justify-center p-8">
-                    <div className="max-w-md space-y-2 text-center">
-                      <FileSignature className="mx-auto h-8 w-8 text-muted-foreground" />
-                      <p className="font-medium">Keine Vorlage für {g.einheit.einheitentyp ?? 'diesen Einheitstyp'}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Abgenommen ist bisher nur die Wohnraum-Vorlage. Der Entwurf hält Mieter und Konditionen fest; den
-                        unterschriebenen Vertrag lädst du beim Aktivieren hoch.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background p-4">
-                  <div className="text-xs text-muted-foreground">
-                    {!entwurfId && onDirektErfassen && (
-                      <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onDirektErfassen}>
-                        Bereits unterschriebenen Vertrag direkt erfassen
-                      </Button>
-                    )}
-                    {wohnraum && (
-                      <p>
-                        {blockiert
-                          ? 'Wird ohne PDF gespeichert, solange Pflichtangaben fehlen.'
-                          : vorschau.fehlgeschlagen
-                            ? 'Das PDF ließ sich nicht erzeugen — der Entwurf wird ohne PDF gespeichert.'
-                            : vorschau.aktuell
-                            ? 'Das PDF wird mit dem Entwurf abgelegt.'
-                            : 'Vorschau wird aktualisiert …'}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={onClose} disabled={speichert}>
-                      Abbrechen
-                    </Button>
-                    <Button onClick={() => void speichern()} disabled={speichernGesperrt}>
-                      {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      {entwurfId ? 'Entwurf speichern' : 'Entwurf erstellen'}
-                    </Button>
-                  </div>
+                  )}
                 </div>
               </div>
-            </div>
+
+              {/* ── Fußleiste ── */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background px-5 py-3">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={() => versucheSchliessen()} disabled={speichert}>
+                    Abbrechen
+                  </Button>
+                  <Button variant="outline" onClick={() => void speichern()} disabled={speichert || blockiertWeil}>
+                    {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Zwischenspeichern
+                  </Button>
+                  <span className={ungespeichert ? 'text-xs text-warning' : 'text-xs text-muted-foreground'}>{statusText}</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {wohnraum && schritt !== 'start' && (
+                    <span className="hidden text-xs text-muted-foreground md:inline">
+                      {blockiert || luecken.length > 0
+                        ? 'PDF: Pflichtangaben offen'
+                        : vorschau.fehlgeschlagen
+                          ? 'PDF ließ sich nicht erzeugen'
+                          : vorschau.aktuell
+                            ? 'PDF bereit'
+                            : 'Vorschau wird aktualisiert …'}
+                    </span>
+                  )}
+                  {index > 0 && (
+                    <Button variant="outline" onClick={() => geheZu(schritte[index - 1])} disabled={speichert}>
+                      <ArrowLeft className="h-4 w-4" />
+                      Zurück
+                    </Button>
+                  )}
+                  {schritt === 'pruefen' ? (
+                    <Button
+                      onClick={() => void speichern({ naechsterSchritt: 'start' })}
+                      disabled={speichert || blockiertWeil || (wohnraum ? !pdfBereit : luecken.length > 0)}
+                      title={wohnraum && !pdfBereit ? 'Erst alle Pflichtangaben erfassen' : undefined}
+                    >
+                      {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck2 className="h-4 w-4" />}
+                      {wohnraum ? (hatPdf && !ungespeichert ? 'PDF neu erstellen' : 'PDF erstellen') : 'Entwurf speichern'}
+                    </Button>
+                  ) : schritt === 'start' ? (
+                    <Button variant="outline" onClick={() => versucheSchliessen()} disabled={speichert}>
+                      Schließen
+                    </Button>
+                  ) : (
+                    <Button onClick={() => geheZu(schritte[index + 1])} disabled={speichert}>
+                      Weiter
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
@@ -656,10 +1042,55 @@ export function MietvertragEntwurfDialog({ isOpen, onClose, einheitId, entwurfId
           setZeigeVermieter(false);
           // Die ergänzten Stammdaten gleich in den Entwurf übernehmen
           void grundlagen.refetch().then(r => {
-            if (r.data) setDaten(d => ({ ...d, vermieter: vermieterDaten(r.data.vermieter, r.data.immobilie) }));
+            if (!r.data) return;
+            const neu = vermieterDaten(r.data.vermieter, r.data.immobilie);
+            if (stand && stabil(neu) === stabil(stand.daten.vermieter)) return;
+            setDaten(d => ({ ...d, vermieter: neu }));
+            // Das gespeicherte PDF zeigt noch die alten Stammdaten — erst Speichern bringt beides zusammen
+            markiereUngespeichert();
           });
         }}
       />
+
+      <AlertDialog open={!!frageSchliessen} onOpenChange={o => !o && setFrageSchliessen(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ungespeicherte Änderungen</AlertDialogTitle>
+            <AlertDialogDescription>
+              {gespeichert
+                ? 'Die letzten Änderungen am Entwurf sind noch nicht gespeichert.'
+                : 'Der Entwurf wurde noch nicht gespeichert.'}{' '}
+              Speichern und später an derselben Stelle weitermachen, oder verwerfen?
+              {blockiertWeil && ' Die KI liest gerade noch ein Dokument — zum Speichern bitte kurz warten.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Weiter bearbeiten</AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const ziel = frageSchliessen ?? 'schliessen';
+                setFrageSchliessen(null);
+                setUngespeichert(false);
+                verlassen(ziel);
+              }}
+            >
+              Verwerfen
+            </Button>
+            <AlertDialogAction
+              disabled={blockiertWeil}
+              onClick={ev => {
+                ev.preventDefault();
+                const ziel = frageSchliessen ?? 'schliessen';
+                setFrageSchliessen(null);
+                void speichern({ danach: () => verlassen(ziel) });
+              }}
+            >
+              {frageSchliessen === 'direkt' ? 'Speichern und wechseln' : 'Speichern und schließen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

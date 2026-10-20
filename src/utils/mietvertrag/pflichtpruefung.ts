@@ -6,7 +6,7 @@
  * als vereinbart gilt. Das betrifft insbesondere die Personenzahl (§ 556a
  * Abs. 1 S. 2 BGB), die Kaution und den Übergabezustand.
  */
-import { istIbanGueltig } from '../pdf/briefLayout';
+import { istIbanGueltig, istPlausiblesDatum } from '../pdf/briefLayout';
 import type { MietvertragDaten } from './typen';
 
 export type Schwere = 'blocker' | 'warnung';
@@ -67,6 +67,10 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       }
       if (!m.anrede) {
         warnung(`mieter[${i}].anrede`, `${bez}: Keine Anrede hinterlegt.`, 'Anrede auswählen.');
+      }
+      // „11.05.90" getippt ergibt 0090-05-11 — so stünde es im Rubrum
+      if (m.geburtsdatum && (!istPlausiblesDatum(m.geburtsdatum) || m.geburtsdatum > heute())) {
+        blocker(`mieter[${i}].geburtsdatum`, `${bez}: Das Geburtsdatum ist kein gültiges Datum.`, 'Geburtsdatum vollständig eingeben.');
       }
     }
     if (!m.strasse?.trim() || !m.plz?.trim() || !m.ort?.trim()) {
@@ -160,6 +164,15 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   if (!d.mietbeginn) {
     blocker('mietbeginn', 'Kein Mietbeginn hinterlegt.', 'Mietbeginn erfassen.');
   }
+  for (const f of ungueltigeDaten(d)) blocker(f.feld, f.text, 'Datum vollständig eingeben.');
+  if (d.kuendigungsverzichtBis === '') {
+    blocker('kuendigungsverzichtBis', 'Der Kündigungsverzicht hat kein Enddatum.', 'Datum erfassen oder den Verzicht abwählen.');
+  }
+  if (!d.vertragsende && (d.vertragsende === '' || d.befristungsgrund)) {
+    // „befristet" gewählt (leeres Enddatum) oder ein Grund ohne Datum — sonst druckte
+    // der Vertrag „auf unbestimmte Zeit", obwohl befristet gemeint war
+    blocker('vertragsende', 'Die Befristung hat kein Enddatum.', 'Enddatum erfassen oder „unbefristet" wählen.');
+  }
   if (d.vertragsende && !d.befristungsgrund) {
     blocker(
       'befristungsgrund',
@@ -170,18 +183,44 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   if (d.vertragsende && d.mietbeginn && d.vertragsende <= d.mietbeginn) {
     blocker('vertragsende', 'Das Vertragsende liegt vor dem Mietbeginn.', 'Daten korrigieren.');
   }
+  if (d.kuendigungsverzichtBis && d.mietbeginn && d.kuendigungsverzichtBis < d.mietbeginn) {
+    blocker('kuendigungsverzichtBis', 'Der Kündigungsverzicht endet vor dem Mietbeginn.', 'Datum korrigieren oder den Verzicht entfernen.');
+  }
+  if (d.kuendigungsverzichtBis) {
+    // Länger als vier Jahre ab Vertragsschluss ist ein formularmäßiger Verzicht
+    // unwirksam (BGH VIII ZR 27/04); die Datenbank lehnt ihn ebenfalls ab.
+    // Ohne Vertragsdatum zählt heute — früher kann nicht unterschrieben werden;
+    // der Mietbeginn läge meist danach und ließe einen zu langen Verzicht durch.
+    const jetzt = heute();
+    const ab = d.vertragsdatum || (d.mietbeginn && d.mietbeginn < jetzt ? d.mietbeginn : jetzt);
+    // Taggenau wie der Check in der Datenbank: vertrag_datum + 4 Jahre
+    if (ab && d.kuendigungsverzichtBis > `${Number(ab.slice(0, 4)) + 4}${ab.slice(4, 10)}`) {
+      blocker(
+        'kuendigungsverzichtBis',
+        'Der Kündigungsverzicht reicht mehr als vier Jahre über den Vertragsschluss hinaus.',
+        d.vertragsdatum
+          ? 'Auf höchstens vier Jahre ab Vertragsschluss kürzen.'
+          : 'Auf höchstens vier Jahre ab heute kürzen — ohne Vertragsdatum gilt heute als frühester Vertragsschluss.'
+      );
+    }
+  }
 
   // ─── Miete und Nebenkosten ──────────────────────────────────────────────
   if (!d.kaltmiete || d.kaltmiete <= 0) {
     blocker('kaltmiete', 'Keine Kaltmiete hinterlegt.', 'Nettokaltmiete erfassen.');
   }
   if (d.betriebskostenVorauszahlung < 0) {
-    // Am Vertrag steht die Gesamtvorauszahlung; der Heizkostenanteil wird abgezogen
-    blocker(
-      'heizkostenVorauszahlung',
-      'Der Heizkostenanteil ist größer als die gesamte Nebenkostenvorauszahlung.',
-      'Heizkosten oder Betriebskosten korrigieren.'
-    );
+    // Am Vertrag steht die Gesamtvorauszahlung; der Heizkostenanteil wird abgezogen.
+    // Ohne Heizkosten ist schlicht der Betrag negativ.
+    if ((d.heizkostenVorauszahlung ?? 0) > 0) {
+      blocker(
+        'heizkostenVorauszahlung',
+        'Der Heizkostenanteil ist größer als die gesamte Nebenkostenvorauszahlung.',
+        'Heizkosten oder Betriebskosten korrigieren.'
+      );
+    } else {
+      blocker('betriebskostenVorauszahlung', 'Die Betriebskostenvorauszahlung ist negativ.', 'Betrag korrigieren.');
+    }
   } else if (d.betriebskostenModus === 'vorauszahlung' && d.betriebskostenVorauszahlung <= 0) {
     blocker(
       'betriebskostenVorauszahlung',
@@ -223,10 +262,13 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
     }
   }
 
-  if (d.betriebskostenPositionen.some(p => p.umgelegt && p.schluessel === 'personen') && !d.anzahlPersonen) {
+  // § 1 nennt die Personenzahl — „von 0 Personen bewohnt" darf nicht im Vertrag stehen
+  if (!(d.anzahlPersonen >= 1)) {
     blocker(
       'anzahlPersonen',
-      'Eine Position wird nach Personen verteilt, aber die Personenzahl fehlt.',
+      d.betriebskostenPositionen.some(p => p.umgelegt && p.schluessel === 'personen')
+        ? 'Eine Position wird nach Personen verteilt, aber die Personenzahl fehlt.'
+        : 'Die Personenzahl fehlt — der Vertrag nennt, von wie vielen Personen die Wohnung bewohnt wird.',
       'Personenzahl am Mietvertrag erfassen. Sie darf nicht geschätzt werden.'
     );
   }
@@ -372,6 +414,12 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       'Für das Objekt ist kein Energieausweis hinterlegt.',
       'Energieausweis erfassen und dem Mieter spätestens bei Vertragsabschluss vorlegen (§ 80 Abs. 4 GEG). Verstoß: Bußgeld bis 10.000 €.'
     );
+  } else if (d.objekt.energieausweisGueltigBis && !istPlausiblesDatum(d.objekt.energieausweisGueltigBis)) {
+    warnung(
+      'objekt.energieausweisGueltigBis',
+      'Das Ablaufdatum des Energieausweises ist kein gültiges Datum.',
+      'Datum vollständig eingeben — sonst wird es am Objekt nicht gespeichert.'
+    );
   } else if (d.objekt.energieausweisGueltigBis && d.objekt.energieausweisGueltigBis < heute()) {
     warnung(
       'objekt.energieausweisGueltigBis',
@@ -381,6 +429,39 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   }
 
   return b;
+}
+
+const DATUMSANGABEN: [keyof MietvertragDaten, string][] = [
+  ['mietbeginn', 'Mietbeginn'],
+  ['vertragsende', 'Befristet bis'],
+  ['kuendigungsverzichtBis', 'Kündigungsverzicht bis'],
+  ['vertragsdatum', 'Vertragsdatum'],
+  ['besichtigtAm', 'Besichtigt am'],
+  ['vormieteBis', 'Vormiete geschuldet bis'],
+  ['mietpreisbremseAuskunftAm', 'Auskunft zur Mietpreisbremse'],
+];
+
+/**
+ * Halb getippte oder unmögliche Daten („0027-12-31" aus „31.12.27"). Sie stünden
+ * so im Vertrag und in der Datenbank — ein Vertragsende in der Vergangenheit
+ * setzt den Vertrag dort sofort auf „beendet". Gilt für jeden Vertrag, auch ohne
+ * Vorlage; geprüft wird nur, was die gewählte Vertragsform auch zeigt.
+ */
+export function ungueltigeDaten(d: MietvertragDaten): { feld: string; text: string }[] {
+  const fehler: { feld: string; text: string }[] = [];
+  for (const [feld, name] of DATUMSANGABEN) {
+    const wert = d[feld];
+    if (typeof wert === 'string' && wert && !istPlausiblesDatum(wert)) {
+      fehler.push({ feld, text: `${name}: „${wert}" ist kein gültiges Datum.` });
+    }
+  }
+  if (d.mietanpassungArt === 'index' && d.indexBasisMonat && !istPlausiblesDatum(d.indexBasisMonat)) {
+    fehler.push({ feld: 'indexBasisMonat', text: `Index-Basismonat: „${d.indexBasisMonat.slice(0, 7)}" ist kein gültiger Monat.` });
+  }
+  if (d.mietanpassungArt === 'staffel' && (d.staffelplan ?? []).some(s => !istPlausiblesDatum(s.gueltigAb))) {
+    fehler.push({ feld: 'staffelplan', text: 'Eine Staffelstufe hat kein gültiges Datum.' });
+  }
+  return fehler;
 }
 
 export function hatBlocker(befunde: Befund[]): boolean {

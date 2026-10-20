@@ -1793,6 +1793,7 @@ export type Database = {
           herkunft: Json
           id: string
           personen: Json
+          schritt: string | null
           vorvertrag_id: string | null
         }
         Insert: {
@@ -1805,6 +1806,7 @@ export type Database = {
           herkunft?: Json
           id?: string
           personen?: Json
+          schritt?: string | null
           vorvertrag_id?: string | null
         }
         Update: {
@@ -1817,6 +1819,7 @@ export type Database = {
           herkunft?: Json
           id?: string
           personen?: Json
+          schritt?: string | null
           vorvertrag_id?: string | null
         }
         Relationships: [

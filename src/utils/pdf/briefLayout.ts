@@ -76,6 +76,28 @@ export function formatDatum(datum: string | null | undefined): string {
   return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+/**
+ * JJJJ-MM-TT mit gültigem Kalendertag und Jahr 1900–2199. Ein Datumsfeld
+ * liefert beim Tippen des Jahres Zwischenstände wie „0002-11-01" — mit denen
+ * wird nicht gerechnet und nichts gedruckt.
+ */
+export function istPlausiblesDatum(datum: string | null | undefined): boolean {
+  const teile = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datum ?? '');
+  if (!teile) return false;
+  const [jahr, monat, tag] = [Number(teile[1]), Number(teile[2]), Number(teile[3])];
+  if (jahr < 1900 || jahr > 2199 || monat < 1 || monat > 12 || tag < 1) return false;
+  return tag <= new Date(Date.UTC(jahr, monat, 0)).getUTCDate();
+}
+
+const MONATE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+
+/** „2026-07-01" → „Juli 2026": für Platzhalter, die einen Monat meinen (Index-Basismonat). */
+export function formatMonat(datum: string | null | undefined): string {
+  const treffer = /^(\d{4})-(\d{2})/.exec(datum ?? '');
+  const monat = treffer ? Number(treffer[2]) : 0;
+  return treffer && monat >= 1 && monat <= 12 ? `${MONATE[monat - 1]} ${treffer[1]}` : '';
+}
+
 /** IBAN in Vierergruppen, wie sie im Vertrag stehen soll. */
 export function formatIban(iban: string | null | undefined): string {
   if (!iban) return '';

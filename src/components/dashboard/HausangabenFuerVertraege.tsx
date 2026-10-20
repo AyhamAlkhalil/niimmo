@@ -1,6 +1,7 @@
 /**
  * Angaben zum Haus, die in jeden Mietvertrag übernommen werden: Heizung,
- * Warmwasser, Schließanlage, Gemeinschaftseinrichtungen, Gesamtwohnfläche.
+ * Warmwasser, Heizkostenverteilung, Schließanlage, Gemeinschaftseinrichtungen,
+ * Gesamtwohnfläche.
  *
  * Seit 18.10.2026 am Objekt gepflegt. Fehlen sie, fragt der Vertragsentwurf
  * beim ersten Vertrag danach und speichert sie hier.
@@ -18,11 +19,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
+import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import { ZahlFeld } from './mietvertrag-formular/Bausteine';
 
 type Angaben = Pick<
   Tables<'immobilien'>,
-  'id' | 'heizungsart' | 'warmwasser' | 'schliessanlage_art' | 'gemeinschaftseinrichtungen' | 'gesamtwohnflaeche'
+  | 'id'
+  | 'heizungsart'
+  | 'warmwasser'
+  | 'heizkosten_schluessel'
+  | 'schliessanlage_art'
+  | 'gemeinschaftseinrichtungen'
+  | 'gesamtwohnflaeche'
+  | 'energieausweis_typ'
+  | 'energie_kennwert'
+  | 'energietraeger'
+  | 'energieausweis_gueltig_bis'
+  | 'energieeffizienzklasse'
 >;
 
 const HEIZUNG: Record<string, string> = {
@@ -33,28 +46,33 @@ const HEIZUNG: Record<string, string> = {
 };
 const EINRICHTUNGEN = ['Waschkeller', 'Trockenraum', 'Fahrradkeller', 'Kinderwagenraum', 'Hof', 'Garten', 'Dachboden'];
 
+function anfangswerte(immobilie: Angaben) {
+  return {
+    heizungsart: immobilie.heizungsart,
+    warmwasser: immobilie.warmwasser,
+    heizkosten_schluessel: immobilie.heizkosten_schluessel ?? '70/30',
+    schliessanlage_art: immobilie.schliessanlage_art,
+    einrichtungen: (immobilie.gemeinschaftseinrichtungen ?? []).join(', '),
+    gesamtwohnflaeche: immobilie.gesamtwohnflaeche !== null ? Number(immobilie.gesamtwohnflaeche) : null,
+    energieausweis_typ: immobilie.energieausweis_typ,
+    energie_kennwert: immobilie.energie_kennwert !== null ? Number(immobilie.energie_kennwert) : null,
+    energietraeger: immobilie.energietraeger ?? '',
+    energieausweis_gueltig_bis: immobilie.energieausweis_gueltig_bis ?? '',
+    energieeffizienzklasse: immobilie.energieeffizienzklasse,
+  };
+}
+
+const EFFIZIENZKLASSEN = ['A+', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
 export function HausangabenFuerVertraege({ immobilie, summeEinheitenQm }: { immobilie: Angaben; summeEinheitenQm: number }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [offen, setOffen] = useState(false);
   const [speichert, setSpeichert] = useState(false);
-  const [werte, setWerte] = useState({
-    heizungsart: immobilie.heizungsart,
-    warmwasser: immobilie.warmwasser,
-    schliessanlage_art: immobilie.schliessanlage_art,
-    einrichtungen: (immobilie.gemeinschaftseinrichtungen ?? []).join(', '),
-    gesamtwohnflaeche: immobilie.gesamtwohnflaeche !== null ? Number(immobilie.gesamtwohnflaeche) : null,
-  });
+  const [werte, setWerte] = useState(() => anfangswerte(immobilie));
 
   useEffect(() => {
-    if (!offen) return;
-    setWerte({
-      heizungsart: immobilie.heizungsart,
-      warmwasser: immobilie.warmwasser,
-      schliessanlage_art: immobilie.schliessanlage_art,
-      einrichtungen: (immobilie.gemeinschaftseinrichtungen ?? []).join(', '),
-      gesamtwohnflaeche: immobilie.gesamtwohnflaeche !== null ? Number(immobilie.gesamtwohnflaeche) : null,
-    });
+    if (offen) setWerte(anfangswerte(immobilie));
   }, [offen, immobilie]);
 
   const liste = werte.einrichtungen
@@ -62,30 +80,49 @@ export function HausangabenFuerVertraege({ immobilie, summeEinheitenQm }: { immo
     .map(s => s.trim())
     .filter(Boolean);
   const zentral = werte.heizungsart === 'zentral' || werte.heizungsart === 'fernwaerme';
+  const zentralGespeichert = immobilie.heizungsart === 'zentral' || immobilie.heizungsart === 'fernwaerme';
 
   const teile = [
     immobilie.heizungsart ? HEIZUNG[immobilie.heizungsart] : null,
+    zentralGespeichert && immobilie.heizkosten_schluessel ? `Heizkosten ${immobilie.heizkosten_schluessel}` : null,
     immobilie.warmwasser ? `Warmwasser ${immobilie.warmwasser}` : null,
     immobilie.schliessanlage_art ? (immobilie.schliessanlage_art === 'zentral' ? 'Zentralschließanlage' : 'Einzelschließanlage') : null,
     immobilie.gesamtwohnflaeche ? `${Number(immobilie.gesamtwohnflaeche).toLocaleString('de-DE')} m² gesamt` : null,
     (immobilie.gemeinschaftseinrichtungen ?? []).length > 0 ? (immobilie.gemeinschaftseinrichtungen ?? []).join(', ') : null,
+    immobilie.energieausweis_typ ? `Energieausweis (${immobilie.energieausweis_typ === 'bedarf' ? 'Bedarf' : 'Verbrauch'})` : null,
   ].filter(Boolean);
 
   async function speichern() {
+    if (werte.energieausweis_gueltig_bis && !istPlausiblesDatum(werte.energieausweis_gueltig_bis)) {
+      toast({
+        title: 'Datum unvollständig',
+        description: '„gültig bis" des Energieausweises ist kein vollständiges Datum.',
+        variant: 'destructive',
+      });
+      return;
+    }
     setSpeichert(true);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('immobilien')
       .update({
         heizungsart: werte.heizungsart,
         warmwasser: zentral ? werte.warmwasser : null,
+        heizkosten_schluessel: werte.heizkosten_schluessel,
         schliessanlage_art: werte.schliessanlage_art,
         gemeinschaftseinrichtungen: liste.length > 0 ? liste : null,
         gesamtwohnflaeche: werte.gesamtwohnflaeche && werte.gesamtwohnflaeche > 0 ? werte.gesamtwohnflaeche : null,
+        energieausweis_typ: werte.energieausweis_typ,
+        energie_kennwert: werte.energieausweis_typ && werte.energie_kennwert && werte.energie_kennwert > 0 ? werte.energie_kennwert : null,
+        energietraeger: werte.energieausweis_typ ? werte.energietraeger.trim() || null : null,
+        energieausweis_gueltig_bis: werte.energieausweis_gueltig_bis || null,
+        energieeffizienzklasse: werte.energieausweis_typ ? werte.energieeffizienzklasse : null,
       })
-      .eq('id', immobilie.id);
+      .eq('id', immobilie.id)
+      .select('id');
     setSpeichert(false);
-    if (error) {
-      toast({ title: 'Speichern fehlgeschlagen', description: error.message, variant: 'destructive' });
+    // Ein Update ohne Treffer meldet PostgREST nicht als Fehler — hier ist es einer
+    if (error || !data?.length) {
+      toast({ title: 'Speichern fehlgeschlagen', description: error?.message ?? 'Keine Berechtigung für dieses Objekt.', variant: 'destructive' });
       return;
     }
     await queryClient.invalidateQueries({ queryKey: ['immobilie', immobilie.id] });
@@ -151,6 +188,22 @@ export function HausangabenFuerVertraege({ immobilie, summeEinheitenQm }: { immo
               </div>
             </div>
 
+            {zentral && (
+              <div className="space-y-2">
+                <Label>Heizkostenverteilung (Verbrauch/Fläche)</Label>
+                <Select value={werte.heizkosten_schluessel} onValueChange={v => setWerte(w => ({ ...w, heizkosten_schluessel: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="70/30">70 % Verbrauch / 30 % Fläche</SelectItem>
+                    <SelectItem value="60/40">60 % Verbrauch / 40 % Fläche</SelectItem>
+                    <SelectItem value="50/50">50 % Verbrauch / 50 % Fläche</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Schließanlage</Label>
@@ -210,6 +263,68 @@ export function HausangabenFuerVertraege({ immobilie, summeEinheitenQm }: { immo
                 value={werte.einrichtungen}
                 onChange={e => setWerte(w => ({ ...w, einrichtungen: e.target.value }))}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Energieausweis</Label>
+              <p className="text-xs text-muted-foreground">
+                Steht nicht im Vertrag, ist dem Mieter aber spätestens bei Vertragsschluss vorzulegen (§ 80 Abs. 4 GEG).
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  value={werte.energieausweis_typ ?? 'keiner'}
+                  onValueChange={v =>
+                    setWerte(w => ({ ...w, energieausweis_typ: v === 'bedarf' || v === 'verbrauch' ? v : null }))
+                  }
+                >
+                  <SelectTrigger aria-label="Art des Energieausweises">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="keiner">nicht erfasst</SelectItem>
+                    <SelectItem value="bedarf">Bedarfsausweis</SelectItem>
+                    <SelectItem value="verbrauch">Verbrauchsausweis</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="date"
+                  aria-label="Energieausweis gültig bis"
+                  value={werte.energieausweis_gueltig_bis}
+                  onChange={e => setWerte(w => ({ ...w, energieausweis_gueltig_bis: e.target.value }))}
+                />
+              </div>
+              {werte.energieausweis_typ && (
+                <div className="grid grid-cols-3 gap-3">
+                  <ZahlFeld
+                    id="energie-kennwert-objekt"
+                    wert={werte.energie_kennwert}
+                    onWert={n => setWerte(w => ({ ...w, energie_kennwert: n }))}
+                  />
+                  <Input
+                    placeholder="Energieträger"
+                    value={werte.energietraeger}
+                    onChange={e => setWerte(w => ({ ...w, energietraeger: e.target.value }))}
+                  />
+                  <Select
+                    value={werte.energieeffizienzklasse ?? ''}
+                    onValueChange={v => setWerte(w => ({ ...w, energieeffizienzklasse: v }))}
+                  >
+                    <SelectTrigger aria-label="Effizienzklasse">
+                      <SelectValue placeholder="Klasse" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {EFFIZIENZKLASSEN.map(k => (
+                        <SelectItem key={k} value={k}>
+                          {k}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {werte.energieausweis_typ && (
+                <p className="text-xs text-muted-foreground">Kennwert in kWh/(m²·a), Energieträger z. B. Erdgas.</p>
+              )}
             </div>
           </div>
 

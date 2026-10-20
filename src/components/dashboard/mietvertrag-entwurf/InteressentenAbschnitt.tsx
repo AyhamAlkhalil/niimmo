@@ -57,10 +57,12 @@ export function InteressentenAbschnitt({
   const verwende = (p: EntwurfPerson, m: MieterAbgleich) =>
     aendere(p.schluessel, {
       mieterId: m.id,
+      quelle: 'bestand',
       vorname: m.vorname ?? p.vorname,
       nachname: m.nachname ?? p.nachname,
       istUnternehmen: m.ist_unternehmen ?? false,
       firmenname: m.firmenname ?? p.firmenname,
+      vertretenDurch: m.vertreten_durch ?? p.vertretenDurch ?? null,
       anrede: (m.anrede as Anrede | null) ?? p.anrede,
       geburtsdatum: m.geburtsdatum ?? p.geburtsdatum,
       email: m.hauptmail ?? p.email,
@@ -197,12 +199,20 @@ export function InteressentenAbschnitt({
                 )}
 
                 {p.istUnternehmen ? (
-                  <Input
-                    placeholder="Firmenname"
-                    value={p.firmenname ?? ''}
-                    disabled={!!p.mieterId}
-                    onChange={e => aendere(p.schluessel, { firmenname: e.target.value || null })}
-                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder="Firmenname"
+                      value={p.firmenname ?? ''}
+                      disabled={!!p.mieterId}
+                      onChange={e => aendere(p.schluessel, { firmenname: e.target.value || null })}
+                    />
+                    <Input
+                      placeholder="vertreten durch, z. B. Geschäftsführer/in"
+                      aria-label="vertreten durch"
+                      value={p.vertretenDurch ?? ''}
+                      onChange={e => aendere(p.schluessel, { vertretenDurch: e.target.value || null })}
+                    />
+                  </div>
                 ) : (
                   <div className="grid grid-cols-[110px_1fr_1fr] gap-2">
                     <Select
@@ -256,7 +266,7 @@ export function InteressentenAbschnitt({
                     variant="link"
                     size="sm"
                     className="h-auto p-0 text-xs"
-                    onClick={() => aendere(p.schluessel, { mieterId: null })}
+                    onClick={() => aendere(p.schluessel, { mieterId: null, quelle: undefined })}
                   >
                     Doch als neuen Mieter anlegen
                   </Button>

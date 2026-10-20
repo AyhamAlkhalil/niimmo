@@ -1,9 +1,14 @@
 /**
  * Formularabschnitte des Mietvertrags. Gemeinsam für den Generator am
- * bestehenden Vertrag und für den Vertragsentwurf; der Entwurf reicht
- * zusätzlich `markierung` und `geaendert` durch, um übernommene Werte
- * kenntlich zu machen.
+ * bestehenden Vertrag (`MietvertragErstellungModal`) und für den Ablauf
+ * „Neuer Mietvertrag" (`mietvertrag-entwurf/`), der sie auf Schritte verteilt
+ * und zusätzlich `markierung` und `geaendert` durchreicht, um übernommene
+ * Werte kenntlich zu machen.
+ *
+ * Grundsatz (20.10.2026): Jeder Platzhalter der Vorlage lässt sich hier von
+ * Hand setzen — niemand soll im Vorschlag der Automatik festhängen.
  */
+import { Plus, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -12,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { positionenSumme } from '@/utils/mietvertrag/entwurf';
+import { plusMonate, positionenSumme, SCHLUESSEL_ARTEN } from '@/utils/mietvertrag/entwurf';
 import type {
   BetriebskostenPosition,
   Heizungsart,
@@ -22,29 +27,31 @@ import type {
   Uebergabezustand,
   Warmwasserart,
 } from '@/utils/mietvertrag/typen';
-import { ZahlFeld, type AbschnittProps } from './Bausteine';
+import { Feldname, ZahlFeld, type AbschnittProps } from './Bausteine';
 
 function eur(n: number): string {
   return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function Feldname({ htmlFor, children, marke }: { htmlFor?: string; children: ReactNode; marke?: ReactNode }) {
+function Ueberschrift({ children, hinweis }: { children: ReactNode; hinweis?: ReactNode }) {
   return (
-    <Label htmlFor={htmlFor} className="flex flex-wrap items-center gap-y-1">
-      {children}
-      {marke}
-    </Label>
+    <div>
+      <Label className="text-sm font-semibold">{children}</Label>
+      {hinweis && <p className="text-xs text-muted-foreground">{hinweis}</p>}
+    </div>
   );
-}
-
-function Ueberschrift({ children }: { children: ReactNode }) {
-  return <Label className="text-sm font-semibold">{children}</Label>;
 }
 
 // ─── Mietsache ──────────────────────────────────────────────────────────────
 
-export function MietsacheFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
-  const einheit = (feld: keyof MietvertragDaten['einheit'], wert: MietvertragDaten['einheit'][typeof feld]) => {
+export function MietsacheFelder({
+  entwurf,
+  setEntwurf,
+  markierung,
+  geaendert,
+  mitPersonenzahl = true,
+}: AbschnittProps & { mitPersonenzahl?: boolean }) {
+  const einheit = <K extends keyof MietvertragDaten['einheit']>(feld: K, wert: MietvertragDaten['einheit'][K]) => {
     setEntwurf(d => ({ ...d, einheit: { ...d.einheit, [feld]: wert } }));
     geaendert?.(`einheit.${feld}`);
   };
@@ -102,22 +109,88 @@ export function MietsacheFelder({ entwurf, setEntwurf, markierung, geaendert }: 
       </div>
 
       <div className="space-y-2">
-        <Feldname htmlFor="personen" marke={markierung?.('anzahlPersonen')}>
-          Anzahl Personen im Haushalt
+        <Feldname htmlFor="nebenraeume" marke={markierung?.('einheit.nebenraeume')}>
+          Mitvermietete Nebenräume
         </Feldname>
-        <ZahlFeld
-          id="personen"
-          wert={entwurf.anzahlPersonen || null}
-          onWert={n => {
-            setEntwurf(d => ({ ...d, anzahlPersonen: Math.max(0, Math.round(n ?? 0)) }));
-            geaendert?.('anzahlPersonen');
-          }}
+        <Input
+          id="nebenraeume"
+          placeholder="z. B. Kellerraum Nr. 9, Dachbodenabteil"
+          value={entwurf.einheit.nebenraeume ?? ''}
+          onChange={e => einheit('nebenraeume', e.target.value || null)}
         />
-        <p className="text-xs text-muted-foreground">
-          Gehört zum Vertrag, nicht zur Einheit. Wird nicht geschätzt — ohne Angabe ist der Personenschlüssel bei
-          den Betriebskosten nicht vereinbarungsfähig.
-        </p>
       </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={entwurf.einheit.einbaukueche} onCheckedChange={c => einheit('einbaukueche', c === true)} />
+        Einbauküche ist mitvermietet
+        {markierung?.('einheit.einbaukueche')}
+      </label>
+
+      {mitPersonenzahl && <PersonenzahlFeld entwurf={entwurf} setEntwurf={setEntwurf} markierung={markierung} geaendert={geaendert} />}
+    </div>
+  );
+}
+
+export function PersonenzahlFeld({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  return (
+    <div className="space-y-2">
+      <Feldname htmlFor="personen" marke={markierung?.('anzahlPersonen')}>
+        Anzahl Personen im Haushalt
+      </Feldname>
+      <ZahlFeld
+        id="personen"
+        wert={entwurf.anzahlPersonen || null}
+        onWert={n => {
+          setEntwurf(d => ({ ...d, anzahlPersonen: Math.max(0, Math.round(n ?? 0)) }));
+          geaendert?.('anzahlPersonen');
+        }}
+      />
+      <p className="text-xs text-muted-foreground">
+        Gehört zum Vertrag, nicht zur Einheit. Wird nicht geschätzt — ohne Angabe ist der Personenschlüssel bei den
+        Betriebskosten nicht vereinbarungsfähig.
+      </p>
+    </div>
+  );
+}
+
+/** Schlüssel für § 1 Ziff. 3; ohne Angabe nennt der Vertrag das Übergabeprotokoll. */
+export function SchluesselFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  const anzahl = (name: string) => entwurf.schluessel.find(s => s.art === name)?.anzahl ?? 0;
+  const setze = (name: string, n: number) => {
+    setEntwurf(d => {
+      const uebrige = d.schluessel.filter(s => s.art !== name);
+      const neu = n > 0 ? [...uebrige, { art: name, anzahl: n }] : uebrige;
+      // Reihenfolge wie in der Vorlage, frei benannte Schlüssel ans Ende
+      const rang = (art: string) => {
+        const i = SCHLUESSEL_ARTEN.findIndex(a => a.name === art);
+        return i < 0 ? 99 : i;
+      };
+      return { ...d, schluessel: neu.sort((a, b) => rang(a.art) - rang(b.art)) };
+    });
+    geaendert?.('schluessel');
+  };
+
+  return (
+    <div className="space-y-2">
+      <Feldname marke={markierung?.('schluessel')}>Schlüssel bei Einzug</Feldname>
+      <div className="grid grid-cols-3 gap-2">
+        {SCHLUESSEL_ARTEN.map(a => (
+          <div key={a.key} className="space-y-1">
+            <Label htmlFor={`schluessel-${a.key}`} className="text-xs font-normal text-muted-foreground">
+              {a.name}
+            </Label>
+            <ZahlFeld
+              id={`schluessel-${a.key}`}
+              placeholder="0"
+              wert={anzahl(a.name) || null}
+              onWert={n => setze(a.name, Math.max(0, Math.round(n ?? 0)))}
+            />
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Leer gelassen verweist der Vertrag auf die im Übergabeprotokoll aufgeführten Schlüssel.
+      </p>
     </div>
   );
 }
@@ -153,10 +226,7 @@ export function ObjektAngabenFelder({
 
   return (
     <div className="space-y-3">
-      <div>
-        <Ueberschrift>Angaben zum Haus</Ueberschrift>
-        <p className="text-xs text-muted-foreground">Werden am Objekt gespeichert und gelten für alle weiteren Verträge.</p>
-      </div>
+      <Ueberschrift hinweis="Werden am Objekt gespeichert und gelten für alle weiteren Verträge.">Angaben zum Haus</Ueberschrift>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
@@ -200,6 +270,22 @@ export function ObjektAngabenFelder({
           </Select>
         </div>
       </div>
+
+      {zentral && (
+        <div className="space-y-2">
+          <Feldname marke={markierung?.('objekt.heizkostenSchluessel')}>Heizkostenverteilung (Verbrauch/Fläche)</Feldname>
+          <Select value={entwurf.objekt.heizkostenSchluessel} onValueChange={v => objekt('heizkostenSchluessel', v)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="70/30">70 % Verbrauch / 30 % Fläche</SelectItem>
+              <SelectItem value="60/40">60 % Verbrauch / 40 % Fläche</SelectItem>
+              <SelectItem value="50/50">50 % Verbrauch / 50 % Fläche</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
@@ -279,11 +365,106 @@ export function ObjektAngabenFelder({
   );
 }
 
+// ─── Energieausweis ─────────────────────────────────────────────────────────
+
+const EFFIZIENZKLASSEN = ['A+', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
+/**
+ * Energieausweis des Hauses. Steht nicht im Vertrag, ist dem Mieter aber
+ * spätestens bei Vertragsschluss vorzulegen (§ 80 Abs. 4 GEG) — die Prüfung
+ * erinnert daran. Wird am Objekt gespeichert (20.10.2026: vorher nirgends erfassbar).
+ */
+export function EnergieausweisFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  const e = entwurf.objekt;
+  const setze = <
+    K extends 'energieausweisTyp' | 'energieKennwert' | 'energietraeger' | 'energieausweisGueltigBis' | 'energieeffizienzklasse',
+  >(
+    feld: K,
+    wert: MietvertragDaten['objekt'][K]
+  ) => {
+    setEntwurf(d => ({ ...d, objekt: { ...d.objekt, [feld]: wert } }));
+    geaendert?.('objekt.energieausweis');
+  };
+
+  return (
+    <div className="space-y-3">
+      <Ueberschrift hinweis="Steht nicht im Vertrag, ist dem Mieter aber spätestens bei Vertragsschluss vorzulegen (§ 80 Abs. 4 GEG). Wird am Objekt gespeichert.">
+        Energieausweis
+      </Ueberschrift>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Feldname marke={markierung?.('objekt.energieausweis')}>Art</Feldname>
+          <Select
+            value={e.energieausweisTyp ?? 'keiner'}
+            onValueChange={v => setze('energieausweisTyp', v === 'bedarf' || v === 'verbrauch' ? v : null)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="keiner">nicht erfasst</SelectItem>
+              <SelectItem value="bedarf">Bedarfsausweis</SelectItem>
+              <SelectItem value="verbrauch">Verbrauchsausweis</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="energieausweis-gueltig">gültig bis</Label>
+          <Input
+            id="energieausweis-gueltig"
+            type="date"
+            value={e.energieausweisGueltigBis ?? ''}
+            onChange={ev => setze('energieausweisGueltigBis', ev.target.value || null)}
+          />
+        </div>
+      </div>
+      {e.energieausweisTyp && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-2">
+            <Label htmlFor="energie-kennwert">Kennwert (kWh/(m²·a))</Label>
+            <ZahlFeld id="energie-kennwert" wert={e.energieKennwert} onWert={n => setze('energieKennwert', n && n > 0 ? n : null)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="energietraeger">Energieträger</Label>
+            <Input
+              id="energietraeger"
+              placeholder="z. B. Erdgas"
+              value={e.energietraeger ?? ''}
+              onChange={ev => setze('energietraeger', ev.target.value || null)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Effizienzklasse</Label>
+            <Select value={e.energieeffizienzklasse ?? ''} onValueChange={v => setze('energieeffizienzklasse', v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="—" />
+              </SelectTrigger>
+              <SelectContent>
+                {EFFIZIENZKLASSEN.map(k => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Betriebskosten ─────────────────────────────────────────────────────────
 
 /** Aufstellung wie in § 4 der Hausvorlage; die Spalte muss die Vorauszahlung ergeben. */
 export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
-  if (entwurf.betriebskostenModus === 'inklusiv') return null;
+  if (entwurf.betriebskostenModus === 'inklusiv') {
+    return (
+      <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+        Inklusivmiete: Mit der Kaltmiete sind sämtliche Betriebskosten abgegolten, eine Kostenaufstellung entfällt.
+      </p>
+    );
+  }
 
   const summe = positionenSumme(entwurf);
   const stimmt = Math.round(summe * 100) === Math.round(entwurf.betriebskostenVorauszahlung * 100);
@@ -311,11 +492,12 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
         Nur angehakte Positionen werden umgelegt. Nicht benannte Kosten sind nach § 556 Abs. 1 BGB nicht umlagefähig.
         Die Einzelbeträge müssen die vereinbarte Vorauszahlung ergeben.
       </p>
-      <div className="max-h-72 space-y-1 overflow-y-auto rounded border p-2">
+      <div className="space-y-1 rounded border p-2">
         {entwurf.betriebskostenPositionen.map(pos => (
-          <div key={pos.nummer} className="grid grid-cols-[24px_1fr_88px] items-center gap-2">
+          <div key={pos.nummer} className="grid grid-cols-[24px_1fr_96px] items-center gap-2">
             <Checkbox
               checked={pos.umgelegt}
+              aria-label={`${pos.nummer} umlegen`}
               onCheckedChange={c => aendere(pos.nummer, { umgelegt: c === true, betrag: c === true ? pos.betrag : null })}
             />
             <span className="truncate text-xs" title={pos.bezeichnung}>
@@ -363,24 +545,11 @@ export function MieteranschriftFelder({ entwurf, setEntwurf }: AbschnittProps) {
 
 // ─── Klauseln ───────────────────────────────────────────────────────────────
 
-const ANLAGEN = [
-  ['hausordnung', 'Hausordnung'],
-  ['betrkvKatalog', 'Betriebskostenkatalog'],
-  ['datenschutzhinweis', 'Datenschutzinformation (Art. 13 DSGVO)'],
-  ['widerrufsbelehrung', 'Widerrufsbelehrung'],
-  ['mietspiegelEinwilligung', 'Einwilligung Mietspiegel (freiwillig)'],
-] as const;
-
-export function KlauselFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps) {
-  const aendere = <K extends keyof MietvertragDaten>(feld: K, wert: MietvertragDaten[K]) => {
-    setEntwurf(d => ({ ...d, [feld]: wert }));
-    geaendert?.(feld);
-  };
-
+export function UebergabeFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div className="space-y-2">
-        <Label>Zustand bei Übergabe</Label>
+        <Feldname marke={markierung?.('uebergabezustand')}>Zustand bei Übergabe</Feldname>
         <Select
           value={entwurf.uebergabezustand}
           onValueChange={(v: Uebergabezustand) => {
@@ -409,7 +578,10 @@ export function KlauselFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps
           id="schoenheit"
           checked={entwurf.schoenheitsreparaturen}
           disabled={entwurf.uebergabezustand !== 'renoviert'}
-          onCheckedChange={c => aendere('schoenheitsreparaturen', c === true)}
+          onCheckedChange={c => {
+            setEntwurf(d => ({ ...d, schoenheitsreparaturen: c === true }));
+            geaendert?.('schoenheitsreparaturen');
+          }}
         />
         <div className="space-y-1">
           <Label htmlFor="schoenheit" className="leading-tight">
@@ -422,29 +594,82 @@ export function KlauselFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps
           </p>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor="klein-einzel">Kleinreparatur je Fall (€)</Label>
-          <ZahlFeld
-            id="klein-einzel"
-            wert={entwurf.kleinreparaturEinzelgrenze}
-            onWert={n => aendere('kleinreparaturEinzelgrenze', n ?? 0)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="klein-jahr">Jahresgrenze (% der Jahresmiete)</Label>
-          <ZahlFeld
-            id="klein-jahr"
-            wert={entwurf.kleinreparaturJahresgrenzeProzent}
-            onWert={n => aendere('kleinreparaturJahresgrenzeProzent', n ?? 0)}
-          />
-        </div>
-      </div>
-
+export function KleinreparaturFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
       <div className="space-y-2">
-        <Label>Mietanpassung</Label>
-        <Select value={entwurf.mietanpassungArt} onValueChange={(v: MietanpassungArt) => aendere('mietanpassungArt', v)}>
+        <Feldname htmlFor="klein-einzel" marke={markierung?.('kleinreparaturEinzelgrenze')}>
+          Kleinreparatur je Fall (€)
+        </Feldname>
+        <ZahlFeld
+          id="klein-einzel"
+          wert={entwurf.kleinreparaturEinzelgrenze}
+          onWert={n => {
+            setEntwurf(d => ({ ...d, kleinreparaturEinzelgrenze: n ?? 0 }));
+            geaendert?.('kleinreparaturEinzelgrenze');
+          }}
+        />
+      </div>
+      <div className="space-y-2">
+        <Feldname htmlFor="klein-jahr" marke={markierung?.('kleinreparaturJahresgrenzeProzent')}>
+          Jahresgrenze (% der Jahresmiete)
+        </Feldname>
+        <ZahlFeld
+          id="klein-jahr"
+          wert={entwurf.kleinreparaturJahresgrenzeProzent}
+          onWert={n => {
+            setEntwurf(d => ({ ...d, kleinreparaturJahresgrenzeProzent: n ?? 0 }));
+            geaendert?.('kleinreparaturJahresgrenzeProzent');
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mietanpassung mit Staffelplan und Indexangaben. Ohne diese Felder sperrte
+ * die Pflichtprüfung das PDF, sobald jemand Staffel- oder Indexmiete wählte.
+ */
+export function MietanpassungFelder({
+  entwurf,
+  setEntwurf,
+  markierung,
+  geaendert,
+  setzeHerkunft,
+  indexVorschlag,
+}: AbschnittProps & { indexVorschlag?: { wert: number; monat: string } | null }) {
+  const staffel = entwurf.staffelplan ?? [];
+
+  const setzeStaffel = (neu: { gueltigAb: string; kaltmiete: number }[]) => {
+    setEntwurf(d => ({ ...d, staffelplan: neu }));
+    geaendert?.('staffelplan');
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <Feldname marke={markierung?.('mietanpassungArt')}>Mietanpassung</Feldname>
+        <Select
+          value={entwurf.mietanpassungArt}
+          onValueChange={(v: MietanpassungArt) => {
+            setEntwurf(d => {
+              const neu = { ...d, mietanpassungArt: v };
+              // Indexmiete: Ausgangswert aus den Marktdaten vorschlagen
+              if (v === 'index' && !d.indexBasisWert && indexVorschlag) {
+                neu.indexBasisWert = indexVorschlag.wert;
+                neu.indexBasisMonat = indexVorschlag.monat;
+              }
+              return neu;
+            });
+            geaendert?.('mietanpassungArt');
+            if (v === 'index' && !entwurf.indexBasisWert && indexVorschlag) setzeHerkunft?.('indexBasisWert', 'marktdaten');
+          }}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -462,62 +687,192 @@ export function KlauselFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor="faellig">Miete fällig am … Werktag</Label>
-          <ZahlFeld
-            id="faellig"
-            wert={entwurf.faelligkeitWerktag}
-            onWert={n => aendere('faelligkeitWerktag', Math.min(10, Math.max(1, Math.round(n ?? 3))))}
-          />
+      {entwurf.mietanpassungArt === 'staffel' && (
+        <div className="space-y-2 rounded-md border p-3">
+          <Label className="text-xs">Staffelstufen (Nettokaltmiete ab Datum, mindestens 12 Monate Abstand)</Label>
+          {staffel.map((s, i) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_32px] items-center gap-2">
+              <Input
+                type="date"
+                aria-label={`Stufe ${i + 1} gültig ab`}
+                value={s.gueltigAb}
+                onChange={e => setzeStaffel(staffel.map((x, j) => (j === i ? { ...x, gueltigAb: e.target.value } : x)))}
+              />
+              <ZahlFeld
+                placeholder="Kaltmiete €"
+                wert={s.kaltmiete || null}
+                onWert={n => setzeStaffel(staffel.map((x, j) => (j === i ? { ...x, kaltmiete: n ?? 0 } : x)))}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-destructive"
+                aria-label={`Stufe ${i + 1} entfernen`}
+                onClick={() => setzeStaffel(staffel.filter((_, j) => j !== i))}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const letzte = staffel[staffel.length - 1];
+              const ab = letzte?.gueltigAb || entwurf.mietbeginn;
+              setzeStaffel([
+                ...staffel,
+                { gueltigAb: ab ? plusMonate(ab, 12) : '', kaltmiete: letzte?.kaltmiete || entwurf.kaltmiete },
+              ]);
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            Stufe hinzufügen
+          </Button>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="raten">Kaution in … Raten</Label>
-          <ZahlFeld
-            id="raten"
-            wert={entwurf.kautionRaten}
-            onWert={n => aendere('kautionRaten', Math.min(3, Math.max(1, Math.round(n ?? 3))))}
-          />
-        </div>
-      </div>
+      )}
 
-      <div className="space-y-3">
-        <Label>Anlagen</Label>
-        {ANLAGEN.map(([key, label]) => (
-          <div key={key} className="flex items-center gap-2">
-            <Checkbox
-              id={`anlage-${key}`}
-              checked={entwurf.anlagen[key]}
-              onCheckedChange={c => aendere('anlagen', { ...entwurf.anlagen, [key]: c === true })}
+      {entwurf.mietanpassungArt === 'index' && (
+        <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
+          <div className="space-y-1">
+            <Feldname htmlFor="index-monat" marke={markierung?.('indexBasisWert')}>
+              Basismonat
+            </Feldname>
+            <Input
+              id="index-monat"
+              type="month"
+              value={entwurf.indexBasisMonat?.slice(0, 7) ?? ''}
+              onChange={e => {
+                setEntwurf(d => ({ ...d, indexBasisMonat: e.target.value ? `${e.target.value}-01` : null }));
+                geaendert?.('indexBasisWert');
+              }}
             />
-            <Label htmlFor={`anlage-${key}`} className="text-sm font-normal">
-              {label}
-            </Label>
           </div>
-        ))}
-        {entwurf.besichtigtAm && entwurf.anlagen.widerrufsbelehrung && (
-          <p className="text-xs text-muted-foreground">
-            Der Mieter hat die Wohnung am {new Date(`${entwurf.besichtigtAm}T12:00:00`).toLocaleDateString('de-DE')}{' '}
-            besichtigt — damit besteht kein Widerrufsrecht (§ 312 Abs. 4 S. 2 BGB). Die Belehrung wird nicht mitgedruckt.
+          <div className="space-y-1">
+            <Label htmlFor="index-wert">Indexstand (VPI, 2020 = 100)</Label>
+            <ZahlFeld
+              id="index-wert"
+              wert={entwurf.indexBasisWert}
+              onWert={n => {
+                setEntwurf(d => ({ ...d, indexBasisWert: n && n > 0 ? n : null }));
+                geaendert?.('indexBasisWert');
+              }}
+            />
+          </div>
+          <p className="col-span-2 text-xs text-muted-foreground">
+            Maßgeblich ist der zuletzt veröffentlichte Stand bei Vertragsschluss.
           </p>
-        )}
-      </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
+/** Fälligkeit und Kautionsraten — im Generator für bestehende Verträge. */
+export function ZahlungsterminFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
       <div className="space-y-2">
-        <Label htmlFor="zusatz">Individuelle Vereinbarungen (§ 26)</Label>
-        <Textarea
-          id="zusatz"
-          rows={4}
-          placeholder="Eine Vereinbarung je Zeile"
-          value={entwurf.zusatzvereinbarungen ?? ''}
-          onChange={e => aendere('zusatzvereinbarungen', e.target.value || null)}
+        <Feldname htmlFor="faellig" marke={markierung?.('faelligkeitWerktag')}>
+          Miete fällig am … Werktag
+        </Feldname>
+        <ZahlFeld
+          id="faellig"
+          wert={entwurf.faelligkeitWerktag}
+          onWert={n => {
+            setEntwurf(d => ({ ...d, faelligkeitWerktag: Math.min(10, Math.max(1, Math.round(n ?? 3))) }));
+            geaendert?.('faelligkeitWerktag');
+          }}
         />
       </div>
+      <div className="space-y-2">
+        <Feldname htmlFor="raten" marke={markierung?.('kautionRaten')}>
+          Kaution in … Raten
+        </Feldname>
+        <ZahlFeld
+          id="raten"
+          wert={entwurf.kautionRaten}
+          onWert={n => {
+            setEntwurf(d => ({ ...d, kautionRaten: Math.min(3, Math.max(1, Math.round(n ?? 3))) }));
+            geaendert?.('kautionRaten');
+          }}
+        />
+      </div>
+    </div>
+  );
+}
 
+const ANLAGEN = [
+  ['hausordnung', 'Hausordnung'],
+  ['betrkvKatalog', 'Betriebskostenkatalog'],
+  ['datenschutzhinweis', 'Datenschutzinformation (Art. 13 DSGVO)'],
+  ['widerrufsbelehrung', 'Widerrufsbelehrung'],
+  ['mietspiegelEinwilligung', 'Einwilligung Mietspiegel (freiwillig)'],
+] as const;
+
+export function AnlagenFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  return (
+    <div className="space-y-3">
+      <Feldname marke={markierung?.('anlagen')}>Anlagen</Feldname>
+      {ANLAGEN.map(([key, label]) => (
+        <div key={key} className="flex items-center gap-2">
+          <Checkbox
+            id={`anlage-${key}`}
+            checked={entwurf.anlagen[key]}
+            onCheckedChange={c => {
+              setEntwurf(d => ({ ...d, anlagen: { ...d.anlagen, [key]: c === true } }));
+              geaendert?.('anlagen');
+            }}
+          />
+          <Label htmlFor={`anlage-${key}`} className="text-sm font-normal">
+            {label}
+          </Label>
+        </div>
+      ))}
+      {entwurf.besichtigtAm && entwurf.anlagen.widerrufsbelehrung && (
+        <p className="text-xs text-muted-foreground">
+          Der Mieter hat die Wohnung am {new Date(`${entwurf.besichtigtAm}T12:00:00`).toLocaleDateString('de-DE')} besichtigt —
+          damit besteht kein Widerrufsrecht (§ 312 Abs. 4 S. 2 BGB). Die Belehrung wird nicht mitgedruckt.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function ZusatzvereinbarungFeld({ entwurf, setEntwurf, geaendert }: AbschnittProps) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="zusatz">Individuelle Vereinbarungen (§ 26)</Label>
+      <Textarea
+        id="zusatz"
+        rows={4}
+        placeholder="Eine Vereinbarung je Zeile"
+        value={entwurf.zusatzvereinbarungen ?? ''}
+        onChange={e => {
+          setEntwurf(d => ({ ...d, zusatzvereinbarungen: e.target.value || null }));
+          geaendert?.('zusatzvereinbarungen');
+        }}
+      />
+    </div>
+  );
+}
+
+export function UnterzeichnungFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps) {
+  return (
+    <div className="space-y-2">
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label htmlFor="ort">Ort der Unterzeichnung</Label>
-          <Input id="ort" value={entwurf.unterschriftOrt ?? ''} onChange={e => aendere('unterschriftOrt', e.target.value || null)} />
+          <Input
+            id="ort"
+            value={entwurf.unterschriftOrt ?? ''}
+            onChange={e => {
+              setEntwurf(d => ({ ...d, unterschriftOrt: e.target.value || null }));
+              geaendert?.('unterschriftOrt');
+            }}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="datum">Vertragsdatum</Label>
@@ -525,10 +880,29 @@ export function KlauselFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps
             id="datum"
             type="date"
             value={entwurf.vertragsdatum ?? ''}
-            onChange={e => aendere('vertragsdatum', e.target.value || null)}
+            onChange={e => {
+              setEntwurf(d => ({ ...d, vertragsdatum: e.target.value || null }));
+              geaendert?.('vertragsdatum');
+            }}
           />
         </div>
       </div>
+      <p className="text-xs text-muted-foreground">Leer gelassen bleibt die Zeile zum Ausfüllen bei der Unterschrift frei.</p>
+    </div>
+  );
+}
+
+/** Alle Klauselfelder in einem Block — für den Generator am bestehenden Vertrag. */
+export function KlauselFelder(props: AbschnittProps) {
+  return (
+    <div className="space-y-5">
+      <UebergabeFelder {...props} />
+      <KleinreparaturFelder {...props} />
+      <MietanpassungFelder {...props} />
+      <ZahlungsterminFelder {...props} />
+      <AnlagenFelder {...props} />
+      <ZusatzvereinbarungFeld {...props} />
+      <UnterzeichnungFelder {...props} />
     </div>
   );
 }

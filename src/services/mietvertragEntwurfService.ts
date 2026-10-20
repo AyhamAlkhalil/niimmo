@@ -34,6 +34,7 @@ export interface EntwurfZeile {
   dateien: EntwurfDatei[];
   erstelltAm: string;
   aktualisiertAm: string;
+  schritt: string | null;
 }
 
 export function leseEntwurfZeile(z: Tables<'mietvertrag_entwuerfe'>): EntwurfZeile {
@@ -47,6 +48,7 @@ export function leseEntwurfZeile(z: Tables<'mietvertrag_entwuerfe'>): EntwurfZei
     dateien: (Array.isArray(z.dateien) ? z.dateien : []) as unknown as EntwurfDatei[],
     erstelltAm: z.erstellt_am,
     aktualisiertAm: z.aktualisiert_am,
+    schritt: z.schritt,
   };
 }
 
@@ -87,12 +89,26 @@ export interface SpeichernArgs {
   bisherigeDateien: EntwurfDatei[];
   /** Neues Entwurfs-PDF; `null`, solange Pflichtangaben fehlen oder keine Vorlage existiert. */
   pdf: Blob | null;
+  /**
+   * Ohne neues PDF das bisherige behalten — nur wenn sich seit dem letzten
+   * Speichern nichts geändert hat und es den Stand also noch zeigt.
+   */
+  pdfBehalten?: boolean;
   /** In dieser Sitzung neu hochgeladene Selbstauskünfte. */
   selbstauskuenfte: File[];
+  /** Schritt, in dem der Ablauf beim nächsten Öffnen weitergeht. */
+  schritt: string | null;
 }
 
-export async function speichereEntwurf(a: SpeichernArgs): Promise<EntwurfDatei[]> {
+export interface SpeicherErgebnis {
+  dateien: EntwurfDatei[];
+  /** Neuer Stand für die nächste Sperrprüfung. */
+  aktualisiertAm: string;
+}
+
+export async function speichereEntwurf(a: SpeichernArgs): Promise<SpeicherErgebnis> {
   const jetzt = new Date();
+  let aktualisiertAm = a.aktualisiertAm ?? '';
   const neuHochgeladen: string[] = [];
   let dateien = [...a.bisherigeDateien];
   let ersetztesPdf: string[] = [];
@@ -114,8 +130,11 @@ export async function speichereEntwurf(a: SpeichernArgs): Promise<EntwurfDatei[]
     }
 
     // Ein Entwurf hat höchstens ein PDF; das alte fällt weg, sobald das neue sicher liegt.
-    ersetztesPdf = dateien.filter(d => d.art === 'entwurf_pdf').map(d => d.pfad);
-    dateien = dateien.filter(d => d.art !== 'entwurf_pdf');
+    // Ohne neues PDF bleibt es nur, wenn es den gespeicherten Stand noch zeigt.
+    if (a.pdf || !a.pdfBehalten) {
+      ersetztesPdf = dateien.filter(d => d.art === 'entwurf_pdf').map(d => d.pfad);
+      dateien = dateien.filter(d => d.art !== 'entwurf_pdf');
+    }
     if (a.pdf) {
       const pfad = `${ENTWURF_ORDNER}/${a.id}/Mietvertrag_Entwurf_${stempel(jetzt)}.pdf`;
       await hochladen(pfad, a.pdf, 'application/pdf');
@@ -137,18 +156,22 @@ export async function speichereEntwurf(a: SpeichernArgs): Promise<EntwurfDatei[]
       personen: a.personen as unknown as Json,
       herkunft: a.herkunft as unknown as Json,
       dateien: dateien as unknown as Json,
+      schritt: a.schritt,
     };
 
     if (a.istNeu) {
       const { data: user } = await supabase.auth.getUser();
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('mietvertrag_entwuerfe')
-        .insert({ id: a.id, ...zeile, erstellt_von: user.user?.id ?? null });
+        .insert({ id: a.id, ...zeile, erstellt_von: user.user?.id ?? null })
+        .select('aktualisiert_am')
+        .single();
       if (error) throw new Error(`Entwurf konnte nicht gespeichert werden: ${error.message}`);
+      aktualisiertAm = data.aktualisiert_am;
     } else {
       let anfrage = supabase.from('mietvertrag_entwuerfe').update(zeile).eq('id', a.id);
       if (a.aktualisiertAm) anfrage = anfrage.eq('aktualisiert_am', a.aktualisiertAm);
-      const { data, error } = await anfrage.select('id');
+      const { data, error } = await anfrage.select('id, aktualisiert_am');
       if (error) throw new Error(`Entwurf konnte nicht gespeichert werden: ${error.message}`);
       // Ein Update ohne Treffer ist kein Fehler für PostgREST — für uns schon.
       if (!data || data.length === 0) {
@@ -156,6 +179,7 @@ export async function speichereEntwurf(a: SpeichernArgs): Promise<EntwurfDatei[]
           'Der Entwurf wurde inzwischen geändert, aktiviert oder verworfen. Bitte schließen und neu öffnen — es wurde nichts überschrieben.'
         );
       }
+      aktualisiertAm = data[0].aktualisiert_am;
     }
   } catch (e) {
     await entfernen(neuHochgeladen);
@@ -165,7 +189,7 @@ export async function speichereEntwurf(a: SpeichernArgs): Promise<EntwurfDatei[]
   // Erst jetzt: ohne gespeicherte Zeile wäre das alte PDF die einzige Fassung.
   const belegt = await belegtePfade(ersetztesPdf).catch(() => new Set(ersetztesPdf));
   await entfernen(ersetztesPdf.filter(p => !belegt.has(p)));
-  return dateien;
+  return { dateien, aktualisiertAm };
 }
 
 // ─── Verwerfen ──────────────────────────────────────────────────────────────
@@ -201,9 +225,22 @@ export interface AktivierenErgebnis {
 }
 
 export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErgebnis> {
-  const { entwurf } = a;
   const vertragId = crypto.randomUUID();
   const hinweise: string[] = [];
+
+  // Aktiviert wird der gespeicherte Stand — er gehört zum PDF, das unterschrieben
+  // wurde. Was die Oberfläche zeigt, kann seitdem Objekt- oder Vermieterdaten nachgezogen haben.
+  const { data: zeile, error: ladeFehler } = await supabase
+    .from('mietvertrag_entwuerfe')
+    .select('*')
+    .eq('id', a.entwurf.id)
+    .maybeSingle();
+  if (ladeFehler) throw new Error(`Der Entwurf konnte nicht geladen werden: ${ladeFehler.message}`);
+  if (!zeile) throw new Error('Den Entwurf gibt es nicht mehr — er wurde schon aktiviert oder verworfen.');
+  const entwurf = leseEntwurfZeile(zeile);
+  if (a.entwurf.aktualisiertAm && entwurf.aktualisiertAm !== a.entwurf.aktualisiertAm) {
+    throw new Error('Der Entwurf wurde inzwischen an anderer Stelle geändert. Bitte schließen und neu öffnen.');
+  }
 
   const zeilen = aktivierungsDaten({
     id: vertragId,
@@ -211,7 +248,7 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
     daten: entwurf.daten,
     herkunft: entwurf.herkunft,
     vorvertragId: entwurf.vorvertragId,
-    mitVorlage: a.mitVorlage,
+    mitVorlage: a.mitVorlage && entwurf.dateien.some(d => d.art === 'entwurf_pdf'),
     personen: entwurf.personen,
   });
   if (zeilen.verknuepfungen.length === 0) {
@@ -249,7 +286,13 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
 
   if (error) {
     // Kam nur die Antwort nicht an, steht der Vertrag schon — dann bleibt die Datei.
-    const { data: steht } = await supabase.from('mietvertrag').select('id').eq('id', vertragId).maybeSingle();
+    const { data: steht, error: pruefFehler } = await supabase.from('mietvertrag').select('id').eq('id', vertragId).maybeSingle();
+    if (pruefFehler) {
+      // Ungewiss, ob der Vertrag steht: Die unterschriebene Fassung bleibt liegen, statt womöglich die einzige zu löschen.
+      throw new Error(
+        `${error.message} Ob der Vertrag angelegt wurde, ließ sich nicht prüfen. Bitte die Seite neu laden und an der Einheit nachsehen, bevor du es noch einmal versuchst.`
+      );
+    }
     if (!steht) {
       await entfernen([unterschriftPfad]);
       throw new Error(`${error.message} Es wurde nichts angelegt; der Entwurf bleibt erhalten.`);
@@ -263,13 +306,13 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
   for (const p of entwurf.personen.filter(m => m.rolle === 'mitmieter' && m.mieterId)) {
     const { data: vorhanden } = await supabase
       .from('mieter')
-      .select('hauptmail, telnr, geburtsdatum, strasse, hausnummer, plz, ort, anrede')
+      .select('hauptmail, telnr, geburtsdatum, strasse, hausnummer, plz, ort, anrede, vertreten_durch')
       .eq('id', p.mieterId!)
       .maybeSingle();
     if (!vorhanden) continue;
     const neu = mieterZeile(p);
     const ergaenzung: Record<string, string | null> = {};
-    for (const feld of ['hauptmail', 'telnr', 'geburtsdatum', 'strasse', 'hausnummer', 'plz', 'ort', 'anrede'] as const) {
+    for (const feld of ['hauptmail', 'telnr', 'geburtsdatum', 'strasse', 'hausnummer', 'plz', 'ort', 'anrede', 'vertreten_durch'] as const) {
       if (!vorhanden[feld] && neu[feld]) ergaenzung[feld] = neu[feld] as string;
     }
     if (Object.keys(ergaenzung).length > 0) {

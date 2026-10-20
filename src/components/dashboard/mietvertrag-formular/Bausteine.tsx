@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { Befund } from '@/utils/mietvertrag/pflichtpruefung';
 import { herkunftText, type Herkunft } from '@/utils/mietvertrag/entwurf';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
@@ -24,6 +25,18 @@ export interface AbschnittProps {
   markierung?: (feld: string) => ReactNode;
   /** Meldet ein von Hand geändertes Feld, damit seine Kennzeichnung entfällt. */
   geaendert?: (feld: string) => void;
+  /** Kennzeichnet einen Wert, den der Abschnitt selbst vorschlägt (z. B. Index aus den Marktdaten). */
+  setzeHerkunft?: (feld: string, quelle: Herkunft) => void;
+}
+
+/** Beschriftung mit optionaler Herkunftsmarke. */
+export function Feldname({ htmlFor, children, marke }: { htmlFor?: string; children: ReactNode; marke?: ReactNode }) {
+  return (
+    <Label htmlFor={htmlFor} className="flex flex-wrap items-center gap-y-1">
+      {children}
+      {marke}
+    </Label>
+  );
 }
 
 function anzeige(wert: number | null): string {

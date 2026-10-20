@@ -13,6 +13,7 @@
  */
 import {
   formatDatum,
+  formatMonat,
   formatEur,
   formatIban,
   betragInWorten,
@@ -949,7 +950,7 @@ function mietanpassungAbsaetze(d: MietvertragDaten): Absatz[] {
     return [
       {
         nummer: '1.',
-        text: `Die Miete ist eine Indexmiete im Sinne des § 557b BGB. Maßgeblich ist der vom Statistischen Bundesamt veröffentlichte Verbraucherpreisindex für Deutschland (Basis 2020 = 100). Ausgangswert ist der Indexstand des Monats ${formatDatum(d.indexBasisMonat)} mit ${d.indexBasisWert?.toLocaleString('de-DE')} Punkten.`,
+        text: `Die Miete ist eine Indexmiete im Sinne des § 557b BGB. Maßgeblich ist der vom Statistischen Bundesamt veröffentlichte Verbraucherpreisindex für Deutschland (Basis 2020 = 100). Ausgangswert ist der Indexstand des Monats ${formatMonat(d.indexBasisMonat)} mit ${d.indexBasisWert?.toLocaleString('de-DE')} Punkten.`,
       },
       {
         nummer: '2.',

@@ -108,6 +108,9 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           kleinreparatur_einzelgrenze: entwurf.kleinreparaturEinzelgrenze,
           kleinreparatur_jahresgrenze_prozent: entwurf.kleinreparaturJahresgrenzeProzent,
           mietanpassung_art: entwurf.mietanpassungArt,
+          staffelplan: entwurf.staffelplan?.map(s => ({ gueltig_ab: s.gueltigAb, kaltmiete: s.kaltmiete })) ?? null,
+          index_basis_wert: entwurf.indexBasisWert,
+          index_basis_monat: entwurf.indexBasisMonat,
           faelligkeit_werktag: entwurf.faelligkeitWerktag,
           kaution_raten: entwurf.kautionRaten,
           zusatzvereinbarungen: entwurf.zusatzvereinbarungen,
@@ -146,7 +149,9 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           vertragRow?.einheit_id &&
           (entwurf.einheit.bezeichnung !== geladen.einheit.bezeichnung ||
             entwurf.einheit.lage !== geladen.einheit.lage ||
-            entwurf.einheit.wohnflaecheQm !== geladen.einheit.wohnflaecheQm)
+            entwurf.einheit.wohnflaecheQm !== geladen.einheit.wohnflaecheQm ||
+            (entwurf.einheit.nebenraeume ?? '') !== (geladen.einheit.nebenraeume ?? '') ||
+            entwurf.einheit.einbaukueche !== geladen.einheit.einbaukueche)
         ) {
           const { error: einheitError } = await supabase
             .from('einheiten')
@@ -154,6 +159,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
               bezeichnung: entwurf.einheit.bezeichnung || null,
               etage: entwurf.einheit.lage || null,
               qm: entwurf.einheit.wohnflaecheQm || null,
+              nebenraeume: entwurf.einheit.nebenraeume?.trim() || null,
+              einbaukueche: entwurf.einheit.einbaukueche,
             })
             .eq('id', vertragRow.einheit_id);
           if (einheitError) throw einheitError;
@@ -165,6 +172,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           immobilieId &&
           (entwurf.objekt.heizungsart !== geladen.objekt.heizungsart ||
             entwurf.objekt.warmwasser !== geladen.objekt.warmwasser ||
+            entwurf.objekt.heizkostenSchluessel !== geladen.objekt.heizkostenSchluessel ||
             entwurf.objekt.gesamtwohnflaecheQm !== geladen.objekt.gesamtwohnflaecheQm)
         ) {
           const { error: objektError } = await supabase
@@ -172,6 +180,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
             .update({
               heizungsart: entwurf.objekt.heizungsart,
               warmwasser: entwurf.objekt.warmwasser,
+              heizkosten_schluessel: entwurf.objekt.heizkostenSchluessel,
               gesamtwohnflaeche: entwurf.objekt.gesamtwohnflaecheQm,
             })
             .eq('id', immobilieId);

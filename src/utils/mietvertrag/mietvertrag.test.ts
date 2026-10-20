@@ -329,6 +329,8 @@ describe('Klauseltexte', () => {
     expect(text).toMatch(/Basis 2020 = 100/);
     expect(text).not.toMatch(/2000\s*=\s*100/);
     expect(text).not.toMatch(/Industrie und Handelskammer|Sachverständiger/i);
+    // Der Platzhalter meint einen Monat — „des Monats 01.08.2026" las sich wie ein Stichtag (20.10.2026)
+    expect(text).toContain('Indexstand des Monats August 2026 mit 119,4 Punkten');
   });
 
   it('bietet bei Etagenheizung keine Heizkostenumlage an', () => {

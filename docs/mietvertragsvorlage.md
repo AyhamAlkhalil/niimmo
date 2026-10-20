@@ -20,26 +20,42 @@ Dokumentenbestand von NiImmo lagen — Aufbau, Paragraphenfolge und Ton wurden
 | Stellplatz/Garage | `src/utils/mietvertrag/nebenvertraege.ts` | 8 §§ |
 | Einbauküche | `src/utils/mietvertrag/nebenvertraege.ts` | 8 §§ (Leihe nach §§ 598 ff. BGB) |
 
-Bedienung (seit 18.10.2026): Einheitskarte → „Neuen Mietvertrag anlegen" (oder
-„Neuer Mietvertrag" im Kopf). Es entsteht ein **Entwurf** in `mietvertrag_entwuerfe`,
-kein Vertrag: Die Einheit bleibt frei, es entstehen keine Forderungen.
+Bedienung (seit 18.10.2026, als geführter Ablauf seit 20.10.2026): Einheitskarte →
+„Neuen Mietvertrag anlegen". Es entsteht ein **Entwurf** in `mietvertrag_entwuerfe`, kein
+Vertrag: Die Einheit bleibt frei, es entstehen keine Forderungen. Die Vorlage ist fest — der
+Ablauf befüllt nur ihre Platzhalter. Jeder Wert zeigt seine Quelle (Objekt, Einheit,
+Vorvertrag, Selbstauskunft, Stammdaten, Vorgabe, berechnet; ohne Marke: von Hand) und bleibt
+von Hand änderbar; die Marke entfällt mit der Änderung.
 
-1. Selbstauskunft hochladen — die KI liest Name, Geburtsdatum, Anschrift, Kontakt,
-   weitere Personen und den Einzugswunsch (nicht: Einkommen, Arbeitgeber, Schufa).
-   Je Person „Mitmieter" (Vertragspartei) oder „Mitbewohner" (nur Personenzahl).
-   Vorhandene Mieter werden als Dublette erkannt, Treffer der Bewerber-Blacklist gewarnt.
-2. Vorbelegung, jedes Feld mit Herkunft gekennzeichnet, bis es geändert wird:
-   Objekt (Vermieter, Heizung, Warmwasser, Schließanlage, Einrichtungen,
-   Gesamtwohnfläche), Einheit (Lage, Wohnfläche), Vorvertrag derselben Einheit
-   (Kaltmiete, Betriebskosten, Vormiete aus der Datenbank; Räume, Kostenaufstellung,
-   Heizkostenanteil per KI aus dem alten Word- oder PDF-Vertrag). Kaution = 3 Kaltmieten.
-3. Live-Vorschau; fehlende Pflichtangaben stehen im Vorschaubereich. Gespeichert wird
-   auch ohne PDF, das PDF entsteht, sobald nichts mehr fehlt.
-4. Nach der Unterschrift auf der Einheitskarte „Unterschrieben – aktivieren": Upload
-   der unterschriebenen Fassung ist Pflicht. Erst dann entstehen Mieter, Vertrag,
-   Verknüpfung (mit Rolle und Position) und Dokumente; Forderungen seit Mietbeginn
-   holt `mietforderungen_nachholen()` nach. Weitere Entwürfe der Einheit lassen sich
-   dabei verwerfen.
+| Schritt | Inhalt |
+|---|---|
+| 1 Grundlagen | Objekt, Einheit, Vermieter, Vorvertrag. Das alte Vertragsdokument liest die KI gleich beim Öffnen: Räume, Lage, Kostenaufstellung, Heizkostenanteil, Schließanlage, Mindestlaufzeit |
+| 2 Mieter | Selbstauskunft hochladen (KI: Name, Geburtsdatum, Anschrift, Kontakt, weitere Personen, Einzugswunsch — nicht Einkommen, Arbeitgeber, Schufa). Je Person Mitmieter (Vertragspartei) oder Mitbewohner (nur Personenzahl), Firmen mit Vertreter. Dubletten im Mieterbestand und Treffer der Bewerber-Blacklist werden gemeldet |
+| 3 Miete & Laufzeit | Mietbeginn, Befristung mit Grund und Enddatum, Kündigungsverzicht (folgt dem Mietbeginn; Ende nach § 188 BGB, höchstens vier Jahre ab Vertragsschluss — ohne Vertragsdatum ab heute), Kaltmiete (Kaution folgt mit drei Kaltmieten), Betriebs- und Heizkosten, Kaution, Zahlung oder Lastschrift, Staffel- oder Indexmiete (Indexwert aus den Marktdaten), Mietpreisbremse |
+| 4 Mietsache & Haus | Bezeichnung, Lage, Fläche, Räume, Nebenräume, Einbauküche, Schlüssel; Heizung, Warmwasser, Heizkostenverteilung, Gesamtwohnfläche, Schließanlage, Gemeinschaftseinrichtungen; Energieausweis (steht nicht im Vertrag, ist aber vorzulegen, § 80 Abs. 4 GEG) |
+| 5 Betriebskosten | Aufstellung nach BetrKV; die Einzelbeträge müssen die Vorauszahlung ergeben |
+| 6 Vereinbarungen | Übergabezustand, Schönheits- und Kleinreparaturen, Besichtigung (Widerruf), Anlagen, individuelle Vereinbarungen, Ort und Datum |
+| 7 Prüfen & PDF | alle Platzhalter mit Wert und Quelle, je Zeile ein Sprung in den Schritt zum Ändern. „PDF erstellen" legt das PDF am Entwurf ab |
+| 8 Unterschrift & Start | PDF öffnen, unterschreiben lassen, unterschriebene Fassung hochladen, aktivieren |
+
+Zwischenspeichern geht in jedem Schritt; der Entwurf merkt sich den Schritt (`schritt`) und
+öffnet dort wieder. Abbrechen fragt bei ungespeicherten Änderungen: weiter bearbeiten,
+verwerfen oder speichern und schließen. Fehlen Pflichtangaben, ist das PDF gesperrt und der
+Vorschaubereich zeigt, was fehlt. Angaben zum Haus gehen beim Speichern ans Objekt zurück —
+nur wenn sie dort fehlen oder im Ablauf von Hand geändert wurden; an der Einheit werden nur
+leere Felder gefüllt. Auf der Objektseite stehen sie unter „Für Mietverträge".
+
+Aktiviert wird nur mit der unterschriebenen Fassung, in einer Transaktion
+(`aktiviere_mietvertrag_entwurf()`), und zwar der gespeicherte Stand, der zum PDF gehört:
+Mieter, Vertrag, Verknüpfung (Rolle, Position) und Dokumente (Entwurfs-PDF und unterschriebene
+Fassung) entstehen; Forderungen seit Mietbeginn holt `mietforderungen_nachholen()` nach. Eine
+ausdrückliche Bestätigung verlangen: mehr als drei nachzuholende Monate, eine Überschneidung
+mit einem anderen Vertrag der Einheit und eine Wohnung ohne PDF aus der Vorlage. Weitere
+Entwürfe der Einheit lassen sich dabei verwerfen. Haben sich Objekt- oder Vermieterdaten seit
+dem Speichern geändert, zeigt der Entwurf beim Fortsetzen den neuen Stand und gilt als
+ungespeichert — das PDF entsteht beim Speichern neu. Die Einheitskarte zeigt den Entwurf mit
+Stand („in Bearbeitung · Schritt" oder „PDF erstellt · wartet auf Unterschrift") und den
+Knöpfen Fortsetzen, PDF, Unterschrift & Start und Verwerfen.
 
 Ein bereits unterschriebener Vertrag wird über „Bereits unterschriebenen Vertrag
 direkt erfassen" wie bisher sofort aktiv angelegt. Gewerbe, Garage und Stellplatz

@@ -27,6 +27,8 @@ export interface EntwurfGrundlagenDaten {
   vorvertragDokumente: VorvertragDokument[];
   /** Vorschlag für die Gesamtwohnfläche: Summe der Wohn- und Gewerbeflächen des Objekts. */
   summeEinheitenQm: number | null;
+  /** Zuletzt veröffentlichter Verbraucherpreisindex — Ausgangswert einer Indexmiete. */
+  vpi: { wert: number; stichtag: string } | null;
 }
 
 export function useEntwurfGrundlagen(einheitId: string | null, aktiv: boolean) {
@@ -43,7 +45,7 @@ export function useEntwurfGrundlagen(einheitId: string | null, aktiv: boolean) {
         .single();
       if (einheitError) throw einheitError;
 
-      const [immobilieAntwort, vertraegeAntwort, nebenkostenAntwort, einheitenAntwort] = await Promise.all([
+      const [immobilieAntwort, vertraegeAntwort, nebenkostenAntwort, einheitenAntwort, vpiAntwort] = await Promise.all([
         supabase.from('immobilien').select('*').eq('id', einheit.immobilie_id!).single(),
         supabase
           .from('mietvertrag')
@@ -55,6 +57,7 @@ export function useEntwurfGrundlagen(einheitId: string | null, aktiv: boolean) {
           .select('name, verteilerschluessel_art, ist_umlagefaehig')
           .eq('immobilie_id', einheit.immobilie_id!),
         supabase.from('einheiten').select('qm, einheitentyp').eq('immobilie_id', einheit.immobilie_id!),
+        supabase.from('aktuelle_marktdaten').select('wert, stichtag').eq('typ', 'vpi').maybeSingle(),
       ]);
       if (immobilieAntwort.error) throw immobilieAntwort.error;
       if (vertraegeAntwort.error) throw vertraegeAntwort.error;
@@ -109,6 +112,11 @@ export function useEntwurfGrundlagen(einheitId: string | null, aktiv: boolean) {
         vorvertragMieter,
         vorvertragDokumente,
         summeEinheitenQm: summe > 0 ? Math.round(summe * 100) / 100 : null,
+        // Ohne Marktdaten bleibt der Indexwert eine Eingabe — kein Grund, den Ablauf zu blockieren
+        vpi:
+          vpiAntwort.data?.wert != null && vpiAntwort.data?.stichtag
+            ? { wert: Number(vpiAntwort.data.wert), stichtag: vpiAntwort.data.stichtag }
+            : null,
       };
     },
   });
@@ -154,14 +162,19 @@ export function useMietvertragEntwuerfe(aktiv = true) {
   });
 }
 
+/** Der Entwurf wurde aktiviert oder verworfen — nachfragen ändert daran nichts. */
+class EntwurfNichtGefunden extends Error {}
+
 export function useMietvertragEntwurf(entwurfId: string | null, aktiv: boolean) {
   return useQuery({
     queryKey: ['mietvertrag-entwurf', entwurfId],
     enabled: aktiv && !!entwurfId,
     staleTime: 0,
+    retry: (versuche, fehler) => !(fehler instanceof EntwurfNichtGefunden) && versuche < 3,
     queryFn: async (): Promise<EntwurfZeile> => {
-      const { data, error } = await supabase.from('mietvertrag_entwuerfe').select('*').eq('id', entwurfId!).single();
+      const { data, error } = await supabase.from('mietvertrag_entwuerfe').select('*').eq('id', entwurfId!).maybeSingle();
       if (error) throw error;
+      if (!data) throw new EntwurfNichtGefunden('Den Entwurf gibt es nicht mehr — er wurde aktiviert oder verworfen.');
       return leseEntwurfZeile(data);
     },
   });
@@ -182,6 +195,7 @@ export type MieterAbgleich = Pick<
   | 'ort'
   | 'ist_unternehmen'
   | 'firmenname'
+  | 'vertreten_durch'
 >;
 
 /** Mieterbestand für die Dublettenprüfung und die Blacklist — beide nur für Admins lesbar bzw. nötig. */
@@ -193,7 +207,7 @@ export function useMieterAbgleich(aktiv: boolean) {
       alleSeiten<MieterAbgleich>((von, bis, mitZaehlung) =>
         supabase
           .from('mieter')
-          .select('id, vorname, nachname, geburtsdatum, hauptmail, telnr, anrede, strasse, hausnummer, plz, ort, ist_unternehmen, firmenname', {
+          .select('id, vorname, nachname, geburtsdatum, hauptmail, telnr, anrede, strasse, hausnummer, plz, ort, ist_unternehmen, firmenname, vertreten_durch', {
             count: mitZaehlung ? 'exact' : undefined,
           })
           .order('id')

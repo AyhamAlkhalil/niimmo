@@ -9,6 +9,9 @@ import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { NewTenantContractDialog } from "./NewTenantContractDialog";
 import { MietvertragEntwurfDialog } from "./mietvertrag-entwurf/MietvertragEntwurfDialog";
 import { EntwuerfeAnEinheit } from "./mietvertrag-entwurf/EntwuerfeAnEinheit";
+import { istWohnraumEinheit } from "@/utils/mietvertrag/entwurf";
+import type { SchrittId } from "@/utils/mietvertrag/entwurfProzess";
+import { useUserRole } from "@/hooks/useUserRole";
 
 import { useToast } from "@/hooks/use-toast";
 import { useLinkedContracts } from "@/hooks/useLinkedContracts";
@@ -62,6 +65,9 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
   // Neuer Vertrag entsteht seit 18.10.2026 als Entwurf; der direkte Weg bleibt für unterschriebene Altverträge
   const [showEntwurfDialog, setShowEntwurfDialog] = useState(false);
   const [bearbeiteEntwurfId, setBearbeiteEntwurfId] = useState<string | null>(null);
+  const [entwurfSchritt, setEntwurfSchritt] = useState<SchrittId | null>(null);
+  // Entwürfe und neue Verträge schreiben nur Admins (RLS) — Hausmeister sehen die Knöpfe nicht
+  const { isAdmin } = useUserRole();
   const [autoOpenContract, setAutoOpenContract] = useState(false);
   const [showContractHighlight, setShowContractHighlight] = useState(false);
   const [currentVertragId, setCurrentVertragId] = useState<string | null>(null);
@@ -389,22 +395,26 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
           )}
 
           {/* Offene Entwürfe belegen die Einheit nicht, stehen aber hier bis zur Aktivierung */}
-          <EntwuerfeAnEinheit
-            einheitId={einheit.id}
-            einheitentyp={einheit.einheitentyp}
-            onBearbeiten={(id) => {
-              setBearbeiteEntwurfId(id);
-              setShowEntwurfDialog(true);
-            }}
-          />
+          {isAdmin && (
+            <EntwuerfeAnEinheit
+              einheitId={einheit.id}
+              wohnraum={istWohnraumEinheit(einheit.einheitentyp)}
+              onOeffnen={(id, schritt) => {
+                setBearbeiteEntwurfId(id);
+                setEntwurfSchritt(schritt ?? null);
+                setShowEntwurfDialog(true);
+              }}
+            />
+          )}
 
           {/* New contract button - only for vacant or terminated contracts */}
-          {(!vertrag || vertrag.status === 'gekuendigt' || vertrag.status === 'beendet') && (
+          {isAdmin && (!vertrag || vertrag.status === 'gekuendigt' || vertrag.status === 'beendet') && (
             <div className="pt-3 border-t border-gray-200">
               <Button
                 onClick={(e) => {
                   e.stopPropagation();
                   setBearbeiteEntwurfId(null);
+                  setEntwurfSchritt(null);
                   setShowEntwurfDialog(true);
                 }}
                 className={`w-full ${
@@ -438,19 +448,23 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
         />
       )}
 
-      <MietvertragEntwurfDialog
-        isOpen={showEntwurfDialog}
-        onClose={() => {
-          setShowEntwurfDialog(false);
-          setBearbeiteEntwurfId(null);
-        }}
-        einheitId={einheit.id}
-        entwurfId={bearbeiteEntwurfId}
-        onDirektErfassen={() => {
-          setShowEntwurfDialog(false);
-          setShowNewTenantDialog(true);
-        }}
-      />
+      {showEntwurfDialog && (
+        <MietvertragEntwurfDialog
+          isOpen
+          onClose={() => {
+            setShowEntwurfDialog(false);
+            setBearbeiteEntwurfId(null);
+            setEntwurfSchritt(null);
+          }}
+          einheitId={einheit.id}
+          entwurfId={bearbeiteEntwurfId}
+          startSchritt={entwurfSchritt}
+          onDirektErfassen={() => {
+            setShowEntwurfDialog(false);
+            setShowNewTenantDialog(true);
+          }}
+        />
+      )}
 
       {/* Bereits unterschriebenen Vertrag direkt erfassen (bisheriger Weg) */}
       <NewTenantContractDialog

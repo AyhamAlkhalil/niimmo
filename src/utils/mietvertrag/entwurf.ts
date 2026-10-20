@@ -19,12 +19,24 @@
 import type { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { getVertragsende } from '@/utils/contractUtils';
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from '@/constants/config';
-import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, objektDaten, vermieterDaten } from './datenAusDb';
+import { istPlausiblesDatum } from '../pdf/briefLayout';
+import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, ersteIban, objektDaten, vermieterDaten } from './datenAusDb';
 import { VORLAGE_VERSION, type Anrede, type MieterDaten, type MietvertragDaten, type Vertragsart } from './typen';
 
 // ─── Typen ──────────────────────────────────────────────────────────────────
 
-export type Herkunft = 'vorvertrag' | 'objekt' | 'einheit' | 'selbstauskunft' | 'berechnet';
+export type Herkunft =
+  | 'vorvertrag'
+  | 'objekt'
+  | 'einheit'
+  | 'selbstauskunft'
+  | 'berechnet'
+  /** Standardwert der Vorlage, z. B. Fälligkeit am 3. Werktag */
+  | 'vorgabe'
+  /** Vermieterstammdaten */
+  | 'stammdaten'
+  /** Verbraucherpreisindex aus `marktdaten` */
+  | 'marktdaten';
 
 /** Feldpfad (z. B. `kaltmiete`, `einheit.lage`) → Herkunft. Fehlt ein Feld, wurde es von Hand erfasst. */
 export type HerkunftKarte = Record<string, Herkunft>;
@@ -51,6 +63,10 @@ export interface EntwurfPerson {
   telefon: string | null;
   email: string | null;
   verhaeltnis: string | null;
+  /** Wer eine Firma als Mieterin vertritt (Rubrum und Unterschrift). */
+  vertretenDurch?: string | null;
+  /** Woher die Angaben stammen; ohne Angabe von Hand erfasst. */
+  quelle?: 'selbstauskunft' | 'bestand';
 }
 
 /** Datei am Entwurf: Entwurfs-PDF oder Selbstauskunft. */
@@ -95,6 +111,8 @@ export interface VorvertragAuslese {
   betriebskosten_positionen: { nummer: string; betrag: number | null; umgelegt: boolean }[];
   kaution: number | null;
   mietbeginn: string | null;
+  /** „mindestens jedoch 12 Monate" → 12; wird als Kündigungsverzicht übernommen. */
+  mindestlaufzeit_monate?: number | null;
 }
 
 type Nebenkostenart = Pick<Tables<'nebenkostenarten'>, 'name' | 'verteilerschluessel_art' | 'ist_umlagefaehig'>;
@@ -135,10 +153,79 @@ export function kautionFuer(kaltmiete: number): number {
   return kaltmiete > 0 ? rund2(kaltmiete * 3) : 0;
 }
 
+// Ein ungültiges Datum kommt unverändert zurück: toISOString() würfe sonst
+// mitten im Tippen eine RangeError und risse die ganze Seite mit (20.10.2026).
 function tagDanach(datum: string): string {
   const d = new Date(`${datum}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return datum;
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+function tagDavor(datum: string): string {
+  const d = new Date(`${datum}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return datum;
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+const zwei = (n: number) => String(n).padStart(2, '0');
+
+/** Datum plus Monate; der 31.01. plus ein Monat ist der 28./29.02., nicht der 03.03. */
+export function plusMonate(datum: string, monate: number): string {
+  const [j, m, t] = datum.split('-').map(Number);
+  const gesamt = m - 1 + monate;
+  const jahr = j + Math.floor(gesamt / 12);
+  const monat = ((gesamt % 12) + 12) % 12;
+  const letzter = new Date(Date.UTC(jahr, monat + 1, 0)).getUTCDate();
+  return `${String(jahr).padStart(4, '0')}-${zwei(monat + 1)}-${zwei(Math.min(t, letzter))}`;
+}
+
+/**
+ * Kündigungsverzicht über n Monate ab Mietbeginn: Beginn 01.06.2025 und
+ * 12 Monate ergibt den 31.05.2026 — so steht es im Referenzvertrag. Fehlt der
+ * gleichnamige Tag im Zielmonat (Beginn 31.01., ein Monat), endet die Frist mit
+ * dem Monatsletzten, also am 28.02. (§ 188 Abs. 3 BGB), nicht am 27.02.
+ */
+export function kuendigungsverzichtNachMonaten(mietbeginn: string, monate: number): string {
+  const ziel = plusMonate(mietbeginn, monate);
+  return Number(ziel.slice(-2)) < Number(mietbeginn.slice(-2)) ? ziel : tagDavor(ziel);
+}
+
+/**
+ * Verschiebt einen aus Monaten berechneten Kündigungsverzicht mit dem
+ * Mietbeginn. Ein von Hand gewähltes Datum, das kein glattes Monatsende der
+ * Laufzeit ist, bleibt stehen.
+ */
+export function verschiebeKuendigungsverzicht(alterBeginn: string, neuerBeginn: string, bis: string): string {
+  if (!istPlausiblesDatum(alterBeginn) || !istPlausiblesDatum(neuerBeginn) || !istPlausiblesDatum(bis)) return bis;
+  // Das Ende liegt im Monat „Beginn + n" oder — bei Beginn am Ersten — im Monat davor
+  const [ja, ma] = alterBeginn.split('-').map(Number);
+  const [jb, mb] = bis.split('-').map(Number);
+  const ungefaehr = (jb - ja) * 12 + (mb - ma);
+  const monate = [ungefaehr, ungefaehr + 1].find(m => m > 0 && kuendigungsverzichtNachMonaten(alterBeginn, m) === bis);
+  return monate ? kuendigungsverzichtNachMonaten(neuerBeginn, monate) : bis;
+}
+
+/**
+ * Neuer Mietbeginn; ein in Monaten vereinbarter Kündigungsverzicht, der noch
+ * seine Herkunft trägt (nicht von Hand gesetzt), wandert mit. `alterBeginn`
+ * ist der letzte gültige Mietbeginn — beim Tippen kommen Zwischenstände.
+ */
+export function mitMietbeginn(
+  d: MietvertragDaten,
+  neuerBeginn: string,
+  verzichtFolgt: boolean,
+  alterBeginn: string = d.mietbeginn
+): MietvertragDaten {
+  return {
+    ...d,
+    mietbeginn: neuerBeginn,
+    kuendigungsverzichtBis:
+      verzichtFolgt && d.kuendigungsverzichtBis
+        ? verschiebeKuendigungsverzicht(alterBeginn, neuerBeginn, d.kuendigungsverzichtBis)
+        : d.kuendigungsverzichtBis,
+  };
 }
 
 function ersterNaechsterMonat(heute: string): string {
@@ -151,7 +238,7 @@ function ersterNaechsterMonat(heute: string): string {
  * Erste des Folgemonats — aber nie vor dem Ende des Vorvertrags.
  */
 export function standardMietbeginn(heute: string, vorvertragEnde: string | null, wunsch: string | null): string {
-  let beginn = wunsch && /^\d{4}-\d{2}-\d{2}$/.test(wunsch) && wunsch >= heute ? wunsch : ersterNaechsterMonat(heute);
+  let beginn = istPlausiblesDatum(wunsch) && wunsch >= heute ? wunsch : ersterNaechsterMonat(heute);
   if (vorvertragEnde && beginn <= vorvertragEnde) beginn = tagDanach(vorvertragEnde);
   return beginn;
 }
@@ -171,6 +258,12 @@ export function ohneHerkunft(herkunft: HerkunftKarte, ...felder: string[]): Herk
 
 export function herkunftText(quelle: Herkunft, vorvertragBeginn: string | null): string {
   switch (quelle) {
+    case 'vorgabe':
+      return 'Vorgabe';
+    case 'stammdaten':
+      return 'aus Stammdaten';
+    case 'marktdaten':
+      return 'aus Marktdaten';
     case 'vorvertrag':
       return vorvertragBeginn
         ? `aus Vorvertrag vom ${new Date(`${vorvertragBeginn}T12:00:00`).toLocaleDateString('de-DE')}`
@@ -200,6 +293,7 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
   if (objekt.heizungsart) h = setze(h, 'objekt.heizungsart', 'objekt');
   if (objekt.warmwasser) h = setze(h, 'objekt.warmwasser', 'objekt');
   if (objekt.gesamtwohnflaecheQm) h = setze(h, 'objekt.gesamtwohnflaecheQm', 'objekt');
+  if (objekt.energieausweisTyp) h = setze(h, 'objekt.energieausweis', 'objekt');
 
   const einheitWerte = einheitDaten(einheit, vorvertrag?.raumaufstellung?.trim() || null);
   if (einheitWerte.bezeichnung) h = setze(h, 'einheit.bezeichnung', 'einheit');
@@ -208,6 +302,8 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
   if (einheitWerte.raumaufstellung) {
     h = setze(h, 'einheit.raumaufstellung', vorvertrag?.raumaufstellung?.trim() ? 'vorvertrag' : 'einheit');
   }
+  if (einheitWerte.nebenraeume?.trim()) h = setze(h, 'einheit.nebenraeume', 'einheit');
+  h = setze(h, 'einheit.einbaukueche', 'einheit');
 
   const schliessanlage = immobilie.schliessanlage_art ?? vorvertrag?.schliessanlage_art ?? null;
   if (schliessanlage) h = setze(h, 'schliessanlageArt', immobilie.schliessanlage_art ? 'objekt' : 'vorvertrag');
@@ -244,6 +340,26 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
   const vormieteNetto = immobilie.ist_angespannt && kaltmiete > 0 ? kaltmiete : null;
   const vormieteBis = vormieteNetto !== null ? vorvertragEnde : null;
   if (vormieteNetto !== null) h = setze(h, 'vormieteNetto', 'vorvertrag');
+
+  // Was nicht aus einer Quelle kommt, ist ein Standardwert der Vorlage — auch
+  // der soll als solcher erkennbar sein, bis jemand bewusst entscheidet.
+  h = setze(h, 'vermieter', g.vermieter ? 'stammdaten' : null);
+  // Das Mietkonto kommt vom Objekt, wenn dort eins steht — sonst aus den Vermieterstammdaten
+  h = setze(h, 'vermieter.mietIban', ersteIban(immobilie['Kontonr.']) ? 'objekt' : g.vermieter?.miet_iban ? 'stammdaten' : null);
+  h = setze(h, 'objekt.heizkostenSchluessel', 'objekt');
+  for (const feld of [
+    'betriebskostenModus',
+    'kautionArt',
+    'kautionRaten',
+    'faelligkeitWerktag',
+    'mietanpassungArt',
+    'uebergabezustand',
+    'kleinreparaturEinzelgrenze',
+    'kleinreparaturJahresgrenzeProzent',
+    'anlagen',
+  ]) {
+    h = setze(h, feld, 'vorgabe');
+  }
 
   const daten: MietvertragDaten = {
     vertragsart: vertragsartFuer(einheit.einheitentyp),
@@ -368,13 +484,21 @@ export function wendeVorvertragAuslese(
     h = setze(h, 'heizkostenVorauszahlung', 'vorvertrag');
     if (vorvertragGesamtBetriebskosten !== null && vorvertragGesamtBetriebskosten > 0) {
       d.betriebskostenVorauszahlung = rund2(vorvertragGesamtBetriebskosten - auslese.heizkosten_vorauszahlung);
+      h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
     } else if (auslese.betriebskosten_vorauszahlung !== null) {
       d.betriebskostenVorauszahlung = auslese.betriebskosten_vorauszahlung;
+      h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
     }
-    h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
   } else if (!(d.betriebskostenVorauszahlung > 0) && auslese.betriebskosten_vorauszahlung) {
     d.betriebskostenVorauszahlung = auslese.betriebskosten_vorauszahlung;
     h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
+  }
+
+  // „mindestens jedoch 12 Monate" — im Referenzvertrag vom 01.06.2025 als
+  // beidseitiger Kündigungsverzicht bis 31.05.2026 vereinbart.
+  if (!d.kuendigungsverzichtBis && istPlausiblesDatum(d.mietbeginn) && auslese.mindestlaufzeit_monate && auslese.mindestlaufzeit_monate > 0) {
+    d.kuendigungsverzichtBis = kuendigungsverzichtNachMonaten(d.mietbeginn, auslese.mindestlaufzeit_monate);
+    h = setze(h, 'kuendigungsverzichtBis', 'vorvertrag');
   }
 
   const ohneBetraege = d.betriebskostenPositionen.every(p => p.betrag === null);
@@ -442,6 +566,7 @@ export function personenAusSelbstauskunft(auslese: SelbstauskunftAuslese): Entwu
       telefon: p.telefon,
       email: p.email,
       verhaeltnis: p.verhaeltnis,
+      quelle: 'selbstauskunft' as const,
     };
   });
 }
@@ -451,22 +576,33 @@ export function istLeerePerson(p: EntwurfPerson): boolean {
   return !p.vorname.trim() && !p.nachname.trim() && !p.firmenname?.trim();
 }
 
+/**
+ * Hat die Person einen Namen der gewählten Art? Bei einer Firma zählt nur der
+ * Firmenname, sonst Vor- oder Nachname — ein nach dem Umschalten stehen-
+ * gebliebener Name der anderen Art macht noch keinen Mieter.
+ */
+export function hatNamen(p: EntwurfPerson): boolean {
+  // Ein Mitbewohner ist immer ein Mensch; seine Karte zeigt nur Vor- und Nachname
+  const firma = p.istUnternehmen && p.rolle === 'mitmieter';
+  return firma ? !!p.firmenname?.trim() : !!(p.vorname.trim() || p.nachname.trim());
+}
+
 /** Personenzahl: alle, die einziehen — Mitmieter und Mitbewohner. */
 export function personenzahl(personen: EntwurfPerson[]): number {
-  return personen.filter(p => !istLeerePerson(p)).length;
+  return personen.filter(hatNamen).length;
 }
 
 /** Vertragsparteien in Generator-Form: nur Mitmieter, leere Karten nicht. */
 export function mieterFuerVertrag(personen: EntwurfPerson[]): MieterDaten[] {
   return personen
-    .filter(p => p.rolle === 'mitmieter' && !istLeerePerson(p))
+    .filter(p => p.rolle === 'mitmieter' && hatNamen(p))
     .map(p => ({
       anrede: p.anrede,
       vorname: p.vorname.trim(),
       nachname: p.nachname.trim(),
       istUnternehmen: p.istUnternehmen,
       firmenname: p.istUnternehmen ? p.firmenname?.trim() || null : null,
-      vertretenDurch: null,
+      vertretenDurch: p.istUnternehmen ? p.vertretenDurch?.trim() || null : null,
       strasse: p.strasse,
       hausnummer: p.hausnummer,
       plz: p.plz,
@@ -484,7 +620,7 @@ export function mieterFuerVertrag(personen: EntwurfPerson[]): MieterDaten[] {
 function namensformen(s: string | null | undefined): string[] {
   const basis = (s ?? '').normalize('NFC').toLowerCase().replace(/ß/g, 'ss');
   const ohneZeichen = (t: string) =>
-    t.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z]/g, '');
+    t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
   const umschrift = ohneZeichen(basis.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue'));
   const einfach = ohneZeichen(basis);
   return umschrift === einfach ? [einfach] : [umschrift, einfach];
@@ -583,11 +719,38 @@ export function mieterZeile(p: EntwurfPerson): TablesInsert<'mieter'> {
     geburtsdatum: p.istUnternehmen ? null : p.geburtsdatum,
     ist_unternehmen: p.istUnternehmen,
     firmenname: p.istUnternehmen ? p.firmenname?.trim() || null : null,
+    vertreten_durch: p.istUnternehmen ? p.vertretenDurch?.trim() || null : null,
     strasse: p.strasse?.trim() || null,
     hausnummer: p.hausnummer?.trim() || null,
     plz: p.plz?.trim() || null,
     ort: p.ort?.trim() || null,
   };
+}
+
+/** Schlüsselarten wie in `mietvertrag.schluessel` (Schlüssel → Anzeige im Vertrag). */
+export const SCHLUESSEL_ARTEN: { key: string; name: string }[] = [
+  { key: 'haustuer', name: 'Haustürschlüssel' },
+  { key: 'wohnung', name: 'Wohnungsschlüssel' },
+  { key: 'briefkasten', name: 'Briefkastenschlüssel' },
+  { key: 'keller', name: 'Kellerschlüssel' },
+  { key: 'garage', name: 'Garagenschlüssel' },
+  { key: 'transponder', name: 'Transponder' },
+];
+
+/** Schlüsselaufstellung für die Spalte `mietvertrag.schluessel`. */
+export function schluesselFuerDb(schluessel: MietvertragDaten['schluessel']): Record<string, number> {
+  // Map statt Objekt: eine Art „constructor" träfe sonst die geerbte Eigenschaft
+  const ergebnis = new Map<string, number>();
+  for (const s of schluessel) {
+    const anzahl = Math.round(s.anzahl);
+    if (!(anzahl > 0)) continue;
+    const key =
+      SCHLUESSEL_ARTEN.find(a => a.name === s.art)?.key ??
+      s.art.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!key) continue;
+    ergebnis.set(key, (ergebnis.get(key) ?? 0) + anzahl);
+  }
+  return Object.fromEntries(ergebnis);
 }
 
 /** Bisher stand jede Verknüpfung als „Hauptmieter, Position 1" in der Datenbank. */
@@ -614,10 +777,10 @@ export function vertragsZeile(a: VertragsZeileArgs): TablesInsert<'mietvertrag'>
     status: 'aktiv',
     vertragsart: d.vertragsart,
     start_datum: d.mietbeginn,
-    ende_datum: d.vertragsende,
+    ende_datum: d.vertragsende || null,
     befristungsgrund: d.befristungsgrund,
     befristungsgrund_text: d.befristungsgrundText,
-    kuendigungsverzicht_bis: d.kuendigungsverzichtBis,
+    kuendigungsverzicht_bis: d.kuendigungsverzichtBis || null,
     uebergabe_datum: d.uebergabeDatum,
 
     kaltmiete: rund2(d.kaltmiete),
@@ -641,18 +804,21 @@ export function vertragsZeile(a: VertragsZeileArgs): TablesInsert<'mietvertrag'>
 
     faelligkeit_werktag: d.faelligkeitWerktag,
     lastschrift: d.lastschrift,
-    bankkonto_mieter: d.lastschriftIban?.replace(/\s+/g, '') || null,
-    bankkonto_mieter_bic: d.lastschriftBic?.trim() || null,
-    kontoinhaber: d.lastschriftKontoinhaber?.trim() || null,
-    sepa_mandatsreferenz: d.sepaMandatsreferenz?.trim() || null,
+    // Ohne Lastschrift gehören keine Kontodaten des Mieters an den Vertrag
+    bankkonto_mieter: (d.lastschrift && d.lastschriftIban?.replace(/\s+/g, '')) || null,
+    bankkonto_mieter_bic: (d.lastschrift && d.lastschriftBic?.trim()) || null,
+    kontoinhaber: (d.lastschrift && d.lastschriftKontoinhaber?.trim()) || null,
+    sepa_mandatsreferenz: (d.lastschrift && d.sepaMandatsreferenz?.trim()) || null,
     ruecklastschrift_gebuehr: RUECKLASTSCHRIFT_GEBUEHR_EUR,
 
     mietanpassung_art: d.mietanpassungArt,
-    staffelplan: d.staffelplan?.map(s => ({ gueltig_ab: s.gueltigAb, kaltmiete: s.kaltmiete })) ?? null,
-    index_basis_wert: d.indexBasisWert,
-    index_basis_monat: d.indexBasisMonat,
+    // Nur die gewählte Anpassungsart — ein liegengebliebener Staffelplan gilt nicht neben einer Indexmiete
+    staffelplan: d.mietanpassungArt === 'staffel' ? d.staffelplan?.map(s => ({ gueltig_ab: s.gueltigAb, kaltmiete: s.kaltmiete })) ?? null : null,
+    index_basis_wert: d.mietanpassungArt === 'index' ? d.indexBasisWert : null,
+    index_basis_monat: d.mietanpassungArt === 'index' ? d.indexBasisMonat : null,
 
     anzahl_personen: d.anzahlPersonen > 0 ? d.anzahlPersonen : null,
+    schluessel: schluesselFuerDb(d.schluessel),
     schliessanlage_art: d.schliessanlageArt,
     mitbenutzung_einrichtungen: d.mitbenutzungEinrichtungen?.trim() || null,
     raumaufstellung: d.einheit.raumaufstellung?.trim() || null,
@@ -695,7 +861,7 @@ export interface AktivierungsDaten {
 export function aktivierungsDaten(a: VertragsZeileArgs & { personen: EntwurfPerson[] }): AktivierungsDaten {
   const gesehen = new Set<string>();
   const parteien = a.personen.filter(p => {
-    if (p.rolle !== 'mitmieter' || istLeerePerson(p)) return false;
+    if (p.rolle !== 'mitmieter' || !hatNamen(p)) return false;
     if (!p.mieterId) return true;
     if (gesehen.has(p.mieterId)) return false;
     gesehen.add(p.mieterId);
@@ -712,6 +878,20 @@ export function aktivierungsDaten(a: VertragsZeileArgs & { personen: EntwurfPers
       position: i + 1,
     })),
   };
+}
+
+/**
+ * Ausgangswert einer Indexmiete: der zuletzt veröffentlichte VPI (2020 = 100)
+ * aus `marktdaten`. Bei Vertragsschluss gilt der dann aktuelle Stand.
+ */
+export function indexVorschlag(vpi: { wert: number | string | null; stichtag: string | null } | null): {
+  wert: number;
+  monat: string;
+} | null {
+  if (!vpi?.stichtag || vpi.wert === null || vpi.wert === undefined) return null;
+  const wert = Number(vpi.wert);
+  if (!Number.isFinite(wert) || wert <= 0) return null;
+  return { wert, monat: `${vpi.stichtag.slice(0, 7)}-01` };
 }
 
 /** Wie viele Monatsforderungen beim Aktivieren nachgeholt werden (Mietbeginn bis laufender Monat). */

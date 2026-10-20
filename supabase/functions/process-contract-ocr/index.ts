@@ -120,6 +120,8 @@ Angaben zu den Mietern.
   Ein Strich ("-----", "– – –") heißt umgelegt=false und betrag=null. "0,00" heißt umgelegt=true und betrag=0.
 - kaution: Kautionsbetrag als Zahl
 - mietbeginn: YYYY-MM-DD
+- mindestlaufzeit_monate: vereinbarte Mindestmietdauer bzw. beidseitiger Kündigungsverzicht in Monaten
+  (z. B. "auf unbestimmte Zeit, mindestens jedoch 12 Monate" ergibt 12), sonst null
 
 Beträge immer als Zahl mit Punkt als Dezimaltrenner. Antworte NUR mit einem JSON-Objekt ohne
 Erklärungen, fehlende Werte als null:
@@ -130,7 +132,7 @@ Erklärungen, fehlende Werte als null:
   "kaltmiete": 1000, "betriebskosten_vorauszahlung": 50, "heizkosten_vorauszahlung": 50,
   "betriebskosten_positionen": [ { "nummer": "2.1", "betrag": 5, "umgelegt": true },
                                  { "nummer": "2.7", "betrag": null, "umgelegt": false } ],
-  "kaution": 3000, "mietbeginn": "2024-05-01"
+  "kaution": 3000, "mietbeginn": "2024-05-01", "mindestlaufzeit_monate": 12
 }`;
 
 const PROMPTS: Record<Art, { system: string; einleitung: string }> = {
@@ -441,6 +443,11 @@ function normalisiereVorvertrag(roh: Roh) {
     betriebskosten_positionen: positionen,
     kaution: zahl(roh?.kaution),
     mietbeginn: datum(roh?.mietbeginn),
+    // Mehr als vier Jahre wäre als Formularklausel ohnehin unwirksam
+    mindestlaufzeit_monate: (() => {
+      const m = zahl(roh?.mindestlaufzeit_monate);
+      return m !== null && m > 0 && m <= 48 ? Math.round(m) : null;
+    })(),
   };
 
   const felder = Object.entries(daten).filter(([k, v]) =>
