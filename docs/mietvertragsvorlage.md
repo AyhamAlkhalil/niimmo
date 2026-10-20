@@ -57,8 +57,9 @@ ungespeichert — das PDF entsteht beim Speichern neu. Die Einheitskarte zeigt d
 Stand („in Bearbeitung · Schritt" oder „PDF erstellt · wartet auf Unterschrift") und den
 Knöpfen Fortsetzen, PDF, Unterschrift & Start und Verwerfen.
 
-Ein bereits unterschriebener Vertrag wird über „Bereits unterschriebenen Vertrag
-direkt erfassen" wie bisher sofort aktiv angelegt. Gewerbe, Garage und Stellplatz
+Ein bereits unterschriebener Vertrag wird über „Bestehenden Vertrag direkt erfassen"
+(Schritt Grundlagen, nur solange der Entwurf nicht gespeichert ist) wie bisher sofort
+aktiv angelegt. Gewerbe, Garage und Stellplatz
 bekommen einen Entwurf ohne PDF — abgenommen ist nur die Wohnraum-Vorlage.
 
 Für bestehende Verträge: Mietvertrag öffnen → „Mietvertrag erzeugen". Gespeichert wird

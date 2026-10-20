@@ -466,7 +466,7 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
         />
       )}
 
-      {/* Bereits unterschriebenen Vertrag direkt erfassen (bisheriger Weg) */}
+      {/* „Bestehenden Vertrag direkt erfassen": bereits unterschriebenen Vertrag sofort anlegen (bisheriger Weg) */}
       <NewTenantContractDialog
         isOpen={showNewTenantDialog}
         onClose={() => setShowNewTenantDialog(false)}

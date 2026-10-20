@@ -111,7 +111,7 @@ interface Props {
   einheitId: string;
   /** Vorhandenen Entwurf fortsetzen; ohne ID entsteht ein neuer. */
   entwurfId?: string | null;
-  /** In diesem Schritt einsteigen, z. B. „start" für „Unterschrieben – aktivieren". */
+  /** In diesem Schritt einsteigen, z. B. „start" für „Unterschrift & Start" auf der Einheitskarte. */
   startSchritt?: SchrittId | null;
   /** Ein bereits unterschriebener Vertrag wird weiter direkt erfasst (bisheriger Dialog). */
   onDirektErfassen?: () => void;
