@@ -2489,10 +2489,15 @@ export type Database = {
         Row: {
           datum: string
           einheit_id: string | null
+          erfassung: string | null
+          erkannter_stand: number | null
           erstellt_am: string | null
           erstellt_von: string | null
+          foto_pfad: string | null
           id: string
           immobilie_id: string | null
+          mietvertrag_id: string | null
+          protokoll_pfad: string | null
           quelle: string | null
           stand: number | null
           zaehler_nummer: string | null
@@ -2501,10 +2506,15 @@ export type Database = {
         Insert: {
           datum: string
           einheit_id?: string | null
+          erfassung?: string | null
+          erkannter_stand?: number | null
           erstellt_am?: string | null
           erstellt_von?: string | null
+          foto_pfad?: string | null
           id?: string
           immobilie_id?: string | null
+          mietvertrag_id?: string | null
+          protokoll_pfad?: string | null
           quelle?: string | null
           stand?: number | null
           zaehler_nummer?: string | null
@@ -2513,10 +2523,15 @@ export type Database = {
         Update: {
           datum?: string
           einheit_id?: string | null
+          erfassung?: string | null
+          erkannter_stand?: number | null
           erstellt_am?: string | null
           erstellt_von?: string | null
+          foto_pfad?: string | null
           id?: string
           immobilie_id?: string | null
+          mietvertrag_id?: string | null
+          protokoll_pfad?: string | null
           quelle?: string | null
           stand?: number | null
           zaehler_nummer?: string | null
@@ -2535,6 +2550,13 @@ export type Database = {
             columns: ["immobilie_id"]
             isOneToOne: false
             referencedRelation: "immobilien"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "zaehlerstand_historie_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
             referencedColumns: ["id"]
           },
         ]

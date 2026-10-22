@@ -5,6 +5,7 @@ import {
   vertragsStaende,
   historieEintraege,
   historieAufteilen,
+  aktuelleStaende,
   fehlendeDokumente,
   dateienHochladen,
   LEERE_ZAEHLER,
@@ -54,6 +55,49 @@ describe("historieEintraege", () => {
       { einheit_id: "e1", immobilie_id: "i1", zaehler_typ: "gas", stand: 0, datum: "2026-10-16", quelle: "Übergabe (Einzug)", erstellt_von: "u1" },
       { einheit_id: "e1", immobilie_id: "i1", zaehler_typ: "kaltwasser", stand: 12.5, datum: "2026-10-16", quelle: "Übergabe (Einzug)", erstellt_von: "u1" },
     ]);
+  });
+});
+
+describe("historieEintraege mit Herkunft", () => {
+  it("trägt Vertrag, Protokoll, Zählernummer, Foto und Erfassung ein", () => {
+    const eintraege = historieEintraege(
+      "e1",
+      "i1",
+      { ...LEERE_ZAEHLER, strom: "4.711,5", wasser: "12,5" },
+      "2026-10-22",
+      "Übergabe (Auszug)",
+      "u1",
+      {
+        mietvertragId: "v1",
+        protokollPfad: "uebergabeprotokolle/v1/Uebergabeprotokoll_Auszug_2026-10-22_101010.pdf",
+        je: {
+          strom: { nummer: " 1 ABC00 0000 0001 ", foto: "zaehlerfotos/v1/strom_auszug_1_0.jpg", erfassung: "foto", erkannt: 4711.5 },
+          wasser: { nummer: "", foto: null },
+        },
+      }
+    );
+    expect(eintraege).toEqual([
+      {
+        einheit_id: "e1", immobilie_id: "i1", zaehler_typ: "strom", stand: 4711.5, datum: "2026-10-22", quelle: "Übergabe (Auszug)", erstellt_von: "u1",
+        mietvertrag_id: "v1", protokoll_pfad: "uebergabeprotokolle/v1/Uebergabeprotokoll_Auszug_2026-10-22_101010.pdf",
+        zaehler_nummer: "1 ABC00 0000 0001", foto_pfad: "zaehlerfotos/v1/strom_auszug_1_0.jpg", erfassung: "foto", erkannter_stand: 4711.5,
+      },
+      {
+        einheit_id: "e1", immobilie_id: "i1", zaehler_typ: "kaltwasser", stand: 12.5, datum: "2026-10-22", quelle: "Übergabe (Auszug)", erstellt_von: "u1",
+        mietvertrag_id: "v1", protokoll_pfad: "uebergabeprotokolle/v1/Uebergabeprotokoll_Auszug_2026-10-22_101010.pdf",
+        zaehler_nummer: null, foto_pfad: null, erfassung: "hand", erkannter_stand: null,
+      },
+    ]);
+  });
+});
+
+describe("aktuelleStaende", () => {
+  it("liefert je erfasstem Zähler die Spalten der Einheit, Kaltwasser als kaltwasser", () => {
+    expect(aktuelleStaende({ ...LEERE_ZAEHLER, strom: "1.234,5", wasser: "7" })).toEqual([
+      { standSpalte: "strom_stand_aktuell", datumSpalte: "strom_stand_datum", stand: 1234.5 },
+      { standSpalte: "kaltwasser_stand_aktuell", datumSpalte: "kaltwasser_stand_datum", stand: 7 },
+    ]);
+    expect(aktuelleStaende(LEERE_ZAEHLER)).toEqual([]);
   });
 });
 

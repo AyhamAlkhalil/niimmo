@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.6.4",
+    datum: "2026-10-22",
+    aenderungen: [
+      { art: "neu", titel: "Zählerstände aus der Übergabe stehen in der Historie der Einheit, mit Protokoll, Foto und Vertrag" },
+      { art: "neu", titel: "Die Übergabe trägt den aktuellen Zählerstand der Einheit nach" },
+    ],
+  },
+  {
     version: "1.6.3",
     datum: "2026-10-22",
     aenderungen: [

@@ -54,6 +54,9 @@ export function vertragsStaende(z: ZaehlerEingaben, isEinzug: boolean): Partial<
 
 export type HistorieZaehlerTyp = "strom" | "gas" | "kaltwasser" | "warmwasser";
 
+/** Wie ein Stand entstand — Spalte zaehlerstand_historie.erfassung (Prüfregel in der Datenbank) */
+export type Erfassung = "hand" | "foto" | "foto_korrigiert";
+
 export interface HistorieEintrag {
   einheit_id: string;
   immobilie_id: string | null;
@@ -62,7 +65,35 @@ export interface HistorieEintrag {
   datum: string;
   quelle: string;
   erstellt_von: string | null;
+  // Herkunft (seit 22.10.2026, setzt nur die Übergabe)
+  mietvertrag_id?: string | null;
+  zaehler_nummer?: string | null;
+  protokoll_pfad?: string | null;
+  foto_pfad?: string | null;
+  erfassung?: Erfassung | null;
+  erkannter_stand?: number | null;
 }
+
+/**
+ * Woher eine Übergabe-Ablesung kommt. Bis zum 22.10.2026 stand in der Historie
+ * nur die Quelle — welcher Vertrag, welches Protokoll, welches Foto, ließ sich
+ * nicht mehr feststellen, und ohne Zählernummer rechnete die Verbrauchsspalte nicht.
+ */
+export interface HistorieHerkunft {
+  mietvertragId: string | null;
+  protokollPfad: string | null;
+  /** je Zähler, Schlüssel wie im Formular (wasser = Kaltwasser) */
+  je?: Partial<Record<keyof ZaehlerEingaben, { nummer?: string | null; foto?: string | null; erfassung?: Erfassung; erkannt?: number | null }>>;
+}
+
+const HISTORIE_TYP: Array<[keyof ZaehlerEingaben, HistorieZaehlerTyp]> = [
+  ["strom", "strom"],
+  ["gas", "gas"],
+  ["wasser", "kaltwasser"],
+  ["warmwasser", "warmwasser"],
+];
+
+const textOderNull = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 
 export function historieEintraege(
   einheitId: string,
@@ -70,19 +101,57 @@ export function historieEintraege(
   z: ZaehlerEingaben,
   datum: string,
   quelle: string,
-  erstelltVon: string | null
+  erstelltVon: string | null,
+  herkunft?: HistorieHerkunft
 ): HistorieEintrag[] {
-  const paare: Array<[HistorieZaehlerTyp, string]> = [
-    ["strom", z.strom],
-    ["gas", z.gas],
-    ["kaltwasser", z.wasser],
-    ["warmwasser", z.warmwasser],
-  ];
-  return paare.flatMap(([zaehler_typ, eingabe]) => {
-    const stand = parseZaehlerstand(eingabe);
-    return stand === null
-      ? []
-      : [{ einheit_id: einheitId, immobilie_id: immobilieId, zaehler_typ, stand, datum, quelle, erstellt_von: erstelltVon }];
+  return HISTORIE_TYP.flatMap(([feld, zaehler_typ]) => {
+    const stand = parseZaehlerstand(z[feld]);
+    if (stand === null) return [];
+    const eintrag: HistorieEintrag = { einheit_id: einheitId, immobilie_id: immobilieId, zaehler_typ, stand, datum, quelle, erstellt_von: erstelltVon };
+    if (herkunft) {
+      const je = herkunft.je?.[feld];
+      eintrag.mietvertrag_id = herkunft.mietvertragId;
+      eintrag.protokoll_pfad = herkunft.protokollPfad;
+      eintrag.zaehler_nummer = textOderNull(je?.nummer);
+      eintrag.foto_pfad = textOderNull(je?.foto);
+      eintrag.erfassung = je?.erfassung ?? "hand";
+      eintrag.erkannter_stand = je?.erkannt ?? null;
+    }
+    return [eintrag];
+  });
+}
+
+/**
+ * Was ein Speicherlauf geschrieben hat — damit ein zweiter Versuch mit anderen
+ * Eingaben (anderes Datum, geleerter Zähler) die Reste des ersten zurücknimmt.
+ * Ohne das blieben nach einem Abbruch Historienzeilen mit dem alten Datum und
+ * Stände am Vertrag stehen, die im gespeicherten Protokoll gar nicht vorkommen.
+ * Zurückgenommen wird nur, wo noch der eigene Wert steht.
+ */
+export interface Rueckbau {
+  /** von diesem Dialog eingefügte Zeilen in zaehlerstand_historie */
+  historieIds: string[];
+  /** geänderte Spalten mit dem Wert davor */
+  zeilen: Array<{ tabelle: "mietvertrag" | "einheiten"; id: string; neu: Record<string, number | string>; vorher: Record<string, unknown> }>;
+}
+
+export interface AktuellerStand {
+  /** Spalten der Tabelle einheiten, z. B. kaltwasser_stand_aktuell / kaltwasser_stand_datum */
+  standSpalte: string;
+  datumSpalte: string;
+  stand: number;
+}
+
+/**
+ * Der „aktuelle Stand" der Einheit (Zählerverwaltung) aus den erfassten Werten.
+ * Geschrieben wird er nur, wenn das Übergabedatum nicht älter ist als der dort
+ * hinterlegte Stand — das prüft der Aufrufer im Filter des Updates. Bis zum
+ * 22.10.2026 zog die Übergabe ihn nie nach; er war bei allen Einheiten leer.
+ */
+export function aktuelleStaende(z: ZaehlerEingaben): AktuellerStand[] {
+  return HISTORIE_TYP.flatMap(([feld, typ]) => {
+    const stand = parseZaehlerstand(z[feld]);
+    return stand === null ? [] : [{ standSpalte: `${typ}_stand_aktuell`, datumSpalte: `${typ}_stand_datum`, stand }];
   });
 }
 

@@ -7,13 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Loader2, History, Droplets, Flame, Zap, ThermometerSun,
-  Pencil, Trash2, Check, X
+  Pencil, Trash2, Check, X, FileText, Image as ImageIcon, ScanLine
 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
+import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
 
 interface ZaehlerHistorieProps {
   einheitId?: string;
@@ -31,6 +32,12 @@ type HistorieEntry = {
   erstellt_am: string | null;
   einheit_id: string | null;
   immobilie_id: string | null;
+  // Herkunft, seit 22.10.2026 von der Übergabe gesetzt
+  mietvertrag_id?: string | null;
+  protokoll_pfad?: string | null;
+  foto_pfad?: string | null;
+  erfassung?: string | null;
+  erkannter_stand?: number | null;
 };
 
 const getMeterIcon = (type: string) => {
@@ -57,13 +64,52 @@ const getUnit = (type: string) => {
   return 'm³';
 };
 
+// Bis zum 22.10.2026 kannte die Liste nur einzug/auszug/manuell — Ablesungen aus
+// der Übergabe standen deshalb als „Manuell“ da.
 const getQuelleLabel = (quelle: string | null) => {
   switch (quelle) {
-    case 'einzug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-green-300 text-green-700">Einzug</Badge>;
-    case 'auszug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-orange-300 text-orange-700">Auszug</Badge>;
+    case 'Übergabe (Einzug)': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-success/40 text-success" title="Aus dem Übergabeprotokoll (Einzug)">Übergabe Einzug</Badge>;
+    case 'Übergabe (Auszug)': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-warning/40 text-warning" title="Aus dem Übergabeprotokoll (Auszug)">Übergabe Auszug</Badge>;
+    case 'einzug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-success/40 text-success" title="Einzugsstand am Mietvertrag">Einzug</Badge>;
+    case 'auszug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-warning/40 text-warning" title="Auszugsstand am Mietvertrag">Auszug</Badge>;
     default: return <Badge variant="outline" className="text-[9px] px-1 py-0">Manuell</Badge>;
   }
 };
+
+/** Belege zur Ablesung: Protokoll, Foto und ob der Stand aus dem Foto erkannt wurde */
+const Belege = ({ entry }: { entry: HistorieEntry }) => {
+  const oeffnen = async (pfad: string, was: string) => {
+    if (!(await dokumentOeffnen(pfad))) toast.error(`${was} konnte nicht geöffnet werden`);
+  };
+  const erkannt = entry.erfassung === 'foto' || entry.erfassung === 'foto_korrigiert';
+  if (!entry.protokoll_pfad && !entry.foto_pfad && !erkannt) return null;
+  return (
+    <span className="ml-1 inline-flex items-center gap-0.5 align-middle">
+      {erkannt && (() => {
+        const text = entry.erfassung === 'foto_korrigiert'
+          ? `Aus dem Foto erkannt${entry.erkannter_stand != null ? ` (${Number(entry.erkannter_stand).toLocaleString('de-DE')})` : ''}, danach von Hand korrigiert`
+          : 'Aus dem Foto erkannt';
+        return (
+          <span className="inline-flex text-muted-foreground" title={text} role="img" aria-label={text}>
+            <ScanLine className="h-3 w-3" />
+          </span>
+        );
+      })()}
+      {entry.protokoll_pfad && (
+        <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0" title="Übergabeprotokoll öffnen" aria-label={`Übergabeprotokoll vom ${format(new Date(entry.datum), 'dd.MM.yyyy')} öffnen`} onClick={() => oeffnen(entry.protokoll_pfad!, 'Protokoll')}>
+          <FileText className="h-3 w-3 text-muted-foreground" />
+        </Button>
+      )}
+      {entry.foto_pfad && (
+        <Button type="button" size="sm" variant="ghost" className="h-6 w-6 p-0" title="Zählerfoto öffnen" aria-label={`Zählerfoto vom ${format(new Date(entry.datum), 'dd.MM.yyyy')} öffnen`} onClick={() => oeffnen(entry.foto_pfad!, 'Foto')}>
+          <ImageIcon className="h-3 w-3 text-muted-foreground" />
+        </Button>
+      )}
+    </span>
+  );
+};
+
+const normNummer = (nummer: string | null) => (nummer ?? "").replace(/\s+/g, "").toUpperCase();
 
 const computeVerbrauch = (
   entries: HistorieEntry[],
@@ -74,7 +120,12 @@ const computeVerbrauch = (
   for (let i = index + 1; i < entries.length; i++) {
     const prev = entries[i];
     if (prev.zaehler_typ !== entry.zaehler_typ) continue;
-    if (prev.zaehler_nummer !== entry.zaehler_nummer) continue;
+    // Nur echte Nummern unterscheiden Zähler — eine fehlende Nummer heißt „unbekannt“,
+    // nicht „anderer Zähler“ (ältere Übergabe-Einträge trugen keine). Leerzeichen
+    // und Schreibweise zählen nicht: Die Stammdaten führen „1 DZG00 …“ mal mit, mal ohne.
+    const a = normNummer(prev.zaehler_nummer);
+    const b = normNummer(entry.zaehler_nummer);
+    if (a && b && a !== b) continue;
     if (prev.stand == null) return null;
     const delta = Number(entry.stand) - Number(prev.stand);
     return delta >= 0 ? delta : null;
@@ -93,7 +144,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
 
   const queryKey = ['zaehlerstand-historie', einheitId, immobilieId];
 
-  const { data: historie, isLoading } = useQuery({
+  const { data: historie, isLoading, error: ladeFehler, refetch } = useQuery({
     queryKey,
     queryFn: async () => {
       let query = supabase
@@ -185,6 +236,11 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
           {isLoading ? (
             <div className="flex items-center justify-center py-3">
               <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+            </div>
+          ) : ladeFehler ? (
+            <div className="flex items-center justify-center gap-2 py-2 text-[10px] text-destructive">
+              Historie konnte nicht geladen werden.
+              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]" onClick={() => refetch()}>Erneut laden</Button>
             </div>
           ) : !historie || historie.length === 0 ? (
             <p className="text-[10px] text-muted-foreground text-center py-2">Keine Historie vorhanden</p>
@@ -292,7 +348,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                           <span className="text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="py-0.5 px-2">{getQuelleLabel(entry.quelle)}</TableCell>
+                      <TableCell className="py-0.5 px-2 whitespace-nowrap">{getQuelleLabel(entry.quelle)}<Belege entry={entry} /></TableCell>
                       <TableCell className="py-0.5 px-1">
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Button

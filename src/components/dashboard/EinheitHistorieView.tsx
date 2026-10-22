@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,58 @@ import { ArrowLeft, Calendar, Users, Euro, Building2, Clock, FileText } from "lu
 import { Loader2 } from "lucide-react";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { getVertragsende } from "@/utils/contractUtils";
+import { alleSeiten } from "@/utils/supabaseSeiten";
+import { uebergabenJeVertrag, type UebergabeAblesung, type UebergabeEreignis } from "@/utils/uebergabeHistorie";
+import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
+import { toast } from "sonner";
+
+const ZAEHLER_KURZ: Record<string, string> = { strom: "Strom", gas: "Gas", kaltwasser: "Kaltwasser", warmwasser: "Warmwasser" };
+const ZAEHLER_EINHEIT: Record<string, string> = { strom: "kWh", gas: "m³", kaltwasser: "m³", warmwasser: "m³" };
+
+/**
+ * Übergaben eines Vertrags in der Einheit-Historie: Datum, Stände und das
+ * Protokoll dazu (seit 22.10.2026). Der Klick auf die Karte öffnet weiter die
+ * Vertragsdetails; die Knöpfe hier fangen ihn ab.
+ */
+const UebergabenZeile = ({ ereignisse, fehler }: { ereignisse: UebergabeEreignis[]; fehler: boolean }) => {
+  if (!fehler && ereignisse.length === 0) return null;
+  return (
+    <div className="space-y-1.5 border-t pt-3">
+      <p className="text-sm font-medium">Übergaben</p>
+      {fehler ? (
+        <p className="text-xs text-destructive">Die Übergaben konnten nicht geladen werden.</p>
+      ) : (
+        ereignisse.map((e) => (
+          <div key={`${e.art}-${e.datum}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <Badge variant="outline" className={e.art === "einzug" ? "border-success/40 text-success" : "border-warning/40 text-warning"}>
+              {e.art === "einzug" ? "Einzug" : "Auszug"} · {new Date(`${e.datum}T00:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
+            </Badge>
+            <span className="text-muted-foreground">
+              {e.ablesungen
+                .map((a) => `${ZAEHLER_KURZ[a.zaehler_typ] ?? a.zaehler_typ} ${a.stand != null ? Number(a.stand).toLocaleString("de-DE") : "–"} ${ZAEHLER_EINHEIT[a.zaehler_typ] ?? ""}`.trim())
+                .join(" · ")}
+            </span>
+            {e.protokollPfad && (
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto p-0"
+                aria-label={`Übergabeprotokoll ${e.art === "einzug" ? "Einzug" : "Auszug"} vom ${new Date(`${e.datum}T00:00:00`).toLocaleDateString("de-DE")} öffnen`}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  void dokumentOeffnen(e.protokollPfad!).then((ok) => !ok && toast.error("Das Protokoll konnte nicht geöffnet werden"));
+                }}
+              >
+                Protokoll
+              </Button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 interface EinheitHistorieViewProps {
   einheitId: string;
@@ -82,6 +134,30 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
     },
     enabled: !!alleMietvertraege?.length
   });
+
+  // Ablesungen aus Übergaben — je Vertrag mit Datum und Protokoll
+  const { data: uebergabeAblesungen, isError: uebergabenFehler } = useQuery({
+    queryKey: ['uebergabe-ablesungen-einheit', einheitId],
+    queryFn: () =>
+      alleSeiten<UebergabeAblesung>((von, bis, mitZaehlung) =>
+        supabase
+          .from('zaehlerstand_historie')
+          .select('id, zaehler_typ, stand, datum, quelle, mietvertrag_id, protokoll_pfad, foto_pfad, erfassung, zaehler_nummer', { count: mitZaehlung ? 'exact' : undefined })
+          .eq('einheit_id', einheitId)
+          .like('quelle', 'Übergabe%')
+          .order('datum')
+          .order('id')
+          .range(von, bis)
+      ),
+  });
+  const uebergaben = useMemo(
+    () =>
+      uebergabenJeVertrag(
+        (alleMietvertraege ?? []).map((v) => ({ id: v.id, start: v.start_datum, ende: getVertragsende(v) })),
+        uebergabeAblesungen ?? []
+      ),
+    [alleMietvertraege, uebergabeAblesungen]
+  );
 
   // Generate timeline periods including vacancy periods
   const generateTimeline = (): Periode[] => {
@@ -320,6 +396,8 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
                           </div>
                         </div>
 
+                        <UebergabenZeile ereignisse={uebergaben.get(periode.vertrag.id) ?? []} fehler={uebergabenFehler} />
+
                         <div className="pt-2 border-t">
                           <p className="text-sm text-blue-600 font-medium">
                             Klicken für Details zu Zahlungen und Dokumenten →
@@ -361,6 +439,17 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
                 );
               })}
             </div>
+          )}
+
+          {/* Übergaben, die sich keinem Vertrag zuordnen lassen (alte Einträge weit weg
+              von Beginn oder Ende) — sie sollen nicht einfach verschwinden */}
+          {(uebergaben.get(null)?.length ?? 0) > 0 && (
+            <Card>
+              <CardContent className="p-4">
+                <UebergabenZeile ereignisse={uebergaben.get(null) ?? []} fehler={false} />
+                <p className="mt-2 text-xs text-muted-foreground">Ohne Zuordnung zu einem Mietvertrag.</p>
+              </CardContent>
+            </Card>
           )}
         </div>
       </div>

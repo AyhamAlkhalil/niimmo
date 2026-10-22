@@ -64,9 +64,13 @@ import {
   vertragsStaende,
   historieEintraege,
   historieAufteilen,
+  aktuelleStaende,
   fehlendeDokumente,
   LEERE_ZAEHLER,
+  type HistorieHerkunft,
+  type Rueckbau,
 } from "@/utils/uebergabeSpeicherung";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   browserAblage,
   entwurfSchluessel,
@@ -291,6 +295,8 @@ export const UebergabeDialog = ({
   // Mal ein Foto fehlte), muss auch die neue Fassung hoch — sonst verwiese das
   // Dokument auf das unvollständige PDF.
   const hochgeladenesPdfRef = useRef<{ pdf: Blob; pfad: string } | null>(null);
+  // Schreibzugriffe eines abgebrochenen Speicherlaufs (utils/uebergabeSpeicherung.ts, Rueckbau)
+  const rueckbauRef = useRef<Rueckbau | null>(null);
   // Sperre gegen einen zweiten Klick, bevor isSubmitting gerendert ist
   const speichertRef = useRef(false);
 
@@ -593,6 +599,7 @@ export const UebergabeDialog = ({
     vorschauStandRef.current = null;
     autoVorschauRef.current = null;
     hochgeladenesPdfRef.current = null;
+    rueckbauRef.current = null;
     setIsGeneratingPreview(false);
   };
 
@@ -804,20 +811,73 @@ export const UebergabeDialog = ({
       // quittiert und der eben erfasste Zählerstand wäre still verloren.
       const vertragIdListe = contracts.map((c) => c.id);
 
+      // Reste eines abgebrochenen Laufs zuerst zurücknehmen — gleiche Eingaben
+      // schreiben danach dasselbe noch einmal, geänderte hinterlassen nichts Altes
+      if (rueckbauRef.current) {
+        await rueckbauAusfuehren(rueckbauRef.current);
+        rueckbauRef.current = null;
+      }
+      const rueckbau: Rueckbau = { historieIds: [], zeilen: [] };
+      rueckbauRef.current = rueckbau;
+
       // 2. Zählerstände am Vertrag — ein leeres Feld lässt den vorhandenen Stand stehen
       for (const contract of contracts) {
         const staende = vertragsStaende(zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER, isEinzug);
-        if (Object.keys(staende).length === 0) continue;
+        const spalten = Object.keys(staende);
+        if (spalten.length === 0) continue;
+        const { data: vorherRoh, error: leseFehler } = await supabase
+          .from("mietvertrag")
+          .select(spalten.join(","))
+          .eq("id", contract.id)
+          .maybeSingle();
+        if (leseFehler) throw leseFehler;
         const { error: vertragError } = await supabase
           .from("mietvertrag")
           .update(staende)
           .eq("id", contract.id);
         if (vertragError) throw vertragError;
+        rueckbau.zeilen.push({ tabelle: "mietvertrag", id: contract.id, neu: staende, vorher: (vorherRoh ?? {}) as unknown as Record<string, unknown> });
       }
 
-      // 3. Ablesehistorie — je Einheit, Zähler, Tag und Übergabeart ein Eintrag
+      // 3. PDF ablegen — vor der Historie, damit jede Ablesung auf ihr Protokoll
+      // verweisen kann. Der Pfad trägt Datum und Uhrzeit statt des Mieternamens:
+      // Supabase Storage lehnt Umlaute im Pfad ab (InvalidKey) — daran scheiterte
+      // jedes Protokoll für Mieter mit Umlaut im Namen.
+      let filePath: string;
+      if (hochgeladenesPdfRef.current?.pdf === aktuellesPdf) {
+        filePath = hochgeladenesPdfRef.current.pfad;
+      } else {
+        // Ein PDF aus einem abgebrochenen Lauf ist jetzt überholt (andere Eingaben
+        // oder neu geladene Fotos). Nichts verweist mehr darauf — der Dokument-
+        // eintrag kommt erst ganz am Schluss, die Historie ist zurückgenommen.
+        const ueberholt = hochgeladenesPdfRef.current?.pfad;
+        if (ueberholt) {
+          const { error: entfernFehler } = await supabase.storage.from("dokumente").remove([ueberholt]);
+          if (entfernFehler) console.warn("Überholtes Protokoll-PDF blieb im Speicher liegen:", entfernFehler.message);
+          hochgeladenesPdfRef.current = null;
+        }
+        filePath = uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
+        const { error: pdfUploadError } = await supabase.storage
+          .from("dokumente")
+          .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false });
+        if (pdfUploadError) throw pdfUploadError;
+        hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath };
+      }
+
+      // 4. Ablesehistorie — je Einheit, Zähler, Tag und Übergabeart ein Eintrag,
+      // mit Vertrag, Protokoll, Zählernummer und Foto (seit 22.10.2026)
       const historieDatum = format(uebergabeDatum, "yyyy-MM-dd");
       const historieQuelle = isEinzug ? "Übergabe (Einzug)" : "Übergabe (Auszug)";
+      const herkunftFuer = (contract: ContractInfo): HistorieHerkunft => ({
+        mietvertragId: contract.id,
+        protokollPfad: filePath,
+        je: Object.fromEntries(
+          METER_TYPEN.map((typ) => {
+            const fotos = meterPhotosPerContract[contract.id]?.[typ] ?? [];
+            return [typ, { nummer: vertragsZaehler[contract.id]?.nummern[typ] ?? null, foto: fotos[fotos.length - 1] ?? null, erfassung: "hand" as const }] as const;
+          })
+        ),
+      });
       const historie = contracts.flatMap((contract) =>
         historieEintraege(
           contract.einheit.id,
@@ -825,7 +885,8 @@ export const UebergabeDialog = ({
           zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER,
           historieDatum,
           historieQuelle,
-          user?.id ?? null
+          user?.id ?? null,
+          herkunftFuer(contract)
         )
       );
       if (historie.length > 0) {
@@ -843,7 +904,15 @@ export const UebergabeDialog = ({
         for (const eintrag of aktualisieren) {
           const { error: aktualisierFehler } = await supabase
             .from("zaehlerstand_historie")
-            .update({ stand: eintrag.stand })
+            .update({
+              stand: eintrag.stand,
+              mietvertrag_id: eintrag.mietvertrag_id,
+              zaehler_nummer: eintrag.zaehler_nummer,
+              protokoll_pfad: eintrag.protokoll_pfad,
+              foto_pfad: eintrag.foto_pfad,
+              erfassung: eintrag.erfassung,
+              erkannter_stand: eintrag.erkannter_stand,
+            })
             .eq("einheit_id", eintrag.einheit_id)
             .eq("zaehler_typ", eintrag.zaehler_typ)
             .eq("datum", eintrag.datum)
@@ -851,29 +920,49 @@ export const UebergabeDialog = ({
           if (aktualisierFehler) throw aktualisierFehler;
         }
         if (einfuegen.length > 0) {
-          const { error: historieError } = await supabase
+          const { data: eingefuegt, error: historieError } = await supabase
             .from("zaehlerstand_historie")
-            .insert(einfuegen);
+            .insert(einfuegen)
+            .select("id");
           if (historieError) throw historieError;
+          rueckbau.historieIds.push(...(eingefuegt ?? []).map((z) => z.id));
         }
       }
 
-      // 4. PDF ablegen. Der Pfad trägt Datum und Uhrzeit statt des Mieternamens:
-      // Supabase Storage lehnt Umlaute im Pfad ab (InvalidKey) — daran scheiterte
-      // jedes Protokoll für Mieter mit Umlaut im Namen.
-      let filePath: string;
-      if (hochgeladenesPdfRef.current?.pdf === aktuellesPdf) {
-        filePath = hochgeladenesPdfRef.current.pfad;
-      } else {
-        filePath = uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
-        const { error: pdfUploadError } = await supabase.storage
-          .from("dokumente")
-          .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false });
-        if (pdfUploadError) throw pdfUploadError;
-        hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath };
+      // 5. Aktueller Stand der Einheit (Zählerverwaltung) — nur, wenn die Übergabe
+      // nicht älter ist als der dort stehende Stand. Der Filter entscheidet in
+      // der Datenbank; ein späteres Ablesen wird so nie überschrieben.
+      for (const contract of contracts) {
+        const staende = aktuelleStaende(zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER);
+        if (staende.length === 0) continue;
+        const { data: vorherRoh, error: leseFehler } = await supabase
+          .from("einheiten")
+          .select(staende.flatMap((a) => [a.standSpalte, a.datumSpalte]).join(","))
+          .eq("id", contract.einheit.id)
+          .maybeSingle();
+        if (leseFehler) throw leseFehler;
+        const vorher = (vorherRoh ?? {}) as unknown as Record<string, unknown>;
+        for (const a of staende) {
+          const neu = { [a.standSpalte]: a.stand, [a.datumSpalte]: historieDatum };
+          const { data: getroffen, error: standFehler } = await supabase
+            .from("einheiten")
+            .update(neu as TablesUpdate<"einheiten">)
+            .eq("id", contract.einheit.id)
+            .or(`${a.datumSpalte}.is.null,${a.datumSpalte}.lte.${historieDatum}`)
+            .select("id");
+          if (standFehler) throw standFehler;
+          if (getroffen && getroffen.length > 0) {
+            rueckbau.zeilen.push({
+              tabelle: "einheiten",
+              id: contract.einheit.id,
+              neu,
+              vorher: { [a.standSpalte]: vorher[a.standSpalte] ?? null, [a.datumSpalte]: vorher[a.datumSpalte] ?? null },
+            });
+          }
+        }
       }
 
-      // 5. Fotos und PDF als Dokumente — in einem Insert, ohne schon Eingetragenes
+      // 6. Fotos und PDF als Dokumente — in einem Insert, ohne schon Eingetragenes
       const uebergabeTypLabel = isEinzug ? "Einzug" : "Auszug";
       const datumLabel = format(uebergabeDatum!, "dd.MM.yyyy", { locale: de });
       const dokumenteInserts = contracts.flatMap((contract) => {
@@ -942,6 +1031,7 @@ export const UebergabeDialog = ({
         if (dokError) throw dokError;
       }
 
+      rueckbauRef.current = null;
       setSavedPdfPath(filePath);
       setIsSaved(true);
       setGespeichertAm(new Date());
@@ -964,6 +1054,27 @@ export const UebergabeDialog = ({
     } finally {
       speichertRef.current = false;
       setIsSubmitting(false);
+    }
+  };
+
+  /** Nimmt die Schreibzugriffe eines abgebrochenen Laufs zurück, wo noch der eigene Wert steht. */
+  const rueckbauAusfuehren = async (r: Rueckbau) => {
+    if (r.historieIds.length > 0) {
+      const { error } = await supabase.from("zaehlerstand_historie").delete().in("id", r.historieIds);
+      if (error) throw error;
+    }
+    // Schmale Sicht auf den Query-Builder: Die Filter auf frei benannte Spalten
+    // sprengen sonst die Typableitung von supabase-js
+    type Filterbar = PromiseLike<{ error: unknown }> & { eq: (spalte: string, wert: unknown) => Filterbar };
+    for (const z of [...r.zeilen].reverse()) {
+      let abfrage = (
+        z.tabelle === "mietvertrag"
+          ? supabase.from("mietvertrag").update(z.vorher as TablesUpdate<"mietvertrag">).eq("id", z.id)
+          : supabase.from("einheiten").update(z.vorher as TablesUpdate<"einheiten">).eq("id", z.id)
+      ) as unknown as Filterbar;
+      for (const [spalte, wert] of Object.entries(z.neu)) abfrage = abfrage.eq(spalte, wert);
+      const { error } = await abfrage;
+      if (error) throw error;
     }
   };
 
