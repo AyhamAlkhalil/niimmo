@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.6.3",
+    datum: "2026-10-22",
+    aenderungen: [
+      { art: "neu", titel: "Finanzierung in jedem Objekt: Restschuld, Rate mit Zins und Tilgung, Überschuss und Zahlungsplan zum Aufklappen" },
+      { art: "neu", titel: "Darlehen rechnen die Restschuld Monat für Monat fort und werden mit dem Kontoauszug abgeglichen" },
+    ],
+  },
+  {
     version: "1.6.2",
     datum: "2026-10-20",
     aenderungen: [

@@ -121,7 +121,7 @@ Stellen, an denen dieselbe Aussage mehrfach gespeichert ist und auseinanderlaufe
 |---|---|---|---|
 | Vertragsende | `ende_datum`, `kuendigungsdatum` | `ende_datum` | manueller Kündigungsweg füllt es nicht |
 | Zählerstand | `einheiten.*_stand_aktuell`, `zaehlerstand_historie`, `mietvertrag.*_einzug/_auszug` | keine | kein Schreibweg bedient alle drei |
-| Restschuld Darlehen | `darlehen.restschuld`, Analytics-Berechnung, Chatbot | `restschuld` | drei verschiedene Zahlen bei leerem Feld |
+| Restschuld Darlehen | `darlehen.restschuld` + `restschuld_stichtag`, Analytics-Berechnung, Chatbot | `restschuld` zum Stichtag | seit 22.10.2026 rechnen Objektansicht, Darlehensverwaltung und Suche über `utils/darlehenBerechnung.ts` bis heute fort; Analytics und Chatbot lesen weiter eigene Werte |
 | Betriebskosten | `betriebskosten`, `betriebskosten_positionen` | `betriebskosten` | Summengleichheit nur beim PDF-Druck geprüft |
 | Kaution | `kaution_betrag`, `kaution_ist`, `kaution_status` | Beträge | Status wird nie nachgezogen |
 | Objektanschrift | `adresse` (Freitext), atomare Felder | atomare Felder | Freitext wird weiterhin angezeigt und exportiert |

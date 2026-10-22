@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Search, User, Building, ArrowRight, Home, FileText, Shield, Landmark, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
+import { darlehenStand } from "@/utils/darlehenBerechnung";
 
 interface SearchPanelProps {
   onImmobilieSelect: (immobilieId: string, einheitId?: string, tab?: string) => void;
@@ -109,10 +111,13 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
         .or(`firma.ilike.%${term}%,typ.ilike.%${term}%,vertragsnummer.ilike.%${term}%,kontaktperson.ilike.%${term}%,email.ilike.%${term}%,telefon.ilike.%${term}%`);
 
       // Suche Darlehen
-      const { data: darlehen } = await supabase
+      // Restschuld heute statt des Stands zum Stichtag (utils/darlehenBerechnung.ts)
+      const heute = format(new Date(), 'yyyy-MM-dd');
+      const { data: darlehenRoh } = await supabase
         .from('darlehen')
-        .select('id, bezeichnung, bank, kontonummer, darlehensbetrag, restschuld')
+        .select('id, bezeichnung, bank, kontonummer, darlehensbetrag, restschuld, restschuld_stichtag, zinssatz_prozent, monatliche_rate, ende_datum')
         .or(`bezeichnung.ilike.%${term}%,bank.ilike.%${term}%,kontonummer.ilike.%${term}%`);
+      const darlehen = (darlehenRoh ?? []).map((d) => ({ ...d, restschuld: darlehenStand(d, heute).restschuld }));
 
       // Suche Dokumente. Bis zum 07.10.2026 verlangte die Abfrage mit immobilien!inner
       // einen Objektbezug -- 1.386 von 1.502 Dokumenten haengen aber nur am Vertrag

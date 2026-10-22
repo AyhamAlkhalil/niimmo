@@ -10,12 +10,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import {
   ArrowLeft, Plus, Pencil, Trash2, Building2, CreditCard,
   X, Percent, ChevronDown, ChevronUp, AlertCircle, Euro,
 } from "lucide-react";
+import { darlehenStand, summiereDarlehen, type DarlehenStand } from "@/utils/darlehenBerechnung";
+import { formatIsoDatum } from "@/utils/zahlungenAnsicht";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,7 @@ interface Darlehen {
   kontonummer: string | null;
   darlehensbetrag: number;
   restschuld: number | null;
+  restschuld_stichtag: string | null;
   zinssatz_prozent: number | null;
   tilgungssatz_prozent: number | null;
   monatliche_rate: number | null;
@@ -60,21 +63,13 @@ interface DarlehenImmobilie {
   immobilie_id: string;
 }
 
-interface TilgungsplanEintrag {
-  monat: string;
-  datum: Date;
-  rate: number;
-  zinsanteil: number;
-  tilgungsanteil: number;
-  restschuld_danach: number;
-}
-
 interface DarlehenForm {
   bezeichnung: string;
   bank: string;
   kontonummer: string;
   darlehensbetrag: string;
   restschuld: string;
+  restschuld_stichtag: string;
   zinssatz_prozent: string;
   tilgungssatz_prozent: string;
   monatliche_rate: string;
@@ -90,6 +85,7 @@ const FORM_EMPTY: DarlehenForm = {
   kontonummer: "",
   darlehensbetrag: "",
   restschuld: "",
+  restschuld_stichtag: "",
   zinssatz_prozent: "",
   tilgungssatz_prozent: "",
   monatliche_rate: "",
@@ -108,7 +104,8 @@ function formatEuro(value: number | null | undefined): string {
 
 function formatProzent(value: number | null | undefined): string {
   if (value === null || value === undefined) return "–";
-  return value.toFixed(2).replace(".", ",") + " %";
+  // Variable Sätze haben drei oder vier Nachkommastellen (3,839 %)
+  return value.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + " %";
 }
 
 function formatIBAN(raw: string | null | undefined): string {
@@ -122,49 +119,14 @@ function parseNum(s: string): number {
   return isNaN(v) ? 0 : v;
 }
 
-function berechneTilgungsplan(
-  restschuld: number,
-  zinssatz: number,
-  rate: number,
-  endDatum: string | null,
-): TilgungsplanEintrag[] {
-  if (!rate || !zinssatz || !restschuld) return [];
-
-  const plan: TilgungsplanEintrag[] = [];
-  let rs = restschuld;
-  const zinsMtl = zinssatz / 100 / 12;
-
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-  let maxMonate = 360;
-  if (endDatum) {
-    const end = new Date(endDatum);
-    const diffMs = end.getTime() - start.getTime();
-    maxMonate = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24 * 30)));
-  }
-
-  for (let i = 0; i < maxMonate && rs > 0.01; i++) {
-    const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
-    const zinsanteil = rs * zinsMtl;
-    const tilgungsanteil = Math.min(rate - zinsanteil, rs);
-    if (tilgungsanteil <= 0) break;
-    const rs_nach = Math.max(0, rs - tilgungsanteil);
-
-    plan.push({
-      monat: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
-      datum: date,
-      rate: zinsanteil + tilgungsanteil,
-      zinsanteil,
-      tilgungsanteil,
-      restschuld_danach: rs_nach,
-    });
-
-    rs = rs_nach;
-  }
-
-  return plan;
+/** Leeres Feld heißt „nicht gepflegt", nicht 0 — eine Restschuld 0 sähe sonst wie getilgt aus. */
+function zahlOderNull(s: string): number | null {
+  return s.trim() === "" ? null : parseNum(s);
 }
+
+// Der Tilgungsplan stand bis zum 22.10.2026 hier und begann jeden Monat neu mit der gespeicherten
+// Restschuld. Zins, Tilgung und Restschuld heute rechnet jetzt utils/darlehenBerechnung.ts — dieselbe
+// Rechnung wie in der Objektansicht.
 
 function berechneAutoRate(darlehensbetrag: number, zinssatz: number, tilgungssatz: number): number {
   return (darlehensbetrag * (zinssatz + tilgungssatz)) / 100 / 12;
@@ -246,10 +208,11 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
         bank: data.bank.trim() || null,
         kontonummer: data.kontonummer.trim().replace(/\s/g, "") || null,
         darlehensbetrag: parseNum(data.darlehensbetrag),
-        restschuld: parseNum(data.restschuld),
-        zinssatz_prozent: parseNum(data.zinssatz_prozent),
-        tilgungssatz_prozent: parseNum(data.tilgungssatz_prozent),
-        monatliche_rate: parseNum(data.monatliche_rate),
+        restschuld: zahlOderNull(data.restschuld),
+        restschuld_stichtag: data.restschuld.trim() ? data.restschuld_stichtag || null : null,
+        zinssatz_prozent: zahlOderNull(data.zinssatz_prozent),
+        tilgungssatz_prozent: zahlOderNull(data.tilgungssatz_prozent),
+        monatliche_rate: zahlOderNull(data.monatliche_rate),
         start_datum: data.start_datum || null,
         ende_datum: data.ende_datum || null,
         notizen: data.notizen.trim() || null,
@@ -283,6 +246,8 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["darlehen"] });
       queryClient.invalidateQueries({ queryKey: ["darlehen_immobilien"] });
+      queryClient.invalidateQueries({ queryKey: ["objekt-darlehen"] });
+      queryClient.invalidateQueries({ queryKey: ["darlehen-buchungen"] });
       closeDialog();
       toast.success(editId ? "Konto aktualisiert" : "Konto erstellt");
     },
@@ -297,6 +262,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ["darlehen"] });
       queryClient.invalidateQueries({ queryKey: ["darlehen_immobilien"] });
+      queryClient.invalidateQueries({ queryKey: ["objekt-darlehen"] });
       if (selectedId === id) setSelectedId(null);
       setDeleteConfirmId(null);
       toast.success("Konto gelöscht");
@@ -308,7 +274,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
 
   function openCreate() {
     setEditId(null);
-    setForm(FORM_EMPTY);
+    setForm({ ...FORM_EMPTY, restschuld_stichtag: format(new Date(), "yyyy-MM-dd") });
     setShowDialog(true);
   }
 
@@ -322,10 +288,11 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
       bank: d.bank ?? "",
       kontonummer: d.kontonummer ? formatIBAN(d.kontonummer) : "",
       darlehensbetrag: d.darlehensbetrag ? String(d.darlehensbetrag) : "",
-      restschuld: d.restschuld ? String(d.restschuld) : "",
-      zinssatz_prozent: d.zinssatz_prozent ? String(d.zinssatz_prozent) : "",
+      restschuld: d.restschuld != null ? String(d.restschuld) : "",
+      restschuld_stichtag: d.restschuld_stichtag ?? "",
+      zinssatz_prozent: d.zinssatz_prozent != null ? String(d.zinssatz_prozent) : "",
       tilgungssatz_prozent: d.tilgungssatz_prozent ? String(d.tilgungssatz_prozent) : "",
-      monatliche_rate: d.monatliche_rate ? String(d.monatliche_rate) : "",
+      monatliche_rate: d.monatliche_rate != null ? String(d.monatliche_rate) : "",
       start_datum: d.start_datum ?? "",
       ende_datum: d.ende_datum ?? "",
       notizen: d.notizen ?? "",
@@ -343,6 +310,18 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
   function handleSave() {
     if (!form.bezeichnung.trim()) {
       toast.error("Bitte Bezeichnung angeben");
+      return;
+    }
+    if (form.restschuld.trim() && !form.restschuld_stichtag) {
+      toast.error("Bitte angeben, zu welchem Tag die Restschuld gilt");
+      return;
+    }
+    if (form.restschuld_stichtag > format(new Date(), "yyyy-MM-dd")) {
+      toast.error("Der Stichtag der Restschuld darf nicht in der Zukunft liegen");
+      return;
+    }
+    if (form.restschuld.trim() && form.ende_datum && form.ende_datum < form.restschuld_stichtag) {
+      toast.error("„Laufzeit bis“ liegt vor dem Stichtag der Restschuld");
       return;
     }
     saveMutation.mutate({ id: editId, data: form });
@@ -378,23 +357,20 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
     return immobilien.filter((i) => ids.includes(i.id));
   }
 
-  const gesamtschuld = darlehen.reduce((sum, d) => sum + (d.restschuld ?? 0), 0);
-  const gesamtrate = darlehen.reduce((sum, d) => sum + (d.monatliche_rate ?? 0), 0);
-  const gesamtzins = darlehen.reduce((sum, d) => {
-    if (!d.restschuld || !d.zinssatz_prozent) return sum;
-    return sum + d.restschuld * (d.zinssatz_prozent / 100 / 12);
-  }, 0);
+  const heute = format(new Date(), "yyyy-MM-dd");
+  const staende = useMemo(
+    () => new Map<string, DarlehenStand>(darlehen.map((d) => [d.id, darlehenStand(d, heute)])),
+    [darlehen, heute],
+  );
+  const summe = summiereDarlehen(
+    darlehen.map((d) => ({ stand: staende.get(d.id)!, monatliche_rate: d.monatliche_rate })),
+  );
+  const gesamtschuld = summe.restschuld;
+  const gesamtrate = summe.rate;
+  const gesamtzins = summe.zins;
 
-  const tilgungsplan = useMemo(() => {
-    if (!selectedDarlehen) return [];
-    return berechneTilgungsplan(
-      selectedDarlehen.restschuld ?? 0,
-      selectedDarlehen.zinssatz_prozent ?? 0,
-      selectedDarlehen.monatliche_rate ?? 0,
-      selectedDarlehen.ende_datum,
-    );
-  }, [selectedDarlehen]);
-
+  const selectedStand = selectedDarlehen ? staende.get(selectedDarlehen.id) ?? null : null;
+  const tilgungsplan = selectedStand?.kommendeRaten ?? [];
   const angezeigterPlan = showAllMonate ? tilgungsplan : tilgungsplan.slice(0, 24);
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -493,14 +469,9 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
               darlehen.map((d) => {
                 const linked = getLinkedImmobilien(d.id);
                 const isSelected = selectedId === d.id;
-                const zinsProMonat =
-                  d.restschuld && d.zinssatz_prozent
-                    ? d.restschuld * (d.zinssatz_prozent / 100 / 12)
-                    : null;
-                const tilgungProMonat =
-                  d.monatliche_rate && zinsProMonat
-                    ? d.monatliche_rate - zinsProMonat
-                    : null;
+                const stand = staende.get(d.id);
+                const zinsProMonat = stand?.naechsteRate?.zins ?? null;
+                const tilgungProMonat = stand?.naechsteRate?.tilgung ?? null;
 
                 return (
                   <div
@@ -547,7 +518,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                         {/* Restschuld + Rate */}
                         <div className="flex items-baseline gap-2 mb-2">
                           <span className="font-mono text-sm font-bold text-red-600">
-                            {formatEuro(d.restschuld)}
+                            {formatEuro(stand?.restschuld)}
                           </span>
                           {d.monatliche_rate && (
                             <>
@@ -566,7 +537,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                               {formatProzent(d.zinssatz_prozent)} Zins
                             </Badge>
                           )}
-                          {d.tilgungssatz_prozent !== null && (
+                          {!!d.tilgungssatz_prozent && (
                             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                               {formatProzent(d.tilgungssatz_prozent)} Tilgung
                             </Badge>
@@ -664,9 +635,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
 
                   {/* ── Tilgungsplan ── */}
                   <TabsContent value="tilgungsplan" className="px-4 pb-4 mt-3">
-                    {!selectedDarlehen.restschuld ||
-                    !selectedDarlehen.zinssatz_prozent ||
-                    !selectedDarlehen.monatliche_rate ? (
+                    {selectedStand?.status === "unvollstaendig" ? (
                       <div className="flex flex-col items-center gap-2 py-10 text-gray-400">
                         <AlertCircle className="h-8 w-8 opacity-40" />
                         <div className="text-sm text-center">
@@ -683,7 +652,34 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                           Jetzt bearbeiten
                         </Button>
                       </div>
-                    ) : tilgungsplan.length === 0 ? (
+                    ) : selectedStand?.status === "getilgt" ? (
+                      <div className="py-10 text-center text-sm text-muted-foreground">
+                        Getilgt{selectedStand.getilgtAm ? ` mit der Rate am ${formatIsoDatum(selectedStand.getilgtAm)}` : ""}.
+                      </div>
+                    ) : selectedStand?.status === "zu_lang" ||
+                      (selectedStand?.status === "nur_zins" && !selectedDarlehen.ende_datum) ? (
+                      <div className="flex flex-col items-center gap-2 py-10 text-center">
+                        <AlertCircle className="h-8 w-8 text-muted-foreground opacity-60" />
+                        <div className="max-w-sm text-sm text-muted-foreground">
+                          {selectedStand.status === "nur_zins"
+                            ? `Endfällig: Die Rate von ${formatEuro(selectedDarlehen.monatliche_rate)} ist reiner Zins. Die Restschuld von ${formatEuro(selectedStand.restschuld)} bleibt bis zum Laufzeitende stehen, das nicht hinterlegt ist.`
+                            : "Die Rate tilgt so wenig, dass das Darlehen in 50 Jahren nicht abbezahlt ist. Zinssatz und Rate prüfen."}
+                        </div>
+                      </div>
+                    ) : selectedStand?.status !== "zins_nicht_gedeckt" && tilgungsplan.length === 0 ? (
+                      <div className="flex flex-col items-center gap-2 py-10 text-center">
+                        <AlertCircle className="h-8 w-8 text-warning opacity-70" />
+                        <div className="max-w-sm text-sm text-muted-foreground">
+                          Die Laufzeit endete am {formatIsoDatum(selectedDarlehen.ende_datum)}
+                          {selectedStand?.restschuldAmLaufzeitende != null &&
+                            ` — damals noch offen: ${formatEuro(selectedStand.restschuldAmLaufzeitende)}`}
+                          . Anschlussfinanzierung oder neue Konditionen eintragen.
+                        </div>
+                        <Button variant="outline" size="sm" className="mt-1" onClick={() => openEdit(selectedDarlehen)}>
+                          Jetzt bearbeiten
+                        </Button>
+                      </div>
+                    ) : selectedStand?.status === "zins_nicht_gedeckt" ? (
                       <div className="flex flex-col items-center gap-2 py-10 text-amber-600">
                         <AlertCircle className="h-8 w-8 opacity-70" />
                         <div className="text-sm text-center font-medium">
@@ -700,10 +696,12 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                       <>
                         <div className="flex items-center justify-between mb-3">
                           <div className="text-xs text-gray-500">
-                            Ab {format(new Date(), "MMMM yyyy", { locale: de })} ·{" "}
+                            Ab {format(parseISO(tilgungsplan[0].faellig), "MMMM yyyy", { locale: de })} ·{" "}
                             {tilgungsplan.length} Raten
-                            {selectedDarlehen.ende_datum &&
-                              ` bis ${selectedDarlehen.ende_datum}`}
+                            {selectedStand?.getilgtAm &&
+                              ` · schuldenfrei ${format(parseISO(selectedStand.getilgtAm), "MMMM yyyy", { locale: de })}`}
+                            {selectedStand?.restschuldAmLaufzeitende != null &&
+                              ` · am ${formatIsoDatum(selectedDarlehen.ende_datum)} noch offen: ${formatEuro(selectedStand.restschuldAmLaufzeitende)}`}
                           </div>
                           {tilgungsplan.length > 24 && (
                             <Button
@@ -741,23 +739,23 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                             <TableBody>
                               {angezeigterPlan.map((e) => (
                                 <TableRow
-                                  key={e.monat}
+                                  key={e.faellig}
                                   className="border-gray-50 hover:bg-gray-50/50"
                                 >
                                   <TableCell className="text-xs text-gray-700 py-1.5 whitespace-nowrap">
-                                    {format(e.datum, "MMM yyyy", { locale: de })}
+                                    {format(parseISO(e.faellig), "MMM yyyy", { locale: de })}
                                   </TableCell>
                                   <TableCell className="text-xs font-mono text-gray-800 py-1.5 text-right whitespace-nowrap">
                                     {formatEuro(e.rate)}
                                   </TableCell>
                                   <TableCell className="text-xs font-mono text-yellow-700 py-1.5 text-right whitespace-nowrap">
-                                    {formatEuro(e.zinsanteil)}
+                                    {formatEuro(e.zins)}
                                   </TableCell>
                                   <TableCell className="text-xs font-mono text-green-700 py-1.5 text-right whitespace-nowrap">
-                                    {formatEuro(e.tilgungsanteil)}
+                                    {formatEuro(e.tilgung)}
                                   </TableCell>
                                   <TableCell className="text-xs font-mono text-red-600 py-1.5 text-right whitespace-nowrap">
-                                    {formatEuro(e.restschuld_danach)}
+                                    {formatEuro(e.restschuld)}
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -842,17 +840,22 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                       {(
                         [
                           ["Darlehensbetrag", formatEuro(selectedDarlehen.darlehensbetrag)],
-                          ["Aktuelle Restschuld", formatEuro(selectedDarlehen.restschuld)],
+                          [
+                            selectedDarlehen.restschuld_stichtag
+                              ? `Restschuld per ${formatIsoDatum(selectedDarlehen.restschuld_stichtag)}`
+                              : "Restschuld (ohne Stichtag)",
+                            formatEuro(selectedDarlehen.restschuld),
+                          ],
+                          ["Restschuld heute", formatEuro(selectedStand?.restschuld)],
                           ["Monatliche Rate", formatEuro(selectedDarlehen.monatliche_rate)],
                           ["Zinssatz p.a.", formatProzent(selectedDarlehen.zinssatz_prozent)],
                           ["Tilgungssatz p.a.", formatProzent(selectedDarlehen.tilgungssatz_prozent)],
+                          ["Zinsanteil nächste Rate", formatEuro(selectedStand?.naechsteRate?.zins)],
+                          ["Tilgungsanteil nächste Rate", formatEuro(selectedStand?.naechsteRate?.tilgung)],
                           [
-                            "Zinsanteil / Monat",
-                            selectedDarlehen.restschuld && selectedDarlehen.zinssatz_prozent
-                              ? formatEuro(
-                                  selectedDarlehen.restschuld *
-                                    (selectedDarlehen.zinssatz_prozent / 100 / 12),
-                                )
+                            "Schuldenfrei voraussichtlich",
+                            selectedStand?.getilgtAm
+                              ? format(parseISO(selectedStand.getilgtAm), "MMMM yyyy", { locale: de })
                               : "–",
                           ],
                           ["IBAN", formatIBAN(selectedDarlehen.kontonummer)],
@@ -974,11 +977,15 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-gray-600">Aktuelle Restschuld (€)</Label>
+                  <Label className="text-xs text-gray-600">Restschuld (€)</Label>
                   <Input
                     type="number"
                     value={form.restschuld}
-                    onChange={(e) => setForm((f) => ({ ...f, restschuld: e.target.value }))}
+                    // Eine neue Restschuld ist fast immer der heutige Stand. Bliebe der alte Stichtag
+                    // stehen, würden die Raten seitdem ein zweites Mal abgezogen.
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, restschuld: e.target.value, restschuld_stichtag: format(new Date(), "yyyy-MM-dd") }))
+                    }
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1003,6 +1010,20 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                     }
                   />
                 </div>
+              </div>
+
+              {/* Stichtag der Restschuld */}
+              <div className="space-y-1.5 mt-3">
+                <Label className="text-xs text-gray-600">Restschuld gilt per</Label>
+                <Input
+                  type="date"
+                  value={form.restschuld_stichtag}
+                  onChange={(e) => setForm((f) => ({ ...f, restschuld_stichtag: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Stand nach allen bis zu diesem Tag fälligen Raten, z. B. laut Kontoauszug. Ab hier rechnet die
+                  Anwendung Zins und Tilgung Monat für Monat fort.
+                </p>
               </div>
 
               {/* Rate */}

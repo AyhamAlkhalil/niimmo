@@ -17,6 +17,7 @@ import { format } from "date-fns";
 import { ImmobilienDocumentsTab } from "./ImmobilienDocumentsTab";
 import { ImmobilienNebenkostenTabNew } from "./nebenkosten/ImmobilienNebenkostenTabNew";
 import { ImmobilienVersicherungenTab } from "./ImmobilienVersicherungenTab";
+import { ObjektFinanzierung } from "./ObjektFinanzierung";
 
 /** Mieterfelder, die der Vertrags-Query nachlaedt (siehe useQuery 'mietvertrag-detail'). */
 type MieterKurz = Pick<
@@ -155,7 +156,8 @@ export const ImmobilienDetail = ({
   // Vertraege fuer die Mietsummen im Kopf. Der Status ist nur Vorfilter --
   // massgeblich ist der am Stichtag laufende Vertrag je Einheit (summiereLaufendeMieten).
   const {
-    data: alleMietvertraege
+    data: alleMietvertraege,
+    isError: mietenFehler
   } = useQuery({
     queryKey: ['alle-mietvertrag-immobilie', immobilieId],
     queryFn: async () => {
@@ -313,6 +315,13 @@ export const ImmobilienDetail = ({
               </div>
 
               {immobilie && <HausangabenFuerVertraege immobilie={immobilie} summeEinheitenQm={gesamtQm} />}
+
+              <ObjektFinanzierung
+                immobilieId={immobilieId}
+                kaltmiete={alleMietvertraege ? gesamtKaltmiete : null}
+                betriebskosten={alleMietvertraege ? gesamtBetriebskosten : null}
+                mietenFehler={mietenFehler}
+              />
 
               {/* Allgemeine Zähler (Hausanschluss) - editable */}
               {(() => {

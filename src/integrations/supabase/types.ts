@@ -369,6 +369,7 @@ export type Database = {
           monatliche_rate: number | null
           notizen: string | null
           restschuld: number | null
+          restschuld_stichtag: string | null
           start_datum: string | null
           tilgungssatz_prozent: number | null
           zinssatz_prozent: number | null
@@ -385,6 +386,7 @@ export type Database = {
           monatliche_rate?: number | null
           notizen?: string | null
           restschuld?: number | null
+          restschuld_stichtag?: string | null
           start_datum?: string | null
           tilgungssatz_prozent?: number | null
           zinssatz_prozent?: number | null
@@ -401,6 +403,7 @@ export type Database = {
           monatliche_rate?: number | null
           notizen?: string | null
           restschuld?: number | null
+          restschuld_stichtag?: string | null
           start_datum?: string | null
           tilgungssatz_prozent?: number | null
           zinssatz_prozent?: number | null

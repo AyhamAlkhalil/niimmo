@@ -183,6 +183,11 @@ genau den Zustand wieder her, der am 03.09.2026 bereinigt wurde. Kurios: Die *to
 
 **C8 · Drei verschiedene Restschulden.** Bei einem Darlehen ohne gepflegte `restschuld` zeigt das Dashboard 0 €,
 der Chat den vollen Ursprungsbetrag, die Auswertung etwas Drittes — und die Eigenkapitalkachel meldet 100 % Quote.
+*Teilweise erledigt (22.10.2026):* Die Restschuld gilt zu einem Stichtag (`restschuld_stichtag`); Objektansicht,
+Darlehensverwaltung und Suche schreiben sie über `utils/darlehenBerechnung.ts` fort und gleichen sie mit dem
+Kontoauszug ab. Leere Felder werden als leer gespeichert, nicht als 0. Offen: Chat (`chat/index.ts`) und die
+DB-Funktionen `rpc_agent_loans`/`rpc_agent_loan_details` lesen die Restschuld ohne Stichtag, die Auswertung nimmt
+`immobilien.restschuld`, und das Tool `update_loan_balance` der `agent-api` setzt die Restschuld ohne Stichtag.
 
 ---
 
