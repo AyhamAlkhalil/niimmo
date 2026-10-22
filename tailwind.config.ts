@@ -1,6 +1,7 @@
 
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
+import plugin from "tailwindcss/plugin";
 
 export default {
 	darkMode: ["class"],
@@ -258,5 +259,15 @@ export default {
 				}
 			}
 		},
-		plugins: [tailwindcssAnimate],
+		plugins: [
+			tailwindcssAnimate,
+			// Handy quer (iPhone quer ~390 px hoch, Übergabe 22.10.2026). Als Variante, nicht
+			// als Screen: ein `raw`-Screen schaltet alle max-*/min-*-Varianten still ab.
+			// Achtung: Plugin-Varianten stehen im CSS vor sm:/md:/lg:/dark:/supports-*. Gegen
+			// diese gewinnt quer: nur gestapelt, z. B. quer:supports-[…]:h-… statt quer:h-….
+			// Das Seitenverhältnis hält Hochformat mit verkleinerndem Tastatur-Viewport heraus.
+			plugin(({ addVariant }) => {
+				addVariant('quer', '@media (orientation: landscape) and (max-height: 500px) and (min-aspect-ratio: 3/2)');
+			}),
+		],
 } satisfies Config;

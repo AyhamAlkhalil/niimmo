@@ -89,6 +89,7 @@ import {
   ZAEHLER_DB_TYP,
   ZAEHLER_TYPEN,
   bausteinAnhaengen,
+  handyAnsicht,
   istUebergabeSchritt,
   pruefpunkte,
   referenzstand,
@@ -102,6 +103,9 @@ import {
 const METER_TYPEN = ZAEHLER_TYPEN;
 type MeterTyp = ZaehlerTyp;
 const METER_LABELS = ZAEHLER_BEZEICHNUNG;
+
+/** Rückfragen scrollen, wenn sie höher als der Bildschirm sind (iPhone SE quer: 320 px) */
+const ABFRAGE_KLASSE = "max-h-[calc(100dvh-1rem)] overflow-y-auto";
 
 interface ContractInfo {
   id: string;
@@ -215,6 +219,7 @@ export const UebergabeDialog = ({
   const [uebergabeDatum, setUebergabeDatum] = useState<Date | undefined>(() =>
     geladenerEntwurf?.uebergabeDatum ? parse(geladenerEntwurf.uebergabeDatum, "yyyy-MM-dd", new Date()) : standardDatum()
   );
+  const [datumOffen, setDatumOffen] = useState(false);
   const [schluesselHaustuer, setSchluesselHaustuer] = useState<string>(geladenerEntwurf?.schluessel.haustuer ?? "");
   const [schluesselWohnung, setSchluesselWohnung] = useState<string>(geladenerEntwurf?.schluessel.wohnung ?? "");
   const [schluesselBriefkasten, setSchluesselBriefkasten] = useState<string>(geladenerEntwurf?.schluessel.briefkasten ?? "");
@@ -242,7 +247,12 @@ export const UebergabeDialog = ({
   // meldet im ersten Render immer „Desktop“ und folgt danach jeder Drehung über
   // die Grenze — beide Wechsel hängten das ganze Formular neu ein, und ein
   // gerade laufender Foto-Upload ging verloren.
-  const [isMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < MOBILE_BREAKPOINT);
+  // Auch quer gehaltene iPhones bekommen das Panel (utils/uebergabeAblauf.ts, handyAnsicht)
+  const [isMobile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const touch = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    return handyAnsicht(window.innerWidth, window.innerHeight, touch, MOBILE_BREAKPOINT);
+  });
   // Safari, Chrome-on-iOS (CriOS) und Firefox-on-iOS (FxiOS) können alle
   // keine Blob-URLs in iframes rendern — alle auf WKWebView basierend
   const isSafari = typeof navigator !== "undefined" && (
@@ -1251,16 +1261,33 @@ export const UebergabeDialog = ({
 
         <div className="space-y-2">
           <Label className="text-sm font-medium">Übergabedatum</Label>
-          <Popover>
+          {/* modal: Die Scroll-Sperre des Panels blockierte sonst das Wischen im Kalender,
+              der im Portal außerhalb liegt (iPhone quer, 22.10.2026). Modal schluckt den
+              nächsten Tipp daneben — darum schließt die Auswahl den Kalender. */}
+          <Popover modal open={datumOffen} onOpenChange={setDatumOffen}>
             <PopoverTrigger asChild>
               <Button variant="outline" className={cn("h-11 w-full justify-start text-left font-normal", !uebergabeDatum && "text-muted-foreground")}>
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {uebergabeDatum ? format(uebergabeDatum, "PPP", { locale: de }) : <span>Datum auswählen</span>}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
+            {/* Quer bleiben auf dem iPhone kaum 340 px Höhe, der Kalender braucht mehr:
+                auf den verfügbaren Platz begrenzen und scrollen statt abschneiden */}
+            <PopoverContent
+              className="max-h-[var(--radix-popover-content-available-height)] w-auto overflow-y-auto p-0"
+              align="start"
+              collisionPadding={8}
+            >
               {/* Ein zweiter Tipp auf den gewählten Tag hob die Auswahl auf — das Datum ist Pflicht */}
-              <Calendar mode="single" selected={uebergabeDatum} onSelect={(d) => d && setUebergabeDatum(d)} locale={de} />
+              <Calendar
+                mode="single"
+                selected={uebergabeDatum}
+                onSelect={(d) => {
+                  if (d) setUebergabeDatum(d);
+                  setDatumOffen(false);
+                }}
+                locale={de}
+              />
             </PopoverContent>
           </Popover>
           {!uebergabeDatum && <p className="text-xs text-destructive">Ohne Datum lässt sich das Protokoll nicht speichern.</p>}
@@ -1395,7 +1422,7 @@ export const UebergabeDialog = ({
       <p className="text-sm text-muted-foreground">Mit der Unterschrift bestätigen beide Seiten diese Angaben:</p>
       {zusammenfassung}
       {isMobile && <p className="text-xs text-muted-foreground">Zum Unterschreiben das Gerät an den Mieter geben.</p>}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 quer:grid-cols-2">
         {/* key: nach „Entwurf verwerfen" ein leeres Feld statt der alten Unterschrift */}
         <SignatureCanvas key={`vermieter-${formResetKey}`} label="Vermieter / Bevollmächtigter" onSignatureChange={setVermieterSignature} initialValue={vermieterSignature} />
         <SignatureCanvas key={`mieter-${formResetKey}`} label="Mieter" onSignatureChange={setMieterSignature} initialValue={mieterSignature} />
@@ -1685,7 +1712,7 @@ export const UebergabeDialog = ({
 
   const schliessenAbfrage = (
     <AlertDialog open={schliessenFragen} onOpenChange={setSchliessenFragen}>
-      <AlertDialogContent>
+      <AlertDialogContent className={ABFRAGE_KLASSE}>
         <AlertDialogHeader>
           <AlertDialogTitle>Übergabe noch nicht gespeichert</AlertDialogTitle>
           <AlertDialogDescription>
@@ -1718,7 +1745,7 @@ export const UebergabeDialog = ({
   // Eingaben, Fotos, Unterschriften und den Entwurf.
   const zuruecksetzenAbfrage = (
     <AlertDialog open={zuruecksetzenFragen} onOpenChange={setZuruecksetzenFragen}>
-      <AlertDialogContent>
+      <AlertDialogContent className={ABFRAGE_KLASSE}>
         <AlertDialogHeader>
           <AlertDialogTitle>Entwurf verwerfen?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -1744,7 +1771,7 @@ export const UebergabeDialog = ({
 
   const fotoAbfrage = (
     <AlertDialog open={fotoFrage > 0} onOpenChange={(offen) => !offen && setFotoFrage(0)}>
-      <AlertDialogContent>
+      <AlertDialogContent className={ABFRAGE_KLASSE}>
         <AlertDialogHeader>
           <AlertDialogTitle>{fotoFrage === 1 ? "1 Foto fehlt im Protokoll" : `${fotoFrage} Fotos fehlen im Protokoll`}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -1805,11 +1832,13 @@ export const UebergabeDialog = ({
       // alles war weg. Geschlossen wird nur über das X im Kopf oder „Fertig“.
       <Drawer open={isOpen} dismissible={false}>
         {abfragen}
-        <DrawerContent className="flex h-[96vh] max-h-[96vh] flex-col supports-[height:100dvh]:h-[96dvh] supports-[height:100dvh]:max-h-[96dvh]">
-          <DrawerHeader className="flex items-start gap-2 px-4 pb-2 pt-3 text-left">
+        {/* quer: volle Höhe, Griff (ohne Funktion, dismissible=false) ausgeblendet,
+            Kopf, Schrittleiste und Fußleiste je in einer Zeile */}
+        <DrawerContent className="flex h-[96vh] max-h-[96vh] flex-col supports-[height:100dvh]:h-[96dvh] supports-[height:100dvh]:max-h-[96dvh] quer:h-[100vh] quer:max-h-[100vh] quer:supports-[height:100dvh]:h-[100dvh] quer:supports-[height:100dvh]:max-h-[100dvh] quer:rounded-none quer:[&>div:first-child]:hidden">
+          <DrawerHeader className="flex items-start gap-2 px-4 pb-2 pt-3 text-left quer:items-center quer:py-1">
             {symbol}
-            <div className="min-w-0 flex-1">
-              <DrawerTitle className="text-base">{dialogTitle}</DrawerTitle>
+            <div className="min-w-0 flex-1 quer:flex quer:items-baseline quer:gap-3">
+              <DrawerTitle className="text-base quer:shrink-0">{dialogTitle}</DrawerTitle>
               <DrawerDescription className="truncate text-xs">{untertitel}</DrawerDescription>
             </div>
             {menue}
@@ -1818,12 +1847,12 @@ export const UebergabeDialog = ({
             </Button>
           </DrawerHeader>
           {schrittleiste}
-          <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+          <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 quer:py-2" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
             {inhalt}
           </div>
-          <div className="space-y-2 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-            {statusZeile && <div className="flex justify-center">{statusZeile}</div>}
-            <div className={cn("grid gap-2", !isSaved && vorheriger ? "grid-cols-[auto_1fr]" : "grid-cols-1")}>{knoepfe}</div>
+          <div className="space-y-2 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 quer:flex quer:items-center quer:gap-3 quer:space-y-0 quer:pt-1.5 quer:pb-[max(0.375rem,env(safe-area-inset-bottom))]">
+            {statusZeile && <div className="flex justify-center quer:min-w-0 quer:flex-1 quer:justify-start">{statusZeile}</div>}
+            <div className={cn("grid gap-2 quer:flex quer:shrink-0", !isSaved && vorheriger ? "grid-cols-[auto_1fr]" : "grid-cols-1", !statusZeile && "quer:ml-auto")}>{knoepfe}</div>
           </div>
         </DrawerContent>
       </Drawer>
@@ -1834,7 +1863,7 @@ export const UebergabeDialog = ({
     <Dialog open={isOpen} onOpenChange={(open) => !open && schliessenAnfragen()}>
       {abfragen}
       <DialogContent className="flex h-[92vh] max-h-[960px] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0">
-        <DialogHeader className="flex-row items-start gap-3 space-y-0 border-b px-6 py-4 pr-14 text-left">
+        <DialogHeader className="flex-row items-start gap-3 space-y-0 border-b px-6 py-4 pr-14 text-left quer:py-2">
           {symbol}
           <div className="min-w-0 flex-1">
             <DialogTitle className="text-lg">{dialogTitle}</DialogTitle>
@@ -1844,12 +1873,12 @@ export const UebergabeDialog = ({
         </DialogHeader>
         {schrittleiste}
         <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto">
-          <div className={cn("mx-auto p-6", schritt === "pruefen" && !isSaved ? "max-w-none" : "max-w-3xl")}>
-            {!isSaved && <h2 className="mb-4 text-base font-semibold">{SCHRITT_TITEL[schritt]}</h2>}
+          <div className={cn("mx-auto p-6 quer:p-3", schritt === "pruefen" && !isSaved ? "max-w-none" : "max-w-3xl")}>
+            {!isSaved && <h2 className="mb-4 text-base font-semibold quer:mb-2">{SCHRITT_TITEL[schritt]}</h2>}
             {inhalt}
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background px-6 py-3 quer:py-1.5">
           <div className="min-w-0">{statusZeile}</div>
           <div className="flex items-center gap-2">{knoepfe}</div>
         </div>

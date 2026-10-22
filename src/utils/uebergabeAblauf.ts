@@ -229,3 +229,16 @@ export function bausteinAnhaengen(notizen: string, baustein: string): string {
   const basis = notizen.replace(/\s+$/, "");
   return basis ? `${basis}\n${baustein}` : baustein;
 }
+
+/**
+ * Handy-Panel oder Desktop-Dialog? Maßgeblich ist bei Touch-Geräten die kürzere
+ * Seite: Ein iPhone ist quer 844–932 px breit und bekam bis zum 22.10.2026 den
+ * Desktop-Dialog — bei rund 390 px Höhe blieben dort kaum 100 px für den Inhalt.
+ * Für die kürzere Seite gilt eine eigene Grenze: iPhones sind quer höchstens
+ * ~440 px hoch, ein iPad quer mit Safari-Leisten noch ~740 px — es behält den
+ * Dialog, ebenso ein Laptop mit Maus.
+ */
+export function handyAnsicht(breite: number, hoehe: number, touch: boolean, grenze = 768, kurzeSeite = 600): boolean {
+  if (breite < grenze) return true;
+  return touch && Math.min(breite, hoehe) < kurzeSeite;
+}

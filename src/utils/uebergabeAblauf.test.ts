@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   bausteinAnhaengen,
+  handyAnsicht,
   istUebergabeSchritt,
   pruefpunkte,
   referenzstand,
@@ -144,5 +145,41 @@ describe("referenzText", () => {
     expect(referenzText({ stand: 88, datum: null, quelle: "ablesung" }, "m³")).toBe("der letzte bekannte Stand (88 m³)");
     // Ein kaputtes Datum darf das Zählerfeld nicht zum Absturz bringen
     expect(referenzText({ stand: 1, datum: "kaputt", quelle: "ablesung" }, "m³")).toBe("der letzte bekannte Stand (1 m³)");
+  });
+});
+
+describe("handyAnsicht", () => {
+  it("iPhone hochkant und quer bekommen das Handy-Panel", () => {
+    expect(handyAnsicht(390, 844, true)).toBe(true);
+    expect(handyAnsicht(844, 390, true)).toBe(true);
+    expect(handyAnsicht(932, 430, true)).toBe(true);
+    expect(handyAnsicht(667, 375, true)).toBe(true);
+  });
+
+  it("iPad und Laptop behalten den Dialog — auch ein Laptop mit niedrigem Fenster", () => {
+    expect(handyAnsicht(1180, 820, true)).toBe(false);
+    expect(handyAnsicht(820, 1180, true)).toBe(false);
+    expect(handyAnsicht(1366, 650, false)).toBe(false);
+    // iPad quer mit Safari-Leisten: sichtbar unter 768 hoch, bleibt trotzdem Dialog
+    expect(handyAnsicht(1180, 746, true)).toBe(false);
+    expect(handyAnsicht(1133, 670, true)).toBe(false);
+    expect(handyAnsicht(1366, 650, true)).toBe(false);
+    // iPad 10,2" quer (1080×810): mit Leisten rund 760 px sichtbar
+    expect(handyAnsicht(1080, 759, true)).toBe(false);
+    // iPad mini quer (1133×744) mit Leisten
+    expect(handyAnsicht(1133, 660, true)).toBe(false);
+  });
+
+  it("ein schmales Fenster ist immer das Panel", () => {
+    expect(handyAnsicht(600, 900, false)).toBe(true);
+  });
+
+  it("Grenzwerte: Breite 768 und kurze Seite 600 zählen schon als groß", () => {
+    expect(handyAnsicht(767, 1000, false)).toBe(true);
+    expect(handyAnsicht(768, 1000, false)).toBe(false);
+    expect(handyAnsicht(1000, 599, true)).toBe(true);
+    expect(handyAnsicht(1000, 600, true)).toBe(false);
+    // Ohne Touch entscheidet nur die Breite, auch bei sehr niedrigem Fenster
+    expect(handyAnsicht(1280, 400, false)).toBe(false);
   });
 });
