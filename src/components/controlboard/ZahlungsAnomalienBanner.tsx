@@ -67,7 +67,8 @@ export function ZahlungsAnomalienBanner({ onNavigateToZahlung }: ZahlungsAnomali
           <AlertDescription className="text-orange-800/80">
             Diese Zahlungen wurden möglicherweise dem falschen Vertrag desselben Mieters zugeordnet.
             Wird täglich neu geprüft — behobene Fälle verschwinden automatisch. "Als geprüft"/"Ignorieren"
-            blendet den Fall nur für heute aus, nicht dauerhaft.
+            blendet den Fall dauerhaft aus; er kommt nur wieder, wenn die Zahlung einem anderen Vertrag
+            zugeordnet wird und dort auch nicht passt.
           </AlertDescription>
           <CollapsibleContent>
             <div className="space-y-3 mt-3">
