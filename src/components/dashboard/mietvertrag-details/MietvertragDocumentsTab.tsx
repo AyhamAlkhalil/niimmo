@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Edit3, X, Eye, Plus, Upload, Trash2 } from "lucide-react";
+import { FileText, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Edit3, X, Eye, Plus, Upload, Trash2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useState, useMemo } from "react";
@@ -13,12 +13,20 @@ import { Label } from "@/components/ui/label";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useQueryClient } from "@tanstack/react-query";
 import { DocumentDragDropZone } from "../DocumentDragDropZone";
+import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
+import { downloadDateiname } from "@/utils/dokumentDateiname";
 import type { Database } from "@/integrations/supabase/types";
 
 type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
 
 interface MietvertragDocumentsTabProps {
-  dokumente: any[];
+  /** undefined, solange nichts geladen ist */
+  dokumente: any[] | undefined;
+  /** Erstes Laden läuft */
+  isLoading?: boolean;
+  /** Letztes Laden ist gescheitert */
+  ladeFehler?: boolean;
+  onErneutLaden?: () => void;
   formatDatum: (datum: string) => string;
   onDocumentsChange?: () => void;
   mietvertragId: string;
@@ -40,6 +48,9 @@ const DOCUMENT_CATEGORIES = [
 
 export function MietvertragDocumentsTab({
   dokumente,
+  isLoading = false,
+  ladeFehler = false,
+  onErneutLaden,
   formatDatum,
   onDocumentsChange,
   mietvertragId
@@ -64,27 +75,15 @@ export function MietvertragDocumentsTab({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<string | null>(null);
   
+  // dokumentOeffnen() öffnet das Fenster noch im Klick. Bis 23.10.2026 kam window.open erst
+  // nach dem await auf createSignedUrl -- Safari auf iPhone/iPad blockierte das still.
+  // Der Aufruf muss vor jedem await in diesem Handler stehen.
   const handlePreview = async (dokument: any) => {
-    try {
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('dokumente')
-        .createSignedUrl(dokument.pfad, 3600);
-
-      if (signedUrlError) {
-        toast({
-          variant: "destructive",
-          title: "Vorschau fehlgeschlagen",
-          description: `Fehler: ${signedUrlError.message}`
-        });
-        return;
-      }
-
-      window.open(signedUrlData.signedUrl, '_blank');
-    } catch (error) {
+    if (!dokument?.pfad || !(await dokumentOeffnen(dokument.pfad))) {
       toast({
-        title: "Fehler",
-        description: "Vorschau konnte nicht geöffnet werden.",
         variant: "destructive",
+        title: "Vorschau fehlgeschlagen",
+        description: "Das Dokument ließ sich nicht öffnen. Falls der Browser Pop-ups blockiert, bitte für diese Seite erlauben.",
       });
     }
   };
@@ -133,6 +132,10 @@ export function MietvertragDocumentsTab({
     
     return groups;
   }, [sortedDokumente]);
+
+  const hatDokumente = (dokumente?.length ?? 0) > 0;
+  // Eine Anzahl 0 nur zeigen, wenn die Liste wirklich geladen ist
+  const zeigeAnzahl = !isLoading && !(ladeFehler && !hatDokumente);
 
   const handleSort = (newSortBy: SortBy) => {
     if (sortBy === newSortBy) {
@@ -214,7 +217,8 @@ export function MietvertragDocumentsTab({
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = dokument.titel || 'dokument';
+      // Endung aus dem Storage-Pfad -- ein Titel wie „… – 01.10.2026" hätte sonst „.2026" als Endung
+      a.download = downloadDateiname(dokument.titel, dokument.pfad);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -327,9 +331,11 @@ export function MietvertragDocumentsTab({
               <div className="flex items-center space-x-2">
                 <FileText className="h-5 w-5" />
                 <span>Dokumente</span>
-                <Badge variant="secondary" className="ml-2">
-                  {dokumente?.length || 0}
-                </Badge>
+                {zeigeAnzahl && (
+                  <Badge variant="secondary" className="ml-2">
+                    {dokumente?.length || 0}
+                  </Badge>
+                )}
               </div>
               
               <div className="flex items-center gap-2">
@@ -383,8 +389,35 @@ export function MietvertragDocumentsTab({
             </CardTitle>
           </CardHeader>
         <CardContent>
-          {dokumente && dokumente.length > 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Dokumente werden geladen …</span>
+            </div>
+          ) : ladeFehler && !hatDokumente ? (
+            <div className="text-center py-8">
+              <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+              <p className="text-destructive">Die Dokumente konnten nicht geladen werden.</p>
+              {onErneutLaden && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={onErneutLaden}>
+                  Erneut laden
+                </Button>
+              )}
+            </div>
+          ) : hatDokumente ? (
             <div className="space-y-4">
+              {/* Ein gescheitertes Neuladen lässt die alte Liste stehen -- das muss sichtbar sein */}
+              {ladeFehler && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>Aktualisieren fehlgeschlagen – die Liste ist möglicherweise nicht aktuell.</span>
+                  {onErneutLaden && (
+                    <Button variant="ghost" size="sm" className="h-7" onClick={onErneutLaden}>
+                      Erneut laden
+                    </Button>
+                  )}
+                </div>
+              )}
               {sortBy === 'kategorie' ? (
                 // Group by category when sorting by category
                 Object.entries(groupedDokumente).map(([kategorie, docs]) => (

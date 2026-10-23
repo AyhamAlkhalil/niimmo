@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, Loader2, Eye, Plus, Trash2, Edit3, X } from "lucide-react";
+import { FileText, Download, Loader2, Eye, Plus, Trash2, Edit3, X, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useState } from "react";
@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
+import { downloadDateiname } from "@/utils/dokumentDateiname";
 import type { Database } from "@/integrations/supabase/types";
 
 type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
@@ -19,7 +21,12 @@ import { DocumentDragDropZone } from "./DocumentDragDropZone";
 
 interface ImmobilienDocumentsTabProps {
   immobilieId: string;
-  dokumente: any[];
+  /**
+   * Wird nicht mehr gelesen (seit 23.10.2026). ImmobilienDetail übergab `immobilienDokumente || []`
+   * -- Laden und Ladefehler sahen so aus wie „Keine Dokumente vorhanden". Der Tab liest die
+   * Liste jetzt selbst aus derselben Abfrage; ImmobilienDetail kann Prop und Abfrage entfernen.
+   */
+  dokumente?: any[];
 }
 
 const DOCUMENT_CATEGORIES = [
@@ -32,11 +39,37 @@ const DOCUMENT_CATEGORIES = [
   'Sonstiges',
 ];
 
-export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDocumentsTabProps) {
+export function ImmobilienDocumentsTab({ immobilieId }: ImmobilienDocumentsTabProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { uploadDocument, uploading, progress } = useDocumentUpload();
-  
+
+  // Gleicher Schlüssel und gleiche Abfrage wie in ImmobilienDetail: ein Cache-Eintrag, kein
+  // zweiter Abruf. Der Tab braucht den Zustand selbst, um lädt / Fehler / leer zu unterscheiden.
+  const {
+    data: dokumente,
+    isLoading,
+    isError: ladeFehler,
+    refetch,
+  } = useQuery({
+    queryKey: ['immobilien-dokumente', immobilieId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('dokumente')
+        .select('*')
+        .eq('immobilie_id', immobilieId)
+        .eq('geloescht', false)
+        .order('hochgeladen_am', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!immobilieId,
+  });
+  const hatDokumente = (dokumente?.length ?? 0) > 0;
+  // Eine Anzahl 0 nur zeigen, wenn die Liste wirklich geladen ist
+  const zeigeAnzahl = !isLoading && !(ladeFehler && !hatDokumente);
+  const erneutLaden = () => { void refetch(); };
+
   const [downloading, setDownloading] = useState<string | null>(null);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -89,27 +122,15 @@ export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDoc
     });
   };
 
+  // dokumentOeffnen() öffnet das Fenster noch im Klick. Bis 23.10.2026 kam window.open erst
+  // nach dem await auf createSignedUrl -- Safari auf iPhone/iPad blockierte das still.
+  // Der Aufruf muss vor jedem await in diesem Handler stehen.
   const handlePreview = async (dokument: any) => {
-    try {
-      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('dokumente')
-        .createSignedUrl(dokument.pfad, 3600);
-
-      if (signedUrlError) {
-        toast({
-          variant: "destructive",
-          title: "Vorschau fehlgeschlagen",
-          description: `Fehler: ${signedUrlError.message}`
-        });
-        return;
-      }
-
-      window.open(signedUrlData.signedUrl, '_blank');
-    } catch (error) {
+    if (!dokument?.pfad || !(await dokumentOeffnen(dokument.pfad))) {
       toast({
-        title: "Fehler",
-        description: "Vorschau konnte nicht geöffnet werden.",
         variant: "destructive",
+        title: "Vorschau fehlgeschlagen",
+        description: "Das Dokument ließ sich nicht öffnen. Falls der Browser Pop-ups blockiert, bitte für diese Seite erlauben.",
       });
     }
   };
@@ -137,7 +158,8 @@ export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDoc
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = dokument.titel || 'dokument';
+      // Endung aus dem Storage-Pfad -- ein Titel wie „… – 01.10.2026" hätte sonst „.2026" als Endung
+      a.download = downloadDateiname(dokument.titel, dokument.pfad);
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -244,9 +266,11 @@ export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDoc
             <div className="flex items-center space-x-2">
               <FileText className="h-5 w-5" />
               <span>Dokumente</span>
-              <Badge variant="secondary" className="ml-2">
-                {dokumente?.length || 0}
-              </Badge>
+              {zeigeAnzahl && (
+                <Badge variant="secondary" className="ml-2">
+                  {dokumente?.length || 0}
+                </Badge>
+              )}
             </div>
             
             <Button
@@ -266,8 +290,31 @@ export function ImmobilienDocumentsTab({ immobilieId, dokumente }: ImmobilienDoc
         </CardHeader>
         
         <CardContent>
-          {dokumente && dokumente.length > 0 ? (
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span>Dokumente werden geladen …</span>
+            </div>
+          ) : ladeFehler && !hatDokumente ? (
+            <div className="text-center py-12">
+              <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+              <p className="text-destructive">Die Dokumente konnten nicht geladen werden.</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={erneutLaden}>
+                Erneut laden
+              </Button>
+            </div>
+          ) : hatDokumente ? (
             <div className="space-y-3">
+              {/* Ein gescheitertes Neuladen lässt die alte Liste stehen -- das muss sichtbar sein */}
+              {ladeFehler && (
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>Aktualisieren fehlgeschlagen – die Liste ist möglicherweise nicht aktuell.</span>
+                  <Button variant="ghost" size="sm" className="h-7" onClick={erneutLaden}>
+                    Erneut laden
+                  </Button>
+                </div>
+              )}
               {dokumente.map((dok) => (
                 <div
                   key={dok.id}

@@ -166,7 +166,14 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     enabled: isOpen && !!vertragId,
   });
 
-  const { data: dokumente } = useQuery({
+  // Lade- und Fehlerzustand gehen mit an den Dokumente-Tab: Bis 23.10.2026 kam dort nur
+  // `dokumente || []` an, ein Ladefehler sah aus wie „Keine Dokumente vorhanden".
+  const {
+    data: dokumente,
+    isLoading: dokumenteLoading,
+    isError: dokumenteFehler,
+    refetch: refetchDokumente,
+  } = useQuery({
     queryKey: ['dokumente-detail', vertragId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -190,6 +197,9 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     allMietvertraege,
     forderungen,
     dokumente,
+    dokumenteLoading,
+    dokumenteFehler,
+    refetchDokumente,
     queryClient,
   };
 }
