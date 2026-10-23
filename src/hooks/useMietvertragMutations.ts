@@ -6,6 +6,15 @@ import { useActivityLog } from "@/hooks/useActivityLog";
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { format } from "date-fns";
 import { getVertragsende, mietendeFelder } from "@/utils/contractUtils";
+import {
+  VERTRAG_ZAEHLER_FELDER,
+  geaenderteZaehlerstaende,
+  istVertragZaehlerFeld,
+  zaehlerFeldBezeichnung,
+  zaehlerstandHistorienZeilen,
+  type VertragDatumsangaben,
+  type ZaehlerstandAenderungen,
+} from "@/utils/vertragZaehlerstaende";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -248,35 +257,47 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     }
   };
 
+  // Historienzeilen zu geänderten Zählerständen. Liefert false, wenn das Einfügen scheiterte --
+  // der Vertrag ist dann schon gespeichert, nur die Historie fehlt. Der Aufrufer meldet das im
+  // Abschluss-Toast, weil die App nur einen Toast zugleich zeigt (TOAST_LIMIT = 1).
+  const schreibeZaehlerHistorie = async (aenderungen: ZaehlerstandAenderungen, vertragNachher: VertragDatumsangaben | null): Promise<boolean> => {
+    if (!einheitData?.id) return true;
+    const zeilen = zaehlerstandHistorienZeilen(aenderungen, vertragNachher, einheitData, format(new Date(), 'yyyy-MM-dd'));
+    if (zeilen.length === 0) return true;
+    const { error: histError } = await supabase.from('zaehlerstand_historie').insert(zeilen);
+    if (histError) return false;
+    queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+    return true;
+  };
+
+  const HISTORIE_FEHLT_TOAST = {
+    title: "Gespeichert, Historie unvollständig",
+    description: "Die Änderungen sind gespeichert, die Zählerhistorie konnte aber nicht ergänzt werden.",
+    variant: "destructive" as const,
+  };
+
   const handleEditMeter = async (field: string, value: string) => {
     try {
-      const numericValue = parseFloat(value);
-      if (isNaN(numericValue)) {
-        toast({ title: "Fehler", description: "Bitte geben Sie einen gültigen Zählerstand ein.", variant: "destructive" });
+      // Leer heißt „nicht erfasst" (null), nicht 0 -- bis 23.10.2026 wurde jeder Stand
+      // mit parseFloat gelesen und landete samt Historienzeile vom heutigen Tag im Vertrag.
+      const { aenderungen, ungueltig } = geaenderteZaehlerstaende(vertrag, { [field]: value });
+      if (!istVertragZaehlerFeld(field) || ungueltig.length > 0) {
+        toast({ title: "Fehler", description: "Bitte geben Sie einen gültigen Zählerstand ein oder leeren Sie das Feld.", variant: "destructive" });
         return;
       }
-      const { error } = await supabase.from('mietvertrag').update({ [field]: numericValue }).eq('id', vertragId);
+      if (!(field in aenderungen)) {
+        setEditingMeter(null);
+        return;
+      }
+      const neuerStand = aenderungen[field] ?? null;
+      const { error } = await supabase.from('mietvertrag').update({ [field]: neuerStand }).eq('id', vertragId);
       if (error) throw error;
 
-      // History-Eintrag in zaehlerstand_historie
-      if (einheitData?.id) {
-        const quelle = field.endsWith('_einzug') ? 'einzug' : 'auszug';
-        const typ = field.replace('_einzug', '').replace('_auszug', '');
-        const zaehlerNrKey = `${typ}_zaehler` as keyof Einheit;
-        const { error: histError } = await supabase.from('zaehlerstand_historie').insert({
-          einheit_id: einheitData.id,
-          zaehler_typ: typ,
-          zaehler_nummer: (einheitData[zaehlerNrKey] as string | null) ?? null,
-          stand: numericValue,
-          datum: format(new Date(), 'yyyy-MM-dd'),
-          quelle,
-        });
-        if (!histError) {
-          queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-        }
-      }
+      const historieOk = await schreibeZaehlerHistorie(aenderungen, vertrag);
 
-      toast({ title: "Aktualisiert", description: "Zählerstand wurde erfolgreich aktualisiert." });
+      toast(historieOk
+        ? { title: "Aktualisiert", description: neuerStand === null ? "Zählerstand wurde entfernt." : "Zählerstand wurde erfolgreich aktualisiert." }
+        : HISTORIE_FEHLT_TOAST);
       setEditingMeter(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
@@ -329,15 +350,12 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       bankkonto_mieter: vertrag?.bankkonto_mieter || '',
       kaution_betrag: vertrag?.kaution_betrag || 0,
       kaution_ist: vertrag?.kaution_ist || 0,
-      kaltwasser_einzug: vertrag?.kaltwasser_einzug || 0,
-      warmwasser_einzug: vertrag?.warmwasser_einzug || 0,
-      strom_einzug: vertrag?.strom_einzug || 0,
-      gas_einzug: vertrag?.gas_einzug || 0,
-      kaltwasser_auszug: vertrag?.kaltwasser_auszug || 0,
-      warmwasser_auszug: vertrag?.warmwasser_auszug || 0,
-      strom_auszug: vertrag?.strom_auszug || 0,
-      gas_auszug: vertrag?.gas_auszug || 0,
     };
+    // Zählerstände mit dem geladenen Wert vorbelegen, leer bleibt null. Bis 23.10.2026 stand
+    // hier `|| 0` -- jeder leere Stand wurde beim nächsten Speichern zu 0 (535 Historienzeilen).
+    VERTRAG_ZAEHLER_FELDER.forEach((feld) => {
+      initialValues[feld] = vertrag?.[feld] ?? null;
+    });
     if (einheitData) {
       initialValues.kaltwasser_zaehler = einheitData.kaltwasser_zaehler || '';
       initialValues.warmwasser_zaehler = einheitData.warmwasser_zaehler || '';
@@ -377,6 +395,13 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         return;
       }
 
+      // Nur Zählerstände, die sich gegenüber dem geladenen Vertrag geändert haben
+      const zaehler = geaenderteZaehlerstaende(vertrag, editedValues);
+      if (zaehler.ungueltig.length > 0) {
+        toast({ title: "Ungültiger Zählerstand", description: `Bitte prüfen: ${zaehler.ungueltig.map(zaehlerFeldBezeichnung).join(', ')}. Gültige Zahl eintragen oder Feld leeren.`, variant: "destructive" });
+        return;
+      }
+
       // Overlap check only if dates actually changed
       // Beide Seiten gleich normalisieren: Ein leeres Ende ist null, nicht '' -- sonst gilt bei
       // jedem unbefristeten Vertrag das Ende als geändert und die Prüfung läuft bei jedem Speichern.
@@ -400,8 +425,6 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         'start_datum', 'ende_datum', 'kaltmiete', 'betriebskosten', 'anzahl_personen',
         'ruecklastschrift_gebuehr', 'neue_anschrift', 'bankkonto_mieter',
         'kaution_betrag', 'kaution_ist',
-        'kaltwasser_einzug', 'warmwasser_einzug', 'strom_einzug', 'gas_einzug',
-        'kaltwasser_auszug', 'warmwasser_auszug', 'strom_auszug', 'gas_auszug',
       ];
 
       mietvertragFields.forEach(field => {
@@ -416,6 +439,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           mietvertragUpdates[field] = editedValues[field];
         }
       });
+      Object.assign(mietvertragUpdates, zaehler.aenderungen);
 
       // Check if kaltmiete changed
       const oldKaltmiete = Number(vertrag?.kaltmiete || 0);
@@ -440,35 +464,9 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         if (error) throw error;
       }
 
-      // History-Einträge für geänderte Zählerstände im Global-Edit-Mode
-      if (einheitData?.id) {
-        const zaehlerFelder = [
-          'kaltwasser_einzug', 'warmwasser_einzug', 'strom_einzug', 'gas_einzug',
-          'kaltwasser_auszug', 'warmwasser_auszug', 'strom_auszug', 'gas_auszug',
-        ] as const;
-        const today = format(new Date(), 'yyyy-MM-dd');
-        const inserts = zaehlerFelder
-          .filter(f => (mietvertragUpdates as Record<string, unknown>)[f] != null)
-          .map(f => {
-            const quelle = f.endsWith('_einzug') ? 'einzug' : 'auszug';
-            const typ = f.replace('_einzug', '').replace('_auszug', '');
-            const zaehlerNrKey = `${typ}_zaehler` as keyof Einheit;
-            return {
-              einheit_id: einheitData!.id,
-              zaehler_typ: typ,
-              zaehler_nummer: (einheitData![zaehlerNrKey] as string | null) ?? null,
-              stand: (mietvertragUpdates as Record<string, unknown>)[f] as number,
-              datum: today,
-              quelle,
-            };
-          });
-        if (inserts.length > 0) {
-          const { error: histError } = await supabase.from('zaehlerstand_historie').insert(inserts);
-          if (!histError) {
-            queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-          }
-        }
-      }
+      // Historie nur für die geänderten Zählerstände (mietvertragUpdates enthält seit 23.10.2026
+      // keine unveränderten mehr). Datum nach dem gespeicherten Stand, falls Beginn/Ende mitgeändert wurden.
+      const historieOk = await schreibeZaehlerHistorie(mietvertragUpdates, { ...vertrag, ...mietvertragUpdates });
 
       // Update einheit fields
       if (einheitData) {
@@ -515,10 +513,10 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       ]);
 
       const isRentIncrease = mietvertragUpdates.letzte_mieterhoehung_am;
-      toast({
+      toast(historieOk ? {
         title: isRentIncrease ? "Mieterhöhung dokumentiert" : "Erfolgreich gespeichert",
         description: isRentIncrease ? "Kaltmiete wurde erhöht und Datum der letzten Mieterhöhung wurde automatisch gesetzt." : "Alle Änderungen wurden übernommen.",
-      });
+      } : HISTORIE_FEHLT_TOAST);
 
       const mieterNameGlobal = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;
       const feldLabels: Record<string, string> = {

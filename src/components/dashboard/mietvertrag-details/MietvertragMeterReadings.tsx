@@ -38,8 +38,20 @@ export function MietvertragMeterReadings({
 }: MietvertragMeterReadingsProps) {
   const [isOpen, setIsOpen] = useState(false);
 
-  const formatMeterValue = (value: number | null) => {
-    return value ? value.toString() : "0";
+  // Ein leerer Stand ist „nicht erfasst", keine 0. Bis 23.10.2026 zeigte das Feld für leer
+  // eine 0 und belegte die Eingabe damit vor -- gespeichert wurde dann auch eine 0.
+  const formatMeterValue = (value: string | number | null | undefined) =>
+    value === null || value === undefined || value === "" ? "Nicht erfasst" : String(value);
+
+  // Leeres Feld = "" statt null: MietvertragEditableField erwartet string | number,
+  // und das Eingabefeld bleibt so kontrolliert.
+  const anzeigeWert = (stand: number | null | undefined): string | number => stand ?? "";
+
+  // Im Bearbeitungsmodus geht der Rohtext an den Hook; dort entscheidet
+  // geaenderteZaehlerstaende(), ob leer (null), Zahl oder ungültig.
+  const speichereStand = (feld: string, value: string) => {
+    if (isGlobalEditMode) onUpdateEditedValue?.(feld, value);
+    else onEditMeter(feld, value);
   };
 
   const meterReadings = [
@@ -108,7 +120,8 @@ export function MietvertragMeterReadings({
           <CardContent className="space-y-6 pt-4">
             {meterReadings.map((meter, index) => {
               const IconComponent = meter.icon;
-              const hasConsumption = meter.einzug && meter.auszug && Number(meter.auszug) > Number(meter.einzug);
+              // Auch ein Einzugsstand 0 (neuer Zähler) ergibt einen Verbrauch
+              const hasConsumption = meter.einzug != null && meter.auszug != null && Number(meter.auszug) > Number(meter.einzug);
               
               return (
                 <div 
@@ -160,16 +173,13 @@ export function MietvertragMeterReadings({
                       </div>
                       <MietvertragEditableField
                         label="Bei Einzug"
-                        value={Number(meter.einzug || 0)}
+                        value={anzeigeWert(meter.einzug)}
                         isEditing={isGlobalEditMode || editingMeter === `${meter.key}_einzug`}
                         onEdit={() => !isGlobalEditMode && onStartEditMeter(`${meter.key}_einzug`)}
-                        onSave={(value) => {
-                          if (isGlobalEditMode) {
-                            onUpdateEditedValue?.(`${meter.key}_einzug`, parseFloat(value));
-                          } else {
-                            onEditMeter(`${meter.key}_einzug`, value);
-                          }
-                        }}
+                        // Ohne onValueChange ging eine Eingabe im Bearbeitungsmodus verloren,
+                        // wenn nicht zuerst der Haken am Feld geklickt wurde
+                        onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.(`${meter.key}_einzug`, raw) : undefined}
+                        onSave={(value) => speichereStand(`${meter.key}_einzug`, value)}
                         onCancel={onCancelEditMeter}
                         type="number"
                         step="0.01"
@@ -183,16 +193,11 @@ export function MietvertragMeterReadings({
                       </div>
                       <MietvertragEditableField
                         label="Bei Auszug"
-                        value={Number(meter.auszug || 0)}
+                        value={anzeigeWert(meter.auszug)}
                         isEditing={isGlobalEditMode || editingMeter === `${meter.key}_auszug`}
                         onEdit={() => !isGlobalEditMode && onStartEditMeter(`${meter.key}_auszug`)}
-                        onSave={(value) => {
-                          if (isGlobalEditMode) {
-                            onUpdateEditedValue?.(`${meter.key}_auszug`, parseFloat(value));
-                          } else {
-                            onEditMeter(`${meter.key}_auszug`, value);
-                          }
-                        }}
+                        onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.(`${meter.key}_auszug`, raw) : undefined}
+                        onSave={(value) => speichereStand(`${meter.key}_auszug`, value)}
                         onCancel={onCancelEditMeter}
                         type="number"
                         step="0.01"
