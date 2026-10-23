@@ -82,8 +82,49 @@ async function mailAbschliessen(
 // Protokollordner eines der uebergebenen Vertraege (wie send-mahnung).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PROTOKOLL_PFAD = /^uebergabeprotokolle\/([0-9a-f-]{36})\/([A-Za-z0-9_.-]+\.pdf)$/i;
-const ADRESSE = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+// Ohne ( ) : \ [ ]: nodemailer liest sonst „bcc:b@y.de“ als Gruppe oder Kommentar
+const ADRESSE = /^[^\s@<>,;"():\\[\]]+@[^\s@<>,;"():\\[\]]+\.[^\s@<>,;"():\\[\]]+$/;
 const MAX_EMPFAENGER = 20;
+
+/**
+ * Ein Adressfeld kann mehrere Adressen tragen ("a@x.de, b@y.de"); so stehen bei
+ * zwei Objekten die Versorger in den Stammdaten. Bis zum 19.10.2026 nahm
+ * nodemailer solche Listen an, die strengere Pruefung lehnte sie dann ab und die
+ * Abmeldung bei diesen Versorgern scheiterte (23.10.2026). Jede Adresse wird
+ * einzeln geprueft; ist eine ungueltig, gilt das ganze Feld als ungueltig.
+ */
+function adressenAus(feld: string): string[] | null {
+  const teile = feld.split(/[\s,;]+/).filter(Boolean);
+  if (teile.length === 0 || !teile.every((t) => t.length <= 254 && ADRESSE.test(t))) return null;
+  return teile.filter((t, i) => teile.findIndex((u) => u.toLowerCase() === t.toLowerCase()) === i);
+}
+
+type Ursache = 'empfaenger' | 'groesse' | 'zugang' | 'server';
+
+/**
+ * Ordnet einen Versandfehler fuer die Meldung im Dialog ein, ohne Serverdetails.
+ * Massgeblich sind die festen Felder von nodemailer (code, command, Statuscode und
+ * erweiterter Code wie 5.3.4), nicht der Meldungstext: Der enthaelt die Adresse,
+ * und „Mailbox size exceeded“ ist ein volles Postfach, kein zu grosses Protokoll.
+ */
+function ursacheAus(fehler: unknown): Ursache {
+  const e = (fehler ?? {}) as { code?: string; command?: string; responseCode?: number; response?: string };
+  const antwort = typeof e.response === 'string' ? e.response : '';
+  const befehl = typeof e.command === 'string' ? e.command.toUpperCase() : '';
+  if (e.code === 'EAUTH' || e.responseCode === 535 || befehl.startsWith('AUTH')) return 'zugang';
+  if (/\b5\.3\.4\b/.test(antwort) || (befehl === 'DATA' && e.responseCode === 552 && !/\b5\.2\.2\b/.test(antwort))) return 'groesse';
+  // RCPT mit 5.7.x (Relay verweigert) oder 4xx (Greylisting) betrifft das Postfach des Absenders
+  const rcptAbgelehnt = befehl.startsWith('RCPT') && (e.responseCode ?? 0) >= 500 && !/\b5\.7\.\d\b/.test(antwort);
+  if (rcptAbgelehnt || /\b5\.1\.\d\b|\b5\.2\.2\b/.test(antwort)) return 'empfaenger';
+  return 'server';
+}
+
+const URSACHE_TEXT: Record<Ursache, string> = {
+  empfaenger: 'vom Empfänger abgelehnt (Adresse falsch oder Postfach voll)',
+  groesse: 'Protokoll zu groß für den Mailserver',
+  zugang: 'Anmeldung am Mailpostfach abgelehnt',
+  server: 'vom Mailserver nicht angenommen',
+};
 
 function protokollErlaubt(pfad: string, vertragIds: string[]): boolean {
   const treffer = PROTOKOLL_PFAD.exec(pfad);
@@ -108,11 +149,13 @@ function anfrageFehler(daten: Partial<EmailRequest> | null): string | null {
   const { recipients, subject, body, contractIds, pdfPath } = daten;
   if (!Array.isArray(recipients) || recipients.length === 0) return 'Keine Empfänger angegeben.';
   if (recipients.length > MAX_EMPFAENGER) return `Höchstens ${MAX_EMPFAENGER} Empfänger je Versand.`;
+  let anzahl = 0;
   for (const r of recipients) {
-    if (!r || typeof r.email !== 'string' || r.email.length > 254 || !ADRESSE.test(r.email.trim())) {
-      return 'Mindestens eine Empfängeradresse ist ungültig.';
-    }
+    const adressen = r && typeof r.email === 'string' && r.email.length <= 1000 ? adressenAus(r.email) : null;
+    if (!adressen) return 'Mindestens eine Empfängeradresse ist ungültig.';
+    anzahl += adressen.length;
   }
+  if (anzahl > MAX_EMPFAENGER) return `Höchstens ${MAX_EMPFAENGER} Empfänger je Versand.`;
   if (typeof subject !== 'string' || !subject.trim() || subject.length > 300 || /[\r\n]/.test(subject)) {
     return 'Der Betreff fehlt oder ist ungültig.';
   }
@@ -192,7 +235,16 @@ serve(async (req) => {
     }
     const { subject, body } = anfrage as EmailRequest;
     const pdfPath = anfrage.pdfPath || undefined;
-    const recipients = (anfrage.recipients as EmailRecipient[]).map((r) => ({ ...r, email: r.email.trim() }));
+    // Je Adresse eine eigene Mail; doppelte Adressen nur einmal
+    const gesehen = new Set<string>();
+    const recipients: EmailRecipient[] = [];
+    for (const r of anfrage.recipients as EmailRecipient[]) {
+      for (const email of adressenAus(r.email) ?? []) {
+        if (gesehen.has(email.toLowerCase())) continue;
+        gesehen.add(email.toLowerCase());
+        recipients.push({ ...r, email });
+      }
+    }
 
     // SMTP config — dedicated Übergabe secrets with fallback
     const smtpHost = Deno.env.get("UEBERGABE_SMTP_HOST") || Deno.env.get("MAHNUNG_SMTP_HOST") || Deno.env.get("SMTP_HOST");
@@ -212,7 +264,6 @@ serve(async (req) => {
     if (pdfPath) {
       // Pfad ist oben gegen die Erlaubnisliste geprueft (anfrageFehler)
       const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-      console.log('Loading PDF from storage:', pdfPath);
       const { data: fileData, error: fileError } = await supabase.storage
         .from('dokumente')
         .download(pdfPath);
@@ -220,14 +271,13 @@ serve(async (req) => {
       if (fileError) {
         // Nicht verschlucken: Sonst geht die Mail ohne Protokoll hinaus und
         // meldet trotzdem Erfolg.
-        console.error('PDF download error:', fileError);
+        console.error('PDF download error:', fileError.message);
         return new Response(
           JSON.stringify({ error: 'Das Übergabeprotokoll konnte nicht geladen werden. Es wurde nichts versendet.' }),
           { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } else if (fileData) {
         const arrayBuffer = await fileData.arrayBuffer();
         pdfBuffer = Buffer.from(arrayBuffer);
-        console.log('PDF loaded successfully, size:', pdfBuffer.length);
       }
     }
 
@@ -243,7 +293,7 @@ serve(async (req) => {
     });
 
     const sentEmails: string[] = [];
-    const failedEmails: { email: string; error: string }[] = [];
+    const failedEmails: { email: string; error: string; ursache: Ursache }[] = [];
     const htmlBody = htmlMaskieren(body).replace(/\n/g, "<br>");
 
     const mailId = await mailVormerken(rollenClient, {
@@ -262,7 +312,8 @@ serve(async (req) => {
       try {
         const mailOptions: any = {
           from: `${smtpFromName} <${smtpFromEmail}>`,
-          to: recipient.email,
+          // Als Objekt: So parst nodemailer die Adresse nicht noch einmal
+          to: { name: '', address: recipient.email },
           subject: subject,
           text: body,
           html: htmlBody,
@@ -277,15 +328,16 @@ serve(async (req) => {
         }
 
         await transporter.sendMail(mailOptions);
-        console.log(`Email sent successfully to: ${recipient.email}`);
         sentEmails.push(recipient.email);
       } catch (emailError) {
-        console.error(`Failed to send email to ${recipient.email}:`, emailError);
-        // Die Ursache vom Mailserver bleibt im Mail-Protokoll und im Log; an den
-        // Browser geht nur, welche Adresse nicht angenommen wurde
+        // Ins Log nur Codes: Die Meldung des Mailservers enthaelt meist die Adresse
+        const e = (emailError ?? {}) as { code?: string; responseCode?: number };
+        console.error('Versand fehlgeschlagen:', { code: e.code ?? null, responseCode: e.responseCode ?? null });
+        // Die volle Ursache bleibt im Mail-Protokoll; an den Browser geht nur die Einordnung
         failedEmails.push({
           email: recipient.email,
           error: emailError instanceof Error ? emailError.message : "Unknown error",
+          ursache: ursacheAus(emailError),
         });
       }
     }
@@ -300,24 +352,35 @@ serve(async (req) => {
       failedEmails.length > 0 ? failedEmails.map((f) => `${f.email}: ${f.error}`).join('; ') : undefined,
     );
 
+    console.log(`Versand: ${sentEmails.length} zugestellt, ${failedEmails.length} fehlgeschlagen`);
+
     if (sentEmails.length === 0 && failedEmails.length > 0) {
-      return json({
-        error: `Keine E-Mail wurde zugestellt (${failedEmails.map((f) => f.email).join(", ")}). Bitte die Adressen prüfen.`,
-        success: false,
-      }, 502);
+      // Bis zum 23.10.2026 hiess es hier immer „Adressen pruefen“, auch wenn das
+      // Protokoll zu gross oder der Mailserver nicht erreichbar war
+      const ursachen = new Set(failedEmails.map((f) => f.ursache));
+      const einzige = ursachen.size === 1 ? [...ursachen][0] : null;
+      const meldung =
+        einzige === 'groesse'
+          ? 'Das Protokoll ist zu groß für den Mailserver. Es wurde nichts zugestellt.'
+          : einzige === 'zugang'
+            ? 'Der Mailserver hat die Anmeldung des Postfachs abgelehnt. Es wurde nichts versendet — bitte die Zugangsdaten prüfen lassen.'
+            : einzige === 'server'
+              ? 'Der Mailserver hat die Mails nicht angenommen. Bitte später erneut versuchen.'
+            : `Keine E-Mail wurde zugestellt (${failedEmails.map((f) => `${f.email}: ${URSACHE_TEXT[f.ursache]}`).join("; ")}).`;
+      return json({ error: meldung, success: false }, 502);
     }
 
     return json({
       success: true,
       sentEmails,
-      failedEmails: failedEmails.map((f) => ({ email: f.email, error: 'nicht zugestellt' })),
+      failedEmails: failedEmails.map((f) => ({ email: f.email, error: URSACHE_TEXT[f.ursache] })),
       message: `${sentEmails.length} E-Mail(s) erfolgreich versendet${
         failedEmails.length > 0 ? `, ${failedEmails.length} fehlgeschlagen` : ""
       }`,
     }, 200);
   } catch (error) {
     // Keine internen Meldungen (SMTP, Storage) an den Browser
-    console.error("Error in send-uebergabe-email function:", error);
+    console.error("Error in send-uebergabe-email function:", error instanceof Error ? error.message : 'unbekannt');
     return json({ error: 'Die E-Mails konnten nicht versendet werden.', success: false }, 500);
   }
 });
