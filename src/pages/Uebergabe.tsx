@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
 import { browserAblage, entwuerfeAuflisten, entwurfLoeschen, type EntwurfEintrag } from "@/utils/uebergabeEntwurf";
 import { letzteProtokolle, type ProtokollZeile } from "@/utils/uebergabeProtokolle";
+import { mietsacheText } from "@/utils/uebergabeAblauf";
 import { toast } from "sonner";
 
 interface UebergabeProps {
@@ -46,6 +47,10 @@ interface ContractWithDetails {
     id: string;
     etage: string | null;
     zaehler: number | null;
+    einheitentyp: string | null;
+    qm: number | null;
+    anzahl_zimmer: number | null;
+    bezeichnung: string | null;
     immobilie: {
       id: string;
       name: string;
@@ -79,7 +84,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
             kaltmiete, betriebskosten, strom_einzug, gas_einzug,
             kaltwasser_einzug, warmwasser_einzug,
             einheiten!inner (
-              id, etage, zaehler,
+              id, etage, zaehler, einheitentyp, qm, anzahl_zimmer, bezeichnung,
               immobilien!inner ( id, name, adresse )
             )
           `, { count: mitZaehlung ? 'exact' : undefined })
@@ -120,6 +125,10 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           id: contract.einheiten.id,
           etage: contract.einheiten.etage,
           zaehler: contract.einheiten.zaehler,
+          einheitentyp: contract.einheiten.einheitentyp,
+          qm: contract.einheiten.qm,
+          anzahl_zimmer: contract.einheiten.anzahl_zimmer,
+          bezeichnung: contract.einheiten.bezeichnung,
           immobilie: {
             id: contract.einheiten.immobilien.id,
             name: contract.einheiten.immobilien.name,
@@ -144,6 +153,13 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           id: c.einheit.id,
           nummer: c.einheit.zaehler?.toString(),
           etage: c.einheit.etage || undefined,
+          mietsache: mietsacheText({
+            einheitentyp: c.einheit.einheitentyp,
+            etage: c.einheit.etage,
+            anzahlZimmer: c.einheit.anzahl_zimmer,
+            qm: c.einheit.qm,
+            bezeichnung: c.einheit.bezeichnung,
+          }),
           immobilie_id: c.einheit.immobilie.id,
           immobilie: { id: c.einheit.immobilie.id, name: c.einheit.immobilie.name, adresse: c.einheit.immobilie.adresse },
         },

@@ -131,8 +131,79 @@ export function historieEintraege(
 export interface Rueckbau {
   /** von diesem Dialog eingefügte Zeilen in zaehlerstand_historie */
   historieIds: string[];
-  /** geänderte Spalten mit dem Wert davor */
-  zeilen: Array<{ tabelle: "mietvertrag" | "einheiten"; id: string; neu: Record<string, number | string>; vorher: Record<string, unknown> }>;
+  /**
+   * Geänderte Spalten mit dem Wert davor. `neu` ist zugleich die Bedingung:
+   * Zurückgesetzt wird nur, wo noch genau diese Werte stehen. Bei einer schon
+   * vorhandenen Historienzeile ist das der Protokollpfad dieses Laufs.
+   */
+  zeilen: Array<{
+    tabelle: "mietvertrag" | "einheiten" | "zaehlerstand_historie";
+    id: string;
+    neu: Record<string, number | string>;
+    vorher: Record<string, unknown>;
+  }>;
+  /**
+   * Protokoll-PDF dieses Laufs (seit 23.10.2026). Es wird mit entfernt, und
+   * eingefügte Historienzeilen werden nur gelöscht, solange sie noch darauf
+   * verweisen — hat ein zweites Gerät sie inzwischen übernommen, bleiben sie.
+   */
+  pdfPfad?: string | null;
+}
+
+/** Schlichte Datensatz-ID (UUID oder Kurzform), nichts, was sich als Filter lesen ließe */
+const ID = /^[\w-]{1,64}$/;
+const RUECKBAU_TABELLEN = ["mietvertrag", "einheiten", "zaehlerstand_historie"] as const;
+/** Nur die Spalten, die das Speichern der Übergabe schreibt — ein veränderter Entwurf kann sonst beliebige setzen */
+const ZAEHLER_SPALTEN = ["strom", "gas", "kaltwasser", "warmwasser"];
+const RUECKBAU_SPALTEN: Record<(typeof RUECKBAU_TABELLEN)[number], string[]> = {
+  mietvertrag: ZAEHLER_SPALTEN.flatMap((t) => [`${t}_einzug`, `${t}_auszug`]),
+  einheiten: ZAEHLER_SPALTEN.flatMap((t) => [`${t}_stand_aktuell`, `${t}_stand_datum`]),
+  zaehlerstand_historie: ["stand", "mietvertrag_id", "zaehler_nummer", "protokoll_pfad", "foto_pfad", "erfassung", "erkannter_stand"],
+};
+/** Genau ein PDF im Protokollordner eines Vertrags, wie es uebergabePdfPfad erzeugt (kein .., kein %) */
+const PROTOKOLL_PFAD = /^uebergabeprotokolle\/[0-9a-f-]{36}\/[A-Za-z0-9_-][A-Za-z0-9_.-]*\.pdf$/i;
+const einfacherWert = (v: unknown) =>
+  v === null || typeof v === "string" || (typeof v === "number" && Number.isFinite(v)) || typeof v === "boolean";
+const flach = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === "object" && !Array.isArray(v) && Object.values(v as Record<string, unknown>).every(einfacherWert);
+
+/**
+ * Liest einen im Entwurf gemerkten Rückbau. Ein abgebrochenes Speichern, das sich
+ * nicht sofort zurücknehmen ließ (kein Netz), wird so beim nächsten Öffnen
+ * nachgeholt — bis zum 23.10.2026 lag der Rückbau nur im Speicher des Dialogs
+ * und ging mit dem Schließen verloren. Was nicht in Form ist, ergibt null.
+ */
+export function rueckbauLesen(roh: unknown): Rueckbau | null {
+  if (!roh || typeof roh !== "object" || Array.isArray(roh)) return null;
+  const r = roh as Record<string, unknown>;
+  if (!Array.isArray(r.historieIds) || !r.historieIds.every((id) => typeof id === "string" && ID.test(id))) return null;
+  if (!Array.isArray(r.zeilen)) return null;
+  const zeilen: Rueckbau["zeilen"] = [];
+  for (const z of r.zeilen) {
+    const zeile = z as Record<string, unknown>;
+    if (!zeile || typeof zeile !== "object") return null;
+    if (!RUECKBAU_TABELLEN.includes(zeile.tabelle as (typeof RUECKBAU_TABELLEN)[number])) return null;
+    if (typeof zeile.id !== "string" || !ID.test(zeile.id)) return null;
+    if (!flach(zeile.neu) || !flach(zeile.vorher)) return null;
+    const erlaubt = RUECKBAU_SPALTEN[zeile.tabelle as (typeof RUECKBAU_TABELLEN)[number]];
+    if (![...Object.keys(zeile.neu), ...Object.keys(zeile.vorher)].every((spalte) => erlaubt.includes(spalte))) return null;
+    if (!Object.values(zeile.neu).every((v) => typeof v === "string" || typeof v === "number")) return null;
+    if (Object.keys(zeile.neu).length === 0) return null;
+    zeilen.push({
+      tabelle: zeile.tabelle as Rueckbau["zeilen"][number]["tabelle"],
+      id: zeile.id,
+      neu: zeile.neu as Record<string, number | string>,
+      vorher: zeile.vorher,
+    });
+  }
+  // Ein vorhandener, aber fremder Pfad verwirft alles: Ohne ihn liefe das Löschen
+  // der Historie ohne die Bedingung „verweist noch auf dieses Protokoll“
+  if (r.pdfPfad !== undefined && r.pdfPfad !== null && !(typeof r.pdfPfad === "string" && PROTOKOLL_PFAD.test(r.pdfPfad) && !r.pdfPfad.includes(".."))) {
+    return null;
+  }
+  const pdfPfad = typeof r.pdfPfad === "string" ? r.pdfPfad : null;
+  if (r.historieIds.length === 0 && zeilen.length === 0 && !pdfPfad) return null;
+  return { historieIds: r.historieIds as string[], zeilen, pdfPfad };
 }
 
 export interface AktuellerStand {
@@ -212,7 +283,8 @@ export async function dateienHochladen(
   dateien: ArrayLike<File>,
   pfadFuer: (datei: File, index: number) => string,
   hochladen: (pfad: string, datei: File) => PromiseLike<{ error: unknown }>,
-  fortschritt?: (fertig: number, gesamt: number) => void,
+  /** Nach jeder Datei; `pfad` ist ihr Pfad, wenn sie angekommen ist, sonst null */
+  fortschritt?: (fertig: number, gesamt: number, pfad: string | null) => void,
   pauseMs = 1000,
   zeitlimitMs = UPLOAD_ZEITLIMIT_MS
 ): Promise<HochladeErgebnis> {
@@ -245,7 +317,7 @@ export async function dateienHochladen(
     if (angekommen && pfad) pfade.push(pfad);
     else fehlgeschlagen++;
     try {
-      fortschritt?.(i + 1, dateien.length);
+      fortschritt?.(i + 1, dateien.length, angekommen ? pfad : null);
     } catch {
       // Eine fehlerhafte Anzeige darf keinen Upload abbrechen
     }

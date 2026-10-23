@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
-import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
+import { parseZaehlerstand, zaehlerstandText } from "@/utils/zaehlerstandUtils";
 import { ZAEHLER_BEZEICHNUNG, ZAEHLER_EINHEIT, ZAEHLER_TYPEN, type ZaehlerTyp } from "@/utils/uebergabeAblauf";
 
 interface UebergabeZusammenfassungProps {
@@ -73,7 +73,7 @@ export const UebergabeZusammenfassung = ({
               return (
                 <div key={typ}>
                   <dt className="text-xs text-muted-foreground">{ZAEHLER_BEZEICHNUNG[typ]}</dt>
-                  <dd className="tabular-nums">{erfasst ? `${wert} ${ZAEHLER_EINHEIT[typ]}` : "–"}</dd>
+                  <dd className="tabular-nums">{erfasst ? `${zaehlerstandText(wert)} ${ZAEHLER_EINHEIT[typ]}` : "–"}</dd>
                 </div>
               );
             })}

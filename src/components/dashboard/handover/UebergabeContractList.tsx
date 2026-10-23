@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Building2, Calendar, ChevronRight, Clock, FileCheck2, History, MapPin, User } from "lucide-react";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInCalendarDays, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { getVertragsende } from "@/utils/contractUtils";
@@ -68,7 +68,7 @@ export const UebergabeContractList = ({
   // Auszug = Mietende aus getVertragsende(), wie auf der Einheiten-Karte und im Detailfenster.
   const getAuszugsDatum = (contract: ContractWithDetails): Date | null => {
     const ende = getVertragsende(contract);
-    return ende ? new Date(ende) : null;
+    return ende ? parseISO(ende.slice(0, 10)) : null;
   };
 
   const getPriority = (contract: ContractWithDetails): { priority: number; label?: string } => {
@@ -77,19 +77,21 @@ export const UebergabeContractList = ({
     if (entwurf) return { priority: 0, label: `Entwurf vom ${format(new Date(entwurf), "dd.MM., HH:mm", { locale: de })} Uhr` };
     if (uebergabeType === "einzug") {
       if (contract.start_datum && contract.status === "aktiv") {
-        const daysAgo = differenceInDays(today, new Date(contract.start_datum));
+        // Kalendertage in Ortszeit: new Date("yyyy-MM-dd") ist Mitternacht UTC, und
+        // differenceInDays schnitt angefangene Tage ab — „morgen“ hieß dann „heute“
+        const daysAgo = differenceInCalendarDays(today, parseISO(contract.start_datum.slice(0, 10)));
         if (daysAgo >= 0 && daysAgo <= 7) {
           return { priority: 1, label: `vor ${daysAgo} Tag${daysAgo !== 1 ? 'en' : ''} eingezogen` };
         }
         if (daysAgo >= 0 && daysAgo <= 30) {
-          return { priority: 2, label: "diesen Monat eingezogen" };
+          return { priority: 2, label: "in den letzten 30 Tagen eingezogen" };
         }
       }
       return { priority: 10 };
     } else {
       const auszugsDatum = getAuszugsDatum(contract);
       if (auszugsDatum) {
-        const daysUntil = differenceInDays(auszugsDatum, today);
+        const daysUntil = differenceInCalendarDays(auszugsDatum, today);
         // Übergaben finden oft erst einige Tage nach dem Auszugsdatum statt —
         // deshalb bleibt der Vertrag auch rückwirkend 30 Tage lang ein Vorschlag.
         if (daysUntil === 0) {
@@ -103,7 +105,7 @@ export const UebergabeContractList = ({
           return { priority: 1, label: `vor ${daysAgo} Tag${daysAgo !== 1 ? 'en' : ''} ausgezogen` };
         }
         if (daysUntil > 7 && daysUntil <= 30) {
-          return { priority: 2, label: "diesen Monat" };
+          return { priority: 2, label: "in den nächsten 30 Tagen" };
         }
       }
       if (contract.status === "gekuendigt") {
@@ -198,7 +200,7 @@ export const UebergabeContractList = ({
               {protokoll && (
                 <p className="mt-1.5 flex items-center gap-1 text-xs text-success">
                   <FileCheck2 className="h-3.5 w-3.5 flex-shrink-0" />
-                  {uebergabeType === "einzug" ? "Einzugsprotokoll" : "Auszugsprotokoll"} vom {format(new Date(protokoll), "dd.MM.yyyy", { locale: de })} vorhanden
+                  {uebergabeType === "einzug" ? "Einzugsprotokoll" : "Auszugsprotokoll"} vom {format(parseISO(protokoll), "dd.MM.yyyy", { locale: de })} vorhanden
                 </p>
               )}
             </div>

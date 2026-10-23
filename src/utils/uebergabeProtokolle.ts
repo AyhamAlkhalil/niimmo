@@ -25,9 +25,25 @@ export interface ProtokollZeile {
   hochgeladen_am: string | null;
 }
 
-/** Je Vertrag und Art der Zeitpunkt des jüngsten PDF-Protokolls. Fotos zählen nicht. */
+/** „Übergabeprotokoll (Einzug) – 17.04.2026" → "2026-04-17" */
+export function datumAusTitel(titel: string | null): string | null {
+  const treffer = /(?<!\d)(\d{2})\.(\d{2})\.(\d{4})(?!\d)/.exec(titel ?? "");
+  if (!treffer) return null;
+  const [, t, m, j] = treffer;
+  // Nur ein Tag, den es gibt — „31.02.2026“ in einem Titel ist kein Datum
+  const d = new Date(Date.UTC(Number(j), Number(m) - 1, Number(t)));
+  return d.getUTCDate() === Number(t) && d.getUTCMonth() === Number(m) - 1 ? `${j}-${m}-${t}` : null;
+}
+
+/**
+ * Je Vertrag und Art das Datum des jüngsten PDF-Protokolls (zuletzt hochgeladen):
+ * das Übergabedatum aus dem Titel, sonst der Zeitpunkt des Hochladens. Bis zum
+ * 23.10.2026 stand immer der Upload da — ein Auszug vom 31.08.2025 erschien als
+ * „Protokoll vom 05.02.2026". Fotos zählen nicht.
+ */
 export function letzteProtokolle(zeilen: ProtokollZeile[]): Map<string, Partial<Record<UebergabeArt, string>>> {
   const ergebnis = new Map<string, Partial<Record<UebergabeArt, string>>>();
+  const hochgeladen = new Map<string, Partial<Record<UebergabeArt, string>>>();
   for (const z of zeilen) {
     if (!z.mietvertrag_id || !z.hochgeladen_am) continue;
     const istPdf = z.dateityp === "application/pdf" || /\.pdf$/i.test(z.pfad ?? "") || /\.pdf$/i.test(z.titel ?? "");
@@ -35,8 +51,13 @@ export function letzteProtokolle(zeilen: ProtokollZeile[]): Map<string, Partial<
     const art = protokollArt(z.titel, z.pfad);
     if (!art) continue;
     const bisher = ergebnis.get(z.mietvertrag_id) ?? {};
-    if (!bisher[art] || bisher[art]! < z.hochgeladen_am) bisher[art] = z.hochgeladen_am;
+    const zuletzt = hochgeladen.get(z.mietvertrag_id) ?? {};
+    if (!zuletzt[art] || zuletzt[art]! < z.hochgeladen_am) {
+      zuletzt[art] = z.hochgeladen_am;
+      bisher[art] = datumAusTitel(z.titel) ?? z.hochgeladen_am;
+    }
     ergebnis.set(z.mietvertrag_id, bisher);
+    hochgeladen.set(z.mietvertrag_id, zuletzt);
   }
   return ergebnis;
 }

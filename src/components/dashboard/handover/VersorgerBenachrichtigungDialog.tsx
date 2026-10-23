@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { COMPANY } from '@/config/company';
+import { funktionsFehlertext, mailadressen, versandAuswerten } from '@/utils/uebergabeMail';
 
 interface VersorgerInfo {
   typ: 'strom' | 'gas' | 'wasser';
@@ -73,6 +74,8 @@ export const VersorgerBenachrichtigungDialog = ({
   const [sentResult, setSentResult] = useState<{ sent: string[]; failed: string[] } | null>(null);
   // Versorger, die in diesem Dialog schon benachrichtigt wurden (Bezeichnung)
   const [bereitsBenachrichtigt, setBereitsBenachrichtigt] = useState<string[]>([]);
+  // Je Versorger die Adressen, die die Mail schon haben — ein zweiter Versuch geht nur an die übrigen
+  const [zugestellt, setZugestellt] = useState<Record<string, string[]>>({});
 
   const datumFormatiert = format(uebergabeDatum, "dd.MM.yyyy", { locale: de });
   const aktion = isEinzug ? "Einzug" : "Auszug";
@@ -165,7 +168,7 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
   };
 
   const handleSend = async () => {
-    const selectedVersorger = versorger.filter(v => selected.has(v.typ) && v.email);
+    const selectedVersorger = versorger.filter(v => selected.has(v.typ) && mailadressen(v.email));
     if (selectedVersorger.length === 0) {
       toast({ title: "Keine Auswahl", description: "Bitte wählen Sie mindestens einen Versorger mit E-Mail-Adresse aus.", variant: "destructive" });
       return;
@@ -178,10 +181,14 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
 
     try {
       for (const v of selectedVersorger) {
+        // Ein Feld kann mehrere Adressen tragen („a@x.de, b@y.de“); wer sie schon hat, bekommt sie nicht noch einmal
+        const schon = (zugestellt[v.typ] ?? []).map((a) => a.toLowerCase());
+        const alle = mailadressen(v.email) ?? [];
+        const adressen = alle.filter((a) => !schon.includes(a.toLowerCase()));
         try {
           const response = await supabase.functions.invoke("send-uebergabe-email", {
             body: {
-              recipients: [{ mieterId: v.typ, email: v.email, name: v.name || v.label }],
+              recipients: adressen.map((email) => ({ mieterId: v.typ, email, name: v.name || v.label })),
               subject: emailSubjects[v.typ] || `${aktion}smeldung`,
               body: emailTexte[v.typ] || '',
               contractIds,
@@ -189,17 +196,27 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
               pdfPath: pdfPfad,
             },
           });
-          if (response.error) throw response.error;
+          // Den Grund zeigen: Bis zum 23.10.2026 hieß es nur „konnte nicht versendet werden“
+          if (response.error) throw new Error(await funktionsFehlertext(response.error, "Versand fehlgeschlagen"));
+          const { gesendet, fehlgeschlagen } = versandAuswerten(response.data, adressen);
+          if (gesendet.length > 0) setZugestellt((vorher) => ({ ...vorher, [v.typ]: [...(vorher[v.typ] ?? []), ...gesendet] }));
+          // Teilversand ist kein Erfolg: Der Versorger bleibt offen, bis jede Adresse die Mail hat
+          if (fehlgeschlagen.length > 0 || gesendet.length === 0) {
+            throw new Error(`nicht zugestellt an ${(fehlgeschlagen.length > 0 ? fehlgeschlagen : adressen).join(", ")}${gesendet.length > 0 ? ` (an ${gesendet.join(", ")} zugestellt)` : ""}`);
+          }
           sent.push(v.label);
           sentTypen.push(v.typ);
         } catch (e) {
-          failed.push(v.label);
+          failed.push(`${v.label}: ${e instanceof Error ? e.message : "Versand fehlgeschlagen"}`);
         }
       }
 
       setSentResult({ sent, failed });
-      if (sent.length > 0) {
-        setBereitsBenachrichtigt((vorher) => [...new Set([...vorher, ...sent])]);
+      if (sentTypen.length > 0) {
+        setBereitsBenachrichtigt((vorher) => [...new Set([...vorher, ...selectedVersorger.filter((v) => sentTypen.includes(v.typ)).map((v) => v.label)])]);
+        // Erfolgreich benachrichtigte abwählen: „Zurück und erneut senden“ schickte
+        // sonst auch ihnen ein zweites Mal (bis 23.10.2026)
+        setSelected((vorher) => new Set([...vorher].filter((typ) => !sentTypen.includes(typ))));
         onVersendet?.(sentTypen);
       }
 
@@ -207,14 +224,14 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
         toast({ title: "E-Mails versendet", description: `${sent.join(", ")} erfolgreich benachrichtigt.` });
       }
       if (failed.length > 0) {
-        toast({ title: "Fehler", description: `${failed.join(", ")} konnten nicht versendet werden.`, variant: "destructive" });
+        toast({ title: "Nicht versendet", description: failed.join(" · "), variant: "destructive" });
       }
     } finally {
       setIsSending(false);
     }
   };
 
-  const selectedWithEmail = versorger.filter(v => selected.has(v.typ) && v.email);
+  const selectedWithEmail = versorger.filter(v => selected.has(v.typ) && mailadressen(v.email));
 
   return (
     // Während des Versands nicht schließbar: Sonst bliebe offen, wer benachrichtigt ist
@@ -243,7 +260,9 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
                 <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-medium text-red-800">Fehlgeschlagen</p>
-                  <p className="text-sm text-red-700">{sentResult.failed.join(", ")}</p>
+                  {sentResult.failed.map((f) => (
+                    <p key={f} className="text-sm text-red-700 break-words">{f}</p>
+                  ))}
                 </div>
               </div>
             )}
@@ -322,9 +341,13 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
 
                   {isSelected && (
                     <>
-                      {!v.email && (
+                      {!v.email ? (
                         <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
                           Keine E-Mail-Adresse hinterlegt – Versand nicht möglich.
+                        </p>
+                      ) : !mailadressen(v.email) && (
+                        <p className="text-xs text-amber-600 bg-amber-50 rounded p-2">
+                          Die hinterlegte Adresse ist ungültig – Versand nicht möglich. Bitte beim Objekt korrigieren.
                         </p>
                       )}
                       <div>

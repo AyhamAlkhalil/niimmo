@@ -5,6 +5,7 @@ import {
   vertragsStaende,
   historieEintraege,
   historieAufteilen,
+  rueckbauLesen,
   aktuelleStaende,
   fehlendeDokumente,
   dateienHochladen,
@@ -140,6 +141,18 @@ describe("fehlendeDokumente", () => {
 });
 
 describe("dateienHochladen", () => {
+  it("meldet je Datei den Pfad, sobald sie angekommen ist", async () => {
+    const gemeldet: Array<string | null> = [];
+    await dateienHochladen(
+      [new File(["a"], "a.jpg"), new File(["b"], "b.jpg")],
+      (d) => `x/${d.name}`,
+      async (pfad) => ({ error: pfad === "x/b.jpg" ? new Error("weg") : null }),
+      (_f, _g, pfad) => gemeldet.push(pfad),
+      0
+    );
+    expect(gemeldet).toEqual(["x/a.jpg", null]);
+  });
+
   const datei = (name: string) => new File(["x"], name, { type: "image/jpeg" });
   const pfadFuer = (d: File, i: number) => `zaehlerfotos/v/${i}_${d.name}`;
 
@@ -204,3 +217,47 @@ describe("dateienHochladen", () => {
   });
 });
 
+
+describe("rueckbauLesen", () => {
+  const ID = "11111111-1111-4111-8111-111111111111";
+  const gut = {
+    historieIds: [ID],
+    zeilen: [{ tabelle: "einheiten", id: ID, neu: { strom_stand_aktuell: 5, strom_stand_datum: "2026-10-23" }, vorher: { strom_stand_aktuell: null, strom_stand_datum: null } }],
+    pdfPfad: `uebergabeprotokolle/${ID}/einzug-2026-10-23-1500.pdf`,
+  };
+
+  it("liest einen vollständigen Rückbau", () => {
+    expect(rueckbauLesen(gut)).toEqual(gut);
+  });
+
+  it("nimmt eine vorhandene Historienzeile mit Protokollpfad als Bedingung an", () => {
+    const r = { historieIds: [], zeilen: [{ tabelle: "zaehlerstand_historie", id: ID, neu: { protokoll_pfad: gut.pdfPfad }, vorher: { stand: 4, protokoll_pfad: null } }] };
+    expect(rueckbauLesen(r)?.zeilen).toHaveLength(1);
+  });
+
+  it.each([
+    ["kein Objekt", null],
+    ["leer", { historieIds: [], zeilen: [] }],
+    ["fremde Tabelle", { ...gut, zeilen: [{ ...gut.zeilen[0], tabelle: "mieter" }] }],
+    ["ID ohne Form", { ...gut, historieIds: ["1; drop"] }],
+    ["ID als Filter", { ...gut, zeilen: [{ ...gut.zeilen[0], id: "x,id.neq.0" }] }],
+    ["verschachtelter Wert", { ...gut, zeilen: [{ ...gut.zeilen[0], vorher: { a: { b: 1 } } }] }],
+    ["Bedingung ohne Spalten", { ...gut, zeilen: [{ ...gut.zeilen[0], neu: {} }] }],
+    ["Bedingung mit null", { ...gut, zeilen: [{ ...gut.zeilen[0], neu: { a: null } }] }],
+    ["fremde Spalte", { ...gut, zeilen: [{ ...gut.zeilen[0], vorher: { kaltmiete: 1 } }] }],
+    ["Spaltenname als Filter", { ...gut, zeilen: [{ ...gut.zeilen[0], neu: { "id.neq.0,or=(1": 1 } }] }],
+    ["unendlicher Wert", { ...gut, zeilen: [{ ...gut.zeilen[0], neu: { strom_stand_aktuell: Infinity } }] }],
+  ])("verwirft %s", (_, roh) => {
+    expect(rueckbauLesen(roh)).toBeNull();
+  });
+
+  it.each([
+    "mietvertraege/x.pdf",
+    `uebergabeprotokolle/${ID}/../../mietvertraege/x.pdf`,
+    `uebergabeprotokolle/${ID}/%2e%2e/x.pdf`,
+    `uebergabeprotokolle/${ID}/x.pdf\n`,
+    `uebergabeprotokolle/${ID}/x.jpg`,
+  ])("verwirft den Rückbau bei fremdem Protokollpfad: %s", (pfad) => {
+    expect(rueckbauLesen({ ...gut, pdfPfad: pfad })).toBeNull();
+  });
+});

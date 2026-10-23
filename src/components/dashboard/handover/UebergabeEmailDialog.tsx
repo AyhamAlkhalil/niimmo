@@ -11,7 +11,7 @@ import { Loader2, Mail, Send, AlertCircle, CheckCircle2, Plus, X } from "lucide-
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { de } from "date-fns/locale";
-import { istMailadresse, versandAuswerten } from "@/utils/uebergabeMail";
+import { funktionsFehlertext, mailadressen, versandAuswerten } from "@/utils/uebergabeMail";
 
 interface Mieter {
   id: string;
@@ -94,6 +94,8 @@ export const UebergabeEmailDialog = ({
 
   // Additional CC recipients
   const [ccEmails, setCcEmails] = useState<string[]>([""]);
+  // Wer schon beliefert ist, bekommt beim nächsten Senden nichts — außer man will es ausdrücklich
+  const [auchBelieferte, setAuchBelieferte] = useState(false);
 
   const propertyInfo = contracts.length > 0
     ? `${contracts[0].einheit.immobilie.name}, ${contracts[0].einheit.immobilie.adresse}`
@@ -148,38 +150,39 @@ Ihre Hausverwaltung`
     setCcEmails((prev) => prev.map((e, i) => (i === index ? value : e)));
   };
 
-  const hasValidEmails = Object.values(emailAddresses).some(istMailadresse);
+  // Ein Feld kann mehrere Adressen tragen („a@x.de, b@y.de“)
+  const hasValidEmails = Object.values(emailAddresses).some((e) => !!mailadressen(e));
   // Etwas eingetragen, aber keine vollständige Adresse
-  const ungueltig = (email: string | undefined) => !!email?.trim() && !istMailadresse(email);
-  const geaendert = (m: Mieter) => istMailadresse(emailAddresses[m.id]) && emailAddresses[m.id].trim() !== (m.hauptmail ?? "").trim();
+  const ungueltig = (email: string | undefined) => !!email?.trim() && !mailadressen(email);
+  // In die Stammdaten nur eine einzelne Adresse — andere Stellen lesen hauptmail als eine
+  const geaendert = (m: Mieter) => mailadressen(emailAddresses[m.id])?.length === 1 && emailAddresses[m.id].trim() !== (m.hauptmail ?? "").trim();
+
+  // Dieselbe Adresse als Mieter und als CC bekäme die Mail sonst zweimal
+  const gesehen = new Set<string>();
+  const alleEmpfaenger = [
+    ...mieter.flatMap((m) =>
+      (mailadressen(emailAddresses[m.id]) ?? []).map((email) => ({ mieterId: m.id, email, name: `${m.vorname} ${m.nachname || ""}`.trim() }))
+    ),
+    ...ccEmails.flatMap((feld) => (mailadressen(feld) ?? []).map((email) => ({ mieterId: "cc", email, name: "CC" }))),
+  ].filter((r) => {
+    const schluessel = r.email.toLowerCase();
+    if (gesehen.has(schluessel)) return false;
+    gesehen.add(schluessel);
+    return true;
+  });
+  // Nach einem Teilfehler bekamen bis zum 23.10.2026 auch die schon Belieferten die Mail noch einmal
+  const beliefert = new Set((bisherVersendet?.adressen ?? []).map((a) => a.toLowerCase()));
+  const offeneEmpfaenger = auchBelieferte ? alleEmpfaenger : alleEmpfaenger.filter((r) => !beliefert.has(r.email.toLowerCase()));
 
   const handleSendEmails = async () => {
-    const validEmails = mieter
-      .filter((m) => istMailadresse(emailAddresses[m.id]))
-      .map((m) => ({
-        mieterId: m.id,
-        email: emailAddresses[m.id].trim(),
-        name: `${m.vorname} ${m.nachname || ""}`.trim(),
-      }));
-
-    // Add CC emails as additional recipients
-    const validCcEmails = ccEmails
-      .filter(istMailadresse)
-      .map((email) => ({ mieterId: "cc", email: email.trim(), name: "CC" }));
-
-    // Dieselbe Adresse als Mieter und als CC bekäme die Mail sonst zweimal
-    const gesehen = new Set<string>();
-    const allRecipients = [...validEmails, ...validCcEmails].filter((r) => {
-      const schluessel = r.email.toLowerCase();
-      if (gesehen.has(schluessel)) return false;
-      gesehen.add(schluessel);
-      return true;
-    });
-
+    const allRecipients = offeneEmpfaenger;
     if (allRecipients.length === 0) {
       toast({
         title: "Keine E-Mail-Adressen",
-        description: "Bitte geben Sie mindestens eine gültige E-Mail-Adresse ein.",
+        description:
+          alleEmpfaenger.length > 0
+            ? "An alle eingetragenen Adressen ist schon versendet."
+            : "Bitte geben Sie mindestens eine gültige E-Mail-Adresse ein.",
         variant: "destructive",
       });
       return;
@@ -200,19 +203,7 @@ Ihre Hausverwaltung`
       });
 
       if (response.error) {
-        // Tatsächliche Fehlermeldung aus dem Response-Body extrahieren
-        let errorMessage = response.error.message || "Unbekannter Fehler";
-        try {
-          const ctx = (response.error as { context?: { json?: () => Promise<{ error?: string }> } }).context;
-          if (ctx && typeof ctx.json === "function") {
-            const body = await ctx.json();
-            if (body?.error) errorMessage = body.error;
-          }
-        } catch (parseErr) {
-          // Antwort ohne JSON-Body - die Rohmeldung oben bleibt stehen
-          console.warn('Fehlerantwort der Edge Function nicht lesbar:', parseErr);
-        }
-        throw new Error(errorMessage);
+        throw new Error(await funktionsFehlertext(response.error, response.error.message || "Unbekannter Fehler"));
       }
 
       // Die Function meldet je Adresse, ob sie angenommen wurde. Bis zum
@@ -224,6 +215,7 @@ Ihre Hausverwaltung`
           adressen: [...new Set([...(vorher?.adressen ?? []), ...gesendet])],
           am: new Date(),
         }));
+        setAuchBelieferte(false);
         onVersendet?.(gesendet);
       }
 
@@ -231,8 +223,11 @@ Ihre Hausverwaltung`
       const nichtGespeichert: string[] = [];
       for (const m of mieter) {
         const email = emailAddresses[m.id]?.trim();
-        if (!adresseUebernehmen[m.id] || !geaendert(m) || !gesendet.includes(email)) continue;
-        const { error } = await supabase.from("mieter").update({ hauptmail: email }).eq("id", m.id);
+        const gesendetKlein = gesendet.map((a) => a.toLowerCase());
+        const alleAngekommen = (mailadressen(email) ?? []).every((a) => gesendetKlein.includes(a.toLowerCase()));
+        if (!adresseUebernehmen[m.id] || !geaendert(m) || !alleAngekommen) continue;
+        // Die gelesene Adresse, nicht das Feld samt Trennzeichen („a@x.de,“)
+        const { error } = await supabase.from("mieter").update({ hauptmail: mailadressen(email)![0] }).eq("id", m.id);
         if (error) nichtGespeichert.push(`${m.vorname} ${m.nachname || ""}`.trim());
       }
       if (nichtGespeichert.length > 0) {
@@ -310,10 +305,22 @@ Ihre Hausverwaltung`
             {bisherVersendet && (
               <div className="flex items-start gap-2 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <span className="break-all">
-                  Bereits versendet an {bisherVersendet.adressen.join(", ")} (zuletzt{" "}
-                  {format(bisherVersendet.am, "HH:mm", { locale: de })} Uhr).
-                </span>
+                <div className="space-y-2">
+                  <span className="break-all">
+                    Bereits versendet an {bisherVersendet.adressen.join(", ")} (zuletzt{" "}
+                    {format(bisherVersendet.am, "HH:mm", { locale: de })} Uhr). Diese Adressen bekommen die Mail nicht noch einmal.
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="auch-belieferte"
+                      checked={auchBelieferte}
+                      onCheckedChange={(wert) => setAuchBelieferte(wert === true)}
+                    />
+                    <Label htmlFor="auch-belieferte" className="text-xs font-normal cursor-pointer">
+                      Trotzdem erneut an alle senden
+                    </Label>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -416,7 +423,7 @@ Ihre Hausverwaltung`
               </Button>
               <Button
                 onClick={handleSendEmails}
-                disabled={isSending || (!hasValidEmails && !ccEmails.some(istMailadresse))}
+                disabled={isSending || offeneEmpfaenger.length === 0}
               >
                 {isSending ? (
                   <>
@@ -426,7 +433,7 @@ Ihre Hausverwaltung`
                 ) : (
                   <>
                     <Send className="mr-2 h-4 w-4" />
-                    {bisherVersendet ? "Erneut senden" : "E-Mail senden"}
+                    {offeneEmpfaenger.length > 1 ? `An ${offeneEmpfaenger.length} Adressen senden` : "E-Mail senden"}
                   </>
                 )}
               </Button>

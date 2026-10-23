@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { CheckCircle2, Circle, Download, Mail, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, Download, Mail, RotateCcw, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -21,7 +21,23 @@ interface UebergabeAbschlussProps {
   versorger: Versorger[];
   benachrichtigt: Set<string>;
   onVersorger: () => void;
+  /** Mieter- oder Versorgerdaten ließen sich nicht laden — kein „nicht hinterlegt“ behaupten */
+  ladefehler: { mieter: boolean; versorger: boolean };
+  onNeuLaden: () => void;
 }
+
+const Ladefehler = ({ was, onNeuLaden }: { was: string; onNeuLaden: () => void }) => (
+  <div className="space-y-2">
+    <p className="flex items-start gap-1.5 text-sm text-destructive">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      Die {was} konnten nicht geladen werden.
+    </p>
+    <Button variant="outline" size="sm" onClick={onNeuLaden} className="h-9">
+      <RotateCcw className="h-4 w-4" />
+      Erneut laden
+    </Button>
+  </div>
+);
 
 /**
  * Nach dem Speichern: was noch zu tun ist, mit Stand je Empfänger. Bis zum
@@ -38,6 +54,8 @@ export const UebergabeAbschluss = ({
   versorger,
   benachrichtigt,
   onVersorger,
+  ladefehler,
+  onNeuLaden,
 }: UebergabeAbschlussProps) => {
   const mitAdresse = versorger.filter((v) => v.email);
   const offen = mitAdresse.filter((v) => !benachrichtigt.has(v.typ));
@@ -62,7 +80,10 @@ export const UebergabeAbschluss = ({
           <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="font-medium">Mieter informieren</p>
-            {mailVersendetAn.length > 0 ? (
+            {/* Bis zum 23.10.2026 stand bei einem Ladefehler „kein Mieter hinterlegt“ */}
+            {ladefehler.mieter && mailVersendetAn.length === 0 ? (
+              <Ladefehler was="Mieterdaten" onNeuLaden={onNeuLaden} />
+            ) : mailVersendetAn.length > 0 ? (
               <p className="flex items-start gap-1.5 break-all text-sm text-success">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                 Versendet an {mailVersendetAn.join(", ")}
@@ -81,6 +102,18 @@ export const UebergabeAbschluss = ({
           </Button>
         )}
       </section>
+
+      {ladefehler.versorger && versorger.length === 0 && (
+        <section className="space-y-3 rounded-lg border p-4">
+          <div className="flex items-start gap-3">
+            <Zap className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="font-medium">Versorger {isEinzug ? "Anmeldung" : "Abmeldung"}</p>
+              <Ladefehler was="Versorgerdaten" onNeuLaden={onNeuLaden} />
+            </div>
+          </div>
+        </section>
+      )}
 
       {versorger.length > 0 && (
         <section className="space-y-3 rounded-lg border p-4">

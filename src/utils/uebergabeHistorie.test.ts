@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { uebergabeArt, uebergabenJeVertrag, type UebergabeAblesung } from "./uebergabeHistorie";
+import { protokolleErgaenzen, uebergabeArt, uebergabenJeVertrag, type UebergabeAblesung } from "./uebergabeHistorie";
 
 const ablesung = (teil: Partial<UebergabeAblesung>): UebergabeAblesung => ({
   id: Math.random().toString(36).slice(2),
@@ -76,5 +76,34 @@ describe("uebergabenJeVertrag", () => {
       ]
     );
     expect(m.get("alt")?.map((e) => `${e.art} ${e.datum}`)).toEqual(["einzug 2023-02-01", "auszug 2026-10-01"]);
+  });
+});
+
+describe("protokolleErgaenzen", () => {
+  it("zeigt ein Protokoll ohne Ablesung als eigene Übergabe", () => {
+    const m = protokolleErgaenzen(new Map(), [{ mietvertrag_id: "alt", art: "auszug", datum: "2025-08-31", pfad: "p/a.pdf" }]);
+    expect(m.get("alt")).toEqual([{ art: "auszug", datum: "2025-08-31", ablesungen: [], protokollPfad: "p/a.pdf" }]);
+  });
+
+  it("nimmt kein Protokoll doppelt, auf das eine Ablesung schon verweist", () => {
+    const vorher = uebergabenJeVertrag([NEU], [ablesung({ mietvertrag_id: "neu", protokoll_pfad: "p/e.pdf" })]);
+    const m = protokolleErgaenzen(vorher, [{ mietvertrag_id: "neu", art: "einzug", datum: "2026-10-01", pfad: "p/e.pdf" }]);
+    expect(m.get("neu")).toHaveLength(1);
+  });
+
+  it("hängt das Protokoll an eine Übergabe desselben Tags ohne Protokoll", () => {
+    const vorher = uebergabenJeVertrag([NEU], [ablesung({ mietvertrag_id: "neu" })]);
+    const m = protokolleErgaenzen(vorher, [{ mietvertrag_id: "neu", art: "einzug", datum: "2026-10-01", pfad: "p/hand.pdf" }]);
+    expect(m.get("neu")).toHaveLength(1);
+    expect(m.get("neu")![0].protokollPfad).toBe("p/hand.pdf");
+    expect(vorher.get("neu")![0].protokollPfad).toBeNull();
+  });
+
+  it("sortiert nach Datum, Einzug vor Auszug", () => {
+    const m = protokolleErgaenzen(new Map(), [
+      { mietvertrag_id: "v", art: "auszug", datum: "2026-10-01", pfad: "b" },
+      { mietvertrag_id: "v", art: "einzug", datum: "2023-02-01", pfad: "a" },
+    ]);
+    expect(m.get("v")?.map((e) => e.protokollPfad)).toEqual(["a", "b"]);
   });
 });

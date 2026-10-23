@@ -139,6 +139,8 @@ export interface AblaufEingaben {
   referenzen?: Record<string, Partial<Record<ZaehlerTyp, Referenzstand | null>>>;
   unterschriftVermieter: boolean;
   unterschriftMieter: boolean;
+  /** yyyy-MM-dd — Bezug für „liegt in der Zukunft"; ohne Angabe wird das nicht geprüft */
+  heute?: string;
 }
 
 export interface Pruefpunkt {
@@ -156,6 +158,12 @@ const anzahl = (n: number, eins: string, viele: string) => `${n} ${n === 1 ? ein
 export function pruefpunkte(e: AblaufEingaben, vertragIds: string[]): Pruefpunkt[] {
   const punkte: Pruefpunkt[] = [];
   if (!e.uebergabeDatum) punkte.push({ schritt: "allgemein", art: "fehler", text: "Kein Übergabedatum gewählt." });
+  // Ein Protokoll entsteht bei der Übergabe — ein späteres Datum ist fast immer
+  // das vorbelegte Vertragsende und stünde so in Historie und Unterschriftszeile
+  else if (e.heute && e.uebergabeDatum > e.heute) {
+    const [j, m, t] = e.uebergabeDatum.split("-");
+    punkte.push({ schritt: "allgemein", art: "hinweis", text: `Das Übergabedatum ${t}.${m}.${j} liegt in der Zukunft.` });
+  }
 
   let erfasst = 0;
   let gesamt = 0;
@@ -197,6 +205,19 @@ export function pruefpunkte(e: AblaufEingaben, vertragIds: string[]): Pruefpunkt
     punkte.push({ schritt: "unterschriften", art: "ok", text: "Beide Seiten haben unterschrieben." });
   }
   return punkte;
+}
+
+/**
+ * Vorbelegung des Übergabedatums. Beim Auszug das Vertragsende — aber nur, wenn
+ * es nicht nach heute liegt: Die Vertragsliste schlägt Auszüge schon Tage vorher
+ * vor, und bis zum 23.10.2026 stand dann das künftige Ende in Protokoll,
+ * Historie und Unterschriftszeile. Sonst und beim Einzug: heute.
+ */
+export function vorschlagDatum(isEinzug: boolean, vertragsende: string | null, heute: Date): Date {
+  if (isEinzug || !vertragsende) return heute;
+  const ende = parseISO(vertragsende.slice(0, 10));
+  if (!isValid(ende) || format(ende, "yyyy-MM-dd") > format(heute, "yyyy-MM-dd")) return heute;
+  return ende;
 }
 
 /** Zustand je Schritt für die Schrittleiste: der schlechteste seiner Prüfpunkte. */
@@ -241,4 +262,24 @@ export function bausteinAnhaengen(notizen: string, baustein: string): string {
 export function handyAnsicht(breite: number, hoehe: number, touch: boolean, grenze = 768, kurzeSeite = 600): boolean {
   if (breite < grenze) return true;
   return touch && Math.min(breite, hoehe) < kurzeSeite;
+}
+
+export interface MietsacheAngaben {
+  einheitentyp?: string | null;
+  etage?: string | null;
+  anzahlZimmer?: number | null;
+  qm?: number | null;
+  bezeichnung?: string | null;
+}
+
+/**
+ * Die Mietsache so genau, wie die Stammdaten es hergeben: „Wohnung, 1. OG links,
+ * 3 Zimmer, 72,5 m²“. Bis zum 23.10.2026 nannte das Protokoll nur Objekt und
+ * Etage — bei 11 von 113 Einheiten war daraus nicht erkennbar, welche übergeben
+ * wurde. Eine Wohnungsnummer gibt es in den Stammdaten nicht (bezeichnung ist leer).
+ */
+export function mietsacheText(e: MietsacheAngaben): string {
+  const zimmer = e.anzahlZimmer && e.anzahlZimmer > 0 ? `${String(e.anzahlZimmer).replace(".", ",")} Zimmer` : null;
+  const flaeche = e.qm && e.qm > 0 ? `${e.qm.toLocaleString("de-DE", { maximumFractionDigits: 2 })} m²` : null;
+  return [e.bezeichnung?.trim(), e.einheitentyp?.trim(), e.etage?.trim(), zimmer, flaeche].filter(Boolean).join(", ");
 }

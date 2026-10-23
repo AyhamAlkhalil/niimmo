@@ -1,6 +1,8 @@
 import { jsPDF } from 'jspdf';
 import type { PdfImage } from './pdfImageUtils';
 import { COMPANY } from '@/config/company';
+import { zaehlerstandText } from './zaehlerstandUtils';
+import { pdfText } from './pdf/pdfText';
 
 export interface UebergabePdfData {
   isEinzug: boolean;
@@ -9,6 +11,8 @@ export interface UebergabePdfData {
   
   immobilieName: string;
   immobilieAdresse: string;
+  /** Art, Lage, Zimmer, Fläche — damit erkennbar ist, welche Einheit übergeben wurde */
+  mietsache?: string;
   
   schluessel: {
     haustuer: string;
@@ -21,6 +25,7 @@ export interface UebergabePdfData {
     name: string;
     adresse: string;
     etage: string;
+    mietsache?: string;
     qm: number | null;
     zaehlerstaende: {
       strom: string;
@@ -51,6 +56,14 @@ export interface UebergabePdfData {
   mieterSignature: string | null;
 }
 
+/** Eine Unterschrift ließ sich nicht ins PDF übernehmen — der Dialog bittet um eine neue */
+export class UnterschriftFehler extends Error {
+  constructor(public readonly wer: string) {
+    super(`Die Unterschrift (${wer}) ließ sich nicht ins Protokoll übernehmen.`);
+    this.name = 'UnterschriftFehler';
+  }
+}
+
 // Load logo as base64 - cached
 let logoBase64Cache: string | null = null;
 
@@ -72,7 +85,26 @@ async function loadLogo(): Promise<string | null> {
   }
 }
 
-export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob> {
+export async function generateUebergabePdf(roh: UebergabePdfData): Promise<Blob> {
+  // Freitext und Stammdaten nur mit Zeichen, die die Standardschrift kennt (pdfText)
+  const data: UebergabePdfData = {
+    ...roh,
+    mieterName: pdfText(roh.mieterName),
+    immobilieName: pdfText(roh.immobilieName),
+    immobilieAdresse: pdfText(roh.immobilieAdresse),
+    mietsache: roh.mietsache ? pdfText(roh.mietsache) : roh.mietsache,
+    protokollNotizen: pdfText(roh.protokollNotizen),
+    einheiten: roh.einheiten.map((e) => ({
+      ...e,
+      name: pdfText(e.name),
+      adresse: pdfText(e.adresse),
+      etage: pdfText(e.etage),
+      mietsache: e.mietsache ? pdfText(e.mietsache) : e.mietsache,
+      zaehlernummern: e.zaehlernummern
+        ? Object.fromEntries(Object.entries(e.zaehlernummern).map(([typ, nr]) => [typ, nr == null ? nr : pdfText(nr)]))
+        : e.zaehlernummern,
+    })),
+  };
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = 210;
   const marginLeft = 25;
@@ -129,6 +161,7 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
     ['Übergabedatum:', data.uebergabeDatum],
     ['Mieter:', data.mieterName],
     ['Objekt:', `${data.immobilieName}, ${data.immobilieAdresse}`],
+    ...(data.mietsache ? [['Mietsache:', data.mietsache]] : []),
   ];
 
   for (const [label, value] of infoRows) {
@@ -184,7 +217,9 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
 
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text(`Zählerstände – ${einheit.name}${einheit.etage ? `, ${einheit.etage}` : ''}${einheit.qm ? ` (${einheit.qm} m²)` : ''}`, marginLeft, y);
+    // Die Mietsache enthält die Lage schon; ohne sie wie bisher die Etage
+    const lage = einheit.mietsache || [einheit.etage, einheit.qm ? `${einheit.qm} m²` : ''].filter(Boolean).join(', ');
+    doc.text(`Zählerstände – ${einheit.name}${lage ? `, ${lage}` : ''}`, marginLeft, y);
     y += 3;
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
@@ -217,10 +252,11 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
 
     doc.setFont('helvetica', 'normal');
     const readings = [
-      ['Strom', einheit.zaehlerstaende.strom || '–', 'kWh', nummern.strom],
-      ['Gas', einheit.zaehlerstaende.gas || '–', 'm³', nummern.gas],
-      ['Kaltwasser', einheit.zaehlerstaende.wasser || '–', 'm³', nummern.wasser],
-      ['Warmwasser', einheit.zaehlerstaende.warmwasser || '–', 'm³', nummern.warmwasser],
+      // Der gelesene Wert, wie er gespeichert wird — nicht die Roheingabe (zaehlerstandText)
+      ['Strom', zaehlerstandText(einheit.zaehlerstaende.strom) || '–', 'kWh', nummern.strom],
+      ['Gas', zaehlerstandText(einheit.zaehlerstaende.gas) || '–', 'm³', nummern.gas],
+      ['Kaltwasser', zaehlerstandText(einheit.zaehlerstaende.wasser) || '–', 'm³', nummern.wasser],
+      ['Warmwasser', zaehlerstandText(einheit.zaehlerstaende.warmwasser) || '–', 'm³', nummern.warmwasser],
     ];
 
     for (const [type, value, unit, nummer] of readings) {
@@ -292,23 +328,18 @@ export async function generateUebergabePdf(data: UebergabePdfData): Promise<Blob
   const leftSigX = marginLeft;
   const rightSigX = marginLeft + 85;
 
-  // Vermieter signature
-  if (data.vermieterSignature) {
+  // Eine Unterschrift, die sich nicht einbetten lässt, bricht ab: Bis zum
+  // 23.10.2026 fehlte sie still im PDF, während „Prüfen" beide als geleistet zeigte
+  const unterschreiben = (bild: string | null, x: number, wer: string) => {
+    if (!bild) return;
     try {
-      doc.addImage(data.vermieterSignature, 'PNG', leftSigX, y, sigWidth, sigHeight);
-    } catch (e) {
-      console.warn('Unterschrift des Vermieters konnte nicht ins PDF uebernommen werden:', e);
+      doc.addImage(bild, 'PNG', x, y, sigWidth, sigHeight);
+    } catch {
+      throw new UnterschriftFehler(wer);
     }
-  }
-
-  // Mieter signature
-  if (data.mieterSignature) {
-    try {
-      doc.addImage(data.mieterSignature, 'PNG', rightSigX, y, sigWidth, sigHeight);
-    } catch (e) {
-      console.warn('Unterschrift des Mieters konnte nicht ins PDF uebernommen werden:', e);
-    }
-  }
+  };
+  unterschreiben(data.vermieterSignature, leftSigX, 'Vermieter');
+  unterschreiben(data.mieterSignature, rightSigX, 'Mieter');
 
   y += sigHeight + 2;
 

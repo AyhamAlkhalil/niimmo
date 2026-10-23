@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { dateienHochladen } from "@/utils/uebergabeSpeicherung";
+import { bildLesbar } from "@/utils/pdfImageUtils";
 
 interface FotoAufnahmeProps {
   inputId: string;
@@ -83,27 +84,47 @@ export const FotoAufnahme = ({
   }, [photos]);
 
   const handleCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const auswahl = e.target.files ? Array.from(e.target.files) : [];
+    if (auswahl.length === 0) return;
 
     setUploading(true);
     onUploadingChangeRef.current?.(true);
-    setFortschritt({ fertig: 0, gesamt: files.length });
+    setFortschritt({ fertig: 0, gesamt: auswahl.length });
     try {
-      const { pfade, fehlgeschlagen } = await dateienHochladen(
+      // Nicht lesbare Formate gar nicht erst hochladen — sie fehlten sonst im PDF
+      const files: File[] = [];
+      for (const datei of auswahl) if (await bildLesbar(datei)) files.push(datei);
+      const unlesbar = auswahl.length - files.length;
+      if (unlesbar > 0 && istEingehaengt.current) {
+        toast({
+          title: "Bildformat nicht lesbar",
+          description: `${unlesbar === 1 ? "Ein Foto hat" : `${unlesbar} Fotos haben`} ein Format, das dieser Browser nicht lesen kann (z. B. HEIC). Bitte direkt mit der Kamera aufnehmen oder als JPEG speichern.`,
+          variant: "destructive",
+        });
+      }
+      if (files.length === 0) return;
+      setFortschritt({ fertig: 0, gesamt: files.length });
+
+      // Jedes angekommene Foto sofort übernehmen: Bis zum 23.10.2026 kamen sie erst
+      // am Ende der ganzen Auswahl in den Entwurf, und ein Neuladen dazwischen
+      // verlor auch die schon hochgeladenen
+      const { fehlgeschlagen } = await dateienHochladen(
         files,
         pfadFuer,
         (pfad, file) => supabase.storage.from("dokumente").upload(pfad, file, { upsert: true }),
-        (fertig, gesamt) => istEingehaengt.current && setFortschritt({ fertig, gesamt })
+        (fertig, gesamt, pfad) => {
+          if (!istEingehaengt.current) return;
+          setFortschritt({ fertig, gesamt });
+          if (pfad) {
+            const aktualisiert = [...photosRef.current, pfad];
+            photosRef.current = aktualisiert;
+            setPhotos(aktualisiert);
+            onPhotosChange(aktualisiert);
+          }
+        }
       );
 
       if (!istEingehaengt.current) return;
-
-      if (pfade.length > 0) {
-        const aktualisiert = [...photosRef.current, ...pfade];
-        setPhotos(aktualisiert);
-        onPhotosChange(aktualisiert);
-      }
 
       if (fehlgeschlagen > 0) {
         toast({
@@ -140,7 +161,9 @@ export const FotoAufnahme = ({
         {vorKnopf}
         {/* sr-only statt hidden — iOS Safari öffnet display:none-Dateifelder nicht.
             Direkt vor dem Label, damit peer-focus-visible den Fokus am Knopf zeigt. */}
-        <input id={inputId} type="file" accept="image/*" multiple onChange={handleCapture} className="peer sr-only" />
+        {/* Während eines Uploads gesperrt: Eine zweite Auswahl gab sonst mit dem Ende der
+            ersten das Speichern frei, obwohl die zweite noch lief */}
+        <input id={inputId} type="file" accept="image/*" multiple disabled={uploading} onChange={handleCapture} className="peer sr-only" />
         {/* label statt Button+onClick — einzige zuverlässige Methode auf iOS Safari */}
         <label
           htmlFor={inputId}

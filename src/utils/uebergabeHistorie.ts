@@ -112,3 +112,41 @@ export function uebergabenJeVertrag(
   }
   return ergebnis;
 }
+
+export interface ProtokollDokument {
+  mietvertrag_id: string;
+  art: UebergabeArt;
+  /** yyyy-MM-dd — Übergabedatum aus dem Titel, sonst der Tag des Hochladens */
+  datum: string;
+  pfad: string;
+}
+
+/**
+ * Ergänzt die Übergaben um Protokolle, zu denen es keine Ablesung gibt: Stellplatz
+ * und Garage ohne Zähler, Übergaben nur mit Schlüsseln, alle Protokolle vor April
+ * 2026 und von Hand hochgeladene. Bis zum 23.10.2026 erschienen sie in der
+ * Historie gar nicht, weil die Liste nur aus den Ablesungen entstand. Ein
+ * Protokoll, auf das eine Ablesung schon verweist, kommt nicht doppelt.
+ */
+export function protokolleErgaenzen(
+  uebergaben: Map<string | null, UebergabeEreignis[]>,
+  protokolle: ProtokollDokument[]
+): Map<string | null, UebergabeEreignis[]> {
+  const ergebnis = new Map([...uebergaben].map(([k, v]) => [k, v.map((e) => ({ ...e }))]));
+  const bekannt = new Set([...ergebnis.values()].flat().map((e) => e.protokollPfad).filter(Boolean));
+  for (const p of protokolle) {
+    if (bekannt.has(p.pfad)) continue;
+    bekannt.add(p.pfad);
+    const liste = ergebnis.get(p.mietvertrag_id) ?? [];
+    const gleich = liste.find((e) => e.art === p.art && e.datum === p.datum);
+    if (gleich) {
+      if (!gleich.protokollPfad) gleich.protokollPfad = p.pfad;
+    } else {
+      liste.push({ art: p.art, datum: p.datum, ablesungen: [], protokollPfad: p.pfad });
+    }
+    ergebnis.set(p.mietvertrag_id, liste);
+  }
+  const reihenfolge = (e: UebergabeEreignis) => `${e.datum}|${e.art === "einzug" ? 0 : 1}`;
+  for (const liste of ergebnis.values()) liste.sort((x, y) => (reihenfolge(x) < reihenfolge(y) ? -1 : reihenfolge(x) > reihenfolge(y) ? 1 : 0));
+  return ergebnis;
+}

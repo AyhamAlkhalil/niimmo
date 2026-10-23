@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe } from './zaehlerstandUtils';
+import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe, punktAlsKomma, zaehlerstandText } from './zaehlerstandUtils';
 
 describe('sanitizeZaehlerstand', () => {
   it('behält die Komma-Eingabe der deutschen Tastatur', () => {
@@ -92,5 +92,32 @@ describe('istGueltigeZaehlerstandEingabe', () => {
   it('markiert mehrdeutige Eingaben als ungültig', () => {
     expect(istGueltigeZaehlerstandEingabe('12,34,5')).toBe(false);
     expect(istGueltigeZaehlerstandEingabe('12.345.678')).toBe(false);
+  });
+});
+
+describe("zaehlerstandText", () => {
+  it("zeigt den gespeicherten Wert in deutscher Schreibweise", () => {
+    expect(zaehlerstandText("12.345")).toBe("12,345");
+    expect(zaehlerstandText("4711,5")).toBe("4711,5");
+    expect(zaehlerstandText("1.234,5")).toBe("1234,5");
+    expect(zaehlerstandText("12345")).toBe("12345");
+    expect(zaehlerstandText("128,")).toBe("128");
+  });
+
+  it("lässt Leeres leer und Unlesbares unverändert", () => {
+    expect(zaehlerstandText("")).toBe("");
+    expect(zaehlerstandText(null)).toBe("");
+    expect(zaehlerstandText("12,34,5")).toBe("12,34,5");
+  });
+});
+
+describe("punktAlsKomma", () => {
+  it("erkennt einen einzelnen Punkt ohne Komma", () => {
+    expect(punktAlsKomma("12.345")).toBe(true);
+    expect(punktAlsKomma("12.5")).toBe(true);
+  });
+
+  it.each(["12345", "12,5", "1.234,5", "12.345.678", "12.", ""])("schweigt bei %j", (wert) => {
+    expect(punktAlsKomma(wert)).toBe(false);
   });
 });

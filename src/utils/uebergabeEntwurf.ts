@@ -18,7 +18,7 @@
  * sind, verfällt ein Entwurf nach ENTWURF_HALTBAR_TAGE ohne Änderung.
  */
 import { isValid, parse } from "date-fns";
-import type { ZaehlerEingaben } from "./uebergabeSpeicherung";
+import { rueckbauLesen, type Rueckbau, type ZaehlerEingaben } from "./uebergabeSpeicherung";
 
 export interface UebergabeEingaben {
   /** yyyy-MM-dd */
@@ -34,6 +34,8 @@ export interface UebergabeEingaben {
   mieterEmails: Record<string, string>;
   /** Schritt des Ablaufs, an dem zuletzt gearbeitet wurde — „geht an derselben Stelle weiter" */
   schritt?: string;
+  /** Reste eines abgebrochenen Speicherns, die beim nächsten Öffnen zurückgenommen werden (seit 23.10.2026) */
+  offenerRueckbau?: Rueckbau;
 }
 
 export interface UebergabeEntwurf extends UebergabeEingaben {
@@ -86,7 +88,9 @@ export function hatEingaben(e: UebergabeEingaben): boolean {
     e.notizenFotos.length > 0 ||
     !!e.unterschriftVermieter ||
     !!e.unterschriftMieter ||
-    e.versorgerAuswahl.length > 0
+    e.versorgerAuswahl.length > 0 ||
+    // Sonst fiele der Entwurf samt dem noch offenen Rückbau weg
+    !!e.offenerRueckbau
   );
 }
 
@@ -178,6 +182,7 @@ export function entwurfLesen(
     versorgerAuswahl: textListe(r.versorgerAuswahl),
     mieterEmails,
     ...(text(r.schritt) ? { schritt: text(r.schritt) } : {}),
+    ...(rueckbauLesen(r.offenerRueckbau) ? { offenerRueckbau: rueckbauLesen(r.offenerRueckbau)! } : {}),
   };
 }
 

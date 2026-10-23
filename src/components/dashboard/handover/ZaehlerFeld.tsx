@@ -2,6 +2,7 @@ import { AlertTriangle, Droplet, Droplets, Flame, Zap } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { punktAlsKomma, zaehlerstandText } from "@/utils/zaehlerstandUtils";
 import { dateiendung } from "@/utils/storagePfad";
 import {
   ZAEHLER_BEZEICHNUNG,
@@ -56,7 +57,7 @@ export const ZaehlerFeld = ({
   const hinweisText = (h: ZaehlerHinweis): string => {
     switch (h.art) {
       case "unlesbar":
-        return "Nicht als Zahl lesbar. Bitte mit höchstens einem Komma eingeben, z. B. 4.711,5.";
+        return "Nicht als Zahl lesbar. Bitte mit höchstens einem Komma eingeben, z. B. 4711,5.";
       case "foto_ohne_stand":
         return "Foto vorhanden, aber kein Stand eingetragen — der Wert fehlt sonst im Protokoll.";
       case "kleiner":
@@ -104,6 +105,13 @@ export const ZaehlerFeld = ({
         }
       />
 
+      {/* „12.345“ wird als 12,345 gelesen — das muss vor dem Unterschreiben auffallen */}
+      {punktAlsKomma(wert) && !unlesbar && (
+        <p className="text-xs text-muted-foreground">
+          Gelesen als <span className="font-medium tabular-nums text-foreground">{zaehlerstandText(wert)} {einheit}</span>. Ohne Nachkommastellen
+          bitte ohne Punkt eingeben.
+        </p>
+      )}
       {referenz && !hinweise.some((h) => h.art === "kleiner" || h.art === "sprung") && (
         <p className="text-xs text-muted-foreground">Zum Vergleich: {referenzText(referenz, einheit)}</p>
       )}

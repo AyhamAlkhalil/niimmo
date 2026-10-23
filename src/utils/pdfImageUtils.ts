@@ -69,6 +69,22 @@ async function decodeOriented(blob: Blob): Promise<DecodedImage> {
   }
 }
 
+/**
+ * Kann der Browser das Bild lesen? HEIC aus der Galerie etwa nur Safari. Bis zum
+ * 23.10.2026 wurde ein solches Foto hochgeladen, fehlte dann im PDF, und die
+ * Meldung riet zu „schwache Verbindung — neu laden“, was nie half.
+ */
+export async function bildLesbar(datei: Blob): Promise<boolean> {
+  if (/^image\/(jpeg|png|webp|gif)$/i.test(datei.type)) return true;
+  try {
+    const d = await decodeOriented(datei);
+    d.release();
+    return d.width > 0 && d.height > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Konvertiert ein Bild-Blob in ein PDF-taugliches JPEG. `null`, wenn es nicht lesbar ist. */
 export async function blobToPdfImage(blob: Blob): Promise<PdfImage | null> {
   let decoded: DecodedImage;
@@ -89,19 +105,27 @@ export async function blobToPdfImage(blob: Blob): Promise<PdfImage | null> {
     const canvas = document.createElement("canvas");
     canvas.width = targetW;
     canvas.height = targetH;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
+    try {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
 
-    // Weißer Grund, damit transparente PNGs im PDF nicht schwarz werden
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, targetW, targetH);
-    ctx.drawImage(source, 0, 0, targetW, targetH);
+      // Weißer Grund, damit transparente PNGs im PDF nicht schwarz werden
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(source, 0, 0, targetW, targetH);
 
-    return {
-      dataUrl: canvas.toDataURL("image/jpeg", JPEG_QUALITY),
-      width: targetW,
-      height: targetH,
-    };
+      return {
+        dataUrl: canvas.toDataURL("image/jpeg", JPEG_QUALITY),
+        width: targetW,
+        height: targetH,
+      };
+    } finally {
+      // Sofort freigeben: Safari auf dem iPhone räumt verworfene Leinwände erst
+      // spät ab, und je Foto sind es bis zu 7,7 MB. Bei vielen Fotos lieferte
+      // getContext dann null, und Fotos fielen aus dem Protokoll (23.10.2026).
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   } catch {
     return null;
   } finally {

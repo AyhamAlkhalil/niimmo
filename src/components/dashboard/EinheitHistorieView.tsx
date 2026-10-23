@@ -9,7 +9,8 @@ import { Loader2 } from "lucide-react";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { getVertragsende } from "@/utils/contractUtils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
-import { uebergabenJeVertrag, type UebergabeAblesung, type UebergabeEreignis } from "@/utils/uebergabeHistorie";
+import { protokolleErgaenzen, uebergabenJeVertrag, type ProtokollDokument, type UebergabeAblesung, type UebergabeEreignis } from "@/utils/uebergabeHistorie";
+import { datumAusTitel, protokollArt, type ProtokollZeile } from "@/utils/uebergabeProtokolle";
 import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
 import { toast } from "sonner";
 
@@ -35,9 +36,11 @@ const UebergabenZeile = ({ ereignisse, fehler }: { ereignisse: UebergabeEreignis
               {e.art === "einzug" ? "Einzug" : "Auszug"} · {new Date(`${e.datum}T00:00:00`).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
             </Badge>
             <span className="text-muted-foreground">
-              {e.ablesungen
-                .map((a) => `${ZAEHLER_KURZ[a.zaehler_typ] ?? a.zaehler_typ} ${a.stand != null ? Number(a.stand).toLocaleString("de-DE") : "–"} ${ZAEHLER_EINHEIT[a.zaehler_typ] ?? ""}`.trim())
-                .join(" · ")}
+              {e.ablesungen.length === 0
+                ? "ohne Zählerstände"
+                : e.ablesungen
+                    .map((a) => `${ZAEHLER_KURZ[a.zaehler_typ] ?? a.zaehler_typ} ${a.stand != null ? Number(a.stand).toLocaleString("de-DE") : "–"} ${ZAEHLER_EINHEIT[a.zaehler_typ] ?? ""}`.trim())
+                    .join(" · ")}
             </span>
             {e.protokollPfad && (
               <Button
@@ -81,7 +84,7 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
   const [selectedVertragId, setSelectedVertragId] = useState<string | null>(null);
   const [lastClosedVertragId, setLastClosedVertragId] = useState<string | null>(null);
 
-  const { data: alleMietvertraege, isLoading: vertraegeLoading } = useQuery({
+  const { data: alleMietvertraege, isLoading: vertraegeLoading, isError: vertraegeFehler, refetch: vertraegeNeuLaden } = useQuery({
     queryKey: ['alle-mietvertrag-einheit-historie', einheitId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -95,7 +98,7 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
     }
   });
 
-  const { data: mieterData } = useQuery({
+  const { data: mieterData, isError: mieterFehler } = useQuery({
     queryKey: ['mietvertrag-mieter-historie', alleMietvertraege?.map(v => v.id)],
     queryFn: async () => {
       if (!alleMietvertraege?.length) return {};
@@ -150,14 +153,37 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
           .range(von, bis)
       ),
   });
-  const uebergaben = useMemo(
-    () =>
-      uebergabenJeVertrag(
-        (alleMietvertraege ?? []).map((v) => ({ id: v.id, start: v.start_datum, ende: getVertragsende(v) })),
-        uebergabeAblesungen ?? []
+  // Protokolle der Verträge — auch Übergaben ohne Ablesung (Garage, Altbestand, Handupload)
+  const vertragIds = useMemo(() => (alleMietvertraege ?? []).map((v) => v.id), [alleMietvertraege]);
+  const { data: protokollZeilen, isError: protokolleFehler } = useQuery({
+    queryKey: ['uebergabe-protokolle-einheit', einheitId, vertragIds],
+    enabled: vertragIds.length > 0,
+    queryFn: () =>
+      alleSeiten<ProtokollZeile>((von, bis, mitZaehlung) =>
+        supabase
+          .from('dokumente')
+          .select('mietvertrag_id, titel, pfad, dateityp, hochgeladen_am', { count: mitZaehlung ? 'exact' : undefined })
+          .in('mietvertrag_id', vertragIds)
+          .eq('kategorie', 'Übergabeprotokoll')
+          .eq('geloescht', false)
+          .order('id')
+          .range(von, bis)
       ),
-    [alleMietvertraege, uebergabeAblesungen]
-  );
+  });
+  const uebergaben = useMemo(() => {
+    const ausAblesungen = uebergabenJeVertrag(
+      (alleMietvertraege ?? []).map((v) => ({ id: v.id, start: v.start_datum, ende: getVertragsende(v) })),
+      uebergabeAblesungen ?? []
+    );
+    const protokolle: ProtokollDokument[] = [];
+    for (const z of protokollZeilen ?? []) {
+      const istPdf = z.dateityp === 'application/pdf' || /\.pdf$/i.test(z.pfad ?? '') || /\.pdf$/i.test(z.titel ?? '');
+      const art = protokollArt(z.titel, z.pfad);
+      const datum = datumAusTitel(z.titel) ?? z.hochgeladen_am?.slice(0, 10);
+      if (istPdf && art && datum && z.mietvertrag_id && z.pfad) protokolle.push({ mietvertrag_id: z.mietvertrag_id, art, datum, pfad: z.pfad });
+    }
+    return protokolleErgaenzen(ausAblesungen, protokolle);
+  }, [alleMietvertraege, uebergabeAblesungen, protokollZeilen]);
 
   // Generate timeline periods including vacancy periods
   const generateTimeline = (): Periode[] => {
@@ -310,7 +336,15 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
         <div className="space-y-4 pb-6">
           <h2 className="text-xl font-semibold text-gray-900">Mietvertrag-Historie</h2>
           
-          {timeline.length === 0 ? (
+          {/* Ein Ladefehler ist kein „keine Mietverträge“ (bis 23.10.2026) */}
+          {vertraegeFehler ? (
+            <Card className="w-fit mx-auto">
+              <CardContent className="p-6 text-center space-y-3">
+                <p className="text-destructive">Die Mietverträge dieser Einheit konnten nicht geladen werden.</p>
+                <Button variant="outline" onClick={() => void vertraegeNeuLaden()}>Erneut laden</Button>
+              </CardContent>
+            </Card>
+          ) : timeline.length === 0 ? (
             <Card className="w-fit mx-auto">
               <CardContent className="p-6 text-center">
                 <Clock className="h-8 w-8 text-gray-400 mx-auto mb-2" />
@@ -387,16 +421,18 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
                             <div>
                               <p className="text-sm text-gray-600">Mieter</p>
                               <p className="font-semibold">
-                                {periode.mieter && periode.mieter.length > 0 
+                                {periode.mieter && periode.mieter.length > 0
                                   ? periode.mieter.map(m => `${m.vorname} ${m.nachname}`).join(', ')
-                                  : 'Keine Mieter zugeordnet'
+                                  : mieterFehler
+                                    ? 'Mieter konnten nicht geladen werden'
+                                    : 'Keine Mieter zugeordnet'
                                 }
                               </p>
                             </div>
                           </div>
                         </div>
 
-                        <UebergabenZeile ereignisse={uebergaben.get(periode.vertrag.id) ?? []} fehler={uebergabenFehler} />
+                        <UebergabenZeile ereignisse={uebergaben.get(periode.vertrag.id) ?? []} fehler={uebergabenFehler || protokolleFehler} />
 
                         <div className="pt-2 border-t">
                           <p className="text-sm text-blue-600 font-medium">

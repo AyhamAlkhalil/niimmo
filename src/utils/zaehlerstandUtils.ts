@@ -58,6 +58,25 @@ export const parseZaehlerstand = (value: string | null | undefined): number | nu
 };
 
 /**
+ * Der Stand so, wie er gespeichert wird, mit Dezimalkomma und ohne Tausenderpunkt
+ * wie auf dem Zähler: "12.345" → "12,345", "1.234,5" → "1234,5". Bis zum 23.10.2026 druckten Protokoll und
+ * Zusammenfassung die Roheingabe — „12.345 kWh“ las jeder als zwölftausend,
+ * gespeichert wurde 12,345. Nicht lesbare Eingaben kommen unverändert zurück,
+ * leere als "".
+ */
+export const zaehlerstandText = (value: string | null | undefined): string => {
+  const text = (value ?? "").trim();
+  if (!text) return "";
+  const zahl = parseZaehlerstand(text);
+  if (zahl === null) return text;
+  return zahl.toLocaleString("de-DE", { maximumFractionDigits: 6, useGrouping: false });
+};
+
+/** Ein einzelner Punkt ohne Komma gilt als Dezimaltrenner — das Feld soll es zeigen. */
+export const punktAlsKomma = (value: string | null | undefined): boolean =>
+  /^\d+\.\d+$/.test((value ?? "").trim().replace(/[.,]$/, ""));
+
+/**
  * Für die Feldvalidierung: ein leeres Feld ist zulässig (nicht erfasst),
  * eine nicht interpretierbare Eingabe nicht.
  */

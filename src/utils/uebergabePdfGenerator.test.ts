@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { generateUebergabePdf, type UebergabePdfData } from './uebergabePdfGenerator';
+import { UnterschriftFehler, generateUebergabePdf, type UebergabePdfData } from './uebergabePdfGenerator';
 import type { PdfImage } from './pdfImageUtils';
 
 /**
@@ -70,6 +70,13 @@ describe('generateUebergabePdf', () => {
     expect(ohneFotos).toContain('128,456');
     expect(ohneFotos).toContain('77,9');
     expect(ohneFotos).toContain('3242');
+  });
+
+  it('druckt den gespeicherten Wert, nicht die Roheingabe: „12.345“ ist 12,345', async () => {
+    const pdf = await renderText({ ...baseData, einheiten: [{ ...baseData.einheiten[0], zaehlerstaende: { strom: '12.345', gas: '1.234,5', wasser: '', warmwasser: '' } }] });
+    expect(pdf).toContain('12,345');
+    expect(pdf).not.toContain('12.345');
+    expect(pdf).toContain('1234,5');
   });
 
   it('gibt erfasste Schlüssel mit Stückzahl aus', () => {
@@ -151,5 +158,29 @@ describe('generateUebergabePdf', () => {
     // Seitenverhältnis bleibt erhalten (900:1600 bzw. 1600:900)
     expect(hBreite / hHoehe).toBeCloseTo(900 / 1600, 2);
     expect(qBreite / qHoehe).toBeCloseTo(1600 / 900, 2);
+  });
+});
+
+describe('generateUebergabePdf: Mietsache und Sonderzeichen', () => {
+  it('nennt die Mietsache im Kopf und in der Zählerüberschrift', async () => {
+    const pdf = await renderText({
+      ...baseData,
+      mietsache: 'Wohnung, 1. OG links, 3 Zimmer, 72,5 m²',
+      einheiten: [{ ...baseData.einheiten[0], mietsache: 'Wohnung, 1. OG links, 3 Zimmer, 72,5 m²' }],
+    });
+    expect(pdf).toContain('Mietsache:');
+    expect(pdf.match(/3 Zimmer, 72,5 m²/g)?.length).toBe(2);
+  });
+
+  it('druckt Minus, Pfeile und Emojis in den Bemerkungen lesbar', async () => {
+    const pdf = await renderText({ ...baseData, protokollNotizen: 'Riss −2 cm → neu streichen 👍' });
+    expect(pdf).toContain('Riss -2 cm -> neu streichen');
+    expect(pdf).not.toContain('Ø=');
+  });
+});
+
+describe('generateUebergabePdf: kaputte Unterschrift', () => {
+  it('bricht mit UnterschriftFehler ab, statt sie still wegzulassen', async () => {
+    await expect(generateUebergabePdf({ ...baseData, mieterSignature: 'data:image/png;base64,kaputt' })).rejects.toBeInstanceOf(UnterschriftFehler);
   });
 });

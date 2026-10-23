@@ -5,6 +5,8 @@ import {
   istUebergabeSchritt,
   pruefpunkte,
   referenzstand,
+  vorschlagDatum,
+  mietsacheText,
   referenzText,
   schrittZustaende,
   zaehlerHinweise,
@@ -181,5 +183,53 @@ describe("handyAnsicht", () => {
     expect(handyAnsicht(1000, 600, true)).toBe(false);
     // Ohne Touch entscheidet nur die Breite, auch bei sehr niedrigem Fenster
     expect(handyAnsicht(1280, 400, false)).toBe(false);
+  });
+});
+
+describe("vorschlagDatum", () => {
+  const HEUTE = new Date(2026, 9, 23, 15, 0);
+  const tag = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+
+  it("nimmt beim Auszug ein vergangenes oder heutiges Vertragsende", () => {
+    expect(tag(vorschlagDatum(false, "2026-09-30", HEUTE))).toBe("2026-9-30");
+    expect(tag(vorschlagDatum(false, "2026-10-23", HEUTE))).toBe("2026-10-23");
+  });
+
+  it("nimmt heute, wenn das Vertragsende noch kommt", () => {
+    expect(tag(vorschlagDatum(false, "2026-10-31", HEUTE))).toBe("2026-10-23");
+  });
+
+  it("nimmt beim Einzug und ohne lesbares Ende immer heute", () => {
+    expect(tag(vorschlagDatum(true, "2026-09-30", HEUTE))).toBe("2026-10-23");
+    expect(tag(vorschlagDatum(false, null, HEUTE))).toBe("2026-10-23");
+    expect(tag(vorschlagDatum(false, "kaputt", HEUTE))).toBe("2026-10-23");
+  });
+});
+
+describe("pruefpunkte: Datum in der Zukunft", () => {
+  it("weist darauf hin, sperrt aber nicht", () => {
+    const punkte = pruefpunkte(eingaben({ uebergabeDatum: "2026-10-31", heute: "2026-10-23" }), [V]);
+    const p = punkte.find((x) => x.schritt === "allgemein");
+    expect(p).toMatchObject({ art: "hinweis", text: "Das Übergabedatum 31.10.2026 liegt in der Zukunft." });
+  });
+
+  it("schweigt bei heute und früher", () => {
+    expect(pruefpunkte(eingaben({ uebergabeDatum: "2026-10-23", heute: "2026-10-23" }), [V]).some((x) => x.schritt === "allgemein")).toBe(false);
+  });
+});
+
+describe("mietsacheText", () => {
+  it("nennt Art, Lage, Zimmer und Fläche", () => {
+    expect(mietsacheText({ einheitentyp: "Wohnung", etage: "1. OG links", anzahlZimmer: 3, qm: 72.5 })).toBe("Wohnung, 1. OG links, 3 Zimmer, 72,5 m²");
+  });
+
+  it("lässt fehlende Angaben weg", () => {
+    expect(mietsacheText({ einheitentyp: "Garage", etage: null, anzahlZimmer: 0, qm: null })).toBe("Garage");
+    expect(mietsacheText({})).toBe("");
+    expect(mietsacheText({ anzahlZimmer: 2.5, qm: 60 })).toBe("2,5 Zimmer, 60 m²");
+  });
+
+  it("stellt eine vorhandene Bezeichnung voran", () => {
+    expect(mietsacheText({ bezeichnung: "WE 4", einheitentyp: "Wohnung" })).toBe("WE 4, Wohnung");
   });
 });

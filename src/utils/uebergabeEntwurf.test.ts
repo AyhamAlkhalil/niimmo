@@ -195,6 +195,35 @@ describe("Entwurf schreiben und lesen", () => {
   });
 });
 
+describe("offener Rückbau im Entwurf", () => {
+  const RUECKBAU = {
+    historieIds: ["11111111-1111-4111-8111-111111111111"],
+    zeilen: [{ tabelle: "mietvertrag" as const, id: "22222222-2222-4222-8222-222222222222", neu: { strom_auszug: 4711 }, vorher: { strom_auszug: null } }],
+    pdfPfad: "uebergabeprotokolle/22222222-2222-4222-8222-222222222222/auszug-2026-10-23-1500.pdf",
+  };
+
+  it("bleibt über Schließen und Öffnen erhalten", () => {
+    const ablage = new TestAblage();
+    const e = { ...leer(), offenerRueckbau: RUECKBAU };
+    entwurfSchreiben(ablage, "k", e, JETZT);
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)?.offenerRueckbau).toEqual(RUECKBAU);
+  });
+
+  it("hält den Entwurf am Leben, auch wenn sonst nichts erfasst ist", () => {
+    expect(hatEingaben({ ...leer(), offenerRueckbau: RUECKBAU })).toBe(true);
+  });
+
+  it("verwirft einen beschädigten Rückbau, ohne den Entwurf zu verlieren", () => {
+    const ablage = new TestAblage();
+    const e = leer();
+    e.notizen = "x";
+    ablage.setItem("k", JSON.stringify({ version: 1, gespeichertAm: JETZT.toISOString(), ...e, offenerRueckbau: { historieIds: ["x,id.neq.0"], zeilen: [] } }));
+    const gelesen = entwurfLesen(ablage, "k", [V1], JETZT);
+    expect(gelesen?.notizen).toBe("x");
+    expect(gelesen?.offenerRueckbau).toBeUndefined();
+  });
+});
+
 describe("entwuerfeAufraeumen", () => {
   const TAG = 24 * 60 * 60 * 1000;
 
