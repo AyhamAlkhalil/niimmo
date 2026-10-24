@@ -120,8 +120,10 @@ export function MietvertragMeterReadings({
           <CardContent className="space-y-6 pt-4">
             {meterReadings.map((meter, index) => {
               const IconComponent = meter.icon;
-              // Auch ein Einzugsstand 0 (neuer Zähler) ergibt einen Verbrauch
-              const hasConsumption = meter.einzug != null && meter.auszug != null && Number(meter.auszug) > Number(meter.einzug);
+              // Erst ab einem Einzugsstand über 0: Bis zum 23.10.2026 schrieb die
+              // Vertragsbearbeitung leere Stände als 0 — ein „Verbrauch“ wäre dann der
+              // ganze Zählerstand (Validierung 24.10.2026)
+              const hasConsumption = meter.einzug != null && meter.auszug != null && Number(meter.einzug) > 0 && Number(meter.auszug) > Number(meter.einzug);
               
               return (
                 <div 

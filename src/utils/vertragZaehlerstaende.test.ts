@@ -146,8 +146,8 @@ describe("zaehlerstandHistorienZeilen", () => {
       HEUTE
     );
     expect(zeilen).toEqual([
-      { einheit_id: "einheit-1", zaehler_typ: "kaltwasser", zaehler_nummer: "KW-1", stand: 12.5, datum: "2024-03-01", quelle: "einzug" },
-      { einheit_id: "einheit-1", zaehler_typ: "strom", zaehler_nummer: "ST-9", stand: 0, datum: "2026-09-30", quelle: "auszug" },
+      { einheit_id: "einheit-1", zaehler_typ: "kaltwasser", zaehler_nummer: "KW-1", stand: 12.5, datum: "2024-03-01", quelle: "einzug", mietvertrag_id: null },
+      { einheit_id: "einheit-1", zaehler_typ: "strom", zaehler_nummer: "ST-9", stand: 0, datum: "2026-09-30", quelle: "auszug", mietvertrag_id: null },
     ]);
   });
 
@@ -174,5 +174,12 @@ describe("zaehlerstandHistorienZeilen", () => {
       HEUTE
     );
     expect(zeile.datum).toBe("2024-04-01");
+  });
+});
+
+describe("zaehlerstandHistorienZeilen mit Vertrag", () => {
+  it("trägt den Vertrag mit, damit die Übergabe den eigenen Stand erkennt", () => {
+    const zeilen = zaehlerstandHistorienZeilen({ strom_einzug: 100 }, { start_datum: "2024-03-01", ende_datum: null, kuendigungsdatum: null }, { id: "e1" }, "2026-10-24", "v1");
+    expect(zeilen[0].mietvertrag_id).toBe("v1");
   });
 });

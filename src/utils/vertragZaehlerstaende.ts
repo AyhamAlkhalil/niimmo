@@ -125,6 +125,8 @@ export interface VertragZaehlerHistorienZeile {
   stand: number;
   datum: string;
   quelle: VertragZaehlerAnlass;
+  /** Seit 24.10.2026: Die Übergabe erkennt daran den Stand des eigenen Vertrags */
+  mietvertrag_id: string | null;
 }
 
 /**
@@ -138,7 +140,8 @@ export function zaehlerstandHistorienZeilen(
   aenderungen: ZaehlerstandAenderungen,
   vertrag: VertragDatumsangaben | null | undefined,
   einheit: VertragZaehlerEinheit,
-  heute: string
+  heute: string,
+  mietvertragId: string | null = null
 ): VertragZaehlerHistorienZeile[] {
   const zeilen: VertragZaehlerHistorienZeile[] = [];
   for (const feld of VERTRAG_ZAEHLER_FELDER) {
@@ -152,6 +155,7 @@ export function zaehlerstandHistorienZeilen(
       stand,
       datum: zaehlerstandHistorieDatum(feld, vertrag, heute),
       quelle: anlassVon(feld),
+      mietvertrag_id: mietvertragId,
     });
   }
   return zeilen;

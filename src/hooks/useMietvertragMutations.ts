@@ -262,10 +262,30 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   // Abschluss-Toast, weil die App nur einen Toast zugleich zeigt (TOAST_LIMIT = 1).
   const schreibeZaehlerHistorie = async (aenderungen: ZaehlerstandAenderungen, vertragNachher: VertragDatumsangaben | null): Promise<boolean> => {
     if (!einheitData?.id) return true;
-    const zeilen = zaehlerstandHistorienZeilen(aenderungen, vertragNachher, einheitData, format(new Date(), 'yyyy-MM-dd'));
+    const zeilen = zaehlerstandHistorienZeilen(aenderungen, vertragNachher, einheitData, format(new Date(), 'yyyy-MM-dd'), vertragId);
     if (zeilen.length === 0) return true;
-    const { error: histError } = await supabase.from('zaehlerstand_historie').insert(zeilen);
-    if (histError) return false;
+    // Eine zweite Korrektur desselben Felds aktualisiert ihre Zeile: Zwei Zeilen
+    // am selben Tag machten es zum Zufall, welche die Übergabe als Vergleich nimmt
+    for (const zeile of zeilen) {
+      const { data: vorhanden, error: leseFehler } = await supabase
+        .from('zaehlerstand_historie')
+        .select('id')
+        .eq('einheit_id', zeile.einheit_id)
+        .eq('zaehler_typ', zeile.zaehler_typ)
+        .eq('quelle', zeile.quelle)
+        .eq('datum', zeile.datum)
+        .eq('mietvertrag_id', vertragId)
+        .limit(1);
+      if (leseFehler) return false;
+      const { error: histError } = vorhanden && vorhanden.length > 0
+        ? await supabase
+            .from('zaehlerstand_historie')
+            // Eine fehlende Nummer an der Einheit löscht nicht die der Zeile
+            .update(zeile.zaehler_nummer ? { stand: zeile.stand, zaehler_nummer: zeile.zaehler_nummer } : { stand: zeile.stand })
+            .eq('id', vorhanden[0].id)
+        : await supabase.from('zaehlerstand_historie').insert(zeile);
+      if (histError) return false;
+    }
     queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
     return true;
   };
