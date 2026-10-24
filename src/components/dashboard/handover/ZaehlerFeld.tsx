@@ -25,6 +25,8 @@ interface ZaehlerFeldProps {
   fotos: string[];
   onFotosChange: (pfade: string[]) => void;
   onUploadingChange: (aktiv: boolean) => void;
+  /** Ein Foto-Upload scheiterte — auch melden, wenn der Schritt schon ausgeblendet ist */
+  onFotoFehler?: (text: string) => void;
   /** aus den Stammdaten der Einheit */
   nummer?: string | null;
   referenz: Referenzstand | null;
@@ -44,6 +46,7 @@ export const ZaehlerFeld = ({
   fotos,
   onFotosChange,
   onUploadingChange,
+  onFotoFehler,
   nummer,
   referenz,
   hinweise,
@@ -87,6 +90,7 @@ export const ZaehlerFeld = ({
         existingPhotos={fotos}
         onPhotosChange={onFotosChange}
         onUploadingChange={onUploadingChange}
+        onFehler={onFotoFehler}
         vorKnopf={
           <div className="relative flex-1">
             <Input

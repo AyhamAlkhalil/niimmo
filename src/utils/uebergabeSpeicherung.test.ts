@@ -6,6 +6,9 @@ import {
   historieEintraege,
   historieAufteilen,
   rueckbauLesen,
+  istNetzfehler,
+  belegeFuer,
+  fremdBelegt,
   aktuelleStaende,
   fehlendeDokumente,
   dateienHochladen,
@@ -259,5 +262,78 @@ describe("rueckbauLesen", () => {
     `uebergabeprotokolle/${ID}/x.jpg`,
   ])("verwirft den Rückbau bei fremdem Protokollpfad: %s", (pfad) => {
     expect(rueckbauLesen({ ...gut, pdfPfad: pfad })).toBeNull();
+  });
+});
+
+describe("istNetzfehler", () => {
+  it.each([
+    new TypeError("Failed to fetch"),
+    { message: "TypeError: Failed to fetch", code: "" },
+    { message: "NetworkError when attempting to fetch resource." },
+    { name: "AbortError", message: "The operation was aborted." },
+    { message: "Load failed" },
+    { message: "upstream request timeout", status: 504 },
+    { message: "<html>Bad Gateway</html>", status: 502 },
+    { message: "Internal Server Error", details: "", hint: "", code: "", status: 500 },
+  ])("erkennt einen Netzabbruch oder ein aufgegebenes Gateway: %j", (fehler) => {
+    expect(istNetzfehler(fehler)).toBe(true);
+  });
+
+  it.each([
+    { message: "new row violates row-level security policy", code: "42501" },
+    { message: "Netzwerkfehler (simuliert)", code: "XX000" },
+    { statusCode: "400", error: "InvalidKey", message: "Invalid key" },
+    { message: "duplicate key", code: "23505", status: 409 },
+    new TypeError("Cannot read properties of undefined (reading 'id')"),
+    new Error("Übergabedatum fehlt"),
+    null,
+  ])("hält eine Antwort der Datenbank, eine Abweisung oder einen Programmfehler für klar: %j", (fehler) => {
+    expect(istNetzfehler(fehler)).toBe(false);
+  });
+});
+
+describe("Belege für den Rückbau", () => {
+  const PFAD = "uebergabeprotokolle/v/a.pdf";
+  const einheit = { tabelle: "einheiten" as const, id: "e1", neu: { strom_stand_aktuell: 4711.5, strom_stand_datum: "2026-10-01" }, vorher: { strom_stand_aktuell: 4000, strom_stand_datum: "2026-04-01" } };
+  const vertrag = { tabelle: "mietvertrag" as const, id: "v1", neu: { strom_auszug: 4711.5, kaltwasser_auszug: 80 }, vorher: { strom_auszug: null, kaltwasser_auszug: null } };
+  const ablesung = (teil: Partial<BelegAblesungTest>): BelegAblesungTest => ({
+    einheit_id: "e1", mietvertrag_id: "v2", zaehler_typ: "strom", stand: 4711.5, datum: "2026-10-01", quelle: "Übergabe (Einzug)", protokoll_pfad: "uebergabeprotokolle/v2/b.pdf", ...teil,
+  });
+  type BelegAblesungTest = Parameters<typeof fremdBelegt>[1][number];
+
+  it("liest aus der Einheit Zähler, Stand und Datum", () => {
+    expect(belegeFuer(einheit)).toEqual([{ einheitId: "e1", zaehlerTyp: "strom", stand: 4711.5, datum: "2026-10-01" }]);
+  });
+
+  it("liest aus dem Vertrag Zähler, Stand und Übergabeart", () => {
+    expect(belegeFuer(vertrag)).toEqual([
+      { mietvertragId: "v1", zaehlerTyp: "strom", stand: 4711.5, quelle: "Übergabe (Auszug)" },
+      { mietvertragId: "v1", zaehlerTyp: "kaltwasser", stand: 80, quelle: "Übergabe (Auszug)" },
+    ]);
+  });
+
+  it("Einzug des Nachmieters am selben Tag mit denselben Ständen belegt den Stand der Einheit", () => {
+    expect(fremdBelegt(belegeFuer(einheit), [ablesung({})], PFAD)).toBe(true);
+  });
+
+  it("die eigene Ablesung belegt nichts, andere Stände oder Tage auch nicht", () => {
+    expect(fremdBelegt(belegeFuer(einheit), [ablesung({ protokoll_pfad: PFAD })], PFAD)).toBe(false);
+    expect(fremdBelegt(belegeFuer(einheit), [ablesung({ stand: 4712 })], PFAD)).toBe(false);
+    expect(fremdBelegt(belegeFuer(einheit), [ablesung({ datum: "2026-10-02" })], PFAD)).toBe(false);
+  });
+
+  it("dieselbe Übergabe von einem zweiten Gerät belegt die Vertragsstände", () => {
+    const zweitesGeraet = ablesung({ mietvertrag_id: "v1", quelle: "Übergabe (Auszug)", protokoll_pfad: "uebergabeprotokolle/v1/zweites.pdf" });
+    expect(fremdBelegt(belegeFuer(vertrag), [zweitesGeraet], PFAD)).toBe(true);
+    expect(fremdBelegt(belegeFuer(vertrag), [{ ...zweitesGeraet, quelle: "Übergabe (Einzug)" }], PFAD)).toBe(false);
+  });
+
+  it("eine Ablesung ohne Stand belegt keine 0", () => {
+    const null0 = { ...einheit, neu: { strom_stand_aktuell: 0, strom_stand_datum: "2026-10-01" } };
+    expect(fremdBelegt(belegeFuer(null0), [ablesung({ stand: null })], PFAD)).toBe(false);
+  });
+
+  it("Stände als Text aus der Datenbank werden als Zahl verglichen", () => {
+    expect(fremdBelegt(belegeFuer(einheit), [ablesung({ stand: "4711.5" })], PFAD)).toBe(true);
   });
 });

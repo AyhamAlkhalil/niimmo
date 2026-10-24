@@ -7,6 +7,7 @@ import {
   referenzstand,
   vorschlagDatum,
   mietsacheText,
+  vergleichsAblesungen,
   referenzText,
   schrittZustaende,
   zaehlerHinweise,
@@ -231,5 +232,27 @@ describe("mietsacheText", () => {
 
   it("stellt eine vorhandene Bezeichnung voran", () => {
     expect(mietsacheText({ bezeichnung: "WE 4", einheitentyp: "Wohnung" })).toBe("WE 4, Wohnung");
+  });
+});
+
+describe("vergleichsAblesungen", () => {
+  const a = (teil: Partial<{ stand: number | null; quelle: string | null; mietvertrag_id: string | null }>) => ({ stand: 100, quelle: "manuell", mietvertrag_id: null, ...teil });
+
+  it("lässt Nullen aus der Vertragsbearbeitung weg", () => {
+    expect(vergleichsAblesungen([a({ stand: 0, quelle: "einzug" }), a({ stand: 0, quelle: "auszug" })], ["v1"])).toEqual([]);
+  });
+
+  it("behält eine echte 0 aus einer Ablesung oder Übergabe", () => {
+    expect(vergleichsAblesungen([a({ stand: 0, quelle: "manuell" }), a({ stand: 0, quelle: "Übergabe (Auszug)" })], ["v1"])).toHaveLength(2);
+  });
+
+  it("lässt den Einzug der übergebenen Verträge weg, nicht den anderer", () => {
+    const zeilen = [
+      a({ quelle: "Übergabe (Einzug)", mietvertrag_id: "v1" }),
+      a({ quelle: "einzug", mietvertrag_id: "v1" }),
+      a({ quelle: "Übergabe (Einzug)", mietvertrag_id: "v0" }),
+      a({ quelle: "Übergabe (Auszug)", mietvertrag_id: "v1" }),
+    ];
+    expect(vergleichsAblesungen(zeilen, ["v1"]).map((z) => `${z.quelle}/${z.mietvertrag_id}`)).toEqual(["Übergabe (Einzug)/v0", "Übergabe (Auszug)/v1"]);
   });
 });

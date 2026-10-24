@@ -25,14 +25,29 @@ export interface ProtokollZeile {
   hochgeladen_am: string | null;
 }
 
-/** „Übergabeprotokoll (Einzug) – 17.04.2026" → "2026-04-17" */
+/**
+ * Das Übergabedatum aus dem Titel: „Übergabeprotokoll (Einzug) – 17.04.2026",
+ * „2026-04-17 …" oder, wie bei den von Hand hochgeladenen, „20260417 Übergabeprotokoll
+ * Einzug.pdf". Bis zum 24.10.2026 kannte es nur die erste Form; bei 24 Protokollen
+ * stand dann der Tag des Hochladens, bis zu 461 Tage daneben.
+ */
 export function datumAusTitel(titel: string | null): string | null {
-  const treffer = /(?<!\d)(\d{2})\.(\d{2})\.(\d{4})(?!\d)/.exec(titel ?? "");
-  if (!treffer) return null;
-  const [, t, m, j] = treffer;
-  // Nur ein Tag, den es gibt — „31.02.2026“ in einem Titel ist kein Datum
-  const d = new Date(Date.UTC(Number(j), Number(m) - 1, Number(t)));
-  return d.getUTCDate() === Number(t) && d.getUTCMonth() === Number(m) - 1 ? `${j}-${m}-${t}` : null;
+  const text = titel ?? "";
+  const formen: Array<[RegExp, (t: RegExpMatchArray) => [string, string, string]]> = [
+    [/(?<!\d)(\d{2})\.(\d{2})\.(\d{4})(?!\d)/g, (t) => [t[3], t[2], t[1]]],
+    [/(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)/g, (t) => [t[1], t[2], t[3]]],
+    [/(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})(?!\d)/g, (t) => [t[1], t[2], t[3]]],
+  ];
+  for (const [muster, teile] of formen) {
+    // Jedes Vorkommen versuchen: Nach einem ungültigen („31.02.") kann ein gültiges folgen
+    for (const treffer of text.matchAll(muster)) {
+      const [j, m, t] = teile(treffer);
+      // Nur ein Tag, den es gibt — „31.02.2026“ in einem Titel ist kein Datum
+      const d = new Date(Date.UTC(Number(j), Number(m) - 1, Number(t)));
+      if (Number(j) >= 1990 && d.getUTCDate() === Number(t) && d.getUTCMonth() === Number(m) - 1) return `${j}-${m}-${t}`;
+    }
+  }
+  return null;
 }
 
 /**

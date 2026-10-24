@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { protokolleErgaenzen, uebergabeArt, uebergabenJeVertrag, type UebergabeAblesung } from "./uebergabeHistorie";
+import { artNachDatum, protokolleErgaenzen, uebergabeArt, uebergabenJeVertrag, type UebergabeAblesung } from "./uebergabeHistorie";
 
 const ablesung = (teil: Partial<UebergabeAblesung>): UebergabeAblesung => ({
   id: Math.random().toString(36).slice(2),
@@ -105,5 +105,28 @@ describe("protokolleErgaenzen", () => {
       { mietvertrag_id: "v", art: "einzug", datum: "2023-02-01", pfad: "a" },
     ]);
     expect(m.get("v")?.map((e) => e.protokollPfad)).toEqual(["a", "b"]);
+  });
+});
+
+describe("artNachDatum", () => {
+  it("ordnet ein Protokoll ohne Art dem nahen Beginn oder Ende zu", () => {
+    expect(artNachDatum("2023-02-03", ALT)).toBe("einzug");
+    expect(artNachDatum("2026-10-02", ALT)).toBe("auszug");
+  });
+
+  it("rät nicht bei großem Abstand, Gleichstand oder fehlendem Vertrag", () => {
+    expect(artNachDatum("2024-06-01", ALT)).toBeNull();
+    expect(artNachDatum("2026-10-02", { id: "x", start: "2026-10-01", ende: "2026-10-03" })).toBeNull();
+    expect(artNachDatum("2026-10-02", undefined)).toBeNull();
+  });
+});
+
+describe("protokolleErgaenzen: dieselbe Übergabe", () => {
+  it("legt einen Scan wenige Tage neben dem erzeugten Protokoll nicht als zweite Übergabe an", () => {
+    const m = protokolleErgaenzen(new Map(), [
+      { mietvertrag_id: "alt", art: "auszug", datum: "2025-08-31", pfad: "p/erzeugt.pdf" },
+      { mietvertrag_id: "alt", art: "auszug", datum: "2025-08-30", pfad: "p/scan.pdf" },
+    ]);
+    expect(m.get("alt")).toHaveLength(1);
   });
 });

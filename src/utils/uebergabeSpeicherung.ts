@@ -206,6 +206,99 @@ export function rueckbauLesen(roh: unknown): Rueckbau | null {
   return { historieIds: r.historieIds as string[], zeilen, pdfPfad };
 }
 
+/**
+ * Ist bei diesem Fehler offen, ob der Server die Anfrage ausgeführt hat? Bei einem
+ * Netzabbruch kann ein Schreibzugriff angekommen sein, obwohl der Browser einen
+ * Fehler sieht — dann darf der Rückbau nicht sofort laufen, sonst nimmt er
+ * Zeilen zurück, zu denen kurz danach der Dokumenteintrag doch noch ankommt
+ * (24.10.2026). Hat der Server geantwortet (Code oder Status), ist es klar.
+ */
+const NETZ_MELDUNG = /failed to fetch|networkerror|network request failed|load failed|aborterror|aborted|timed? ?out|zeitlimit/i;
+
+export function istNetzfehler(fehler: unknown): boolean {
+  if (!fehler || typeof fehler !== "object") return false;
+  const e = fehler as { code?: unknown; status?: unknown; statusCode?: unknown; message?: unknown; name?: unknown; details?: unknown; hint?: unknown };
+  const text = `${typeof e.name === "string" ? e.name : ""} ${typeof e.message === "string" ? e.message : ""}`;
+  if (NETZ_MELDUNG.test(text)) return true;
+  // Ein anderer TypeError oder Error ist ein Programmfehler, keine Netzfrage
+  if (fehler instanceof TypeError) return false;
+  const status = Number(e.status ?? e.statusCode);
+  // Ein Gateway hat aufgegeben — die Datenbank kann die Anfrage trotzdem noch ausführen
+  if ([408, 502, 503, 504].includes(status)) return true;
+  // Nur Antworten von Supabase zählen weiter; ein eigener Error ohne diese Felder ist klar
+  const istAntwort = "code" in e || "details" in e || "hint" in e || "status" in e || "statusCode" in e || /^(Postgrest|Storage|Functions)/.test(String(e.name ?? ""));
+  if (!istAntwort) return false;
+  // Hat die Datenbank selbst geantwortet (Fehlercode) oder der Server die Anfrage als
+  // falsch abgewiesen (4xx), ist nichts geschehen. Ohne beides ist es offen.
+  const code = typeof e.code === "string" ? e.code.trim() : "";
+  return !code && !(status >= 400 && status < 500);
+}
+
+/** Eine Ablesung, die einen vom Rückbau berührten Wert ebenfalls trägt */
+export interface Beleg {
+  einheitId?: string;
+  mietvertragId?: string;
+  zaehlerTyp: string;
+  stand: number;
+  /** yyyy-MM-dd */
+  datum?: string;
+  quelle?: string;
+}
+
+export interface BelegAblesung {
+  einheit_id: string | null;
+  mietvertrag_id: string | null;
+  zaehler_typ: string;
+  stand: number | string | null;
+  datum: string | null;
+  quelle: string | null;
+  protokoll_pfad: string | null;
+}
+
+/**
+ * Welche Ablesungen den Wert einer Rückbau-Zeile belegen würden. Steht derselbe
+ * Wert auch aus einem anderen Speichern da — der Einzug des Nachmieters am selben
+ * Tag mit denselben Ständen, oder dieselbe Übergabe von einem zweiten Gerät —,
+ * gehört er diesem und bleibt stehen. Bis zum 24.10.2026 setzte der Rückbau ihn
+ * zurück, weil er nur die Werte verglich (24.10.2026).
+ */
+export function belegeFuer(zeile: Rueckbau["zeilen"][number]): Beleg[] {
+  const belege: Beleg[] = [];
+  for (const [spalte, wert] of Object.entries(zeile.neu)) {
+    if (typeof wert !== "number") continue;
+    if (zeile.tabelle === "einheiten") {
+      const typ = /^(strom|gas|kaltwasser|warmwasser)_stand_aktuell$/.exec(spalte)?.[1];
+      const datum = typ ? zeile.neu[`${typ}_stand_datum`] : undefined;
+      if (typ && typeof datum === "string") belege.push({ einheitId: zeile.id, zaehlerTyp: typ, stand: wert, datum });
+    } else if (zeile.tabelle === "mietvertrag") {
+      const treffer = /^(strom|gas|kaltwasser|warmwasser)_(einzug|auszug)$/.exec(spalte);
+      if (treffer) {
+        belege.push({ mietvertragId: zeile.id, zaehlerTyp: treffer[1], stand: wert, quelle: treffer[2] === "einzug" ? "Übergabe (Einzug)" : "Übergabe (Auszug)" });
+      }
+    }
+  }
+  return belege;
+}
+
+/** Trägt eine fremde Ablesung (nicht aus diesem Lauf) einen der Werte? */
+export function fremdBelegt(belege: Beleg[], ablesungen: BelegAblesung[], eigenerPfad: string | null | undefined): boolean {
+  return belege.some((b) =>
+    ablesungen.some(
+      (a) =>
+        (a.protokoll_pfad ?? null) !== (eigenerPfad ?? null) &&
+        a.zaehler_typ === b.zaehlerTyp &&
+        // Eine Ablesung ohne Stand belegt keine 0 (Number(null) wäre 0)
+        a.stand !== null &&
+        a.stand !== "" &&
+        Number(a.stand) === b.stand &&
+        (b.einheitId === undefined || a.einheit_id === b.einheitId) &&
+        (b.mietvertragId === undefined || a.mietvertrag_id === b.mietvertragId) &&
+        (b.datum === undefined || (a.datum ?? "").slice(0, 10) === b.datum) &&
+        (b.quelle === undefined || a.quelle === b.quelle)
+    )
+  );
+}
+
 export interface AktuellerStand {
   /** Spalten der Tabelle einheiten, z. B. kaltwasser_stand_aktuell / kaltwasser_stand_datum */
   standSpalte: string;

@@ -17,6 +17,8 @@ interface UebergabeAbschlussProps {
   /** Mieter mit Datensatz — ohne gibt es keinen Mailversand */
   mieterVorhanden: boolean;
   mailVersendetAn: string[];
+  /** Ein Mieter selbst hat die Mail; sonst kam höchstens eine CC-Kopie an */
+  mieterBeliefert: boolean;
   onMail: () => void;
   versorger: Versorger[];
   benachrichtigt: Set<string>;
@@ -50,6 +52,7 @@ export const UebergabeAbschluss = ({
   onDownload,
   mieterVorhanden,
   mailVersendetAn,
+  mieterBeliefert,
   onMail,
   versorger,
   benachrichtigt,
@@ -83,10 +86,16 @@ export const UebergabeAbschluss = ({
             {/* Bis zum 23.10.2026 stand bei einem Ladefehler „kein Mieter hinterlegt“ */}
             {ladefehler.mieter && mailVersendetAn.length === 0 ? (
               <Ladefehler was="Mieterdaten" onNeuLaden={onNeuLaden} />
-            ) : mailVersendetAn.length > 0 ? (
+            ) : mailVersendetAn.length > 0 && mieterBeliefert ? (
               <p className="flex items-start gap-1.5 break-all text-sm text-success">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                 Versendet an {mailVersendetAn.join(", ")}
+              </p>
+            ) : mailVersendetAn.length > 0 ? (
+              // Bis zum 24.10.2026 galt eine angekommene CC-Kopie als „Mieter informiert“
+              <p className="flex items-start gap-1.5 break-all text-sm text-warning">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                Versendet an {mailVersendetAn.join(", ")} — der Mieter selbst hat die Mail noch nicht.
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">

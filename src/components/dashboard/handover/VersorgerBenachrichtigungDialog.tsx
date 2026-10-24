@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Loader2, Zap, Flame, Droplets, Mail, Copy, Check, Send, CheckCircle2, AlertCircle, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { COMPANY } from '@/config/company';
@@ -60,7 +59,6 @@ export const VersorgerBenachrichtigungDialog = ({
   pdfPfad,
   onVersendet,
 }: VersorgerBenachrichtigungDialogProps) => {
-  const { toast } = useToast();
   const [versorger, setVersorger] = useState<VersorgerInfo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [emailTexte, setEmailTexte] = useState<{ [typ: string]: string }>({});
@@ -162,17 +160,15 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
     if (!v) return;
     const text = `An: ${v.email}\nBetreff: ${emailSubjects[typ] || ''}\n\n${emailTexte[typ] || ''}`;
     await navigator.clipboard.writeText(text);
+    // Der Knopf zeigt „Kopiert“ — eine Einblendung lag unten rechts über „Senden“
     setCopiedTyp(typ);
     setTimeout(() => setCopiedTyp(null), 2000);
-    toast({ title: "In Zwischenablage kopiert", description: `E-Mail-Entwurf für ${v.label} kopiert.` });
   };
 
   const handleSend = async () => {
     const selectedVersorger = versorger.filter(v => selected.has(v.typ) && mailadressen(v.email));
-    if (selectedVersorger.length === 0) {
-      toast({ title: "Keine Auswahl", description: "Bitte wählen Sie mindestens einen Versorger mit E-Mail-Adresse aus.", variant: "destructive" });
-      return;
-    }
+    // Der Senden-Knopf ist ohne Auswahl gesperrt
+    if (selectedVersorger.length === 0) return;
 
     setIsSending(true);
     const sent: string[] = [];
@@ -182,9 +178,11 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
     try {
       for (const v of selectedVersorger) {
         // Ein Feld kann mehrere Adressen tragen („a@x.de, b@y.de“); wer sie schon hat, bekommt sie nicht noch einmal
+        // Haben alle sie schon, ist „Weitere Benachrichtigung senden“ ein ausdrücklicher zweiter Versand
         const schon = (zugestellt[v.typ] ?? []).map((a) => a.toLowerCase());
         const alle = mailadressen(v.email) ?? [];
-        const adressen = alle.filter((a) => !schon.includes(a.toLowerCase()));
+        const offen = alle.filter((a) => !schon.includes(a.toLowerCase()));
+        const adressen = offen.length > 0 ? offen : alle;
         try {
           const response = await supabase.functions.invoke("send-uebergabe-email", {
             body: {
@@ -198,11 +196,12 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
           });
           // Den Grund zeigen: Bis zum 23.10.2026 hieß es nur „konnte nicht versendet werden“
           if (response.error) throw new Error(await funktionsFehlertext(response.error, "Versand fehlgeschlagen"));
-          const { gesendet, fehlgeschlagen } = versandAuswerten(response.data, adressen);
+          const { gesendet, fehlgeschlagen, gruende } = versandAuswerten(response.data, adressen);
           if (gesendet.length > 0) setZugestellt((vorher) => ({ ...vorher, [v.typ]: [...(vorher[v.typ] ?? []), ...gesendet] }));
           // Teilversand ist kein Erfolg: Der Versorger bleibt offen, bis jede Adresse die Mail hat
           if (fehlgeschlagen.length > 0 || gesendet.length === 0) {
-            throw new Error(`nicht zugestellt an ${(fehlgeschlagen.length > 0 ? fehlgeschlagen : adressen).join(", ")}${gesendet.length > 0 ? ` (an ${gesendet.join(", ")} zugestellt)` : ""}`);
+            const nicht = (fehlgeschlagen.length > 0 ? fehlgeschlagen : adressen).map((a) => (gruende[a] ? `${a} (${gruende[a]})` : a));
+            throw new Error(`nicht zugestellt an ${nicht.join(", ")}${gesendet.length > 0 ? `; an ${gesendet.join(", ")} zugestellt` : ""}`);
           }
           sent.push(v.label);
           sentTypen.push(v.typ);
@@ -218,13 +217,6 @@ Tel. ${COMPANY.ansprechpartner.telefon}`;
         // sonst auch ihnen ein zweites Mal (bis 23.10.2026)
         setSelected((vorher) => new Set([...vorher].filter((typ) => !sentTypen.includes(typ))));
         onVersendet?.(sentTypen);
-      }
-
-      if (sent.length > 0) {
-        toast({ title: "E-Mails versendet", description: `${sent.join(", ")} erfolgreich benachrichtigt.` });
-      }
-      if (failed.length > 0) {
-        toast({ title: "Nicht versendet", description: failed.join(" · "), variant: "destructive" });
       }
     } finally {
       setIsSending(false);

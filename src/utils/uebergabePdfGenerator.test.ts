@@ -184,3 +184,14 @@ describe('generateUebergabePdf: kaputte Unterschrift', () => {
     await expect(generateUebergabePdf({ ...baseData, mieterSignature: 'data:image/png;base64,kaputt' })).rejects.toBeInstanceOf(UnterschriftFehler);
   });
 });
+
+describe('generateUebergabePdf: lange Mietsache', () => {
+  it('bricht die Zählerüberschrift um, statt über den Rand zu laufen', async () => {
+    const lang = 'Haus (Doppelhaushälfte, Reihenhaus), Erdgeschoss und Obergeschoss rechts mit Anbau, 5,5 Zimmer, 142,75 m²';
+    const pdf = await renderText({ ...baseData, einheiten: [{ ...baseData.einheiten[0], mietsache: lang }] });
+    // Im Content-Stream steht jede Textzeile für sich: Der Schluss gehört nicht mehr in die Zeile der Überschrift
+    const schluss = pdf.split('\n').find((z) => z.includes('142,75 m'));
+    expect(schluss).toBeDefined();
+    expect(schluss).not.toContain('hlerst');
+  });
+});

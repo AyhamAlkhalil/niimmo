@@ -113,6 +113,23 @@ export function uebergabenJeVertrag(
   return ergebnis;
 }
 
+/**
+ * Ein Protokoll ohne „Einzug"/„Auszug" im Namen („20260401 Übergabeprotokoll.pdf"):
+ * die Art aus der Nähe zum Beginn oder Ende seines Vertrags. Liegt es beiden gleich
+ * nah oder keinem nahe, bleibt es offen — geraten wird nicht.
+ */
+export function artNachDatum(datum: string, vertrag: VertragZeitraum | undefined): UebergabeArt | null {
+  if (!vertrag) return null;
+  const zumBeginn = vertrag.start ? tage(vertrag.start, datum) : Infinity;
+  const zumEnde = vertrag.ende ? tage(vertrag.ende, datum) : Infinity;
+  if (Number.isNaN(zumBeginn) || Number.isNaN(zumEnde)) return null;
+  if (zumBeginn === zumEnde || Math.min(zumBeginn, zumEnde) > TOLERANZ_TAGE) return null;
+  return zumBeginn < zumEnde ? "einzug" : "auszug";
+}
+
+/** Zwei Dokumente derselben Art in so wenigen Tagen gehören zu derselben Übergabe */
+const GLEICHE_UEBERGABE_TAGE = 7;
+
 export interface ProtokollDokument {
   mietvertrag_id: string;
   art: UebergabeArt;
@@ -138,7 +155,11 @@ export function protokolleErgaenzen(
     if (bekannt.has(p.pfad)) continue;
     bekannt.add(p.pfad);
     const liste = ergebnis.get(p.mietvertrag_id) ?? [];
-    const gleich = liste.find((e) => e.art === p.art && e.datum === p.datum);
+    // Ein Scan zwei Tage nach dem erzeugten Protokoll ist dieselbe Übergabe, kein zweiter Auszug
+    // Das nächstliegende Ereignis derselben Art, nicht das erstbeste
+    const gleich = liste
+      .filter((e) => e.art === p.art && tage(e.datum, p.datum) <= GLEICHE_UEBERGABE_TAGE)
+      .sort((x, y) => tage(x.datum, p.datum) - tage(y.datum, p.datum))[0];
     if (gleich) {
       if (!gleich.protokollPfad) gleich.protokollPfad = p.pfad;
     } else {

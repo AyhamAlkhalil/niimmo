@@ -18,7 +18,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { format, parse } from "date-fns";
 import { de } from "date-fns/locale";
@@ -68,6 +67,10 @@ import {
   aktuelleStaende,
   fehlendeDokumente,
   LEERE_ZAEHLER,
+  istNetzfehler,
+  belegeFuer,
+  fremdBelegt,
+  type BelegAblesung,
   type HistorieHerkunft,
   type Rueckbau,
 } from "@/utils/uebergabeSpeicherung";
@@ -95,6 +98,7 @@ import {
   pruefpunkte,
   referenzstand,
   schrittZustaende,
+  vergleichsAblesungen,
   vorschlagDatum,
   zaehlerHinweise,
   type Referenzstand,
@@ -175,6 +179,8 @@ interface Ablesung {
   zaehler_typ: string;
   stand: number | null;
   datum: string | null;
+  quelle: string | null;
+  mietvertrag_id: string | null;
 }
 
 /**
@@ -243,7 +249,20 @@ export const UebergabeDialog = ({
   const [vermieterSignature, setVermieterSignature] = useState<string | null>(geladenerEntwurf?.unterschriftVermieter ?? null);
   const [mieterSignature, setMieterSignature] = useState<string | null>(geladenerEntwurf?.unterschriftMieter ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { toast } = useToast();
+  // Meldungen stehen im Dialog über der Fußleiste. Als Einblendung lagen sie bis
+  // zum 24.10.2026 unten rechts genau über „Weiter“ und „Protokoll speichern“ —
+  // am Desktop, solange die Maus darauf stand, auf dem iPhone quer 5 s lang.
+  const [meldung, setMeldung] = useState<{ art: "fehler" | "hinweis" | "erfolg"; titel: string; text: string } | null>(null);
+  const meldungTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const melden = (m: { art: "fehler" | "hinweis" | "erfolg"; titel: string; text: string }) => {
+    if (meldungTimerRef.current) clearTimeout(meldungTimerRef.current);
+    setMeldung(m);
+    // Fehler bleiben stehen, bis sie geschlossen oder überholt werden
+    if (m.art !== "fehler") meldungTimerRef.current = setTimeout(() => setMeldung(null), 8000);
+  };
+  useEffect(() => () => {
+    if (meldungTimerRef.current) clearTimeout(meldungTimerRef.current);
+  }, []);
   // Handy-Panel oder Dialog wird beim Öffnen einmal festgelegt. useIsMobile
   // meldet im ersten Render immer „Desktop“ und folgt danach jeder Drehung über
   // die Grenze — beide Wechsel hängten das ganze Formular neu ein, und ein
@@ -320,6 +339,18 @@ export const UebergabeDialog = ({
   // Closure eines schon laufenden Speicherns noch false
   const gespeichertRef = useRef(false);
   const [offenerRueckbau, setOffenerRueckbau] = useState<Rueckbau | null>(geladenerEntwurf?.offenerRueckbau ?? null);
+  // Ob ein früherer Lauf gespeichert hat, ist offen (Netz weg mitten im Speichern).
+  // Solange ist das Formular gesperrt: Eine Änderung ginge sonst still verloren, wenn
+  // sich zeigt, dass doch gespeichert war (24.10.2026).
+  const [ausgangUnklar, setAusgangUnklar] = useState(
+    () => !!geladenerEntwurf?.offenerRueckbau && (geladenerEntwurf.offenerRueckbau.historieIds.length > 0 || geladenerEntwurf.offenerRueckbau.zeilen.length > 0)
+  );
+  const [pruefungLaeuft, setPruefungLaeuft] = useState(false);
+  /** Den Rückbau schon während des Speicherns im Entwurf festhalten — auch ein beendeter Tab hinterlässt so nichts */
+  const rueckbauMerken = (r: Rueckbau) => {
+    if (r.historieIds.length === 0 && r.zeilen.length === 0 && !r.pdfPfad) return;
+    setOffenerRueckbau({ historieIds: [...r.historieIds], zeilen: [...r.zeilen], pdfPfad: r.pdfPfad ?? null });
+  };
   // Sperre gegen einen zweiten Klick, bevor isSubmitting gerendert ist
   const speichertRef = useRef(false);
 
@@ -340,6 +371,8 @@ export const UebergabeDialog = ({
   const [showEmailDialog, setShowEmailDialog] = useState(false);
   // Adressen, an die das gespeicherte Protokoll schon ging
   const [mailVersendetAn, setMailVersendetAn] = useState<string[]>([]);
+  // Ein Mieter selbst hat die Mail — eine angekommene CC-Kopie allein zählt nicht
+  const [mieterBeliefert, setMieterBeliefert] = useState(false);
   // Versorger (typ), die schon benachrichtigt sind
   const [versorgerBenachrichtigt, setVersorgerBenachrichtigt] = useState<Set<string>>(() => new Set());
 
@@ -448,9 +481,10 @@ export const UebergabeDialog = ({
   // Eine Unterschrift gilt für die Angaben, die beim Unterschreiben dastanden. Bis
   // zum 23.10.2026 blieb sie stehen, wenn danach Stände, Schlüssel, Datum oder
   // Bemerkungen geändert wurden — das PDF trug sie dann unter Werten, die der
-  // Mieter nie gesehen hat. Neue Fotos zählen nicht (ein nach dem Unterschreiben
-  // fertig gewordener Upload ändert keine Angabe), ein entferntes schon: Es fehlt
-  // dann im Protokoll, das unterschrieben wurde.
+  // Mieter nie gesehen hat. Fotos zählen auch: ein entferntes fehlt im
+  // unterschriebenen Protokoll, ein später aufgenommenes (etwa von einem Mangel)
+  // stünde ungesehen darin. Ausgenommen sind Uploads, die beim Unterschreiben schon
+  // liefen — sie gehören zu dem, was der Mieter gesehen hat.
   const unterschriebenerInhalt = useMemo(
     () =>
       JSON.stringify([
@@ -465,8 +499,18 @@ export const UebergabeDialog = ({
     () => [...notizenPhotos, ...Object.values(meterPhotosPerContract).flatMap((je) => Object.values(je ?? {}).flat())],
     [notizenPhotos, meterPhotosPerContract]
   );
+  // Je Fotofeld (Schlüssel wie bei uploadMelden) die Fotos — für Uploads, die beim Unterschreiben liefen
+  const fotosJeFeld = useMemo(() => {
+    const r: Record<string, string[]> = { notizen: notizenPhotos };
+    for (const [vertragId, je] of Object.entries(meterPhotosPerContract)) {
+      for (const [typ, liste] of Object.entries(je ?? {})) r[`${vertragId}-${typ}`] = liste ?? [];
+    }
+    return r;
+  }, [notizenPhotos, meterPhotosPerContract]);
   const unterschriftStandRef = useRef<string | null>(null);
   const unterschriftFotosRef = useRef<string[]>([]);
+  // Felder, deren Upload beim Unterschreiben noch lief — nur deren Fotos gehören noch dazu
+  const nachzueglerRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!vermieterSignature && !mieterSignature) {
       unterschriftStandRef.current = null;
@@ -476,22 +520,30 @@ export const UebergabeDialog = ({
       // Erste Unterschrift, oder Entwurf mit Unterschrift geöffnet
       unterschriftStandRef.current = unterschriebenerInhalt;
       unterschriftFotosRef.current = alleFotos;
+      nachzueglerRef.current = new Set(Object.keys(laufendeUploads).filter((feld) => laufendeUploads[feld]));
       setUnterschriftVerworfen(false);
       return;
     }
+    for (const feld of [...nachzueglerRef.current]) {
+      // Fotos aus Uploads, die schon liefen, nachträglich zum unterschriebenen Stand nehmen
+      unterschriftFotosRef.current = [...new Set([...unterschriftFotosRef.current, ...(fotosJeFeld[feld] ?? [])])];
+      if (!laufendeUploads[feld]) nachzueglerRef.current.delete(feld);
+    }
     const fotoEntfernt = unterschriftFotosRef.current.some((pfad) => !alleFotos.includes(pfad));
-    if ((unterschriftStandRef.current === unterschriebenerInhalt && !fotoEntfernt) || isSaved) return;
+    const fotoNeu = alleFotos.some((pfad) => !unterschriftFotosRef.current.includes(pfad));
+    if ((unterschriftStandRef.current === unterschriebenerInhalt && !fotoEntfernt && !fotoNeu) || isSaved) return;
     unterschriftStandRef.current = null;
     setVermieterSignature(null);
     setMieterSignature(null);
     setUnterschriftRunde((r) => r + 1);
     setUnterschriftVerworfen(true);
-    toast({
-      title: "Unterschriften entfernt",
-      description: "Nach dem Unterschreiben wurden Angaben geändert. Bitte unter „Unterschriften“ neu unterschreiben lassen.",
+    melden({
+      art: "hinweis",
+      titel: "Unterschriften entfernt",
+      text: "Nach dem Unterschreiben wurden Angaben geändert. Bitte unter „Unterschriften“ neu unterschreiben lassen.",
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unterschriebenerInhalt, alleFotos, vermieterSignature, mieterSignature, isSaved]);
+  }, [unterschriebenerInhalt, alleFotos, fotosJeFeld, laufendeUploads, vermieterSignature, mieterSignature, isSaved]);
 
   // Rückbau aus einem früheren, abgebrochenen Speichern beim Öffnen nachholen
   useEffect(() => {
@@ -503,11 +555,12 @@ export const UebergabeDialog = ({
         if (!aktiv || rueckbauRef.current !== r) return;
         if (ergebnis === "gespeichert" && r.pdfPfad) {
           alsGespeichertUebernehmen(r.pdfPfad);
-          toast({ title: "Bereits gespeichert", description: "Diese Übergabe wurde beim letzten Mal doch gespeichert — nur die Bestätigung kam nicht an." });
+          melden({ art: "hinweis", titel: "Bereits gespeichert", text: "Diese Übergabe wurde beim letzten Mal doch gespeichert — nur die Bestätigung kam nicht an." });
           return;
         }
         rueckbauRef.current = null;
         setOffenerRueckbau(null);
+        setAusgangUnklar(false);
       })
       .catch(() => {
         // Bleibt im Entwurf und wird beim Speichern oder nächsten Öffnen erneut versucht
@@ -618,7 +671,7 @@ export const UebergabeDialog = ({
         ? await alleSeiten<Ablesung>((von, bis, mitZaehlung) =>
             supabase
               .from("zaehlerstand_historie")
-              .select("einheit_id, zaehler_typ, stand, datum", { count: mitZaehlung ? "exact" : undefined })
+              .select("einheit_id, zaehler_typ, stand, datum, quelle, mietvertrag_id", { count: mitZaehlung ? "exact" : undefined })
               .in("einheit_id", einheitIds)
               .order("id")
               .range(von, bis)
@@ -661,12 +714,27 @@ export const UebergabeDialog = ({
   useEffect(() => () => {
     if (pruefenTimerRef.current) clearTimeout(pruefenTimerRef.current);
   }, []);
+  // Nach einem Schrittwechsel kurz keine zweite Navigation: Ein Doppeltipp auf
+  // „Weiter“ traf sonst das an derselben Stelle erscheinende „Zurück“
+  const [navFrisch, setNavFrisch] = useState(false);
+  const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (navTimerRef.current) clearTimeout(navTimerRef.current);
+  }, []);
   const geheZu = (ziel: UebergabeSchritt) => {
     if (ziel === "pruefen" && schritt !== "pruefen") {
       setPruefenFrisch(true);
       if (pruefenTimerRef.current) clearTimeout(pruefenTimerRef.current);
       pruefenTimerRef.current = setTimeout(() => setPruefenFrisch(false), 1000);
     }
+    // Eine Meldung gehört zum Schritt, in dem sie kam — sonst nähme sie überall Platz weg
+    setMeldung(null);
+    setNavFrisch(true);
+    if (navTimerRef.current) clearTimeout(navTimerRef.current);
+    navTimerRef.current = setTimeout(() => setNavFrisch(false), 400);
+    // Fokus an den Anfang des neuen Schritts — sonst lag er auf dem Dialog selbst,
+    // und bis „Protokoll speichern“ waren es 20 Tabs
+    requestAnimationFrame(() => inhaltRef.current?.focus({ preventScroll: true }));
     setBesucht((vorher) => (vorher.has(schritt) ? vorher : new Set(vorher).add(schritt)));
     // Der Hinweis auf den fortgesetzten Entwurf ist nach dem ersten Schritt gelesen
     setWiederhergestelltAm(null);
@@ -674,6 +742,11 @@ export const UebergabeDialog = ({
     inhaltRef.current?.scrollTo({ top: 0 });
   };
   const schrittIndex = UEBERGABE_SCHRITTE.indexOf(schritt);
+  // Rückfragen öffnen ohne Auslöser — beim Schließen fiel der Fokus sonst auf <body>
+  const fokusZurueck = (e: Event) => {
+    e.preventDefault();
+    inhaltRef.current?.focus({ preventScroll: true });
+  };
 
   const resetForm = () => {
     entwurfLoeschen(ablage, entwurfKey);
@@ -716,6 +789,7 @@ export const UebergabeDialog = ({
     hochgeladenesPdfRef.current = null;
     rueckbauRef.current = null;
     setOffenerRueckbau(null);
+    setAusgangUnklar(false);
     setIsGeneratingPreview(false);
   };
 
@@ -823,7 +897,7 @@ export const UebergabeDialog = ({
   const handleGeneratePreview = async () => {
     if (fotosLaden) return;
     if (!uebergabeDatum) {
-      toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
+      melden({ art: "fehler", titel: "Kein Datum", text: "Bitte wählen Sie ein Übergabedatum aus." });
       return;
     }
 
@@ -863,7 +937,7 @@ export const UebergabeDialog = ({
     if (error.wer === "Mieter") setMieterSignature(null);
     else setVermieterSignature(null);
     setUnterschriftRunde((r) => r + 1);
-    toast({ title: "Unterschrift unbrauchbar", description: `${error.message} Bitte unter „Unterschriften“ neu unterschreiben.`, variant: "destructive" });
+    melden({ art: "fehler", titel: "Unterschrift unbrauchbar", text: `${error.message} Bitte unter „Unterschriften“ neu unterschreiben.` });
     return true;
   };
 
@@ -888,12 +962,12 @@ export const UebergabeDialog = ({
    */
   const handleSubmit = async (ohneFehlendeFotos = false) => {
     if (!uebergabeDatum) {
-      toast({ title: "Fehler", description: "Bitte wählen Sie ein Übergabedatum aus.", variant: "destructive" });
+      melden({ art: "fehler", titel: "Kein Datum", text: "Bitte wählen Sie ein Übergabedatum aus." });
       return;
     }
     // Während einer laufenden Vorschau nicht: Deren Ergebnis käme sonst nach dem
     // Speichern an und ersetzte das archivierte PDF in Download und Mail.
-    if (speichertRef.current || fotosLaden || isGeneratingPreview || speichernGesperrt) return;
+    if (speichertRef.current || ausgangUnklar || fotosLaden || isGeneratingPreview || speichernGesperrt) return;
     speichertRef.current = true;
     setIsSubmitting(true);
     // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
@@ -951,11 +1025,12 @@ export const UebergabeDialog = ({
         if ((await rueckbauAusfuehren(offen, wiederverwendbar)) === "gespeichert" && offen.pdfPfad) {
           // Der frühere Lauf kam doch an — kein zweites Protokoll
           alsGespeichertUebernehmen(offen.pdfPfad);
-          toast({ title: "Bereits gespeichert", description: "Diese Übergabe war schon gespeichert — nur die Bestätigung kam beim letzten Mal nicht an." });
+          melden({ art: "hinweis", titel: "Bereits gespeichert", text: "Diese Übergabe war schon gespeichert — nur die Bestätigung kam beim letzten Mal nicht an." });
           return;
         }
         rueckbauRef.current = null;
         setOffenerRueckbau(null);
+        setAusgangUnklar(false);
       }
       const rueckbau: Rueckbau = { historieIds: [], zeilen: [] };
       rueckbauRef.current = rueckbau;
@@ -971,12 +1046,15 @@ export const UebergabeDialog = ({
           .eq("id", contract.id)
           .maybeSingle();
         if (leseFehler) throw leseFehler;
+        // Vor dem Schreiben merken: Geht nur die Antwort verloren, kennt der Rückbau
+        // den Schreibzugriff trotzdem; kam er nicht an, greift die Bedingung nicht
+        rueckbau.zeilen.push({ tabelle: "mietvertrag", id: contract.id, neu: staende, vorher: (vorherRoh ?? {}) as unknown as Record<string, unknown> });
+        rueckbauMerken(rueckbau);
         const { error: vertragError } = await supabase
           .from("mietvertrag")
           .update(staende)
           .eq("id", contract.id);
         if (vertragError) throw vertragError;
-        rueckbau.zeilen.push({ tabelle: "mietvertrag", id: contract.id, neu: staende, vorher: (vorherRoh ?? {}) as unknown as Record<string, unknown> });
       }
 
       // 3. PDF ablegen — vor der Historie, damit jede Ablesung auf ihr Protokoll
@@ -1004,6 +1082,7 @@ export const UebergabeDialog = ({
         hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath };
       }
       rueckbau.pdfPfad = filePath;
+      rueckbauMerken(rueckbau);
 
       // 4. Ablesehistorie — je Einheit, Zähler, Tag und Übergabeart ein Eintrag,
       // mit Vertrag, Protokoll, Zählernummer und Foto (seit 22.10.2026)
@@ -1047,6 +1126,15 @@ export const UebergabeDialog = ({
         );
         const { einfuegen, aktualisieren } = historieAufteilen(historie, vorhandeneAblesungen);
         for (const eintrag of aktualisieren) {
+          for (const alt of vorhandeneAblesungen.filter((v) => v.einheit_id === eintrag.einheit_id && v.zaehler_typ === eintrag.zaehler_typ)) {
+            rueckbau.zeilen.push({
+              tabelle: "zaehlerstand_historie",
+              id: alt.id,
+              neu: { protokoll_pfad: filePath },
+              vorher: Object.fromEntries(HISTORIE_SPALTEN.map((spalte) => [spalte, alt[spalte] ?? null])),
+            });
+          }
+          rueckbauMerken(rueckbau);
           const { error: aktualisierFehler } = await supabase
             .from("zaehlerstand_historie")
             .update({
@@ -1063,22 +1151,16 @@ export const UebergabeDialog = ({
             .eq("datum", eintrag.datum)
             .eq("quelle", eintrag.quelle);
           if (aktualisierFehler) throw aktualisierFehler;
-          for (const alt of vorhandeneAblesungen.filter((v) => v.einheit_id === eintrag.einheit_id && v.zaehler_typ === eintrag.zaehler_typ)) {
-            rueckbau.zeilen.push({
-              tabelle: "zaehlerstand_historie",
-              id: alt.id,
-              neu: { protokoll_pfad: filePath },
-              vorher: Object.fromEntries(HISTORIE_SPALTEN.map((spalte) => [spalte, alt[spalte] ?? null])),
-            });
-          }
         }
         if (einfuegen.length > 0) {
-          const { data: eingefuegt, error: historieError } = await supabase
+          const { data: eingefuegt, error: historieError, status: historieStatus } = await supabase
             .from("zaehlerstand_historie")
             .insert(einfuegen)
             .select("id");
-          if (historieError) throw historieError;
+          if (historieError) throw Object.assign(historieError, { status: historieStatus });
+          // Kam die Antwort nicht an, findet der Rückbau die Zeilen über den Protokollpfad
           rueckbau.historieIds.push(...(eingefuegt ?? []).map((z) => z.id));
+          rueckbauMerken(rueckbau);
         }
       }
 
@@ -1097,6 +1179,14 @@ export const UebergabeDialog = ({
         const vorher = (vorherRoh ?? {}) as unknown as Record<string, unknown>;
         for (const a of staende) {
           const neu = { [a.standSpalte]: a.stand, [a.datumSpalte]: historieDatum };
+          const zeile: Rueckbau["zeilen"][number] = {
+            tabelle: "einheiten",
+            id: contract.einheit.id,
+            neu,
+            vorher: { [a.standSpalte]: vorher[a.standSpalte] ?? null, [a.datumSpalte]: vorher[a.datumSpalte] ?? null },
+          };
+          rueckbau.zeilen.push(zeile);
+          rueckbauMerken(rueckbau);
           const { data: getroffen, error: standFehler } = await supabase
             .from("einheiten")
             .update(neu as TablesUpdate<"einheiten">)
@@ -1104,13 +1194,10 @@ export const UebergabeDialog = ({
             .or(`${a.datumSpalte}.is.null,${a.datumSpalte}.lte.${historieDatum}`)
             .select("id");
           if (standFehler) throw standFehler;
-          if (getroffen && getroffen.length > 0) {
-            rueckbau.zeilen.push({
-              tabelle: "einheiten",
-              id: contract.einheit.id,
-              neu,
-              vorher: { [a.standSpalte]: vorher[a.standSpalte] ?? null, [a.datumSpalte]: vorher[a.datumSpalte] ?? null },
-            });
+          // Ein späterer Stand stand schon da — nichts geschrieben, nichts zurückzunehmen
+          if (!getroffen || getroffen.length === 0) {
+            rueckbau.zeilen.splice(rueckbau.zeilen.indexOf(zeile), 1);
+            rueckbauMerken(rueckbau);
           }
         }
       }
@@ -1180,21 +1267,31 @@ export const UebergabeDialog = ({
       );
       const neueDokumente = fehlendeDokumente([...dokumenteInserts, ...pdfDokInserts], vorhandeneDokumente);
       if (neueDokumente.length > 0) {
-        const { error: dokError } = await supabase.from("dokumente").insert(neueDokumente);
-        if (dokError) throw dokError;
+        const { error: dokError, status: dokStatus } = await supabase.from("dokumente").insert(neueDokumente);
+        // Mit Status: Ein 504 vom Gateway heißt „vielleicht doch angekommen“ (istNetzfehler)
+        if (dokError) throw Object.assign(dokError, { status: dokStatus });
       }
 
       alsGespeichertUebernehmen(filePath);
       if (fehlendeFotos > 0) {
-        toast({
-          title: "Protokoll gespeichert – Fotos fehlen",
-          description: `${fehlendeFotos === 1 ? "1 Foto fehlt" : `${fehlendeFotos} Fotos fehlen`} im Protokoll-PDF. Die Fotos selbst sind beim Vertrag unter Dokumente eingetragen.`,
-          variant: "destructive",
+        melden({
+          art: "hinweis",
+          titel: "Gespeichert – Fotos fehlen",
+          text: `${fehlendeFotos === 1 ? "1 Foto fehlt" : `${fehlendeFotos} Fotos fehlen`} im Protokoll-PDF. Die Fotos selbst sind beim Vertrag unter Dokumente eingetragen.`,
         });
       }
     } catch (error) {
       console.error("Übergabe konnte nicht gespeichert werden:", error instanceof Error ? error.message : error);
       if (unterschriftVerwerfen(error)) return;
+      // Netz weg: Ob der letzte Schreibzugriff ankam, ist offen. Dann nicht sofort
+      // zurücknehmen — der Dokumenteintrag kann noch eintreffen —, sondern das
+      // Formular sperren, bis „Erneut prüfen“ es klärt (24.10.2026).
+      if (rueckbauRef.current && istNetzfehler(error)) {
+        rueckbauMerken(rueckbauRef.current);
+        setAusgangUnklar(true);
+        setMeldung(null);
+        return;
+      }
       // Was dieser Lauf schon geschrieben hat, gleich zurücknehmen. Bis zum
       // 23.10.2026 blieb es stehen, wenn danach geschlossen oder verworfen wurde:
       // Stände, Historie mit Protokoll-Link und aktueller Zählerstand ohne Dokument.
@@ -1218,14 +1315,13 @@ export const UebergabeDialog = ({
         }
       }
       setOffenerRueckbau(rueckbauRef.current);
-      toast({
-        title: "Fehler",
-        description: zurueckgenommen
+      if (!zurueckgenommen) setAusgangUnklar(true);
+      melden({
+        art: "fehler",
+        titel: "Nicht gespeichert",
+        text: zurueckgenommen
           ? "Die Übergabe konnte nicht gespeichert werden. Die Eingaben bleiben erhalten — bitte erneut auf „Protokoll speichern“ tippen."
-          : entwurfGesichert
-            ? "Die Übergabe konnte nicht gespeichert werden, und ein Teil stand schon in der Datenbank. Er wird beim nächsten Speichern oder Öffnen zurückgenommen. Die Eingaben bleiben erhalten."
-            : "Die Übergabe konnte nicht gespeichert werden, und ein Teil stand schon in der Datenbank. Bitte bei Verbindung erneut speichern — schließen lässt sich die Übergabe erst, wenn das zurückgenommen ist.",
-        variant: "destructive",
+          : "Die Übergabe konnte nicht gespeichert werden, und ein Teil stand schon in der Datenbank. Bitte bei Verbindung auf „Erneut prüfen“ tippen; bis dahin ist das Formular gesperrt.",
       });
     } finally {
       speichertRef.current = false;
@@ -1241,18 +1337,10 @@ export const UebergabeDialog = ({
     // Kam der Dokumenteintrag doch an (nur die Antwort ging verloren), ist das
     // Protokoll gespeichert — dann bleibt alles stehen
     if (r.pdfPfad && (await protokollEingetragen(r.pdfPfad))) return "gespeichert";
-    if (r.historieIds.length > 0) {
-      let loeschen = supabase.from("zaehlerstand_historie").delete().in("id", r.historieIds);
-      // Nur, solange die Zeile noch auf das Protokoll dieses Laufs verweist — hat
-      // ein zweites Gerät sie übernommen, gehört sie zu dessen Übergabe
-      if (r.pdfPfad) loeschen = loeschen.eq("protokoll_pfad", r.pdfPfad);
-      const { error } = await loeschen;
-      if (error) throw error;
-    }
     // Schmale Sicht auf den Query-Builder: Die Filter auf frei benannte Spalten
     // sprengen sonst die Typableitung von supabase-js
     type Filterbar = PromiseLike<{ error: unknown }> & { eq: (spalte: string, wert: unknown) => Filterbar };
-    for (const z of [...r.zeilen].reverse()) {
+    const zuruecksetzen = async (z: Rueckbau["zeilen"][number]) => {
       let abfrage = (
         z.tabelle === "mietvertrag"
           ? supabase.from("mietvertrag").update(z.vorher as TablesUpdate<"mietvertrag">).eq("id", z.id)
@@ -1263,6 +1351,38 @@ export const UebergabeDialog = ({
       for (const [spalte, wert] of Object.entries(z.neu)) abfrage = abfrage.eq(spalte, wert);
       const { error } = await abfrage;
       if (error) throw error;
+    };
+    // 1. Übernommene Historienzeilen wiederherstellen — nur, wo noch das eigene Protokoll steht
+    for (const z of [...r.zeilen].reverse()) if (z.tabelle === "zaehlerstand_historie") await zuruecksetzen(z);
+    // 2. Eigene Historienzeilen löschen: nach ID und nach Protokollpfad. Der Pfad
+    // findet auch Zeilen, deren Antwort verloren ging; eine Zeile, die ein zweites
+    // Gerät übernommen hat, trägt dessen Pfad und bleibt.
+    if (r.historieIds.length > 0) {
+      let loeschen = supabase.from("zaehlerstand_historie").delete().in("id", r.historieIds);
+      if (r.pdfPfad) loeschen = loeschen.eq("protokoll_pfad", r.pdfPfad);
+      const { error } = await loeschen;
+      if (error) throw error;
+    }
+    if (r.pdfPfad) {
+      const { error } = await supabase.from("zaehlerstand_historie").delete().eq("protokoll_pfad", r.pdfPfad);
+      if (error) throw error;
+    }
+    // 3. Vertrag und Einheit — außer, ein anderes Speichern belegt denselben Wert
+    for (const z of [...r.zeilen].reverse()) {
+      if (z.tabelle === "zaehlerstand_historie") continue;
+      const belege = belegeFuer(z);
+      if (belege.length > 0) {
+        const { data: ablesungen, error } = await supabase
+          .from("zaehlerstand_historie")
+          .select("einheit_id, mietvertrag_id, zaehler_typ, stand, datum, quelle, protokoll_pfad")
+          .eq(z.tabelle === "einheiten" ? "einheit_id" : "mietvertrag_id", z.id)
+          .in("zaehler_typ", [...new Set(belege.map((b) => b.zaehlerTyp))])
+          .in("stand", [...new Set(belege.map((b) => b.stand))])
+          .limit(500);
+        if (error) throw error;
+        if (fremdBelegt(belege, (ablesungen ?? []) as BelegAblesung[], r.pdfPfad)) continue;
+      }
+      await zuruecksetzen(z);
     }
     if (r.pdfPfad && r.pdfPfad !== pdfBehalten) {
       // Ohne Dokumenteintrag ist die Datei unsichtbar; bleibt sie liegen, stört sie nicht
@@ -1295,23 +1415,70 @@ export const UebergabeDialog = ({
 
   /** Vor dem Verwerfen: Reste eines abgebrochenen Speicherns zurücknehmen. false, wenn das nicht ging. */
   const offenesZuruecknehmen = async (): Promise<boolean> => {
-    await rueckbauLaufRef.current;
-    if (!rueckbauRef.current) return true;
+    // Nicht neben einem laufenden Speichern: Der Rückbau setzte sonst dessen
+    // gerade geschriebene Werte zurück (24.10.2026)
+    if (speichertRef.current) {
+      melden({ art: "hinweis", titel: "Wird gespeichert", text: "Bitte warten, bis das Speichern abgeschlossen ist." });
+      return false;
+    }
+    speichertRef.current = true;
+    setPruefungLaeuft(true);
     try {
-      // „gespeichert“: Das Protokoll bleibt, verworfen wird nur der Entwurf
-      if ((await rueckbauAusfuehren(rueckbauRef.current)) === "gespeichert") {
-        toast({ title: "Protokoll war gespeichert", description: "Diese Übergabe wurde beim letzten Mal doch gespeichert; sie liegt beim Vertrag unter Dokumente." });
+      await rueckbauLaufRef.current;
+      if (gespeichertRef.current) return false;
+      const r = rueckbauRef.current;
+      if (!r) return true;
+      if ((await rueckbauAusfuehren(r)) === "gespeichert" && r.pdfPfad) {
+        // Dann wird nicht verworfen, sondern das gespeicherte Protokoll gezeigt
+        alsGespeichertUebernehmen(r.pdfPfad);
+        melden({ art: "hinweis", titel: "Bereits gespeichert", text: "Diese Übergabe wurde beim letzten Mal doch gespeichert — nur die Bestätigung kam nicht an." });
+        return false;
       }
       rueckbauRef.current = null;
       setOffenerRueckbau(null);
+      setAusgangUnklar(false);
       return true;
     } catch {
-      toast({
-        title: "Noch nicht verworfen",
-        description: "Ein abgebrochenes Speichern ließ sich nicht zurücknehmen, vermutlich fehlt die Verbindung. Bitte mit Verbindung erneut versuchen.",
-        variant: "destructive",
+      melden({
+        art: "fehler",
+        titel: "Noch nicht verworfen",
+        text: "Ein abgebrochenes Speichern ließ sich nicht zurücknehmen, vermutlich fehlt die Verbindung. Bitte mit Verbindung erneut versuchen.",
       });
       return false;
+    } finally {
+      speichertRef.current = false;
+      setPruefungLaeuft(false);
+    }
+  };
+
+  /** „Erneut prüfen“: klärt, ob ein Lauf mit unklarem Ausgang gespeichert hat, und gibt das Formular frei */
+  const offenesKlaeren = async () => {
+    if (speichertRef.current) return;
+    speichertRef.current = true;
+    setPruefungLaeuft(true);
+    try {
+      await rueckbauLaufRef.current;
+      if (gespeichertRef.current) return;
+      const r = rueckbauRef.current;
+      if (!r) {
+        setAusgangUnklar(false);
+        return;
+      }
+      const behalten = hochgeladenesPdfRef.current?.pfad ?? null;
+      if ((await rueckbauAusfuehren(r, behalten)) === "gespeichert" && r.pdfPfad) {
+        alsGespeichertUebernehmen(r.pdfPfad);
+        melden({ art: "erfolg", titel: "Gespeichert", text: "Das Protokoll ist gespeichert — nur die Bestätigung war unterwegs verloren gegangen." });
+        return;
+      }
+      rueckbauRef.current = behalten ? { historieIds: [], zeilen: [], pdfPfad: behalten } : null;
+      setOffenerRueckbau(rueckbauRef.current);
+      setAusgangUnklar(false);
+      melden({ art: "hinweis", titel: "Nicht gespeichert", text: "Es wurde nichts gespeichert. Das Formular ist wieder frei — bitte erneut auf „Protokoll speichern“ tippen." });
+    } catch {
+      melden({ art: "fehler", titel: "Noch keine Verbindung", text: "Ob gespeichert wurde, ließ sich noch nicht klären. Bitte gleich noch einmal versuchen." });
+    } finally {
+      speichertRef.current = false;
+      setPruefungLaeuft(false);
     }
   };
 
@@ -1325,7 +1492,7 @@ export const UebergabeDialog = ({
   // Eingaben mit.
   const schliessenAnfragen = () => {
     if (isSubmitting) {
-      toast({ title: "Wird gespeichert", description: "Bitte warten, bis das Protokoll gespeichert ist." });
+      melden({ art: "hinweis", titel: "Wird gespeichert", text: "Bitte warten, bis das Protokoll gespeichert ist." });
       return;
     }
     if (ungespeicherteEingaben) {
@@ -1343,7 +1510,7 @@ export const UebergabeDialog = ({
 
   // ============ ABGELEITETES ============
   const offeneVersendungen = [
-    ...((ladeFehler.mieter || mieterData.some((m) => mailadressen(mieterEmails[m.id] || m.hauptmail))) && mailVersendetAn.length === 0
+    ...((ladeFehler.mieter || mieterData.some((m) => mailadressen(mieterEmails[m.id] || m.hauptmail))) && !mieterBeliefert
       ? ["die Mail an den Mieter"]
       : []),
     ...versorgerData.filter((v) => mailadressen(v.email) && !versorgerBenachrichtigt.has(v.typ)).map((v) => `die ${isEinzug ? "Anmeldung" : "Abmeldung"} ${v.label}`),
@@ -1357,7 +1524,7 @@ export const UebergabeDialog = ({
       r[c.id] = {};
       const daten = vertragsZaehler[c.id];
       for (const typ of METER_TYPEN) {
-        const eigene = ablesungen
+        const eigene = vergleichsAblesungen(ablesungen, vertragIds)
           .filter((a) => a.einheit_id === c.einheit.id && a.zaehler_typ === ZAEHLER_DB_TYP[typ])
           .map((a) => ({ stand: a.stand === null ? null : Number(a.stand), datum: a.datum }));
         // Beim Einzug ist der eigene Einzugsstand kein Vergleich — er entsteht gerade
@@ -1366,7 +1533,7 @@ export const UebergabeDialog = ({
       }
     }
     return r;
-  }, [contracts, vertragsZaehler, ablesungen, isEinzug, datumText]);
+  }, [contracts, vertragsZaehler, ablesungen, isEinzug, datumText, vertragIds]);
 
   const fotoAnzahl = useMemo(() => {
     const r: Record<string, Partial<Record<MeterTyp, number>>> = {};
@@ -1523,6 +1690,8 @@ export const UebergabeDialog = ({
               <Calendar
                 mode="single"
                 selected={uebergabeDatum}
+                // Im Monat des gewählten Datums öffnen, nicht im aktuellen
+                defaultMonth={uebergabeDatum}
                 onSelect={(d) => {
                   if (d) setUebergabeDatum(d);
                   setDatumOffen(false);
@@ -1584,6 +1753,7 @@ export const UebergabeDialog = ({
                 fotos={meterPhotosPerContract[contract.id]?.[typ] ?? []}
                 onFotosChange={(pfade) => updateMeterPhotos(contract.id, typ, pfade)}
                 onUploadingChange={uploadMelden(`${contract.id}-${typ}`)}
+                onFotoFehler={(text) => melden({ art: "fehler", titel: `${METER_LABELS[typ]}-Foto`, text })}
                 nummer={vertragsZaehler[contract.id]?.nummern[typ]}
                 referenz={referenzen[contract.id]?.[typ] ?? null}
                 hinweise={zaehlerHinweise(
@@ -1645,6 +1815,7 @@ export const UebergabeDialog = ({
             existingPhotos={notizenPhotos}
             onPhotosChange={setNotizenPhotos}
             onUploadingChange={uploadMelden("notizen")}
+            onFehler={(text) => melden({ art: "fehler", titel: "Zustandsfoto", text })}
           />
         </section>
       )}
@@ -1815,6 +1986,7 @@ export const UebergabeDialog = ({
       onDownload={handleDownloadPdf}
       mieterVorhanden={mieterData.length > 0}
       mailVersendetAn={mailVersendetAn}
+      mieterBeliefert={mieterBeliefert}
       onMail={() => setShowEmailDialog(true)}
       versorger={versorgerData}
       benachrichtigt={versorgerBenachrichtigt}
@@ -1831,8 +2003,8 @@ export const UebergabeDialog = ({
           ließe sich sonst weiter bemalen. Alle Schritte bleiben eingehängt und
           werden nur ausgeblendet — ein laufender Upload überlebt so „Weiter“. */}
       <fieldset
-        disabled={isSubmitting || isSaved}
-        className={cn("min-w-0", (isSubmitting || isSaved) && "pointer-events-none", isSubmitting && "opacity-60")}
+        disabled={isSubmitting || isSaved || ausgangUnklar}
+        className={cn("min-w-0", (isSubmitting || isSaved || ausgangUnklar) && "pointer-events-none", (isSubmitting || ausgangUnklar) && "opacity-60")}
       >
         <legend className="sr-only">{SCHRITT_TITEL[schritt]}</legend>
         {(Object.keys(schritte) as Array<keyof typeof schritte>).map((s) => (
@@ -1845,6 +2017,49 @@ export const UebergabeDialog = ({
     </div>
   );
 
+  // ============ MELDUNGEN ============
+  const meldungsLeiste =
+    (ausgangUnklar && !isSaved) || meldung ? (
+      <div className="space-y-2 border-t bg-background px-4 py-2 sm:px-6 quer:py-1">
+        {ausgangUnklar && !isSaved && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm quer:py-1 quer:text-xs">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+            <span className="min-w-0 flex-1">
+              Ob das Protokoll gespeichert wurde, ist noch offen (Verbindung?). Bis das geklärt ist, ist das Formular gesperrt.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void offenesKlaeren()} disabled={pruefungLaeuft} className="h-9">
+              {pruefungLaeuft ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+              Erneut prüfen
+            </Button>
+          </div>
+        )}
+        {meldung && (
+          <div
+            role={meldung.art === "fehler" ? "alert" : "status"}
+            className={cn(
+              // Quer zählt jede Zeile: dort kleiner
+              "flex items-start gap-2 rounded-md border px-3 py-2 text-sm quer:py-1 quer:text-xs",
+              meldung.art === "fehler" ? "border-destructive/40 bg-destructive/10" : meldung.art === "erfolg" ? "border-success/40 bg-success/10" : "bg-muted/40"
+            )}
+          >
+            {meldung.art === "fehler" ? (
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            ) : meldung.art === "erfolg" ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+            ) : (
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+            <p className="min-w-0 flex-1">
+              <span className="font-medium">{meldung.titel}.</span> <span className="text-muted-foreground">{meldung.text}</span>
+            </p>
+            <button type="button" onClick={() => setMeldung(null)} aria-label="Meldung schließen" className="rounded p-0.5 text-muted-foreground hover:bg-muted">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    ) : null;
+
   // ============ FUSSLEISTE ============
   const naechster = UEBERGABE_SCHRITTE[schrittIndex + 1];
   const vorheriger = UEBERGABE_SCHRITTE[schrittIndex - 1];
@@ -1854,7 +2069,8 @@ export const UebergabeDialog = ({
     <Button
       key="speichern"
       onClick={() => handleSubmit()}
-      disabled={isSubmitting || isGeneratingPreview || fotosLaden || speichernGesperrt || pruefenFrisch || (!vorschauAktuell && !vorschauFehler)}
+      // Solange unklar ist, ob ein früherer Lauf gespeichert hat, nur „Erneut prüfen“
+      disabled={isSubmitting || pruefungLaeuft || ausgangUnklar || isGeneratingPreview || fotosLaden || speichernGesperrt || pruefenFrisch || (!vorschauAktuell && !vorschauFehler)}
       className="h-11 sm:h-10"
     >
       {isSubmitting ? (
@@ -1882,7 +2098,7 @@ export const UebergabeDialog = ({
   ) : (
     <>
       {vorheriger && (
-        <Button variant="outline" onClick={() => geheZu(vorheriger)} disabled={isSubmitting} className="h-11 sm:h-10">
+        <Button variant="outline" onClick={() => geheZu(vorheriger)} disabled={isSubmitting || navFrisch} className="h-11 sm:h-10">
           <ArrowLeft className="h-4 w-4" />
           Zurück
         </Button>
@@ -1890,7 +2106,7 @@ export const UebergabeDialog = ({
       {naechster ? (
         // Eigener key: Sonst übernimmt „Protokoll speichern“ denselben Knopf samt Fokus,
         // und ein zweites Enter speicherte
-        <Button key="weiter" onClick={() => geheZu(naechster)} disabled={isSubmitting} className="h-11 sm:h-10">
+        <Button key="weiter" onClick={() => geheZu(naechster)} disabled={isSubmitting || navFrisch} className="h-11 sm:h-10">
           {isMobile ? "Weiter" : `Weiter: ${SCHRITT_TITEL[naechster]}`}
           <ArrowRight className="h-4 w-4" />
         </Button>
@@ -1939,7 +2155,10 @@ export const UebergabeDialog = ({
       uebergabeDatum={uebergabeDatum}
       mieterName={mieterName || ""}
       pdfPfad={savedPdfPath}
-      onVersendet={(adressen) => setMailVersendetAn((vorher) => [...new Set([...vorher, ...adressen])])}
+      onVersendet={(adressen, anMieter) => {
+        setMailVersendetAn((vorher) => [...new Set([...vorher, ...adressen])]);
+        if (anMieter) setMieterBeliefert(true);
+      }}
     />
   );
 
@@ -1972,7 +2191,7 @@ export const UebergabeDialog = ({
 
   const schliessenAbfrage = (
     <AlertDialog open={schliessenFragen} onOpenChange={setSchliessenFragen}>
-      <AlertDialogContent className={ABFRAGE_KLASSE}>
+      <AlertDialogContent className={ABFRAGE_KLASSE} onCloseAutoFocus={fokusZurueck}>
         <AlertDialogHeader>
           <AlertDialogTitle>Übergabe noch nicht gespeichert</AlertDialogTitle>
           <AlertDialogDescription>
@@ -2009,7 +2228,7 @@ export const UebergabeDialog = ({
 
   const fertigAbfrage = (
     <AlertDialog open={fertigFragen} onOpenChange={setFertigFragen}>
-      <AlertDialogContent className={ABFRAGE_KLASSE}>
+      <AlertDialogContent className={ABFRAGE_KLASSE} onCloseAutoFocus={fokusZurueck}>
         <AlertDialogHeader>
           <AlertDialogTitle>Noch nicht versendet</AlertDialogTitle>
           <AlertDialogDescription>
@@ -2036,7 +2255,7 @@ export const UebergabeDialog = ({
   // Eingaben, Fotos, Unterschriften und den Entwurf.
   const zuruecksetzenAbfrage = (
     <AlertDialog open={zuruecksetzenFragen} onOpenChange={setZuruecksetzenFragen}>
-      <AlertDialogContent className={ABFRAGE_KLASSE}>
+      <AlertDialogContent className={ABFRAGE_KLASSE} onCloseAutoFocus={fokusZurueck}>
         <AlertDialogHeader>
           <AlertDialogTitle>Entwurf verwerfen?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -2063,7 +2282,7 @@ export const UebergabeDialog = ({
 
   const fotoAbfrage = (
     <AlertDialog open={fotoFrage > 0} onOpenChange={(offen) => !offen && setFotoFrage(0)}>
-      <AlertDialogContent className={ABFRAGE_KLASSE}>
+      <AlertDialogContent className={ABFRAGE_KLASSE} onCloseAutoFocus={fokusZurueck}>
         <AlertDialogHeader>
           <AlertDialogTitle>{fotoFrage === 1 ? "1 Foto fehlt im Protokoll" : `${fotoFrage} Fotos fehlen im Protokoll`}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -2140,9 +2359,10 @@ export const UebergabeDialog = ({
             </Button>
           </DrawerHeader>
           {schrittleiste}
-          <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 quer:py-2" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+          <div ref={inhaltRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 outline-none quer:py-2" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
             {inhalt}
           </div>
+          {meldungsLeiste}
           <div className="space-y-2 border-t bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 quer:flex quer:items-center quer:gap-3 quer:space-y-0 quer:pt-1.5 quer:pb-[max(0.375rem,env(safe-area-inset-bottom))]">
             {statusZeile && <div className="flex justify-center quer:min-w-0 quer:flex-1 quer:justify-start">{statusZeile}</div>}
             <div className={cn("grid gap-2 quer:flex quer:shrink-0", !isSaved && vorheriger ? "grid-cols-[auto_1fr]" : "grid-cols-1", !statusZeile && "quer:ml-auto")}>{knoepfe}</div>
@@ -2165,12 +2385,13 @@ export const UebergabeDialog = ({
           {menue}
         </DialogHeader>
         {schrittleiste}
-        <div ref={inhaltRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={inhaltRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
           <div className={cn("mx-auto p-6 quer:p-3", schritt === "pruefen" && !isSaved ? "max-w-none" : "max-w-3xl")}>
             {!isSaved && <h2 className="mb-4 text-base font-semibold quer:mb-2">{SCHRITT_TITEL[schritt]}</h2>}
             {inhalt}
           </div>
         </div>
+        {meldungsLeiste}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background px-6 py-3 quer:py-1.5">
           <div className="min-w-0">{statusZeile}</div>
           <div className="flex items-center gap-2">{knoepfe}</div>

@@ -9,7 +9,8 @@ import { Loader2 } from "lucide-react";
 import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { getVertragsende } from "@/utils/contractUtils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
-import { protokolleErgaenzen, uebergabenJeVertrag, type ProtokollDokument, type UebergabeAblesung, type UebergabeEreignis } from "@/utils/uebergabeHistorie";
+import { artNachDatum, protokolleErgaenzen, uebergabenJeVertrag, type ProtokollDokument, type UebergabeAblesung, type UebergabeEreignis } from "@/utils/uebergabeHistorie";
+import { format, parseISO } from "date-fns";
 import { datumAusTitel, protokollArt, type ProtokollZeile } from "@/utils/uebergabeProtokolle";
 import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
 import { toast } from "sonner";
@@ -175,12 +176,16 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
       (alleMietvertraege ?? []).map((v) => ({ id: v.id, start: v.start_datum, ende: getVertragsende(v) })),
       uebergabeAblesungen ?? []
     );
+    const zeitraeume = new Map((alleMietvertraege ?? []).map((v) => [v.id, { id: v.id, start: v.start_datum, ende: getVertragsende(v) }]));
     const protokolle: ProtokollDokument[] = [];
     for (const z of protokollZeilen ?? []) {
       const istPdf = z.dateityp === 'application/pdf' || /\.pdf$/i.test(z.pfad ?? '') || /\.pdf$/i.test(z.titel ?? '');
-      const art = protokollArt(z.titel, z.pfad);
-      const datum = datumAusTitel(z.titel) ?? z.hochgeladen_am?.slice(0, 10);
-      if (istPdf && art && datum && z.mietvertrag_id && z.pfad) protokolle.push({ mietvertrag_id: z.mietvertrag_id, art, datum, pfad: z.pfad });
+      // Tag des Hochladens in Ortszeit, nicht in UTC
+      const datum = datumAusTitel(z.titel) ?? (z.hochgeladen_am ? format(parseISO(z.hochgeladen_am), 'yyyy-MM-dd') : null);
+      if (!istPdf || !datum || !z.mietvertrag_id || !z.pfad) continue;
+      // Ohne Art im Namen über die Nähe zu Beginn oder Ende des Vertrags
+      const art = protokollArt(z.titel, z.pfad) ?? artNachDatum(datum, zeitraeume.get(z.mietvertrag_id));
+      if (art) protokolle.push({ mietvertrag_id: z.mietvertrag_id, art, datum, pfad: z.pfad });
     }
     return protokolleErgaenzen(ausAblesungen, protokolle);
   }, [alleMietvertraege, uebergabeAblesungen, protokollZeilen]);

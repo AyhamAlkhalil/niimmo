@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Camera, ImageOff, Loader2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { dateienHochladen } from "@/utils/uebergabeSpeicherung";
 import { bildLesbar } from "@/utils/pdfImageUtils";
@@ -20,6 +19,11 @@ interface FotoAufnahmeProps {
   vorKnopf?: ReactNode;
   /** Beschriftung des Kamera-Knopfs; ohne nur das Symbol */
   knopfText?: string;
+  /**
+   * Meldet einen Fehler auch nach außen: Der Schritt mit dem Feld ist oft schon
+   * ausgeblendet, wenn ein Upload scheitert — dort sähe den Hinweis niemand.
+   */
+  onFehler?: (text: string) => void;
 }
 
 /**
@@ -39,6 +43,7 @@ export const FotoAufnahme = ({
   onUploadingChange,
   vorKnopf,
   knopfText,
+  onFehler,
 }: FotoAufnahmeProps) => {
   const [uploading, setUploading] = useState(false);
   const [fortschritt, setFortschritt] = useState<{ fertig: number; gesamt: number } | null>(null);
@@ -50,7 +55,14 @@ export const FotoAufnahme = ({
   const onUploadingChangeRef = useRef(onUploadingChange);
   onUploadingChangeRef.current = onUploadingChange;
   const [signedUrls, setSignedUrls] = useState<Record<string, string | null>>({});
-  const { toast } = useToast();
+  // Fehler stehen am Feld — als Einblendung lagen sie unten rechts über der Fußleiste
+  const [fehlerText, setFehlerTextIntern] = useState<string | null>(null);
+  const onFehlerRef = useRef(onFehler);
+  onFehlerRef.current = onFehler;
+  const setFehlerText = (text: string | null) => {
+    setFehlerTextIntern(text);
+    if (text) onFehlerRef.current?.(text);
+  };
 
   // Wird das Formular während eines Uploads zurückgesetzt, wird diese Instanz
   // ersetzt. Der laufende Upload darf dann nicht mehr in den Dialog
@@ -88,6 +100,7 @@ export const FotoAufnahme = ({
     if (auswahl.length === 0) return;
 
     setUploading(true);
+    setFehlerText(null);
     onUploadingChangeRef.current?.(true);
     setFortschritt({ fertig: 0, gesamt: auswahl.length });
     try {
@@ -95,13 +108,11 @@ export const FotoAufnahme = ({
       const files: File[] = [];
       for (const datei of auswahl) if (await bildLesbar(datei)) files.push(datei);
       const unlesbar = auswahl.length - files.length;
-      if (unlesbar > 0 && istEingehaengt.current) {
-        toast({
-          title: "Bildformat nicht lesbar",
-          description: `${unlesbar === 1 ? "Ein Foto hat" : `${unlesbar} Fotos haben`} ein Format, das dieser Browser nicht lesen kann (z. B. HEIC). Bitte direkt mit der Kamera aufnehmen oder als JPEG speichern.`,
-          variant: "destructive",
-        });
-      }
+      const unlesbarText =
+        unlesbar > 0
+          ? `${unlesbar === 1 ? "Ein Foto hat" : `${unlesbar} Fotos haben`} ein Format, das dieser Browser nicht lesen kann (z. B. HEIC). Bitte direkt mit der Kamera aufnehmen oder als JPEG speichern.`
+          : null;
+      if (unlesbarText && istEingehaengt.current) setFehlerText(unlesbarText);
       if (files.length === 0) return;
       setFortschritt({ fertig: 0, gesamt: files.length });
 
@@ -127,14 +138,11 @@ export const FotoAufnahme = ({
       if (!istEingehaengt.current) return;
 
       if (fehlgeschlagen > 0) {
-        toast({
-          title: "Foto nicht hochgeladen",
-          description: `${fehlgeschlagen} von ${files.length} ${bezeichnung}${files.length === 1 ? "" : "s"} kamen nicht an — bitte erneut aufnehmen.`,
-          variant: "destructive",
-        });
+        const text = `${fehlgeschlagen} von ${files.length} ${bezeichnung}${files.length === 1 ? "" : "s"} kamen nicht an — bitte erneut aufnehmen.`;
+        setFehlerText(unlesbarText ? `${unlesbarText} ${text}` : text);
       }
     } catch {
-      if (istEingehaengt.current) toast({ title: "Fehler", description: "Foto konnte nicht hochgeladen werden.", variant: "destructive" });
+      if (istEingehaengt.current) setFehlerText("Das Foto konnte nicht hochgeladen werden — bitte erneut aufnehmen.");
     } finally {
       if (istEingehaengt.current) {
         setUploading(false);
@@ -214,6 +222,15 @@ export const FotoAufnahme = ({
         </ul>
       )}
       {uploading && knopfText === undefined && <p className="text-xs text-muted-foreground" aria-live="polite">{laeuftText}</p>}
+      {fehlerText && !uploading && (
+        <p role="alert" className="flex items-start gap-1.5 text-xs text-destructive">
+          <ImageOff className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">{fehlerText}</span>
+          <button type="button" onClick={() => setFehlerText(null)} aria-label="Hinweis schließen" className="rounded p-0.5 hover:bg-muted">
+            <X className="h-3 w-3" />
+          </button>
+        </p>
+      )}
     </div>
   );
 };

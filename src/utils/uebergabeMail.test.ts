@@ -4,21 +4,23 @@ import { funktionsFehlertext, istMailadresse, mailadressen, versandAuswerten } f
 describe("versandAuswerten", () => {
   it("trennt angenommene von abgelehnten Adressen", () => {
     const antwort = { success: true, sentEmails: ["a@x.de"], failedEmails: [{ email: "b@x.de", error: "nicht zugestellt" }] };
-    expect(versandAuswerten(antwort, ["a@x.de", "b@x.de"])).toEqual({ gesendet: ["a@x.de"], fehlgeschlagen: ["b@x.de"] });
+    expect(versandAuswerten(antwort, ["a@x.de", "b@x.de"])).toEqual({ gesendet: ["a@x.de"], fehlgeschlagen: ["b@x.de"], gruende: { "b@x.de": "nicht zugestellt" } });
   });
 
   it("meldet einen vollständigen Versand ohne Fehlschläge", () => {
     expect(versandAuswerten({ sentEmails: ["a@x.de", "b@x.de"], failedEmails: [] }, ["a@x.de", "b@x.de"])).toEqual({
       gesendet: ["a@x.de", "b@x.de"],
       fehlgeschlagen: [],
+      gruende: {},
     });
   });
 
   it("nimmt bei einer Antwort ohne Liste alle nicht gescheiterten Adressen als versendet", () => {
-    expect(versandAuswerten(null, ["a@x.de"])).toEqual({ gesendet: ["a@x.de"], fehlgeschlagen: [] });
+    expect(versandAuswerten(null, ["a@x.de"])).toEqual({ gesendet: ["a@x.de"], fehlgeschlagen: [], gruende: {} });
     expect(versandAuswerten({ failedEmails: ["b@x.de"] }, ["a@x.de", "b@x.de"])).toEqual({
       gesendet: ["a@x.de"],
       fehlgeschlagen: ["b@x.de"],
+      gruende: {},
     });
   });
 
@@ -26,7 +28,13 @@ describe("versandAuswerten", () => {
     expect(versandAuswerten({ sentEmails: ["a@x.de", 3, null], failedEmails: [{}, 7, { email: "b@x.de" }] }, [])).toEqual({
       gesendet: ["a@x.de"],
       fehlgeschlagen: ["b@x.de"],
+      gruende: {},
     });
+  });
+
+  it("übernimmt den Grund je Adresse", () => {
+    const antwort = { sentEmails: [], failedEmails: [{ email: "a@x.de", error: "Mailserver nicht erreichbar" }] };
+    expect(versandAuswerten(antwort, ["a@x.de"]).gruende).toEqual({ "a@x.de": "Mailserver nicht erreichbar" });
   });
 });
 

@@ -50,6 +50,8 @@ export async function funktionsFehlertext(fehler: unknown, ersatz: string): Prom
 export interface VersandAuswertung {
   gesendet: string[];
   fehlgeschlagen: string[];
+  /** Grund je abgelehnter Adresse, wie ihn die Function meldet (z. B. „Mailserver nicht erreichbar“) */
+  gruende: Record<string, string>;
 }
 
 const adresseAus = (eintrag: unknown): string | null => {
@@ -72,5 +74,13 @@ export function versandAuswerten(antwort: unknown, alleAdressen: string[]): Vers
   const gesendet = Array.isArray(a.sentEmails)
     ? a.sentEmails.filter((x): x is string => typeof x === "string")
     : alleAdressen.filter((x) => !fehlgeschlagen.includes(x));
-  return { gesendet, fehlgeschlagen };
+  const gruende: Record<string, string> = {};
+  if (Array.isArray(a.failedEmails)) {
+    for (const eintrag of a.failedEmails) {
+      const adresse = adresseAus(eintrag);
+      const grund = (eintrag as { error?: unknown })?.error;
+      if (adresse && typeof grund === "string" && grund.trim()) gruende[adresse] = grund;
+    }
+  }
+  return { gesendet, fehlgeschlagen, gruende };
 }

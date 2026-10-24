@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Mail, Send, AlertCircle, CheckCircle2, Plus, X } from "lucide-react";
 import { format } from "date-fns";
@@ -44,13 +43,17 @@ interface UebergabeEmailDialogProps {
   mieterName: string;
   /** Storage-Pfad des gespeicherten Protokolls — der Dialog öffnet erst nach dem Speichern */
   pdfPfad: string;
-  /** Meldet die Adressen, an die tatsächlich versendet wurde */
-  onVersendet?: (adressen: string[]) => void;
+  /**
+   * Meldet die Adressen, an die tatsächlich versendet wurde, und ob ein Mieter
+   * darunter war — eine angekommene CC-Kopie allein informiert den Mieter nicht.
+   */
+  onVersendet?: (adressen: string[], anMieter: boolean) => void;
 }
 
 interface VersandErgebnis {
   gesendet: string[];
   fehlgeschlagen: string[];
+  gruende: Record<string, string>;
 }
 
 /**
@@ -73,7 +76,8 @@ export const UebergabeEmailDialog = ({
   pdfPfad,
   onVersendet,
 }: UebergabeEmailDialogProps) => {
-  const { toast } = useToast();
+  // Hinweise im Dialog statt als Einblendung: Die lag unten rechts über „E-Mail senden“
+  const [hinweis, setHinweis] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   // Ergebnis des letzten Versands — solange gesetzt, zeigt der Dialog die Übersicht statt des Formulars
   const [ergebnis, setErgebnis] = useState<VersandErgebnis | null>(null);
@@ -177,16 +181,10 @@ Ihre Hausverwaltung`
   const handleSendEmails = async () => {
     const allRecipients = offeneEmpfaenger;
     if (allRecipients.length === 0) {
-      toast({
-        title: "Keine E-Mail-Adressen",
-        description:
-          alleEmpfaenger.length > 0
-            ? "An alle eingetragenen Adressen ist schon versendet."
-            : "Bitte geben Sie mindestens eine gültige E-Mail-Adresse ein.",
-        variant: "destructive",
-      });
+      setHinweis(alleEmpfaenger.length > 0 ? "An alle eingetragenen Adressen ist schon versendet." : "Bitte geben Sie mindestens eine gültige E-Mail-Adresse ein.");
       return;
     }
+    setHinweis(null);
 
     setIsSending(true);
 
@@ -208,16 +206,21 @@ Ihre Hausverwaltung`
 
       // Die Function meldet je Adresse, ob sie angenommen wurde. Bis zum
       // 19.10.2026 zählte der Dialog einfach alle Empfänger als versendet.
-      const { gesendet, fehlgeschlagen } = versandAuswerten(response.data, allRecipients.map((r) => r.email));
-      setErgebnis({ gesendet, fehlgeschlagen });
+      const { gesendet, fehlgeschlagen, gruende } = versandAuswerten(response.data, allRecipients.map((r) => r.email));
       if (gesendet.length > 0) {
         setBisherVersendet((vorher) => ({
           adressen: [...new Set([...(vorher?.adressen ?? []), ...gesendet])],
           am: new Date(),
         }));
         setAuchBelieferte(false);
-        onVersendet?.(gesendet);
+        // Informiert ist der Mieter erst, wenn jede eingetragene Mieter-Adresse die Mail hat — auch über mehrere Versuche
+        const beliefertKlein = new Set([...(bisherVersendet?.adressen ?? []), ...gesendet].map((a) => a.toLowerCase()));
+        const mieterAdressen = alleEmpfaenger.filter((r) => r.mieterId !== "cc").map((r) => r.email.toLowerCase());
+        const anMieter = mieterAdressen.length > 0 && mieterAdressen.every((a) => beliefertKlein.has(a));
+        onVersendet?.(gesendet, anMieter);
       }
+      // Zuerst das Ergebnis: Scheitert danach die Übernahme in die Stammdaten, ist die Mail trotzdem raus
+      setErgebnis({ gesendet, fehlgeschlagen, gruende });
 
       // Nur ausdrücklich gewünschte und tatsächlich angenommene Adressen übernehmen
       const nichtGespeichert: string[] = [];
@@ -231,31 +234,10 @@ Ihre Hausverwaltung`
         if (error) nichtGespeichert.push(`${m.vorname} ${m.nachname || ""}`.trim());
       }
       if (nichtGespeichert.length > 0) {
-        toast({
-          title: "Adresse nicht übernommen",
-          description: `Die neue Mailadresse von ${nichtGespeichert.join(", ")} konnte nicht beim Mieter gespeichert werden.`,
-          variant: "destructive",
-        });
-      }
-
-      if (fehlgeschlagen.length > 0) {
-        toast({
-          title: `${fehlgeschlagen.length} von ${allRecipients.length} E-Mails nicht versendet`,
-          description: `Nicht zugestellt an: ${fehlgeschlagen.join(", ")}`,
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "E-Mails versendet",
-          description: `${gesendet.length} E-Mail(s) wurden versendet.`,
-        });
+        setHinweis(`Die neue Mailadresse von ${nichtGespeichert.join(", ")} konnte nicht beim Mieter gespeichert werden.`);
       }
     } catch (error) {
-      toast({
-        title: "Fehler beim Versenden",
-        description: error instanceof Error ? error.message : "Die E-Mails konnten nicht versendet werden.",
-        variant: "destructive",
-      });
+      setHinweis(error instanceof Error ? error.message : "Die E-Mails konnten nicht versendet werden.");
     } finally {
       setIsSending(false);
     }
@@ -287,14 +269,27 @@ Ihre Hausverwaltung`
               <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-lg p-3">
                 <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-red-800">Nicht zugestellt an</p>
-                  <p className="text-sm text-red-700 break-all">{ergebnis.fehlgeschlagen.join(", ")}</p>
-                  <p className="text-xs text-red-700 mt-1">Bitte die Adresse prüfen und erneut senden.</p>
+                  <p className="text-sm font-medium text-red-800">
+                    {ergebnis.fehlgeschlagen.length} von {ergebnis.fehlgeschlagen.length + ergebnis.gesendet.length} nicht zugestellt
+                  </p>
+                  {ergebnis.fehlgeschlagen.map((adresse) => (
+                    <p key={adresse} className="text-sm text-red-700 break-all">
+                      {adresse}
+                      {ergebnis.gruende[adresse] ? `: ${ergebnis.gruende[adresse]}` : ""}
+                    </p>
+                  ))}
                 </div>
               </div>
             )}
+            {hinweis && <p className="text-sm text-destructive">{hinweis}</p>}
             <DialogFooter className="gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setErgebnis(null)}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setErgebnis(null);
+                  setHinweis(null);
+                }}
+              >
                 {ergebnis.fehlgeschlagen.length > 0 ? "Zurück und erneut senden" : "Weitere E-Mail senden"}
               </Button>
               <Button onClick={onClose}>Schließen</Button>
@@ -417,6 +412,12 @@ Ihre Hausverwaltung`
               />
             </div>
 
+            {hinweis && (
+              <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span className="break-words">{hinweis}</span>
+              </div>
+            )}
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={onClose} disabled={isSending}>
                 Abbrechen

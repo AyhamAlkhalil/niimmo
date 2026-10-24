@@ -219,7 +219,10 @@ export async function generateUebergabePdf(roh: UebergabePdfData): Promise<Blob>
     doc.setFont('helvetica', 'bold');
     // Die Mietsache enthält die Lage schon; ohne sie wie bisher die Etage
     const lage = einheit.mietsache || [einheit.etage, einheit.qm ? `${einheit.qm} m²` : ''].filter(Boolean).join(', ');
-    doc.text(`Zählerstände – ${einheit.name}${lage ? `, ${lage}` : ''}`, marginLeft, y);
+    // Umbrechen: Mit der Mietsache lief die Zeile bei 27 von 111 Einheiten über den Rand
+    const ueberschrift: string[] = doc.splitTextToSize(`Zählerstände – ${einheit.name}${lage ? `, ${lage}` : ''}`, contentWidth);
+    ueberschrift.forEach((zeile, i) => doc.text(zeile, marginLeft, y + i * 5));
+    y += (ueberschrift.length - 1) * 5;
     y += 3;
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');

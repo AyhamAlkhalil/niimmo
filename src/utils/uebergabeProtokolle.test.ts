@@ -25,7 +25,8 @@ describe("letzteProtokolle", () => {
     ]);
     // Das Übergabedatum aus dem Titel, nicht der Upload
     expect(m.get("v1")).toEqual({ einzug: "2026-04-17" });
-    expect(m.get("v2")).toEqual({ auszug: "2025-08-04T09:00:00Z" });
+    // Auch die Schreibweise der Handuploads („20250630 …“) liefert das Übergabedatum
+    expect(m.get("v2")).toEqual({ auszug: "2025-06-30" });
     expect(m.size).toBe(2);
   });
 
@@ -37,10 +38,18 @@ describe("letzteProtokolle", () => {
     expect(m.get("v1")).toEqual({ auszug: "2025-08-31" });
   });
 
+  it("liest auch die Schreibweisen der Handuploads", () => {
+    expect(datumAusTitel("20250830 Übergabeprotokoll Auszug.pdf")).toBe("2025-08-30");
+    expect(datumAusTitel("2026-04-01 Einzug.pdf")).toBe("2026-04-01");
+    expect(datumAusTitel("Scan 123456789.pdf")).toBeNull();
+    expect(datumAusTitel("20251399 Protokoll.pdf")).toBeNull();
+  });
+
   it("liest nur ein Datum, das es gibt", () => {
     expect(datumAusTitel("Übergabeprotokoll (Einzug) – 17.04.2026")).toBe("2026-04-17");
     expect(datumAusTitel("Protokoll 31.02.2026")).toBeNull();
     expect(datumAusTitel("Protokoll 101.01.20261")).toBeNull();
+    expect(datumAusTitel("31.02.2026 korrigiert 17.04.2026")).toBe("2026-04-17");
     expect(datumAusTitel(null)).toBeNull();
   });
 });

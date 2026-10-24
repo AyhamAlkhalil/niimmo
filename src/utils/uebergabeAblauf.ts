@@ -283,3 +283,22 @@ export function mietsacheText(e: MietsacheAngaben): string {
   const flaeche = e.qm && e.qm > 0 ? `${e.qm.toLocaleString("de-DE", { maximumFractionDigits: 2 })} m²` : null;
   return [e.bezeichnung?.trim(), e.einheitentyp?.trim(), e.etage?.trim(), zimmer, flaeche].filter(Boolean).join(", ");
 }
+
+/**
+ * Welche Ablesungen als Vergleich taugen. Heraus fallen:
+ * - Stand 0 aus der Vertragsbearbeitung (Quelle einzug/auszug): Bis zum 23.10.2026
+ *   schrieb sie bei jedem Speichern Nullen, live 535 Zeilen — gegen 0 schlägt
+ *   kein Hinweis an.
+ * - der Einzug der übergebenen Verträge selbst: Beim Auszug gilt der Stand am
+ *   Vertrag (auch nach einer Korrektur), beim Einzug entsteht er gerade.
+ */
+export function vergleichsAblesungen<T extends { stand: number | string | null; quelle: string | null; mietvertrag_id: string | null }>(
+  ablesungen: T[],
+  vertragIds: string[]
+): T[] {
+  return ablesungen.filter((a) => {
+    if ((a.quelle === "einzug" || a.quelle === "auszug") && Number(a.stand) === 0) return false;
+    if (a.mietvertrag_id && vertragIds.includes(a.mietvertrag_id) && (a.quelle === "einzug" || a.quelle === "Übergabe (Einzug)")) return false;
+    return true;
+  });
+}
