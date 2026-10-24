@@ -172,6 +172,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     data: dokumente,
     isLoading: dokumenteLoading,
     isError: dokumenteFehler,
+    isFetching: dokumenteLaedtNeu,
     refetch: refetchDokumente,
   } = useQuery({
     queryKey: ['dokumente-detail', vertragId],
@@ -199,6 +200,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     dokumente,
     dokumenteLoading,
     dokumenteFehler,
+    dokumenteLaedtNeu,
     refetchDokumente,
     queryClient,
   };

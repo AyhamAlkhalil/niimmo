@@ -34,7 +34,7 @@ export default function MietvertragDetailsModal({
   const {
     vertrag, vertragLoading, fetchedEinheit,
     mieter, zahlungen, allMietvertraege, forderungen, dokumente,
-    dokumenteLoading, dokumenteFehler, refetchDokumente,
+    dokumenteLoading, dokumenteFehler, dokumenteLaedtNeu, refetchDokumente,
     queryClient,
   } = useMietvertragData(vertragId, isOpen);
 
@@ -174,6 +174,7 @@ export default function MietvertragDetailsModal({
                 dokumente={dokumente}
                 isLoading={dokumenteLoading}
                 ladeFehler={dokumenteFehler}
+                laedtNeu={dokumenteLaedtNeu}
                 onErneutLaden={() => { void refetchDokumente(); }}
                 formatDatum={formatDatum}
                 mietvertragId={vertragId}

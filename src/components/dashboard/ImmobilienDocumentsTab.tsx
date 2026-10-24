@@ -50,6 +50,8 @@ export function ImmobilienDocumentsTab({ immobilieId }: ImmobilienDocumentsTabPr
     data: dokumente,
     isLoading,
     isError: ladeFehler,
+    // Mit drei Wiederholungen dauert ein Neuladen nach einem Fehler gut 7 s
+    isFetching: laedtNeu,
     refetch,
   } = useQuery({
     queryKey: ['immobilien-dokumente', immobilieId],
@@ -299,8 +301,8 @@ export function ImmobilienDocumentsTab({ immobilieId }: ImmobilienDocumentsTabPr
             <div className="text-center py-12">
               <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
               <p className="text-destructive">Die Dokumente konnten nicht geladen werden.</p>
-              <Button variant="outline" size="sm" className="mt-3" onClick={erneutLaden}>
-                Erneut laden
+              <Button variant="outline" size="sm" className="mt-3" onClick={erneutLaden} disabled={laedtNeu}>
+                {laedtNeu ? "Wird geladen …" : "Erneut laden"}
               </Button>
             </div>
           ) : hatDokumente ? (
@@ -310,8 +312,8 @@ export function ImmobilienDocumentsTab({ immobilieId }: ImmobilienDocumentsTabPr
                 <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4 shrink-0" />
                   <span>Aktualisieren fehlgeschlagen – die Liste ist möglicherweise nicht aktuell.</span>
-                  <Button variant="ghost" size="sm" className="h-7" onClick={erneutLaden}>
-                    Erneut laden
+                  <Button variant="ghost" size="sm" className="h-7" onClick={erneutLaden} disabled={laedtNeu}>
+                    {laedtNeu ? "Wird geladen …" : "Erneut laden"}
                   </Button>
                 </div>
               )}

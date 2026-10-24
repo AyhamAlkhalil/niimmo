@@ -26,6 +26,8 @@ interface MietvertragDocumentsTabProps {
   isLoading?: boolean;
   /** Letztes Laden ist gescheitert */
   ladeFehler?: boolean;
+  /** Ein Neuladen läuft — „Erneut laden“ zeigt das, statt wie tot zu wirken */
+  laedtNeu?: boolean;
   onErneutLaden?: () => void;
   formatDatum: (datum: string) => string;
   onDocumentsChange?: () => void;
@@ -49,6 +51,7 @@ const DOCUMENT_CATEGORIES = [
 export function MietvertragDocumentsTab({
   dokumente,
   isLoading = false,
+  laedtNeu = false,
   ladeFehler = false,
   onErneutLaden,
   formatDatum,
@@ -399,8 +402,8 @@ export function MietvertragDocumentsTab({
               <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
               <p className="text-destructive">Die Dokumente konnten nicht geladen werden.</p>
               {onErneutLaden && (
-                <Button variant="outline" size="sm" className="mt-3" onClick={onErneutLaden}>
-                  Erneut laden
+                <Button variant="outline" size="sm" className="mt-3" onClick={onErneutLaden} disabled={laedtNeu}>
+                  {laedtNeu ? "Wird geladen …" : "Erneut laden"}
                 </Button>
               )}
             </div>
@@ -412,8 +415,8 @@ export function MietvertragDocumentsTab({
                   <AlertCircle className="h-4 w-4 shrink-0" />
                   <span>Aktualisieren fehlgeschlagen – die Liste ist möglicherweise nicht aktuell.</span>
                   {onErneutLaden && (
-                    <Button variant="ghost" size="sm" className="h-7" onClick={onErneutLaden}>
-                      Erneut laden
+                    <Button variant="ghost" size="sm" className="h-7" onClick={onErneutLaden} disabled={laedtNeu}>
+                      {laedtNeu ? "Wird geladen …" : "Erneut laden"}
                     </Button>
                   )}
                 </div>
