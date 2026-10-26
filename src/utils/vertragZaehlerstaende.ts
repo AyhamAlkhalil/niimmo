@@ -118,6 +118,31 @@ export interface VertragZaehlerEinheit {
   gas_zaehler?: string | null;
 }
 
+export const ZAEHLERNUMMER_FELDER = VERTRAG_ZAEHLER_TYPEN.map((typ) => `${typ}_zaehler` as const);
+export type ZaehlernummerFeld = (typeof ZAEHLERNUMMER_FELDER)[number];
+export type ZaehlernummerAenderungen = Partial<Record<ZaehlernummerFeld, string | null>>;
+
+/**
+ * Welche Zählernummern der Einheit sich geändert haben. Leer zählt als „nicht
+ * gesetzt" (null): Bis zum 26.10.2026 schrieb der Bearbeitungsmodus jede Nummer
+ * bei jedem Speichern zurück, eine fehlende als ''. Berücksichtigt werden nur
+ * Felder, die in `bearbeitet` vorkommen.
+ */
+export function geaenderteZaehlernummern(
+  geladen: Partial<Record<ZaehlernummerFeld, string | null>> | null | undefined,
+  bearbeitet: Record<string, unknown>
+): ZaehlernummerAenderungen {
+  const aenderungen: ZaehlernummerAenderungen = {};
+  for (const feld of ZAEHLERNUMMER_FELDER) {
+    const wert = bearbeitet[feld];
+    if (wert !== null && typeof wert !== "string" && typeof wert !== "number") continue;
+    const neu = wert === null ? null : String(wert).trim() || null;
+    const alt = geladen?.[feld]?.trim() || null;
+    if (neu !== alt) aenderungen[feld] = neu;
+  }
+  return aenderungen;
+}
+
 export interface VertragZaehlerHistorienZeile {
   einheit_id: string;
   zaehler_typ: VertragZaehlerTyp;
@@ -134,7 +159,9 @@ export interface VertragZaehlerHistorienZeile {
  * keine Zeile — die Historie hält Ablesungen fest, kein „nicht erfasst".
  *
  * `vertrag` ist der Stand nach dem Speichern, damit ein im selben Zug geänderter
- * Vertragsbeginn oder ein geändertes Ende schon das Datum bestimmt.
+ * Vertragsbeginn oder ein geändertes Ende schon das Datum bestimmt. Ebenso
+ * `einheit`: Bei einem Zählertausch gehört der neue Stand zur neuen Nummer —
+ * bis zum 26.10.2026 bekam die Zeile die alte.
  */
 export function zaehlerstandHistorienZeilen(
   aenderungen: ZaehlerstandAenderungen,

@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { Euro, TrendingUp, TrendingDown, CheckCircle } from "lucide-react";
+import { leseKautionsbetrag } from "@/utils/vertragKaution";
 
 interface MietvertragKautionSectionProps {
   vertrag: any;
@@ -25,13 +26,22 @@ export function MietvertragKautionSection({
   onCancelEditKaution,
   formatBetrag
 }: MietvertragKautionSectionProps) {
-  const kautionSoll = isGlobalEditMode && editedValues.kaution_betrag !== undefined 
-    ? Number(editedValues.kaution_betrag) 
-    : Number(vertrag.kaution_betrag || 0);
-  const kautionIst = isGlobalEditMode && editedValues.kaution_ist !== undefined 
-    ? Number(editedValues.kaution_ist) 
-    : Number(vertrag.kaution_ist || 0);
+  // Im Bearbeitungsmodus der Rohtext der Eingabe; der Hook entscheidet über
+  // geaenderteKaution(), ob leer (null), Betrag oder ungültig. Eine leere Kaution
+  // steht leer im Feld -- bis 26.10.2026 stand dort eine 0 und wurde gespeichert.
+  const sollRoh = isGlobalEditMode && editedValues.kaution_betrag !== undefined ? editedValues.kaution_betrag : vertrag.kaution_betrag;
+  const istRoh = isGlobalEditMode && editedValues.kaution_ist !== undefined ? editedValues.kaution_ist : vertrag.kaution_ist;
+  const kautionSoll = leseKautionsbetrag(sollRoh) ?? 0;
+  const kautionIst = leseKautionsbetrag(istRoh) ?? 0;
   const kautionDifferenz = kautionSoll - kautionIst;
+
+  // Ohne onValueChange ging eine Eingabe im Bearbeitungsmodus verloren,
+  // wenn nicht zuerst der Haken am Feld geklickt wurde
+  const speichere = (field: 'soll' | 'ist', value: string) => {
+    if (isGlobalEditMode) onUpdateEditedValue?.(field === 'soll' ? 'kaution_betrag' : 'kaution_ist', value);
+    else onEditKaution(field, value);
+  };
+  const betragAnzeige = (value: string | number) => formatBetrag(Number(value) || 0);
 
   return (
     <Card className="border-0 shadow-lg rounded-2xl overflow-hidden">
@@ -62,21 +72,17 @@ export function MietvertragKautionSection({
             </div>
             <MietvertragEditableField
               label=""
-              value={kautionSoll}
+              value={sollRoh ?? ""}
               isEditing={isGlobalEditMode || editingKaution === 'soll'}
               onEdit={() => !isGlobalEditMode && onStartEditKaution('soll')}
-              onSave={(value) => {
-                if (isGlobalEditMode) {
-                  onUpdateEditedValue?.('kaution_betrag', parseFloat(value));
-                } else {
-                  onEditKaution('soll', value);
-                }
-              }}
+              onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('kaution_betrag', raw) : undefined}
+              onSave={(value) => speichere('soll', value)}
               onCancel={onCancelEditKaution}
               type="number"
               className="font-bold text-xl md:text-2xl text-blue-800 dark:text-blue-200"
-              formatter={formatBetrag}
+              formatter={betragAnzeige}
               hideEditButton={true}
+              isGlobalEditMode={isGlobalEditMode}
             />
           </div>
 
@@ -92,21 +98,17 @@ export function MietvertragKautionSection({
             </div>
             <MietvertragEditableField
               label=""
-              value={kautionIst}
+              value={istRoh ?? ""}
               isEditing={isGlobalEditMode || editingKaution === 'ist'}
               onEdit={() => !isGlobalEditMode && onStartEditKaution('ist')}
-              onSave={(value) => {
-                if (isGlobalEditMode) {
-                  onUpdateEditedValue?.('kaution_ist', parseFloat(value));
-                } else {
-                  onEditKaution('ist', value);
-                }
-              }}
+              onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('kaution_ist', raw) : undefined}
+              onSave={(value) => speichere('ist', value)}
               onCancel={onCancelEditKaution}
               type="number"
               className="font-bold text-xl md:text-2xl text-emerald-800 dark:text-emerald-200"
-              formatter={formatBetrag}
+              formatter={betragAnzeige}
               hideEditButton={true}
+              isGlobalEditMode={isGlobalEditMode}
             />
           </div>
 

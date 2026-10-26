@@ -153,6 +153,7 @@ export function MietvertragMeterReadings({
                         value={meter.number || ""}
                         isEditing={isGlobalEditMode || editingMeterNumber === `${meter.key}_zaehler`}
                         onEdit={() => !isGlobalEditMode && onStartEditMeterNumber(`${meter.key}_zaehler`)}
+                        onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.(`${meter.key}_zaehler`, raw) : undefined}
                         onSave={(value) => {
                           if (isGlobalEditMode) {
                             onUpdateEditedValue?.(`${meter.key}_zaehler`, value);
@@ -163,6 +164,7 @@ export function MietvertragMeterReadings({
                         onCancel={onCancelEditMeterNumber}
                         type="text"
                         formatter={(value) => String(value) || "Nicht gesetzt"}
+                        isGlobalEditMode={isGlobalEditMode}
                       />
                     </div>
                   </div>
@@ -186,6 +188,8 @@ export function MietvertragMeterReadings({
                         type="number"
                         step="0.01"
                         formatter={formatMeterValue}
+                        // Haken und X gibt es im Bearbeitungsmodus nicht: Gespeichert wird alles zusammen
+                        isGlobalEditMode={isGlobalEditMode}
                       />
                     </div>
                     
@@ -204,6 +208,7 @@ export function MietvertragMeterReadings({
                         type="number"
                         step="0.01"
                         formatter={formatMeterValue}
+                        isGlobalEditMode={isGlobalEditMode}
                       />
                     </div>
                   </div>

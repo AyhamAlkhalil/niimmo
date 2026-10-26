@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   VERTRAG_ZAEHLER_FELDER,
+  geaenderteZaehlernummern,
   geaenderteZaehlerstaende,
   istVertragZaehlerFeld,
   leseZaehlerstand,
@@ -181,5 +182,39 @@ describe("zaehlerstandHistorienZeilen mit Vertrag", () => {
   it("trägt den Vertrag mit, damit die Übergabe den eigenen Stand erkennt", () => {
     const zeilen = zaehlerstandHistorienZeilen({ strom_einzug: 100 }, { start_datum: "2024-03-01", ende_datum: null, kuendigungsdatum: null }, { id: "e1" }, "2026-10-24", "v1");
     expect(zeilen[0].mietvertrag_id).toBe("v1");
+  });
+});
+
+describe("geaenderteZaehlernummern", () => {
+  it("schreibt unberührte Nummern nicht zurück, eine fehlende nicht als ''", () => {
+    expect(
+      geaenderteZaehlernummern(einheit, {
+        kaltwasser_zaehler: "KW-1",
+        warmwasser_zaehler: "",
+        strom_zaehler: "ST-9",
+        gas_zaehler: "",
+      })
+    ).toEqual({});
+  });
+
+  it("übernimmt nur geänderte Nummern, getrimmt", () => {
+    expect(geaenderteZaehlernummern(einheit, { kaltwasser_zaehler: " KW-2 ", strom_zaehler: "ST-9 " })).toEqual({ kaltwasser_zaehler: "KW-2" });
+  });
+
+  it("macht eine geleerte Nummer zu null", () => {
+    expect(geaenderteZaehlernummern(einheit, { strom_zaehler: "   " })).toEqual({ strom_zaehler: null });
+    expect(geaenderteZaehlernummern(einheit, { strom_zaehler: null })).toEqual({ strom_zaehler: null });
+  });
+
+  it("ignoriert Felder, die nicht bearbeitet wurden", () => {
+    expect(geaenderteZaehlernummern(einheit, { qm: 50 })).toEqual({});
+    expect(geaenderteZaehlernummern(null, { gas_zaehler: "G-1" })).toEqual({ gas_zaehler: "G-1" });
+    expect(geaenderteZaehlernummern(einheit, { strom_zaehler: {} })).toEqual({});
+  });
+
+  it("gibt beim Zählertausch der Historienzeile die neue Nummer", () => {
+    const nummern = geaenderteZaehlernummern(einheit, { kaltwasser_zaehler: "KW-NEU" });
+    const [zeile] = zaehlerstandHistorienZeilen({ kaltwasser_einzug: 1.5 }, { start_datum: "2026-10-01" }, { ...einheit, ...nummern }, HEUTE);
+    expect(zeile.zaehler_nummer).toBe("KW-NEU");
   });
 });
