@@ -122,7 +122,8 @@ export function MietvertragMeterReadings({
               const IconComponent = meter.icon;
               // Erst ab einem Einzugsstand über 0: Bis zum 23.10.2026 schrieb die
               // Vertragsbearbeitung leere Stände als 0 — ein „Verbrauch“ wäre dann der
-              // ganze Zählerstand (Validierung 24.10.2026)
+              // ganze Zählerstand (Validierung 24.10.2026). Bei der Bereinigung am 26.10.2026
+              // blieben 8 Einzugsstände 0 stehen, die echt sein können, aber nicht belegt sind.
               const hasConsumption = meter.einzug != null && meter.auszug != null && Number(meter.einzug) > 0 && Number(meter.auszug) > Number(meter.einzug);
               
               return (

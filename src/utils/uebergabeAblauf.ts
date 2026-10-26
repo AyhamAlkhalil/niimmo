@@ -287,8 +287,9 @@ export function mietsacheText(e: MietsacheAngaben): string {
 /**
  * Welche Ablesungen als Vergleich taugen. Heraus fallen:
  * - Stand 0 aus der Vertragsbearbeitung (Quelle einzug/auszug): Bis zum 23.10.2026
- *   schrieb sie bei jedem Speichern Nullen, live 535 Zeilen — gegen 0 schlägt
- *   kein Hinweis an.
+ *   schrieb sie bei jedem Speichern Nullen, live 535 Zeilen (am 26.10.2026
+ *   gelöscht). Der Filter bleibt für Tabs mit altem Stand — gegen 0 schlägt
+ *   ohnehin kein Hinweis an.
  * - der Einzug der übergebenen Verträge selbst: Beim Auszug gilt der Stand am
  *   Vertrag (auch nach einer Korrektur), beim Einzug entsteht er gerade.
  */

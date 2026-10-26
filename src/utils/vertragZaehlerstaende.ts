@@ -6,7 +6,10 @@
  * wenn sich nur die Kaltmiete geändert hatte — samt Historienzeile mit dem
  * heutigen Datum. Live entstanden so 535 Zeilen mit Stand 0 in
  * `zaehlerstand_historie`; leere Stände wurden im Vertrag zu 0, und die
- * Plausibilitätsprüfung der Übergabe verglich gegen diese 0.
+ * Plausibilitätsprüfung der Übergabe verglich gegen diese 0. Am 26.10.2026
+ * wurde der Altbestand bereinigt: Die Null-Zeilen sind gelöscht, die Nullfelder
+ * am Vertrag stehen auf null — bis auf 8 Einzugsstände mit echtem Auszugsstand,
+ * bei denen ein neuer Zähler denkbar ist (.tmp/bereinigung-zaehlernullen-2026-10-26).
  *
  * Regeln seither:
  * - Ein leerer Stand bleibt `null`, eine eingetragene 0 bleibt 0.
