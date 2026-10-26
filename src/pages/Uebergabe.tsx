@@ -265,7 +265,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
                 <ArrowLeft className="mr-1 h-4 w-4" /> Zurück
               </Button>
               <div>
-                <h1 className="text-gradient-red font-sans text-xl font-bold sm:text-2xl lg:text-3xl">Übergabe</h1>
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl lg:text-4xl">Übergabe</h1>
                 <p className="font-sans text-xs text-muted-foreground sm:text-sm">Einzug oder Auszug wählen</p>
               </div>
             </div>
@@ -394,7 +394,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
                 {uebergabeType === "einzug" ? <LogIn className="h-5 w-5" /> : <LogOut className="h-5 w-5" />}
               </div>
               <div>
-                <h1 className="text-gradient-red font-sans text-xl font-bold sm:text-2xl lg:text-3xl">
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl lg:text-4xl">
                   {uebergabeType === "einzug" ? "Einzug" : "Auszug"}
                 </h1>
                 <p className="font-sans text-xs text-muted-foreground sm:text-sm">Mietvertrag auswählen</p>

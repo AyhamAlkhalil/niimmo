@@ -386,11 +386,11 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                   <h3 className="text-sm font-semibold">Aktuelle Miete</h3>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="p-2 bg-muted rounded text-center">
-                      <p className="text-[10px] text-muted-foreground">Kaltmiete</p>
+                      <p className="text-xs text-muted-foreground">Kaltmiete</p>
                       <p className="text-sm font-bold">{contractData.current_kaltmiete.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</p>
                     </div>
                     <div className="p-2 bg-muted rounded text-center">
-                      <p className="text-[10px] text-muted-foreground">Betriebskosten</p>
+                      <p className="text-xs text-muted-foreground">Betriebskosten</p>
                       <p className="text-sm font-bold">{contractData.current_betriebskosten.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}</p>
                     </div>
                   </div>
@@ -523,7 +523,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                 </div>
 
                 {/* Legal info */}
-                <div className="p-2 rounded-lg border text-[10px] text-muted-foreground space-y-1">
+                <div className="p-2 rounded-lg border text-xs text-muted-foreground space-y-1">
                   <p className="font-medium">Hinweise:</p>
                   <p>• Neue Miete wird 3 Monate nach Zugang wirksam</p>
                   <p>• Frühestens 15 Monate nach Einzug/letzter Erhöhung</p>

@@ -340,7 +340,7 @@ export function NebenkostenStep2Verteilung({
     <div className="space-y-6">
       {/* Übersicht */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-green-500/20 flex items-center justify-center">
@@ -356,7 +356,7 @@ export function NebenkostenStep2Verteilung({
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
@@ -376,8 +376,8 @@ export function NebenkostenStep2Verteilung({
           className={cn(
             "border-2",
             personenLuecke
-              ? "bg-gradient-to-br from-amber-50 to-amber-100 border-amber-300"
-              : "bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200"
+              ? "border-ochre-200 bg-ochre-50/60"
+              : "bg-card"
           )}
         >
           <CardContent className="pt-4">
@@ -580,7 +580,7 @@ export function NebenkostenStep2Verteilung({
                             <div className="flex items-center gap-2 sm:gap-3 ml-10 sm:ml-0">
                               <Badge
                                 variant={kategorie.umlagefaehig ? "default" : "secondary"}
-                                className="text-[10px] sm:text-xs"
+                                className="text-xs"
                               >
                                 {kategorie.umlagefaehig ? "Umlagefähig" : "Nicht umlagef."}
                               </Badge>

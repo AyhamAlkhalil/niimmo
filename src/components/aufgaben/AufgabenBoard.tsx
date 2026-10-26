@@ -92,7 +92,7 @@ export const AufgabenBoard = ({ onBack, aufgabeOeffnen, onAufgabeGeoeffnet }: Au
               <Button variant="ghost" size="icon" onClick={onBack}>
                 <ArrowLeft className="h-5 w-5" />
               </Button>
-              <h1 className="text-xl font-bold sm:text-2xl">Aufgaben</h1>
+              <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Aufgaben</h1>
               <Badge variant="secondary">{offeneAnzahl} offen</Badge>
             </div>
             <Button size="sm" onClick={() => setDialog({ art: "neu" })}>
@@ -239,7 +239,7 @@ const AufgabenZeile = ({
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="font-medium leading-tight">{aufgabe.titel}</span>
           {istMeine && (
-            <Badge className="bg-red-100 text-[10px] text-red-700 hover:bg-red-100">für mich</Badge>
+            <Badge className="bg-red-100 text-xs text-red-700 hover:bg-red-100">für mich</Badge>
           )}
           {aufgabe.screenshot_pfade.length > 0 && (
             <Camera className="h-3.5 w-3.5 text-muted-foreground" />
@@ -253,12 +253,12 @@ const AufgabenZeile = ({
         )}
 
         <span className="mt-1.5 flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className={cn("text-[10px]", status.className)}>
+          <Badge variant="outline" className={cn("text-xs", status.className)}>
             {status.label}
           </Badge>
-          <Badge className={cn("text-[10px]", prio.className)}>{prio.label}</Badge>
+          <Badge className={cn("text-xs", prio.className)}>{prio.label}</Badge>
           <BenutzerAbzeichen benutzer={aufgabe.verantwortlich} />
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {format(new Date(aufgabe.erstellt_am), "dd.MM.yy", { locale: de })}
           </span>
         </span>

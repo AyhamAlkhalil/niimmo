@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatBetragKompakt } from "@/utils/betragAnzeige";
 import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { EinheitCard } from "./EinheitCard";
 import { HausangabenFuerVertraege } from "./HausangabenFuerVertraege";
 import { ArrowLeft, Building, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame, Search } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
@@ -213,7 +214,7 @@ export const ImmobilienDetail = ({
           
           // Apply search highlight animation class
           targetElement.classList.add('animate-search-highlight');
-          targetElement.style.border = '3px solid #ef4444';
+          targetElement.style.border = '2px solid #be2637'; // Markenrot (26.10.2026)
           targetElement.style.borderRadius = '12px';
           targetElement.style.zIndex = '10';
           targetElement.style.position = 'relative';
@@ -242,24 +243,26 @@ export const ImmobilienDetail = ({
   return <div className="min-h-screen px-3 py-4 sm:p-6 modern-dashboard-bg">
       <div className="max-w-7xl mx-auto relative z-10">
         <div className="mb-6">
-          <Button variant="ghost" onClick={handleBackClick} className="mb-4 hover:bg-gray-100 transition-colors">
-            <ArrowLeft className="h-4 w-4 mr-2" />
+          <Button variant="ghost" size="sm" onClick={handleBackClick} className="-ml-2 mb-4 text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" />
             Zurück zur Übersicht
           </Button>
           
           {/* Immobilien Header */}
-          <Card className="mb-6">
-            <CardHeader className="pb-3">
-              <div className="flex flex-col sm:flex-row items-start gap-3 justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="p-2.5 bg-primary/10 rounded-xl shrink-0">
-                    <Building className="h-6 w-6 text-primary" />
+          <Card className="relative mb-6 overflow-hidden rounded-2xl">
+            <div className="absolute inset-x-0 top-0 h-[3px] bg-brand" aria-hidden="true" />
+            <CardHeader className="pb-4 pt-7 sm:px-8">
+              <div className="flex flex-col sm:flex-row items-start gap-4 justify-between">
+                <div className="flex items-start gap-4">
+                  <div className="mt-1 hidden h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60 sm:flex">
+                    <Building className="h-5 w-5 text-foreground/70" />
                   </div>
-                  <div>
-                    <CardTitle className="text-xl sm:text-2xl font-bold text-foreground mb-0.5">
+                  <div className="min-w-0">
+                    <p className="eyebrow">{[immobilie?.ort, immobilie?.objekttyp].filter(Boolean).join(" · ") || "Objekt"}</p>
+                    <h1 className="mt-2 font-display text-3xl leading-none text-foreground sm:text-4xl">
                       {immobilie?.name}
-                    </CardTitle>
-                    <div className="flex items-center text-muted-foreground text-sm">
+                    </h1>
+                    <div className="mt-2 flex items-center text-muted-foreground text-sm">
                       <MapPin className="h-3.5 w-3.5 mr-1.5 shrink-0" />
                       <span>{immobilie?.adresse}</span>
                     </div>
@@ -267,7 +270,7 @@ export const ImmobilienDetail = ({
                 </div>
 
                 <div className="text-left sm:text-right space-y-2 shrink-0">
-                  <Badge variant="outline" className="text-sm px-3 py-1">
+                  <Badge variant="outline" className="px-3 py-1 text-sm tabular-nums">
                     {einheiten?.length || 0} von {immobilie?.einheiten_anzahl} Einheiten
                   </Badge>
                   {immobilie?.objekttyp && <div className="text-xs text-muted-foreground">
@@ -293,24 +296,24 @@ export const ImmobilienDetail = ({
               </div>
             </CardHeader>
             
-            <CardContent className="pt-0 space-y-4">
+            <CardContent className="pt-0 space-y-4 sm:px-8 sm:pb-8">
               {/* Compact financial metrics */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Fläche</p>
-                  <p className="text-lg font-bold text-foreground">{gesamtQm.toLocaleString()} <span className="text-xs font-normal text-muted-foreground">m²</span></p>
+              <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/80 bg-neutral-50/60 sm:grid-cols-4 [&>div]:border-border/80 [&>div:nth-child(odd)]:border-r sm:[&>div]:border-r sm:[&>div:last-child]:border-r-0 [&>div:nth-child(-n+2)]:border-b sm:[&>div:nth-child(-n+2)]:border-b-0">
+                <div className="px-4 py-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Fläche</p>
+                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{gesamtQm.toLocaleString('de-DE')} <span className="font-sans text-sm text-muted-foreground">m²</span></p>
                 </div>
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Kaltmiete</p>
-                  <p className="text-lg font-bold text-foreground">€{gesamtKaltmiete.toLocaleString()}</p>
+                <div className="px-4 py-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Kaltmiete</p>
+                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{formatBetragKompakt(gesamtKaltmiete)} <span className="font-sans text-sm text-muted-foreground">€</span></p>
                 </div>
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Betriebskosten</p>
-                  <p className="text-lg font-bold text-foreground">€{gesamtBetriebskosten.toLocaleString()}</p>
+                <div className="px-4 py-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Betriebskosten</p>
+                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{formatBetragKompakt(gesamtBetriebskosten)} <span className="font-sans text-sm text-muted-foreground">€</span></p>
                 </div>
-                <div className="bg-muted/50 rounded-lg p-3 text-center">
-                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-0.5">Warmmiete</p>
-                  <p className="text-lg font-bold text-foreground">€{gesamtWarmmiete.toLocaleString()}</p>
+                <div className="px-4 py-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Warmmiete</p>
+                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{formatBetragKompakt(gesamtWarmmiete)} <span className="font-sans text-sm text-muted-foreground">€</span></p>
                 </div>
               </div>
 
@@ -430,7 +433,7 @@ export const ImmobilienDetail = ({
                                   <span className="text-xs font-medium text-foreground">{label}</span>
                                   <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </div>
-                                <p className="text-[10px] text-muted-foreground truncate">
+                                <p className="text-xs text-muted-foreground truncate">
                                   {zaehlerVal ? `Nr. ${zaehlerVal}` : 'Kein Zähler'} 
                                   {standVal != null ? ` · ${standVal}` : ''}
                                   {datumVal ? ` · ${new Date(datumVal).toLocaleDateString('de-DE')}` : ''}

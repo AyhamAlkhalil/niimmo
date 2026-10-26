@@ -174,18 +174,19 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div id="rueckstaende-section" className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl border border-red-100 bg-red-50/30">
+      <div id="rueckstaende-section" className="glass-card relative overflow-hidden rounded-2xl p-4 sm:p-6">
+        <div className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden="true" />
         <CollapsibleTrigger className="w-full">
           {/* Header */}
-          <div className="flex items-center justify-between mb-3 sm:mb-4 cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="p-1.5 sm:p-2 rounded-lg bg-red-100 flex-shrink-0">
-                <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
+          <div className="flex cursor-pointer items-center justify-between" onClick={() => setIsOpen(!isOpen)}>
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-soft ring-1 ring-brand/10 sm:h-11 sm:w-11">
+                <AlertTriangle className="h-4 w-4 text-brand sm:h-5 sm:w-5" />
               </div>
               <div className="text-left min-w-0">
-                <h2 className="text-sm sm:text-lg font-semibold text-gray-800">Rückstände & Guthaben</h2>
+                <h2 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Rückstände & Guthaben</h2>
                 <div className="flex items-center gap-1">
-                  <p className="text-xs sm:text-sm text-gray-600 truncate">
+                  <p className="mt-1 truncate text-xs text-muted-foreground sm:text-sm">
                     {error
                       ? 'nicht geladen'
                       : isLoading
@@ -195,7 +196,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="text-xs text-amber-600 cursor-help ml-1">ⓘ</span>
+                        <span className="ml-1 mt-1 cursor-help text-xs text-warning">ⓘ</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="max-w-xs text-xs">
                         <p>Rückstände werden hier erst angezeigt, wenn der <strong>4. Werktag</strong> des jeweiligen Forderungsmonats überschritten ist.</p>
@@ -208,19 +209,19 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
             
             <div className="flex items-center gap-2">
               {(gesamtRueckstandBetrag > 0 || gesamtGuthabenBetrag > 0) && (
-                <div className="text-right mr-2 sm:mr-4 hidden xs:flex gap-2 sm:gap-4">
+                <div className="mr-2 hidden gap-4 text-right xs:flex sm:mr-5 sm:gap-7">
                   {gesamtRueckstandBetrag > 0 && (
                     <div>
-                      <p className="text-xs sm:text-sm text-gray-600">Rückstände</p>
-                      <p className="text-sm sm:text-xl font-bold text-red-600">
+                      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Rückstände</p>
+                      <p className="mt-1 font-display text-xl leading-none tabular-nums text-brand sm:text-3xl">
                         {formatBetrag(gesamtRueckstandBetrag)}
                       </p>
                     </div>
                   )}
                   {gesamtGuthabenBetrag > 0 && (
                     <div>
-                      <p className="text-xs sm:text-sm text-gray-600">Guthaben</p>
-                      <p className="text-sm sm:text-xl font-bold text-green-600">
+                      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Guthaben</p>
+                      <p className="mt-1 font-display text-xl leading-none tabular-nums text-success sm:text-3xl">
                         {formatBetrag(gesamtGuthabenBetrag)}
                       </p>
                     </div>
@@ -228,18 +229,18 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                 </div>
               )}
               {isOpen ? (
-                <ChevronUp className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500 flex-shrink-0" />
+                <ChevronUp className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
               ) : (
-                <ChevronDown className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500 flex-shrink-0" />
+                <ChevronDown className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
               )}
             </div>
           </div>
         </CollapsibleTrigger>
 
-        <CollapsibleContent>
+        <CollapsibleContent className="pt-4 sm:pt-5">
           {/* Mobile Summary - Shows on small screens */}
           {(gesamtRueckstandBetrag > 0 || gesamtGuthabenBetrag > 0) && (
-            <div className="flex xs:hidden gap-3 mb-3 p-2 bg-white/50 rounded-lg">
+            <div className="mb-3 flex gap-3 rounded-lg border border-border/80 bg-neutral-50/60 p-2 xs:hidden">
               {gesamtRueckstandBetrag > 0 && (
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-600">Rückstände</p>
@@ -277,7 +278,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
 
           {/* Sorting Controls */}
           {fehlendeMietzahlungen && fehlendeMietzahlungen.length > 0 && (
-            <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between border-b border-red-200 pb-3 sm:pb-4">
+            <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between border-b border-border/80 pb-3 sm:pb-4">
               {/* Sort Buttons - Horizontal scroll on mobile */}
               <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
                 <Button
@@ -394,7 +395,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
                       <h3 className="font-semibold text-red-900 text-sm sm:text-base">Rückstände</h3>
-                      <Badge variant="destructive" className="text-[10px] sm:text-xs">
+                      <Badge variant="destructive" className="text-xs">
                         {allRueckstaende.length} Vertrag{allRueckstaende.length !== 1 ? 'e' : ''}
                       </Badge>
                     </div>
@@ -434,7 +435,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                     <div className="flex items-center gap-2">
                       <Euro className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                       <h3 className="font-semibold text-green-900 text-sm sm:text-base">Guthaben</h3>
-                      <Badge className="text-[10px] sm:text-xs bg-green-600">
+                      <Badge className="text-xs bg-green-600">
                         {allGuthaben.length} Vertrag{allGuthaben.length !== 1 ? 'e' : ''}
                       </Badge>
                     </div>

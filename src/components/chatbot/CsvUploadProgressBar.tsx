@@ -64,8 +64,8 @@ export function CsvUploadProgressBar() {
       <div className={`
         rounded-xl shadow-2xl border overflow-hidden
         ${isComplete 
-          ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-200' 
-          : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200'
+          ? 'bg-forest-50 border-forest-200' 
+          : 'bg-ochre-50 border-ochre-200'
         }
       `}>
         {/* Header */}

@@ -114,7 +114,7 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
               </Button>
               <div className="flex items-center gap-2">
                 <ShieldAlert className="h-6 w-6 text-orange-600" />
-                <h1 className="text-xl sm:text-2xl font-sans font-bold text-gray-800">Bewerbungs-Blacklist</h1>
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Bewerbungs-Blacklist</h1>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -125,7 +125,6 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
               <Button
                 onClick={() => { setFormular(leererEintrag); setDialogOffen(true); }}
                 size="sm"
-                className="bg-orange-600 hover:bg-orange-700 text-white"
               >
                 <Plus className="h-4 w-4 mr-1.5" />
                 Eintrag hinzufügen
@@ -273,7 +272,6 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
             <Button
               onClick={handleSpeichern}
               disabled={hinzufuegenMutation.isPending}
-              className="bg-orange-600 hover:bg-orange-700 text-white"
             >
               {hinzufuegenMutation.isPending ? "Wird gespeichert..." : "Hinzufügen"}
             </Button>
@@ -293,7 +291,7 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => loeschenId && loeschenMutation.mutate(loeschenId)}
             >
               Entfernen

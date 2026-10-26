@@ -89,6 +89,21 @@ Anwendungscode stehen **2578 fest verdrahtete Palettenfarben gegen 1187 Token-Kl
 Kartensprachen, 31 Dialog-Geometrien, Buttonhöhen 81-mal überschrieben, 155 Textstellen unter 12px. Die Folge ist
 eine austauschbare „Modern-SaaS"-Optik, während die Eigenschaften eines Fachprogramms fehlen.
 
+**Designsystem seit 26.10.2026:**
+
+- Grund Elfenbein (`bg-canvas`), Flächen weiß (`bg-card`). Die Hauptfarbe ist Anthrazit aus dem Logo
+  (`primary`). Karmin aus dem Ross (`brand`, `brand-soft`) ist nur Akzent: Markenlinie, Überzeile
+  (`.eyebrow`), Auswahl, Hervorhebung. Rote Knöpfe heißen „löschen“ (`destructive`).
+- `tailwind.config.ts` lenkt die Tailwind-Standardfamilien auf eine Markenpalette um: rot wird Karmin,
+  grün Waldgrün, blau Marine, gelb und amber Ocker oder Gold, grau warmer Stein. So erscheinen auch die
+  rund 1800 alten Palettenklassen in Markenfarben. Neuer Code nutzt trotzdem die Rollen.
+- Titelschrift `font-display` (Instrument Serif, nur ein Schnitt) erst ab `text-xl`: Seiten-, Dialog-
+  und Abschnittstitel sowie große Beträge. Darunter steht Inter. `DialogTitle` & Co. wählen das
+  selbst (`components/ui/titelschrift.ts`).
+- Keine Farbverläufe auf Flächen, kein Zoom beim Überfahren. Schatten kommen aus der Skala
+  (`shadow-card`, `shadow-popover`, `shadow-dialog`, `shadow-knopf`).
+- Das Logo-PNG hat einen weißen Grund. Auf Elfenbein bekommt es `mix-blend-multiply`.
+
 **Regeln für neue Oberfläche:**
 
 - **Farben nur über Rollen.** Außerhalb von `components/ui/` keine Klassen der Form `text-/bg-/border-<Palette>-<Zahl>`.

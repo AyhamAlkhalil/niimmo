@@ -11,6 +11,7 @@ import { useState } from "react";
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { toast } from "sonner";
 import { getVertragsende } from "@/utils/contractUtils";
+import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 
 interface MietvertragContractInfoProps {
   vertrag: any;
@@ -136,9 +137,7 @@ export function MietvertragContractInfo({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">Vertragsdaten</h3>
-              <Badge variant={vertrag.status === 'aktiv' ? 'default' : 'secondary'} className="text-[10px] h-5">
-                {vertrag.status}
-              </Badge>
+              <VertragStatusBadge status={vertrag.status} />
             </div>
 
             {/* Objekt & Einheit compact */}
@@ -369,7 +368,7 @@ export function MietvertragContractInfo({
                     </Select>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Steigt nur beim tatsächlichen Mahnungsversand
                 </p>
               </div>
@@ -413,7 +412,7 @@ export function MietvertragContractInfo({
                   <span className="text-xs text-muted-foreground font-mono">{vertrag.bankkonto_mieter}</span>
                   <CopyButton text={vertrag.bankkonto_mieter} fieldName="IBAN" />
                   {!vertrag.bankkonto_mieter_geprueft && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-amber-600">
+                    <span className="flex items-center gap-0.5 text-xs text-amber-600">
                       <AlertCircle className="h-3 w-3" /> Ungeprüft
                     </span>
                   )}

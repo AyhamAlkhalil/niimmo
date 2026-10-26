@@ -39,7 +39,7 @@ export function QuelleMarke({ quelle, vorvertragBeginn }: { quelle: PlatzhalterQ
     <Badge
       variant="outline"
       className={cn(
-        'whitespace-nowrap px-1.5 py-0 text-[10px] font-normal',
+        'whitespace-nowrap px-1.5 py-0 text-xs font-normal',
         quelle === 'vorvertrag' && 'border-primary/40 bg-primary/5 text-primary',
         quelle === 'eingabe' && 'border-foreground/30 text-foreground',
         quelle !== 'vorvertrag' && quelle !== 'eingabe' && 'text-muted-foreground'

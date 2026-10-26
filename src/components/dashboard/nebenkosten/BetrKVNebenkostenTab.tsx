@@ -129,7 +129,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
 
       {/* Statistiken */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-3 pb-3 sm:pt-4">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-blue-500/20 flex items-center justify-center shrink-0">
@@ -143,7 +143,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-3 pb-3 sm:pt-4">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-green-500/20 flex items-center justify-center shrink-0">
@@ -157,7 +157,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-3 pb-3 sm:pt-4">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
@@ -173,7 +173,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-3 pb-3 sm:pt-4">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-amber-500/20 flex items-center justify-center shrink-0">
@@ -203,12 +203,12 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
             </div>
             <div className="text-left min-w-0 hidden sm:block">
               <p className="font-semibold text-xs sm:text-sm truncate">Zuordnen</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground hidden md:block">
+              <p className="text-xs text-muted-foreground hidden md:block">
                 Zahlungen → Kategorien
               </p>
             </div>
             {stats.unassignedCount > 0 && (
-              <Badge variant="secondary" className="ml-auto text-[10px] sm:text-xs shrink-0">
+              <Badge variant="secondary" className="ml-auto text-xs shrink-0">
                 {stats.unassignedCount}
               </Badge>
             )}
@@ -224,12 +224,12 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
             </div>
             <div className="text-left min-w-0 hidden sm:block">
               <p className="font-semibold text-xs sm:text-sm truncate">Verteilen</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground hidden md:block">
+              <p className="text-xs text-muted-foreground hidden md:block">
                 Kosten → Einheiten
               </p>
             </div>
             {stats.assignedCount > 0 && (
-              <Badge variant="default" className="ml-auto bg-green-600 text-[10px] sm:text-xs shrink-0">
+              <Badge variant="default" className="ml-auto bg-green-600 text-xs shrink-0">
                 {stats.assignedCount}
               </Badge>
             )}
@@ -245,7 +245,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
             </div>
             <div className="text-left min-w-0 hidden sm:block">
               <p className="font-semibold text-xs sm:text-sm truncate">Abrechnung</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground hidden md:block">
+              <p className="text-xs text-muted-foreground hidden md:block">
                 PDF + E-Mail versenden
               </p>
             </div>

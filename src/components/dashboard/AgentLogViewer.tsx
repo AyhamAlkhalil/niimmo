@@ -309,7 +309,7 @@ export function AgentLogViewer({ onBack }: AgentLogViewerProps) {
               <div className="flex items-center gap-2">
                 <Bot className="h-5 w-5 text-indigo-600" />
                 <div>
-                  <h1 className="text-lg sm:text-xl font-bold text-gray-800">Chilla Agent-Logs</h1>
+                  <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Chilla Agent-Logs</h1>
                   <p className="text-xs text-gray-500">Telegram-Bot Interaktionen · Live-Monitoring</p>
                 </div>
               </div>
@@ -479,7 +479,7 @@ export function AgentLogViewer({ onBack }: AgentLogViewerProps) {
                           <div className="flex flex-col gap-1">
                             <span className="text-xs font-medium text-gray-800 leading-tight">{getUserName(log)}</span>
                             {log.user_role && (
-                              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 w-fit ${USER_ROLE_COLORS[log.user_role] ?? "bg-gray-100 text-gray-600"}`}>
+                              <Badge variant="outline" className={`text-xs px-1.5 py-0 h-4 w-fit ${USER_ROLE_COLORS[log.user_role] ?? "bg-gray-100 text-gray-600"}`}>
                                 {log.user_role === "gf" ? "GF" : log.user_role === "dev" ? "Dev" : log.user_role}
                               </Badge>
                             )}
@@ -540,13 +540,13 @@ export function AgentLogViewer({ onBack }: AgentLogViewerProps) {
                 <p className="text-sm font-semibold text-gray-700 mb-3">Nachrichten pro Tag (7 Tage)</p>
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={chartData.messagesPerDay}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eae6e3" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line type="monotone" dataKey="gf" name="Geschäftsführer" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="dev" name="Entwickler" stroke="#6b7280" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="gf" name="Geschäftsführer" stroke="#4b6c9f" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="dev" name="Entwickler" stroke="#78726f" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -573,7 +573,7 @@ export function AgentLogViewer({ onBack }: AgentLogViewerProps) {
                         fontSize={10}
                       >
                         {chartData.topTools.map((_, i) => (
-                          <Cell key={i} fill={["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#6b7280"][i % 6]} />
+                          <Cell key={i} fill={["#4b6c9f","#55956e","#c88a28","#be2637","#7b80b6","#78726f"][i % 6]} />
                         ))}
                       </Pie>
                       <Tooltip />
@@ -590,13 +590,13 @@ export function AgentLogViewer({ onBack }: AgentLogViewerProps) {
                   <p className="text-sm font-semibold text-gray-700 mb-3">Token-Verbrauch pro User (7 Tage)</p>
                   <ResponsiveContainer width="100%" height={160}>
                     <BarChart data={chartData.tokensPerUser} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#eae6e3" />
                       <XAxis type="number" tick={{ fontSize: 11 }} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={80} />
                       <Tooltip />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Bar dataKey="tokens_in" name="Tokens In" stackId="a" fill="#3b82f6" />
-                      <Bar dataKey="tokens_out" name="Tokens Out" stackId="a" fill="#10b981" />
+                      <Bar dataKey="tokens_in" name="Tokens In" stackId="a" fill="#4b6c9f" />
+                      <Bar dataKey="tokens_out" name="Tokens Out" stackId="a" fill="#55956e" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>

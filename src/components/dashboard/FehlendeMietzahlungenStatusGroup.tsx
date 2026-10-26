@@ -58,11 +58,11 @@ export function FehlendeMietzahlungenStatusGroup({
         <div className="flex items-center gap-2">
           <Icon className={`h-4 w-4 ${config.iconColor}`} />
           <span className={`text-sm font-medium ${config.textColor}`}>{config.label}</span>
-          <Badge variant="outline" className={`text-[10px] ${config.textColor} ${config.borderColor}`}>
+          <Badge variant="outline" className={`text-xs ${config.textColor} ${config.borderColor}`}>
             {items.length}
           </Badge>
           {status === 'beendet' && (
-            <span className="text-[10px] text-gray-400 italic">nicht in Summe</span>
+            <span className="text-xs text-gray-400 italic">nicht in Summe</span>
           )}
         </div>
         <span className={`text-sm font-semibold ${isGuthaben ? 'text-green-600' : 'text-red-600'}`}>

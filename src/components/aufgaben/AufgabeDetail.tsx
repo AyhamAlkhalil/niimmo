@@ -210,7 +210,7 @@ export const AufgabeDetail = ({ aufgabe, open, onOpenChange }: AufgabeDetailProp
                 >
                   <span
                     className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
                       verantwortlichId === person.id
                         ? "bg-white/25 text-white"
                         : "bg-gray-200 text-gray-700",
@@ -320,7 +320,7 @@ const Herkunft = ({ aufgabe }: { aufgabe: Aufgabe }) => {
           {format(new Date(aufgabe.erstellt_am), "dd.MM.yyyy 'um' HH:mm", { locale: de })}
         </span>
         {aufgabe.quelle === "bildschirmmeldung" && (
-          <Badge variant="outline" className="text-[10px] font-normal">
+          <Badge variant="outline" className="text-xs font-normal">
             per Bildschirmaufnahme
           </Badge>
         )}

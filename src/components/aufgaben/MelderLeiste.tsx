@@ -97,7 +97,7 @@ export const MelderLeiste = () => {
           type="button"
           onClick={() => boardOeffnen()}
           title="Aufgaben-Board öffnen"
-          className="flex h-12 w-12 items-center justify-center rounded-full border border-gray-200/60 bg-white text-gray-700 shadow-lg transition-all hover:scale-105 hover:bg-gray-50 active:scale-95"
+          className="flex h-12 w-12 items-center justify-center rounded-full border border-border/80 bg-card text-foreground/80 shadow-lg transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-neutral-50 hover:text-foreground hover:shadow-xl"
         >
           <ListChecks className="h-5 w-5" />
         </button>
@@ -107,7 +107,7 @@ export const MelderLeiste = () => {
           onClick={() => void melden()}
           disabled={nimmtAuf}
           title="Bildschirm aufnehmen und Problem melden"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-900 text-white shadow-lg transition-all hover:scale-105 hover:bg-gray-800 active:scale-95 disabled:opacity-70"
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-800 text-neutral-50 shadow-lg ring-1 ring-white/10 transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-neutral-700 hover:shadow-xl disabled:opacity-70"
         >
           {nimmtAuf ? (
             <Loader2 className="h-5 w-5 animate-spin" />

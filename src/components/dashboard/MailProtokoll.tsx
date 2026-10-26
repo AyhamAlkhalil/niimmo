@@ -113,7 +113,7 @@ export const MailProtokoll = ({ onBack }: MailProtokollProps) => {
         <Button variant="ghost" size="icon" onClick={onBack} aria-label="Zurück">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <h1 className="mr-1 text-lg font-semibold">Mails</h1>
+        <h1 className="mr-1 font-display text-2xl leading-none text-foreground">Mails</h1>
         <span className="mr-2 text-sm tabular-nums text-muted-foreground">{zaehler.alle}</span>
 
         <div className="relative min-w-[12rem] max-w-md flex-1">

@@ -266,20 +266,21 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
 
   return (
     <div className="fixed bottom-4 right-4 w-[450px] h-[580px] z-50 animate-scale-in">
-      <Card className="h-full flex flex-col min-h-0 shadow-2xl border-0 overflow-hidden backdrop-blur-xl bg-white/95 dark:bg-gray-900/95">
-        {/* Header */}
-        <CardHeader className="bg-gradient-to-r from-red-600 to-red-900 text-white p-4 flex-shrink-0 backdrop-blur-sm">
+      <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border-border/70 bg-card shadow-dialog">
+        {/* Kopf in Anthrazit mit Karminlinie statt rotem Verlauf (26.10.2026) */}
+        <CardHeader className="relative flex-shrink-0 bg-neutral-900 p-4 text-neutral-50">
+          <div className="absolute inset-x-0 bottom-0 h-[2px] bg-brand" aria-hidden="true" />
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="p-2 bg-white/20 rounded-xl backdrop-blur-sm">
-                <Sparkles className="h-5 w-5 animate-pulse" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15">
+                <Sparkles className="h-4 w-4 text-crimson-300" />
               </div>
               <div>
-                <h3 className="font-bold text-lg flex items-center gap-2">
-                  <Zap className="h-4 w-4" />
+                <h3 className="flex items-center gap-2 font-display text-2xl font-normal leading-none">
                   Chilla
+                  <Zap className="h-3.5 w-3.5 text-crimson-300" />
                 </h3>
-                <p className="text-sm text-red-100">Dein KI‑Assistent</p>
+                <p className="mt-1 text-xs text-neutral-400">Dein KI‑Assistent</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -287,8 +288,9 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
                 onClick={clearChat}
                 variant="ghost"
                 size="sm"
-                className="text-white hover:bg-white/20 h-8 w-8 p-0 transition-all duration-200 hover:scale-105"
+                className="h-8 w-8 rounded-full p-0 text-neutral-300 transition-colors hover:bg-white/10 hover:text-white"
                 title="Chat leeren"
+                aria-label="Chat leeren"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -296,7 +298,8 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
                 onClick={onClose}
                 variant="ghost"
                 size="sm"
-                className="text-white hover:bg-white/20 h-8 w-8 p-0 transition-all duration-200 hover:scale-105"
+                className="h-8 w-8 rounded-full p-0 text-neutral-300 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Chilla schließen"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -305,7 +308,7 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
         </CardHeader>
 
         {/* Messages */}
-        <CardContent className="flex-1 min-h-0 flex flex-col p-0 bg-gradient-to-br from-white to-gray-50/50 dark:from-gray-900 dark:to-gray-800/50">
+        <CardContent className="flex min-h-0 flex-1 flex-col bg-neutral-50/60 p-0">
           <ScrollArea ref={scrollAreaRef} className="flex-1 h-full p-4">
             <div className="space-y-4">
               {messages.map((message, index) => (
@@ -317,10 +320,10 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
                   style={{ animationDelay: `${index * 0.05}s` }}
                 >
                   <div
-                    className={`max-w-[85%] p-4 rounded-2xl backdrop-blur-sm transition-all duration-200 ${
+                    className={`max-w-[85%] rounded-2xl p-3.5 transition-all duration-200 ${
                       message.role === "user"
-                        ? 'bg-gradient-to-r from-red-600 to-red-700 text-white rounded-br-sm shadow-lg'
-                        : 'bg-gradient-to-r from-gray-100 to-gray-200 text-gray-800 dark:from-gray-700 dark:to-gray-600 dark:text-gray-100 rounded-bl-sm shadow-lg'
+                        ? 'rounded-br-md bg-primary text-primary-foreground shadow-md'
+                        : 'rounded-bl-md border border-border/70 bg-card text-foreground shadow-sm'
                     }`}
                   >
                     <div className="flex items-start space-x-2">
@@ -343,7 +346,7 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
               
               {isLoading && messages[messages.length - 1]?.content === "" && (
                 <div className="flex justify-start animate-fade-in">
-                  <div className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-600 text-gray-800 dark:text-gray-100 p-4 rounded-2xl rounded-bl-sm backdrop-blur-sm shadow-lg">
+                  <div className="rounded-2xl rounded-bl-md border border-border/70 bg-card p-3.5 text-foreground shadow-sm">
                     <div className="flex items-center space-x-3">
                       <Bot className="h-4 w-4" />
                       <div className="flex space-x-1">
@@ -360,7 +363,7 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
           </ScrollArea>
 
           {/* Input Area */}
-          <div className="p-4 border-t border-gray-200/50 dark:border-gray-700/50 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm">
+          <div className="border-t border-border/70 bg-card p-4">
             <div className="flex space-x-3">
               <Input
                 ref={inputRef}
@@ -369,13 +372,14 @@ export function ModernChatbot({ isOpen, onClose }: ModernChatbotProps) {
                 onKeyPress={handleKeyPress}
                 placeholder="Frag Chilla etwas…"
                 disabled={isLoading}
-                className="flex-1 border-2 border-gray-200 dark:border-gray-700 focus:border-red-500 dark:focus:border-red-400 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm transition-all duration-200"
+                className="h-11 flex-1 rounded-xl"
               />
               <Button
                 onClick={sendMessage}
                 disabled={!inputMessage.trim() || isLoading}
                 size="icon"
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 transition-all duration-200 hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="h-11 w-11 rounded-xl disabled:cursor-not-allowed"
+                aria-label="Nachricht senden"
               >
                 <Send className="h-4 w-4" />
               </Button>

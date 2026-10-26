@@ -18,7 +18,7 @@ export const BenutzerAbzeichen = ({
       className={cn("inline-flex items-center gap-1.5 text-xs", className)}
       title={benutzer.anzeigename}
     >
-      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold text-gray-700">
+      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-700">
         {benutzer.kuerzel}
       </span>
       <span className="truncate">{kurzName(benutzer)}</span>

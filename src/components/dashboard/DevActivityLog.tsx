@@ -234,7 +234,7 @@ export function DevActivityLog({ onBack }: DevActivityLogProps) {
               </Button>
               <div className="flex items-center gap-2">
                 <Activity className="h-5 w-5 text-red-500" />
-                <h1 className="text-xl font-bold text-gray-900">Aktivitätenlog</h1>
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Aktivitätenlog</h1>
                 <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
                   DEV ONLY
                 </Badge>

@@ -393,7 +393,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
               </Button>
               <CreditCard className="h-5 w-5 text-primary" />
               <div>
-                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Darlehenskonten</h1>
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Darlehenskonten</h1>
                 <p className="text-xs text-gray-500 hidden sm:block">
                   {darlehen.length} Konten · {formatEuro(gesamtschuld)} Gesamtschuld
                 </p>
@@ -402,7 +402,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
             <Button
               size="sm"
               onClick={openCreate}
-              className="accent-red h-8 text-xs text-white"
+              className="h-9"
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
               Neues Konto
@@ -412,35 +412,36 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
 
         {/* Summary KPIs */}
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="metric-card rounded-xl p-3 sm:p-4">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Euro className="h-3.5 w-3.5 text-red-500" />
-              <span className="text-xs text-gray-500 font-medium">Gesamtschuld</span>
+          <div className="metric-card relative overflow-hidden rounded-2xl p-4 sm:p-5">
+            <div className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden="true" />
+            <div className="mb-2 flex items-center gap-1.5">
+              <Euro className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Gesamtschuld</span>
             </div>
-            <div className="text-base sm:text-lg font-bold text-red-600 font-mono">
+            <div className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl">
               {formatEuro(gesamtschuld)}
             </div>
-            <div className="text-xs text-gray-400 mt-0.5">{darlehen.length} Konten</div>
+            <div className="mt-1.5 text-xs text-muted-foreground">{darlehen.length} Konten</div>
           </div>
-          <div className="metric-card rounded-xl p-3 sm:p-4">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Euro className="h-3.5 w-3.5 text-orange-500" />
-              <span className="text-xs text-gray-500 font-medium">Rate / Monat</span>
+          <div className="metric-card rounded-2xl p-4 sm:p-5">
+            <div className="mb-2 flex items-center gap-1.5">
+              <Euro className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Rate / Monat</span>
             </div>
-            <div className="text-base sm:text-lg font-bold text-orange-600 font-mono">
+            <div className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl">
               {formatEuro(gesamtrate)}
             </div>
-            <div className="text-xs text-gray-400 mt-0.5">Annuität gesamt</div>
+            <div className="mt-1.5 text-xs text-muted-foreground">Annuität gesamt</div>
           </div>
-          <div className="metric-card rounded-xl p-3 sm:p-4">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Percent className="h-3.5 w-3.5 text-yellow-600" />
-              <span className="text-xs text-gray-500 font-medium">Zinsen / Monat</span>
+          <div className="metric-card rounded-2xl p-4 sm:p-5">
+            <div className="mb-2 flex items-center gap-1.5">
+              <Percent className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Zinsen / Monat</span>
             </div>
-            <div className="text-base sm:text-lg font-bold text-yellow-700 font-mono">
+            <div className="font-display text-2xl leading-none tabular-nums text-warning sm:text-3xl">
               {formatEuro(gesamtzins)}
             </div>
-            <div className="text-xs text-gray-400 mt-0.5">aktuell</div>
+            <div className="mt-1.5 text-xs text-muted-foreground">aktuell</div>
           </div>
         </div>
 
@@ -510,20 +511,20 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
 
                         {/* IBAN */}
                         {d.kontonummer && (
-                          <div className="font-mono text-xs text-gray-400 mb-2 tracking-wider">
+                          <div className="mb-2 text-xs tabular-nums tracking-[0.06em] text-muted-foreground">
                             {formatIBAN(d.kontonummer)}
                           </div>
                         )}
 
                         {/* Restschuld + Rate */}
                         <div className="flex items-baseline gap-2 mb-2">
-                          <span className="font-mono text-sm font-bold text-red-600">
+                          <span className="font-display text-2xl leading-none tabular-nums text-foreground">
                             {formatEuro(stand?.restschuld)}
                           </span>
                           {d.monatliche_rate && (
                             <>
                               <span className="text-gray-300 text-xs">·</span>
-                              <span className="font-mono text-xs text-gray-500">
+                              <span className="text-xs tabular-nums text-muted-foreground">
                                 {formatEuro(d.monatliche_rate)}/Mon.
                               </span>
                             </>
@@ -533,19 +534,19 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                         {/* Badges */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {d.zinssatz_prozent !== null && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
                               {formatProzent(d.zinssatz_prozent)} Zins
                             </Badge>
                           )}
                           {!!d.tilgungssatz_prozent && (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                            <Badge variant="secondary" className="text-xs px-1.5 py-0 h-4">
                               {formatProzent(d.tilgungssatz_prozent)} Tilgung
                             </Badge>
                           )}
                           {zinsProMonat !== null && (
                             <Badge
                               variant="outline"
-                              className="text-[10px] px-1.5 py-0 h-4 border-yellow-200 text-yellow-700 bg-yellow-50"
+                              className="text-xs px-1.5 py-0 h-4 border-yellow-200 text-yellow-700 bg-yellow-50"
                             >
                               {formatEuro(zinsProMonat)} Zinsen
                             </Badge>
@@ -553,7 +554,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                           {tilgungProMonat !== null && tilgungProMonat > 0 && (
                             <Badge
                               variant="outline"
-                              className="text-[10px] px-1.5 py-0 h-4 border-green-200 text-green-700 bg-green-50"
+                              className="text-xs px-1.5 py-0 h-4 border-green-200 text-green-700 bg-green-50"
                             >
                               {formatEuro(tilgungProMonat)} Tilgung
                             </Badge>
@@ -745,16 +746,16 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                                   <TableCell className="text-xs text-gray-700 py-1.5 whitespace-nowrap">
                                     {format(parseISO(e.faellig), "MMM yyyy", { locale: de })}
                                   </TableCell>
-                                  <TableCell className="text-xs font-mono text-gray-800 py-1.5 text-right whitespace-nowrap">
+                                  <TableCell className="text-xs tabular-nums text-foreground py-1.5 text-right whitespace-nowrap">
                                     {formatEuro(e.rate)}
                                   </TableCell>
-                                  <TableCell className="text-xs font-mono text-yellow-700 py-1.5 text-right whitespace-nowrap">
+                                  <TableCell className="text-xs tabular-nums text-warning py-1.5 text-right whitespace-nowrap">
                                     {formatEuro(e.zins)}
                                   </TableCell>
-                                  <TableCell className="text-xs font-mono text-green-700 py-1.5 text-right whitespace-nowrap">
+                                  <TableCell className="text-xs tabular-nums text-success py-1.5 text-right whitespace-nowrap">
                                     {formatEuro(e.tilgung)}
                                   </TableCell>
-                                  <TableCell className="text-xs font-mono text-red-600 py-1.5 text-right whitespace-nowrap">
+                                  <TableCell className="text-xs tabular-nums text-brand py-1.5 text-right whitespace-nowrap">
                                     {formatEuro(e.restschuld)}
                                   </TableCell>
                                 </TableRow>
@@ -820,7 +821,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                                   {z.verwendungszweck || "–"}
                                 </TableCell>
                                 <TableCell
-                                  className={`text-xs font-mono py-1.5 text-right ${
+                                  className={`text-xs tabular-nums py-1.5 text-right ${
                                     z.betrag < 0 ? "text-red-600" : "text-green-700"
                                   }`}
                                 >
@@ -866,7 +867,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                       ).map(([label, value]) => (
                         <div key={label} className="flex items-center justify-between py-2.5">
                           <span className="text-xs text-gray-500">{label}</span>
-                          <span className="text-xs font-mono text-gray-800">{value}</span>
+                          <span className="text-xs tabular-nums text-foreground">{value}</span>
                         </div>
                       ))}
                       {selectedDarlehen.notizen && (
@@ -1100,7 +1101,6 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
             <Button
               onClick={handleSave}
               disabled={saveMutation.isPending}
-              className="accent-red text-white"
             >
               {saveMutation.isPending ? "Speichern…" : editId ? "Speichern" : "Erstellen"}
             </Button>

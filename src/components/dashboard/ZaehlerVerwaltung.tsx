@@ -431,7 +431,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
               </Button>
               <Gauge className="h-5 w-5 text-primary" />
               <div>
-                <h1 className="text-lg sm:text-xl font-bold text-gray-800">Zählerverwaltung</h1>
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Zählerverwaltung</h1>
                 <p className="text-xs text-gray-500 hidden sm:block">
                   {immobilien?.length || 0} Immobilien · {immobilien?.reduce((sum, i) => sum + (i.einheiten?.length || 0), 0) || 0} Einheiten
                 </p>
@@ -584,7 +584,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                               ...(hasSecondSet(immobilie) ? [{ label: 'Hausanschlusszähler 2', suffix: '_2' as const }] : []),
                             ].map(({ label, suffix }) => (
                               <div key={suffix || 'main'} className={suffix ? 'mt-2' : ''}>
-                                {suffix && <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{label}</p>}
+                                {suffix && <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">{label}</p>}
                                 <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${propTypes.length}, 1fr)` }}>
                                   {propTypes.map((type) => {
                                     const draftKey = suffix ? `${type}_2` : type;
@@ -597,7 +597,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                           {getPropertyMeterIcon(type, "h-3 w-3")}
                                           <span className="text-xs font-medium">{getMeterLabel(type)}{suffix ? ' (2)' : ''}</span>
                                           {dbD && !isEditingProp && (
-                                            <span className="text-[10px] text-muted-foreground ml-auto">{formatStandDatum(dbD)}</span>
+                                            <span className="text-xs text-muted-foreground ml-auto">{formatStandDatum(dbD)}</span>
                                           )}
                                         </div>
                                         {isEditingProp ? (
@@ -623,7 +623,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                           </div>
                                         ) : (
                                           <div className="text-xs space-y-0.5">
-                                            <div className={`font-mono text-muted-foreground text-[10px]${matchesSearch(dbZ) ? ' text-red-600 font-bold' : ''}`}>
+                                            <div className={`font-mono text-muted-foreground text-xs${matchesSearch(dbZ) ? ' text-red-600 font-bold' : ''}`}>
                                               {dbZ || <span className="italic">kein Zähler</span>}
                                             </div>
                                             <div className="font-medium">
@@ -713,14 +713,14 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                             </div>
                                           ) : (
                                             <div className="text-xs leading-tight">
-                                              <div className={`text-[10px] font-mono text-muted-foreground${matchesSearch(currentZaehler) ? ' text-red-600 font-bold' : ''}`}>
+                                              <div className={`text-xs font-mono text-muted-foreground${matchesSearch(currentZaehler) ? ' text-red-600 font-bold' : ''}`}>
                                                 {currentZaehler || <span className="italic">—</span>}
                                               </div>
                                               <div className="font-medium tabular-nums">
                                                 {currentStand != null ? currentStand.toLocaleString('de-DE') : <span className="text-muted-foreground">—</span>}
                                               </div>
                                               {standDatum && (
-                                                <div className="text-[10px] text-muted-foreground">{formatStandDatum(standDatum)}</div>
+                                                <div className="text-xs text-muted-foreground">{formatStandDatum(standDatum)}</div>
                                               )}
                                             </div>
                                           )}

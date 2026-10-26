@@ -8,12 +8,14 @@ const NotFound = () => {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+    <div className="modern-dashboard-bg flex min-h-screen items-center justify-center p-6">
       <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">404</h1>
-        <p className="text-xl text-gray-600 mb-4">Oops! Page not found</p>
-        <a href="/" className="text-blue-500 hover:text-blue-700 underline">
-          Return to Home
+        <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="NiImmo Gruppe" className="mx-auto mb-8 h-14 w-auto mix-blend-multiply" />
+        <p className="eyebrow">Fehler 404</p>
+        <h1 className="mt-3 font-display text-5xl leading-none text-foreground sm:text-6xl">Seite nicht gefunden</h1>
+        <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">Die aufgerufene Adresse gibt es nicht oder nicht mehr.</p>
+        <a href="/" className="mt-8 inline-flex h-10 items-center justify-center rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground shadow-knopf transition-colors hover:bg-primary/90">
+          Zum Dashboard
         </a>
       </div>
     </div>

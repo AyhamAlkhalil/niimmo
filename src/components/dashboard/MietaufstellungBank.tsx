@@ -242,13 +242,13 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                 Zurück
               </Button>
               <div>
-                <h1 className="text-xl sm:text-2xl font-bold font-sans text-gradient-red">Mietaufstellung</h1>
+                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Mietaufstellung</h1>
                 <p className="text-xs text-gray-500 mt-0.5">
                   Stand: {format(new Date(), "dd.MM.yyyy")} · nur am Stichtag laufende Verträge · SOLL-Miete direkt editierbar · Annuität aus Darlehen
                 </p>
               </div>
             </div>
-            <Button onClick={() => window.print()} className="bg-red-600 hover:bg-red-700 text-white">
+            <Button onClick={() => window.print()}>
               <Printer className="h-4 w-4 mr-2" />
               Als PDF drucken
             </Button>
@@ -292,11 +292,11 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
             <div className="text-xs text-gray-500 mb-1.5 text-center font-medium">p.m.</div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-gray-400 uppercase tracking-wide">IST</span>
-              <span className="font-bold text-sm font-mono">{fmtEuro(grandTotals.ist)}</span>
+              <span className="text-sm font-semibold tabular-nums">{fmtEuro(grandTotals.ist)}</span>
             </div>
             <div className="flex items-center justify-between border-t border-gray-100 mt-1 pt-1">
               <span className="text-[10px] text-gray-400 uppercase tracking-wide">SOLL</span>
-              <span className="font-semibold text-sm font-mono text-gray-500">{fmtEuro(grandTotals.soll)}</span>
+              <span className="text-sm font-medium tabular-nums text-muted-foreground">{fmtEuro(grandTotals.soll)}</span>
             </div>
           </div>
           {/* p.a. — IST über SOLL */}
@@ -304,11 +304,11 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
             <div className="text-xs text-gray-500 mb-1.5 text-center font-medium">p.a.</div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-gray-400 uppercase tracking-wide">IST</span>
-              <span className="font-bold text-sm font-mono">{fmtEuro(grandTotals.ist * 12)}</span>
+              <span className="text-sm font-semibold tabular-nums">{fmtEuro(grandTotals.ist * 12)}</span>
             </div>
             <div className="flex items-center justify-between border-t border-gray-100 mt-1 pt-1">
               <span className="text-[10px] text-gray-400 uppercase tracking-wide">SOLL</span>
-              <span className="font-semibold text-sm font-mono text-gray-500">{fmtEuro(grandTotals.soll * 12)}</span>
+              <span className="text-sm font-medium tabular-nums text-muted-foreground">{fmtEuro(grandTotals.soll * 12)}</span>
             </div>
           </div>
           {/* weitere Karten */}
@@ -320,7 +320,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
           ].map(({ label, value, negative }) => (
             <div key={label} className="glass-card rounded-xl p-3 text-center">
               <div className="text-xs text-gray-500 mb-1">{label}</div>
-              <div className={cn("font-bold text-sm font-mono", negative && "text-red-600")}>{value}</div>
+              <div className={cn("text-sm font-semibold tabular-nums", negative && "text-brand")}>{value}</div>
             </div>
           ))}
         </div>

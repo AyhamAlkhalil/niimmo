@@ -458,7 +458,7 @@ export const ImmobilienVersicherungenTab = ({ immobilieId }: ImmobilienVersicher
                       <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{dok.titel}</p>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           {dok.hochgeladen_am ? new Date(dok.hochgeladen_am).toLocaleDateString("de-DE") : ""}
                         </p>
                       </div>

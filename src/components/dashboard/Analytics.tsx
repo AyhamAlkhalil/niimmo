@@ -14,7 +14,7 @@ interface AnalyticsProps {
   onBack?: () => void;
 }
 
-const COLORS = ['#10B981', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const COLORS = ['#55956e', '#4b6c9f', '#c88a28', '#be2637', '#7b80b6', '#b76988'];
 
 export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
   const [zeitraum, setZeitraum] = useState<'6m' | '12m' | '24m'>('12m');
@@ -320,7 +320,7 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
           )}
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
             <div>
-              <h1 className="text-xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2">Analytics Dashboard</h1>
+              <h1 className="font-display text-2xl leading-none text-foreground sm:text-4xl mb-1 sm:mb-2">Analytics Dashboard</h1>
               <p className="text-gray-600 text-sm hidden sm:block">Umfassende Übersicht über Portfolio-Werte, Renditen, Prognosen und Wirtschaftlichkeit</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -341,76 +341,76 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
 
         {/* Top KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+          <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-blue-900">Portfolio-Gesamtwert</CardTitle>
-              <Building className="h-5 w-5 text-blue-600" />
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Portfolio-Gesamtwert</CardTitle>
+              <Building className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-900">
+              <div className="font-display text-2xl leading-none tabular-nums text-foreground xl:text-4xl">
                 {analytics.gesamtPortfolioWert.toLocaleString('de-DE')}€
               </div>
-              <p className="text-xs text-blue-700 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {immobilien?.length || 0} Immobilien
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-green-900">Brutto-Rendite</CardTitle>
-              <TrendingUp className="h-5 w-5 text-green-600" />
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Brutto-Rendite</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-900">
+              <div className="font-display text-2xl leading-none tabular-nums text-foreground xl:text-4xl">
                 {analytics.bruttoRendite.toFixed(2)}%
               </div>
-              <p className="text-xs text-green-700 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {analytics.jahresertrag.toLocaleString('de-DE')}€ p.a.
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+          <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-purple-900">Eigenkapital</CardTitle>
-              <PiggyBank className="h-5 w-5 text-purple-600" />
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Eigenkapital</CardTitle>
+              <PiggyBank className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-900">
+              <div className="font-display text-2xl leading-none tabular-nums text-foreground xl:text-4xl">
                 {analytics.eigenkapital.toLocaleString('de-DE')}€
               </div>
-              <p className="text-xs text-purple-700 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {((analytics.eigenkapital / analytics.gesamtPortfolioWert) * 100).toFixed(1)}% Quote
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+          <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-orange-900">Vermietungsgrad</CardTitle>
-              <Users className="h-5 w-5 text-orange-600" />
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Vermietungsgrad</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-900">
+              <div className="font-display text-2xl leading-none tabular-nums text-foreground xl:text-4xl">
                 {analytics.vermietungsgrad.toFixed(1)}%
               </div>
-              <p className="text-xs text-orange-700 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {analytics.vermieteteEinheiten} von {analytics.gesamtEinheiten} Einheiten
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
+          <Card className="rounded-2xl">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-emerald-900">ROI</CardTitle>
-              <DollarSign className="h-5 w-5 text-emerald-600" />
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">ROI</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-emerald-900">
+              <div className="font-display text-2xl leading-none tabular-nums text-foreground xl:text-4xl">
                 {analytics.roi.toFixed(2)}%
               </div>
-              <p className="text-xs text-emerald-700 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 Return on Investment
               </p>
             </CardContent>
@@ -449,7 +449,7 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                     <Line 
                       type="monotone" 
                       dataKey="wert" 
-                      stroke="#3B82F6" 
+                      stroke="#4b6c9f" 
                       strokeWidth={3}
                       dot={(props: any) => {
                         const { cx, cy, payload } = props;
@@ -458,8 +458,8 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                             cx={cx}
                             cy={cy}
                             r={4}
-                            fill={payload.isPrognose ? '#F59E0B' : '#3B82F6'}
-                            stroke={payload.isPrognose ? '#F59E0B' : '#3B82F6'}
+                            fill={payload.isPrognose ? '#c88a28' : '#4b6c9f'}
+                            stroke={payload.isPrognose ? '#c88a28' : '#4b6c9f'}
                             strokeWidth={2}
                           />
                         );
@@ -502,9 +502,9 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                     <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k€`} />
                     <Tooltip formatter={(value: any) => [`${value.toLocaleString('de-DE')}€`, '']} />
                     <Legend />
-                    <Bar dataKey="kaltmiete" stackId="a" fill="#10B981" name="Kaltmiete" />
-                    <Bar dataKey="betriebskosten" stackId="a" fill="#3B82F6" name="Betriebskosten" />
-                    <Bar dataKey="sonstige" stackId="a" fill="#F59E0B" name="Sonstige" />
+                    <Bar dataKey="kaltmiete" stackId="a" fill="#55956e" name="Kaltmiete" />
+                    <Bar dataKey="betriebskosten" stackId="a" fill="#4b6c9f" name="Betriebskosten" />
+                    <Bar dataKey="sonstige" stackId="a" fill="#c88a28" name="Sonstige" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -530,16 +530,16 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                       type="monotone" 
                       dataKey="einnahmen" 
                       stackId="1" 
-                      stroke="#10B981" 
-                      fill="#10B981" 
+                      stroke="#55956e" 
+                      fill="#55956e" 
                       name="Einnahmen"
                     />
                     <Area 
                       type="monotone" 
                       dataKey="ausgaben" 
                       stackId="2" 
-                      stroke="#EF4444" 
-                      fill="#EF4444" 
+                      stroke="#be2637" 
+                      fill="#be2637" 
                       name="Ausgaben"
                     />
                   </AreaChart>
@@ -563,8 +563,8 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                   <PieChart>
                     <Pie
                       data={[
-                        { name: 'Vermietet', value: analytics.vermieteteEinheiten, color: '#10B981' },
-                        { name: 'Leerstehend', value: analytics.gesamtEinheiten - analytics.vermieteteEinheiten, color: '#EF4444' },
+                        { name: 'Vermietet', value: analytics.vermieteteEinheiten, color: '#55956e' },
+                        { name: 'Leerstehend', value: analytics.gesamtEinheiten - analytics.vermieteteEinheiten, color: '#be2637' },
                       ]}
                       cx="50%"
                       cy="50%"
@@ -572,11 +572,11 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                       label={({ name, percent, value }) => `${name}: ${value} (${(percent * 100).toFixed(0)}%)`}
                       innerRadius={60}
                       outerRadius={100}
-                      fill="#8884d8"
+                      fill="#78726f"
                       dataKey="value"
                     >
-                      <Cell fill="#10B981" />
-                      <Cell fill="#EF4444" />
+                      <Cell fill="#55956e" />
+                      <Cell fill="#be2637" />
                     </Pie>
                     <Tooltip />
                   </PieChart>
@@ -612,8 +612,8 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                       formatter={(value: any) => [`${value.toLocaleString('de-DE')}€`, '']}
                     />
                     <Legend />
-                    <Bar dataKey="wert" fill="#3B82F6" name="Kaufpreis" />
-                    <Bar dataKey="eigenkapital" fill="#10B981" name="Eigenkapital" />
+                    <Bar dataKey="wert" fill="#4b6c9f" name="Kaufpreis" />
+                    <Bar dataKey="eigenkapital" fill="#55956e" name="Eigenkapital" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -713,7 +713,7 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
                   </div>
                   <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                     <div className="flex items-center gap-2 mb-2">
-                      <Building className="h-5 w-5 text-blue-600" />
+                      <Building className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm font-medium text-blue-900">Restschuld</span>
                     </div>
                     <div className="text-2xl font-bold text-blue-700">
@@ -759,57 +759,57 @@ export const Analytics = ({ onBack }: AnalyticsProps = {}) => {
 
         {/* Zusammenfassung & Weitere Kennzahlen */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="bg-gradient-to-br from-blue-50 to-white">
+          <Card className="rounded-2xl">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Jahresertrag (Brutto)</CardTitle>
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Jahresertrag (Brutto)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-600">
+              <div className="font-display text-3xl leading-none tabular-nums text-foreground">
                 {analytics.jahresertrag.toLocaleString('de-DE')}€
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {analytics.monatlicheKaltmiete.toLocaleString('de-DE')}€/Monat
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-50 to-white">
+          <Card className="rounded-2xl">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Ø Miete pro m²</CardTitle>
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Ø Miete pro <span className="normal-case">m²</span></CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="font-display text-3xl leading-none tabular-nums text-foreground">
                 {analytics.mieteProm2.toFixed(2)}€
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 Kaltmiete
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-purple-50 to-white">
+          <Card className="rounded-2xl">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Restschuld</CardTitle>
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Restschuld</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-600">
+              <div className="font-display text-3xl leading-none tabular-nums text-foreground">
                 {analytics.gesamtRestschuld.toLocaleString('de-DE')}€
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {((analytics.gesamtRestschuld / analytics.gesamtPortfolioWert) * 100).toFixed(1)}% vom Gesamtwert
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-orange-50 to-white">
+          <Card className="rounded-2xl">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-700">Gesamtfläche</CardTitle>
+              <CardTitle className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Gesamtfläche</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">
+              <div className="font-display text-3xl leading-none tabular-nums text-foreground">
                 {einheiten?.reduce((sum, e) => sum + (e.qm || 0), 0).toFixed(0)} m²
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {analytics.gesamtEinheiten} Einheiten
               </p>
             </CardContent>

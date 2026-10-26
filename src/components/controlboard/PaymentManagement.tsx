@@ -709,7 +709,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           </Button>
           <Separator orientation="vertical" className="hidden h-6 sm:block" />
           <div className="min-w-0">
-            <h1 className="text-base font-semibold leading-tight">Zahlungsverwaltung</h1>
+            <h1 className="font-display text-xl leading-none text-foreground sm:text-2xl">Zahlungsverwaltung</h1>
             <p className="hidden text-xs text-muted-foreground md:block">CSV-Import, Zuordnung und Übersicht aller Buchungen</p>
           </div>
           <TabsList className="ml-auto h-9 w-full justify-start overflow-x-auto sm:w-auto">

@@ -23,6 +23,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
+import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 
 interface EditableMietUebersichtProps {
   onBack: () => void;
@@ -156,8 +157,8 @@ function buildBankHtml(
       <td class="num"><b>${fmtEuro(gWarm)}</b></td>
       <td style="font-size:7pt">
         Annuität: <b>${fmtEuro(g.annuitaet)}</b> p.m.
-        &nbsp;|&nbsp; Überschuss IST: <b style="color:${uIst < 0 ? '#dc2626' : '#16a34a'}">${fmtEuro(uIst)}</b> p.a.
-        &nbsp;/&nbsp; SOLL: <b style="color:${uSoll < 0 ? '#dc2626' : '#16a34a'}">${fmtEuro(uSoll)}</b> p.a.
+        &nbsp;|&nbsp; Überschuss IST: <b style="color:${uIst < 0 ? '#be2637' : '#387b54'}">${fmtEuro(uIst)}</b> p.a.
+        &nbsp;/&nbsp; SOLL: <b style="color:${uSoll < 0 ? '#be2637' : '#387b54'}">${fmtEuro(uSoll)}</b> p.a.
       </td>
       <td class="num"><b>${fmtEuro(gIst)}</b></td>
       <td class="num"><b>${fmtEuro(gIst * 12)}</b></td>
@@ -173,7 +174,7 @@ function buildBankHtml(
   const grandIst = grandKm;
   const grandAnn = Array.from(annMap.values()).reduce((s, v) => s + v, 0);
   const grandUeberschuss = (grandIst - grandAnn) * 12;
-  const negCol = grandUeberschuss < 0 ? "#dc2626" : "#16a34a";
+  const negCol = grandUeberschuss < 0 ? "#be2637" : "#387b54";
 
   const totalRow = `<tr class="total-row">
     <td colspan="4"><b>Gesamt</b></td>
@@ -203,13 +204,13 @@ function buildBankHtml(
   th, td { border: 0.5px solid #d1d5db; padding: 2px 5px; white-space: nowrap; }
   th { background: #1f2937; color: #fff; font-size: 7.5pt; text-align: center; }
   td.num { text-align: right; }
-  td.ctr { text-align: center; color: #6b7280; }
+  td.ctr { text-align: center; color: #78726f; }
   td.muted { color: #9ca3af; font-style: italic; }
-  td.neg { color: #dc2626; font-weight: 600; }
-  td.pos { color: #16a34a; font-weight: 600; }
+  td.neg { color: #be2637; font-weight: 600; }
+  td.pos { color: #387b54; font-weight: 600; }
   .obj-row td { background: #fff7ed; color: #9a3412; border-top: 2px solid #fb923c; }
   .leerstand td { background: #fefce8; }
-  .total-row td { background: #1f2937; color: #fff; border-top: 2px solid #6b7280; }
+  .total-row td { background: #1f2937; color: #fff; border-top: 2px solid #78726f; }
   @page { size: A3 landscape; margin: 8mm; }
 </style>
 </head>
@@ -584,12 +585,9 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
     });
   }, []);
 
-  const statusBadge = (row: ContractRow) => {
-    if (row.isLeerstand) return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200 text-[10px] px-1.5 py-0">Leerstand</Badge>;
-    if (row.status === "aktiv") return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px] px-1.5 py-0">Aktiv</Badge>;
-    if (row.status === "gekuendigt") return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">Gekündigt</Badge>;
-    return <Badge className="bg-gray-100 text-gray-500 border-gray-200 text-[10px] px-1.5 py-0">Beendet</Badge>;
-  };
+  const statusBadge = (row: ContractRow) => (
+    <VertragStatusBadge status={row.isLeerstand ? null : row.status || "beendet"} leer={row.isLeerstand} className="px-1.5 py-0" />
+  );
 
   if (isLoading) {
     return (
@@ -614,8 +612,8 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
               </Button>
               <TableProperties className="h-5 w-5 text-primary shrink-0" />
               <div className="min-w-0">
-                <h1 className="text-base sm:text-lg font-bold truncate">Stammdaten</h1>
-                <p className="text-[11px] text-muted-foreground hidden sm:block">Einheiten, Mieter & Verträge bearbeiten</p>
+                <h1 className="truncate py-0.5 font-display text-xl leading-tight text-foreground sm:text-2xl">Stammdaten</h1>
+                <p className="text-xs text-muted-foreground hidden sm:block">Einheiten, Mieter & Verträge bearbeiten</p>
               </div>
             </div>
 
@@ -670,7 +668,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
               {/* Export-Button */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" className="h-8 text-xs bg-red-600 hover:bg-red-700 text-white gap-1.5">
+                  <Button size="sm" className="h-8 gap-1.5 text-xs">
                     <FileDown className="h-3.5 w-3.5" />
                     Exportieren
                     <ChevronDownIcon className="h-3 w-3 opacity-70" />
@@ -702,7 +700,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                 <p className="text-xs font-semibold text-amber-900">
                   {luecken.gesamt} fehlende Angabe(n) für die Betriebskostenabrechnung
                 </p>
-                <p className="text-[11px] text-amber-800">
+                <p className="text-xs text-amber-800">
                   {luecken.flaecheCount > 0 && (
                     <span>{luecken.flaecheCount} Einheit(en) ohne m²</span>
                   )}
@@ -720,20 +718,20 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                 <Badge
                   key={o.name}
                   variant="outline"
-                  className="text-[10px] border-amber-300 text-amber-800 bg-white/60 font-normal"
+                  className="text-xs border-amber-300 text-amber-800 bg-white/60 font-normal"
                 >
                   {o.name}: {o.flaeche + o.personen}
                 </Badge>
               ))}
               {luecken.proObjekt.length > 4 && (
-                <span className="text-[10px] text-amber-700">
+                <span className="text-xs text-amber-700">
                   +{luecken.proObjekt.length - 4} weitere
                 </span>
               )}
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 text-[11px] border-amber-400 text-amber-900 hover:bg-amber-100"
+                className="h-7 text-xs border-amber-400 text-amber-900 hover:bg-amber-100"
                 onClick={() =>
                   setStatusFilter(statusFilter === "unvollstaendig" ? "all" : "unvollstaendig")
                 }
@@ -751,22 +749,22 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
           <table className="w-full caption-bottom text-sm">
             <thead className="sticky top-0 z-20 [&_tr]:border-b">
               <tr className="bg-muted border-b-2">
-                <th className="w-8 text-[10px] font-bold py-2 px-2 h-12 text-left align-middle text-muted-foreground" />
-                <th className="text-[10px] font-bold py-2 px-2 w-[50px] h-12 text-left align-middle text-muted-foreground">Einheit</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[50px] h-12 text-left align-middle text-muted-foreground">Etage</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[55px] h-12 text-left align-middle text-muted-foreground">m²</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[75px] h-12 text-left align-middle text-muted-foreground">Typ</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[75px] h-12 text-left align-middle text-muted-foreground">Status</th>
-                <th className="text-[10px] font-bold py-2 px-2 h-12 text-left align-middle text-muted-foreground">Mieter</th>
-                <th className="text-[10px] font-bold py-2 px-2 h-12 text-left align-middle text-muted-foreground">E-Mail</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[100px] h-12 text-left align-middle text-muted-foreground">Telefon</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">Kaltmiete</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[60px] text-right h-12 align-middle text-muted-foreground">NK</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">Warmmiete</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">SOLL p.m.</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[40px] text-center h-12 align-middle text-muted-foreground">Pers.</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[85px] h-12 text-left align-middle text-muted-foreground">Beginn</th>
-                <th className="text-[10px] font-bold py-2 px-2 w-[85px] h-12 text-left align-middle text-muted-foreground">Ende</th>
+                <th className="w-8 text-xs font-bold py-2 px-2 h-12 text-left align-middle text-muted-foreground" />
+                <th className="text-xs font-bold py-2 px-2 w-[50px] h-12 text-left align-middle text-muted-foreground">Einheit</th>
+                <th className="text-xs font-bold py-2 px-2 w-[50px] h-12 text-left align-middle text-muted-foreground">Etage</th>
+                <th className="text-xs font-bold py-2 px-2 w-[55px] h-12 text-left align-middle text-muted-foreground">m²</th>
+                <th className="text-xs font-bold py-2 px-2 w-[75px] h-12 text-left align-middle text-muted-foreground">Typ</th>
+                <th className="text-xs font-bold py-2 px-2 w-[75px] h-12 text-left align-middle text-muted-foreground">Status</th>
+                <th className="text-xs font-bold py-2 px-2 h-12 text-left align-middle text-muted-foreground">Mieter</th>
+                <th className="text-xs font-bold py-2 px-2 h-12 text-left align-middle text-muted-foreground">E-Mail</th>
+                <th className="text-xs font-bold py-2 px-2 w-[100px] h-12 text-left align-middle text-muted-foreground">Telefon</th>
+                <th className="text-xs font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">Kaltmiete</th>
+                <th className="text-xs font-bold py-2 px-2 w-[60px] text-right h-12 align-middle text-muted-foreground">NK</th>
+                <th className="text-xs font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">Warmmiete</th>
+                <th className="text-xs font-bold py-2 px-2 w-[80px] text-right h-12 align-middle text-muted-foreground">SOLL p.m.</th>
+                <th className="text-xs font-bold py-2 px-2 w-[40px] text-center h-12 align-middle text-muted-foreground">Pers.</th>
+                <th className="text-xs font-bold py-2 px-2 w-[85px] h-12 text-left align-middle text-muted-foreground">Beginn</th>
+                <th className="text-xs font-bold py-2 px-2 w-[85px] h-12 text-left align-middle text-muted-foreground">Ende</th>
               </tr>
             </thead>
             <tbody className="[&_tr:last-child]:border-0">
@@ -798,16 +796,16 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                         <div className="flex items-center gap-2">
                           <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
                           <span className="font-semibold text-sm">{group.objektName}</span>
-                          <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                          <Badge variant="outline" className="text-xs h-4 px-1.5">
                             {group.contracts.length} Einh.
                           </Badge>
                           {leerstandCount > 0 && (
-                            <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200 text-[10px] h-4 px-1.5">
+                            <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200 text-xs h-4 px-1.5">
                               {leerstandCount}× Leerstand
                             </Badge>
                           )}
                           {group.annuitaet != null && (
-                            <span className="text-[10px] text-muted-foreground ml-1">
+                            <span className="text-xs text-muted-foreground ml-1">
                               Annuität: <b>{fmtEuro(group.annuitaet)}/Mon.</b>
                             </span>
                           )}
@@ -836,7 +834,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                             key={row.isLeerstand ? `ls-${row.einheitId}` : row.contractId}
                             className={`hover:bg-accent/30 border-b border-border/30 ${row.isLeerstand ? "bg-yellow-50/60" : ""}`}
                           >
-                            <TableCell className="py-1 px-2 text-center text-[10px] text-muted-foreground">{idx + 1}</TableCell>
+                            <TableCell className="py-1 px-2 text-center text-xs text-muted-foreground">{idx + 1}</TableCell>
                             <TableCell className="py-1 px-2">
                               <span className="text-xs font-mono text-muted-foreground">{row.einheitId.slice(-4)}</span>
                             </TableCell>

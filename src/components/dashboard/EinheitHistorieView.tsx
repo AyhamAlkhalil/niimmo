@@ -321,7 +321,7 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
           </Button>
           
           <div className="bg-white p-6 rounded-lg shadow-sm mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            <h1 className="font-display text-3xl leading-tight text-foreground mb-2">
               Historie {einheitId ? `Einheit ${einheitId.slice(-2)}` : 'Einheit'}
             </h1>
             {immobilie && (
@@ -330,7 +330,7 @@ export const EinheitHistorieView = ({ einheitId, onBack, einheit, immobilie }: E
             <div className="flex items-center space-x-2 mt-2">
               <Building2 className="h-4 w-4 text-gray-500" />
               <span className="text-sm text-gray-600">
-                {einheit?.qm && `${einheit.qm} m² • `}
+                {einheit?.qm && `${Number(einheit.qm).toLocaleString('de-DE')} m² • `}
                 {einheit?.etage && `${einheit.etage}`}
               </span>
             </div>

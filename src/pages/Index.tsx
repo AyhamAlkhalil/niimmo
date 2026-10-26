@@ -288,9 +288,10 @@ const Index = () => {
 
   if (isLoading || roleLoading) {
     return <div className="min-h-screen modern-dashboard-bg flex items-center justify-center">
-        <div className="glass-card p-12 rounded-3xl">
-          <Loader2 className="h-12 w-12 animate-spin text-red-500 mx-auto mb-6" />
-          <p className="text-gray-700 font-sans font-medium text-lg text-center">Dashboard wird geladen...</p>
+        <div className="flex flex-col items-center gap-5">
+          <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="" className="h-16 w-auto mix-blend-multiply" />
+          <Loader2 className="h-5 w-5 animate-spin text-brand" aria-hidden="true" />
+          <p className="text-sm font-medium text-muted-foreground">Dashboard wird geladen …</p>
         </div>
       </div>;
   }
@@ -422,166 +423,103 @@ const Index = () => {
     );
   }
 
+  // Bereiche als ruhige Navigationsleiste: drei Gruppen statt einer Knopfwand (26.10.2026)
+  const bereiche: { gruppe: string; knoepfe: { label: string; icon: typeof Building2; onClick: () => void; akzent?: string; nurDev?: boolean }[] }[] = [
+    {
+      gruppe: "Verwaltung",
+      knoepfe: [
+        { label: "Neuer Mietvertrag", icon: FilePlus2, onClick: () => setShowNeuerMietvertrag(true) },
+        { label: "Stammdaten", icon: Building, onClick: () => setShowVermieter(true) },
+        { label: "Übergabe", icon: KeyRound, onClick: () => setShowUebergabe(true) },
+        { label: "Stammdaten", icon: TableProperties, onClick: () => setShowStammdaten(true) },
+        { label: "Zählerverwaltung", icon: Gauge, onClick: () => setShowZaehlerVerwaltung(true) },
+      ],
+    },
+    {
+      gruppe: "Finanzen",
+      knoepfe: [
+        { label: "Zahlungen", icon: Settings, onClick: () => setShowControlboard(true) },
+        { label: "Darlehen", icon: Landmark, onClick: () => setShowDarlehen(true) },
+        { label: "Mietaufstellung", icon: FileSpreadsheet, onClick: () => setShowMietaufstellung(true) },
+      ],
+    },
+    {
+      gruppe: "System",
+      knoepfe: [
+        { label: "Blacklist", icon: ShieldAlert, onClick: () => setShowBlacklist(true), akzent: "text-terracotta-600" },
+        { label: "Aufgaben", icon: ListChecks, onClick: () => setShowAufgabenBoard(true) },
+        { label: "Mails", icon: Mail, onClick: () => setShowMails(true) },
+        { label: "Chilla Logs", icon: Bot, onClick: () => setShowAgentLogs(true), akzent: "text-iris-600" },
+        { label: "Activity Log", icon: Activity, onClick: () => setShowDevLog(true), akzent: "text-brand", nurDev: true },
+      ],
+    },
+  ];
+  const heute = new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+
   return <div className="min-h-screen modern-dashboard-bg">
+      {/* Markenlinie in Karmin, wie der Schnitt einer Visitenkarte */}
+      <div className="h-[3px] bg-brand" aria-hidden="true" />
       <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
         {/* Header */}
         <div className="mb-4 sm:mb-6">
-          <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl mb-4 sm:mb-6">
-            <div className="flex flex-col gap-4">
-              {/* Logo & Title Row */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="NiImmo Logo" className="h-8 sm:h-12 w-auto" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h1 className="text-xl sm:text-2xl lg:text-3xl font-sans font-bold text-gradient-red">
-                        NiImmo
-                      </h1>
-                      {isHausmeister && (
-                        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
-                          <Wrench className="h-3 w-3 mr-1" />
-                          Hausmeister
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-gray-600 font-sans text-xs sm:text-sm hidden sm:block">
-                      {isHausmeister ? "Zähler & Einheiten" : "Zentrale Verwaltung"}
-                    </p>
-                    <VersionBadge className="mt-1 sm:hidden" />
+          <header className="mb-4 overflow-hidden rounded-2xl border border-border bg-card shadow-card sm:mb-6">
+            <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-5">
+              <div className="flex min-w-0 items-center gap-3 sm:gap-5">
+                <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="NiImmo Gruppe" className="h-10 w-auto shrink-0 mix-blend-multiply sm:h-14" />
+                <div className="hidden h-12 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="eyebrow">{isHausmeister ? "Zähler & Einheiten" : "Zentrale Verwaltung"}</p>
+                    {isHausmeister && (
+                      <Badge variant="warning">
+                        <Wrench className="h-3 w-3" />
+                        Hausmeister
+                      </Badge>
+                    )}
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <VersionBadge className="hidden sm:flex" />
-                  <UserMenu />
+                  <h1 className="mt-0.5 truncate py-0.5 font-display text-2xl leading-tight text-foreground sm:text-3xl">
+                    NiImmo <span className="italic text-muted-foreground">Gruppe</span>
+                  </h1>
+                  <p className="mt-1.5 hidden text-xs capitalize text-muted-foreground sm:block">{heute}</p>
+                  <VersionBadge className="mt-1.5 sm:hidden" />
                 </div>
               </div>
-              
-              {/* Action Buttons - Only for Admin */}
-              {isAdmin && (
-                <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-2 sm:flex-wrap">
-                  <Button
-                    onClick={() => setShowNeuerMietvertrag(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <FilePlus2 className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Neuer Mietvertrag</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowVermieter(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <Building className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Stammdaten</span>
-                  </Button>
-                  <Button 
-                    onClick={() => setShowControlboard(true)} 
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <Settings className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Zahlungen</span>
-                  </Button>
-                  <Button 
-                    onClick={() => setShowUebergabe(true)} 
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <KeyRound className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Übergabe</span>
-                  </Button>
-                  <Button 
-                    onClick={() => setShowStammdaten(true)} 
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <TableProperties className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Stammdaten</span>
-                  </Button>
-                  <Button 
-                    onClick={() => setShowZaehlerVerwaltung(true)} 
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <Gauge className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Zählerverwaltung</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowDarlehen(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <Landmark className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Darlehen</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowMietaufstellung(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <FileSpreadsheet className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Mietaufstellung</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowBlacklist(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-orange-50/60 hover:bg-orange-100/80 backdrop-blur-sm border border-orange-200/50 text-orange-700 hover:text-orange-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <ShieldAlert className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Blacklist</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowAufgabenBoard(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <ListChecks className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Aufgaben</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowMails(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-white/60 hover:bg-white/80 backdrop-blur-sm border border-gray-200/50 text-gray-700 hover:text-gray-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <Mail className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Mails</span>
-                  </Button>
-                  <Button
-                    onClick={() => setShowAgentLogs(true)}
-                    variant="ghost"
-                    size="sm"
-                    className="bg-indigo-50/60 hover:bg-indigo-100/80 backdrop-blur-sm border border-indigo-200/50 text-indigo-700 hover:text-indigo-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                  >
-                    <Bot className="h-4 w-4 mr-1.5 shrink-0" />
-                    <span className="truncate">Chilla Logs</span>
-                  </Button>
-                  {isDev && (
-                    <Button
-                      onClick={() => setShowDevLog(true)}
-                      variant="ghost"
-                      size="sm"
-                      className="bg-red-50/60 hover:bg-red-100/80 backdrop-blur-sm border border-red-200/50 text-red-700 hover:text-red-900 transition-all duration-200 justify-start sm:justify-center h-10 sm:h-9"
-                    >
-                      <Activity className="h-4 w-4 mr-1.5 shrink-0" />
-                      <span className="truncate">Activity Log</span>
-                    </Button>
-                  )}
-                </div>
-              )}
+              <div className="flex shrink-0 items-center gap-2">
+                <VersionBadge className="hidden sm:flex" />
+                <UserMenu />
+              </div>
             </div>
-          </div>
+
+            {/* Bereiche - nur für Admin. Jede Gruppe trägt ihr Etikett und bricht nur als Ganzes um */}
+            {isAdmin && (
+              <nav aria-label="Bereiche" className="border-t border-border/70 bg-neutral-50/70 px-3 py-3 sm:px-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-7 lg:gap-y-2">
+                  {bereiche.map((bereich) => (
+                    <div key={bereich.gruppe} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
+                      <span className="px-1 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:w-auto">{bereich.gruppe}</span>
+                      <div className="grid grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:gap-0.5">
+                        {bereich.knoepfe.filter((k) => !k.nurDev || isDev).map((knopf, knopfIndex) => {
+                          const Icon = knopf.icon;
+                          return (
+                            <Button
+                              key={`${bereich.gruppe}-${knopfIndex}`}
+                              onClick={knopf.onClick}
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto min-h-10 justify-start gap-2 whitespace-normal rounded-lg border border-transparent px-3 py-2 text-left leading-tight text-foreground/80 hover:border-border/80 hover:bg-card hover:text-foreground hover:shadow-sm sm:h-9 sm:min-h-0 sm:justify-center sm:whitespace-nowrap sm:px-2.5 sm:py-0"
+                            >
+                              <Icon className={knopf.akzent ?? "text-muted-foreground"} />
+                              <span>{knopf.label}</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </nav>
+            )}
+          </header>
           
           {/* Dashboard Stats - Only for Admin */}
           {isAdmin && (
@@ -626,11 +564,17 @@ const Index = () => {
         {/* Immobilien Grid */}
         <div className="mb-4 sm:mb-6">
           <div className="flex items-center justify-between gap-3 mb-4 sm:mb-6">
-            <h2 className="text-lg sm:text-2xl font-sans font-bold text-gray-800">Ihre Immobilien</h2>
+            <div>
+              <p className="eyebrow">Portfolio</p>
+              <h2 className="mt-1 font-display text-2xl leading-none text-foreground sm:text-3xl">
+                Ihre Immobilien
+                {sortedImmobilien.length > 0 && <span className="ml-2 align-middle font-sans text-sm font-medium tabular-nums text-muted-foreground">{sortedImmobilien.length}</span>}
+              </h2>
+            </div>
             <div className="inline-flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5 shadow-sm" role="group" aria-label="Darstellung der Immobilien">
-              <Button variant="ghost" size="sm" aria-pressed="true" className="h-8 gap-1.5 rounded-md bg-primary/10 px-2.5 text-primary hover:bg-primary/15 hover:text-primary sm:px-3">
+              <Button variant="ghost" size="sm" aria-pressed="true" className="h-8 gap-1.5 rounded-md bg-primary px-2.5 text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground sm:px-3">
                 <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-                <span>Kacheln</span>
+                <span className="sr-only sm:not-sr-only">Kacheln</span>
               </Button>
               <Button
                 variant="ghost"
@@ -642,7 +586,7 @@ const Index = () => {
                 onClick={() => updateNav({ show3D: true })}
               >
                 <Box className="h-4 w-4" aria-hidden="true" />
-                <span>3D-Ansicht</span>
+                <span className="sr-only sm:not-sr-only">3D-Ansicht</span>
               </Button>
             </div>
           </div>
@@ -651,7 +595,7 @@ const Index = () => {
             {sortedImmobilien?.map((immobilie, index) => (
               <div 
                 key={immobilie.id} 
-                className="glass-card rounded-2xl overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer" 
+                className="glass-card group cursor-pointer overflow-hidden rounded-2xl hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-card-hover" 
                 style={{ animationDelay: `${index * 0.1}s` }} 
                 onClick={() => handleImmobilieClick(immobilie.id)}
               >
@@ -662,14 +606,14 @@ const Index = () => {
         </div>
 
         {sortedImmobilien?.length === 0 && <div className="text-center py-20">
-            <div className="glass-card p-12 max-w-md mx-auto rounded-3xl">
-              <div className="relative mb-8">
-                <Building2 className="h-20 w-20 text-red-300 mx-auto floating-animation" />
+            <div className="glass-card p-12 max-w-md mx-auto rounded-2xl">
+              <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
+                <Building2 className="h-6 w-6 text-brand" />
               </div>
-              <h3 className="text-2xl font-sans font-semibold text-gray-700 mb-4">
+              <h3 className="font-display text-3xl text-foreground mb-2">
                 Keine Immobilien gefunden
               </h3>
-              <p className="text-gray-500 font-sans leading-relaxed">
+              <p className="text-sm text-muted-foreground leading-relaxed">
                 Beginnen Sie mit der Verwaltung Ihres Portfolios
               </p>
             </div>

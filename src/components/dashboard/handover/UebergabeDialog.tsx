@@ -2379,7 +2379,7 @@ export const UebergabeDialog = ({
         <DialogHeader className="flex-row items-start gap-3 space-y-0 border-b px-6 py-4 pr-14 text-left quer:py-2">
           {symbol}
           <div className="min-w-0 flex-1">
-            <DialogTitle className="text-lg">{dialogTitle}</DialogTitle>
+            <DialogTitle className="text-2xl leading-none">{dialogTitle}</DialogTitle>
             <DialogDescription className="truncate">{untertitel}</DialogDescription>
           </div>
           {menue}
@@ -2387,7 +2387,7 @@ export const UebergabeDialog = ({
         {schrittleiste}
         <div ref={inhaltRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto outline-none">
           <div className={cn("mx-auto p-6 quer:p-3", schritt === "pruefen" && !isSaved ? "max-w-none" : "max-w-3xl")}>
-            {!isSaved && <h2 className="mb-4 text-base font-semibold quer:mb-2">{SCHRITT_TITEL[schritt]}</h2>}
+            {!isSaved && <h2 className="mb-5 font-display text-3xl leading-none text-foreground quer:mb-2 quer:text-xl">{SCHRITT_TITEL[schritt]}</h2>}
             {inhalt}
           </div>
         </div>

@@ -8,6 +8,7 @@ import { Search, User, Building, ArrowRight, Home, FileText, Shield, Landmark, H
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { darlehenStand } from "@/utils/darlehenBerechnung";
+import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 
 interface SearchPanelProps {
   onImmobilieSelect: (immobilieId: string, einheitId?: string, tab?: string) => void;
@@ -210,18 +211,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'aktiv':
-        return <Badge className="text-xs bg-green-100 text-green-700 border-green-300">aktiv</Badge>;
-      case 'gekuendigt':
-        return <Badge className="text-xs bg-yellow-100 text-yellow-700 border-yellow-300">gekündigt</Badge>;
-      case 'beendet':
-        return <Badge variant="secondary" className="text-xs bg-muted text-muted-foreground">beendet</Badge>;
-      default:
-        return null;
-    }
-  };
+  const getStatusBadge = (status: string) => <VertragStatusBadge status={status} />;
 
   const highlight = (text: string) => {
     if (!text || !searchTerm) return text;
@@ -230,31 +220,38 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
     return (
       <>
         {text.slice(0, idx)}
-        <mark className="bg-yellow-200 text-foreground rounded-sm px-0.5">{text.slice(idx, idx + searchTerm.length)}</mark>
+        <mark className="rounded-sm bg-gold-100 px-0.5 text-foreground ring-1 ring-gold-200">{text.slice(idx, idx + searchTerm.length)}</mark>
         {text.slice(idx + searchTerm.length)}
       </>
     );
   };
 
   return (
-    <Card className="mb-6 elegant-card">
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2 font-sans">
-          <Search className="h-5 w-5" />
-          Suche
-        </CardTitle>
+    <Card className="mb-6 rounded-2xl">
+      <CardHeader className="pb-4 sm:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+          <div>
+            <p className="eyebrow">Schnellzugriff</p>
+            <CardTitle className="mt-1.5 font-display text-2xl font-normal leading-none sm:text-3xl">
+              Suche
+            </CardTitle>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-xs font-medium text-foreground/80 shadow-sm">Enter</kbd> öffnet das erste Ergebnis
+          </p>
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="sm:px-6">
         <div className="relative">
           <Input
             type="text"
-            placeholder="Mieter, Immobilie, Zähler, Versicherung, Police, Darlehen, Dokumente... (Enter für erstes Ergebnis)"
+            placeholder="Mieter, Immobilie, Zähler, Versicherung, Police, Darlehen, Dokumente …"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyPress={handleKeyPress}
-            className="pl-10 modern-input font-sans"
+            className="h-12 rounded-xl pl-11 text-base md:text-base"
           />
-          <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         </div>
 
         {searchResults && searchTerm.length >= 2 && (
@@ -263,7 +260,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             {/* Mietverträge */}
             {(searchResults.mietvertraege?.length ?? 0) > 0 && (
               <div>
-                <h4 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <FileText className="h-4 w-4" />
                   Mietverträge ({searchResults.mietvertraege.length})
                 </h4>
@@ -271,7 +268,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                   {searchResults.mietvertraege.map((vertrag: any) => (
                     <div
                       key={vertrag.mietvertragId}
-                      className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
+                      className="rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
                       onClick={() => handleMietvertragClick(vertrag.mietvertragId)}
                     >
                       <div className="flex items-center justify-between">
@@ -301,7 +298,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             {/* Versicherungen */}
             {(searchResults.versicherungen?.length ?? 0) > 0 && (
               <div>
-                <h4 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <Shield className="h-4 w-4" />
                   Versicherungen ({searchResults.versicherungen.length})
                 </h4>
@@ -309,7 +306,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                   {searchResults.versicherungen.map((v: any) => (
                     <div
                       key={v.id}
-                      className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
+                      className="rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
                       onClick={() => handleImmobilieClick(v.immobilie_id, undefined, 'versicherungen')}
                     >
                       <div className="flex items-center justify-between">
@@ -356,7 +353,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             {/* Immobilien */}
             {searchResults.immobilien.length > 0 && (
               <div>
-                <h4 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <Building className="h-4 w-4" />
                   Immobilien ({searchResults.immobilien.length})
                 </h4>
@@ -365,7 +362,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                     <div
                       key={immobilie.id}
                       data-immobilie-id={immobilie.id}
-                      className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
+                      className="rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
                       onClick={() => handleImmobilieClick(immobilie.id)}
                     >
                       <div className="flex items-center justify-between">
@@ -389,7 +386,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             {/* Einheiten / Zähler */}
             {searchResults.einheiten.length > 0 && (
               <div>
-                <h4 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <Home className="h-4 w-4" />
                   Einheiten ({searchResults.einheiten.length})
                 </h4>
@@ -409,7 +406,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                     return (
                       <div
                         key={einheit.id}
-                        className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
+                        className="rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
                         onClick={() => handleImmobilieClick(einheit.immobilie_id, einheit.id)}
                       >
                         <div className="flex items-center justify-between">
@@ -439,7 +436,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             {/* Darlehen */}
             {(searchResults.darlehen?.length ?? 0) > 0 && (
               <div>
-                <h4 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <Landmark className="h-4 w-4" />
                   Darlehen ({searchResults.darlehen.length})
                 </h4>
@@ -447,7 +444,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                   {searchResults.darlehen.map((d: any) => (
                     <div
                       key={d.id}
-                      className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
+                      className="rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
                       onClick={handleDarlehenClick}
                     >
                       <div className="flex items-center justify-between">
@@ -483,7 +480,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             {/* Dokumente */}
             {(searchResults.dokumente?.length ?? 0) > 0 && (
               <div>
-                <h4 className="text-sm font-semibold text-muted-foreground mb-2 flex items-center gap-2">
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                   <FileText className="h-4 w-4" />
                   Dokumente ({searchResults.dokumente.length})
                 </h4>
@@ -491,7 +488,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                   {searchResults.dokumente.map((dok: any) => (
                     <div
                       key={dok.id}
-                      className="p-3 bg-background border border-border rounded-lg hover:shadow-md hover:border-primary/30 transition-all cursor-pointer transform hover:scale-[1.02]"
+                      className="rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
                       onClick={() => {
                         // Vertragsdokumente oeffnen den Vertrag, Objektdokumente den Dokumente-Reiter des Objekts
                         if (dok.mietvertrag_id) handleMietvertragClick(dok.mietvertrag_id);

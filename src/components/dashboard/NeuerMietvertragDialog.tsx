@@ -258,7 +258,7 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
                                 {belegt ? 'belegt' : 'frei'}
                               </Badge>
                               {offeneEntwuerfe > 0 && (
-                                <Badge variant="outline" className="text-[10px]">
+                                <Badge variant="outline" className="text-xs">
                                   {offeneEntwuerfe === 1 ? '1 Entwurf' : `${offeneEntwuerfe} Entwürfe`}
                                 </Badge>
                               )}

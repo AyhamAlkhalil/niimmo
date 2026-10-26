@@ -3,6 +3,7 @@ import { Building2, Euro, Home, TrendingDown, TrendingUp, Percent, Pencil, Check
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { formatEuroKompakt } from "@/utils/betragAnzeige";
 import { useState } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
 import { getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
@@ -154,50 +155,53 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     });
   };
 
+  // Beträge wie in Schriftstücken: „48.250 €“ statt „€48,250“, Cent nur wenn vorhanden
+  const euro = formatEuroKompakt;
+
   return (
     <div className="space-y-3 sm:space-y-4">
       {/* Row 1: Verschmolzene kompakte Leiste */}
-      <div className="metric-card px-3 py-2.5 sm:px-4 sm:py-3 rounded-xl border border-gray-200 bg-white/80 flex items-center gap-3 sm:gap-6 overflow-x-auto scrollbar-hide" style={{ animationDelay: '0s' }}>
+      <div className="metric-card flex items-center gap-4 overflow-x-auto rounded-2xl px-4 py-3 scrollbar-hide sm:gap-7 sm:px-6 sm:py-4">
         {/* Immobilien */}
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-blue-100 border border-blue-200 flex-shrink-0">
-            <Building2 className="h-3.5 w-3.5 text-blue-600" />
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+            <Building2 className="h-4 w-4 text-foreground/70" />
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-lg sm:text-xl font-bold text-gray-900">{immobilien?.length || 0}</span>
-            <span className="text-[10px] sm:text-xs text-gray-500 hidden sm:inline">Immobilien</span>
+            <span className="font-display text-3xl leading-none tabular-nums text-foreground">{immobilien?.length || 0}</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">Immobilien</span>
           </div>
         </div>
 
-        <div className="w-px h-6 bg-gray-200" />
+        <div className="h-8 w-px shrink-0 bg-border" />
 
         {/* Einheiten */}
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-green-100 border border-green-200 flex-shrink-0">
-            <Home className="h-3.5 w-3.5 text-green-600" />
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+            <Home className="h-4 w-4 text-foreground/70" />
           </div>
           <div className="flex items-baseline gap-1.5">
-            <span className="text-lg sm:text-xl font-bold text-gray-900">{gesamtEinheiten || 0}</span>
-            <span className="text-[10px] sm:text-xs text-gray-500 hidden sm:inline">Einheiten</span>
+            <span className="font-display text-3xl leading-none tabular-nums text-foreground">{gesamtEinheiten || 0}</span>
+            <span className="hidden text-xs text-muted-foreground sm:inline">Einheiten</span>
           </div>
         </div>
 
-        <div className="w-px h-6 bg-gray-200" />
+        <div className="h-8 w-px shrink-0 bg-border" />
 
         {/* Status */}
-        <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-red-500" />
-            <span className="text-[10px] sm:text-xs text-gray-500">Leer</span>
-            <span className="text-sm sm:text-base font-bold text-gray-900">{leerstände}</span>
+        <div className="flex shrink-0 items-center gap-4 sm:gap-5">
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-brand ring-4 ring-brand/10" />
+            <span className="text-xs text-muted-foreground">Leer</span>
+            <span className="text-sm font-semibold tabular-nums text-foreground sm:text-base">{leerstände}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-yellow-500" />
-            <span className="text-[10px] sm:text-xs text-gray-500">Gekündigt</span>
-            <span className="text-sm sm:text-base font-bold text-red-600">{gekuendigteMietvertraege.length}</span>
+          <div className="flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-ochre-500 ring-4 ring-ochre-500/15" />
+            <span className="text-xs text-muted-foreground">Gekündigt</span>
+            <span className="text-sm font-semibold tabular-nums text-brand sm:text-base">{gekuendigteMietvertraege.length}</span>
           </div>
           <div
-            className="hidden sm:flex items-center gap-1.5 cursor-pointer hover:bg-gray-100 rounded px-1.5 py-0.5 -mx-1.5 transition-colors"
+            className="-mx-2 hidden cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-accent sm:flex"
             onClick={() => {
               if (naechsterVertrag && onNavigateToContract) {
                 onNavigateToContract(
@@ -208,18 +212,18 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
               }
             }}
           >
-            <TrendingDown className="h-3 w-3 text-gray-400" />
-            <span className="text-[10px] sm:text-xs text-gray-500">Nächstes Ende</span>
-            <span className="text-[10px] sm:text-xs font-medium text-gray-700">{formatDatum(naechstesDatum)}</span>
+            <TrendingDown className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Nächstes Ende</span>
+            <span className="text-xs font-semibold tabular-nums text-foreground">{formatDatum(naechstesDatum)}</span>
           </div>
         </div>
 
-        <div className="w-px h-6 bg-gray-200 hidden lg:block" />
+        <div className="hidden h-8 w-px shrink-0 bg-border lg:block" />
 
         {/* Basiszinssatz */}
-        <div className="hidden lg:flex items-center gap-2 group">
-          <div className="p-1.5 rounded-lg bg-orange-100 border border-orange-200 flex-shrink-0">
-            <Percent className="h-3.5 w-3.5 text-orange-600" />
+        <div className="group hidden shrink-0 items-center gap-3 lg:flex">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+            <Percent className="h-4 w-4 text-foreground/70" />
           </div>
           {editingTyp === 'basiszinssatz' ? (
             <div className="flex items-center gap-1">
@@ -228,45 +232,46 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                 step="0.01"
                 value={editWert}
                 onChange={e => setEditWert(e.target.value)}
-                className="w-16 text-xs border rounded px-1 py-0.5 h-6"
+                className="h-7 w-20 rounded-md border border-input bg-card px-2 text-xs shadow-feld focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/25"
                 autoFocus
               />
-              <button onClick={() => saveMarktdaten('basiszinssatz', parseFloat(editWert))} className="text-green-600 hover:text-green-700">
+              <button onClick={() => saveMarktdaten('basiszinssatz', parseFloat(editWert))} className="rounded-md p-1 text-success hover:bg-success/10" aria-label="Basiszinssatz speichern">
                 <Check className="h-3.5 w-3.5" />
               </button>
-              <button onClick={() => setEditingTyp(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setEditingTyp(null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ) : (
             <div className="flex items-baseline gap-1">
               <div>
-                <div className="flex items-center gap-1">
-                  <span className="text-sm font-bold text-gray-900">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-semibold tabular-nums text-foreground">
                     {marktdaten?.basiszins ? `${marktdaten.basiszins.wert}%` : '–'}
                   </span>
-                  <span className="text-[10px] text-gray-400">→ {marktdaten?.basiszins ? `${(marktdaten.basiszins.wert + 5).toFixed(2)}%` : '–'}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">→ {marktdaten?.basiszins ? `${(marktdaten.basiszins.wert + 5).toFixed(2)}%` : '–'}</span>
                   {isAdmin && (
                     <button
                       onClick={() => { setEditingTyp('basiszinssatz'); setEditWert(String(marktdaten?.basiszins?.wert ?? '')); }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5"
+                      className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label="Basiszinssatz bearbeiten"
                     >
-                      <Pencil className="h-2.5 w-2.5 text-gray-400" />
+                      <Pencil className="h-3 w-3 text-muted-foreground" />
                     </button>
                   )}
                 </div>
-                <span className="text-[10px] text-gray-400">Basis / Verzug</span>
+                <span className="text-xs text-muted-foreground">Basis / Verzug</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="w-px h-6 bg-gray-200 hidden lg:block" />
+        <div className="hidden h-8 w-px shrink-0 bg-border lg:block" />
 
         {/* VPI */}
-        <div className="hidden lg:flex items-center gap-2 group">
-          <div className="p-1.5 rounded-lg bg-teal-100 border border-teal-200 flex-shrink-0">
-            <TrendingUp className="h-3.5 w-3.5 text-teal-600" />
+        <div className="group hidden shrink-0 items-center gap-3 lg:flex">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+            <TrendingUp className="h-4 w-4 text-foreground/70" />
           </div>
           {editingTyp === 'vpi' ? (
             <div className="flex items-center gap-1">
@@ -275,67 +280,67 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                 step="0.1"
                 value={editWert}
                 onChange={e => setEditWert(e.target.value)}
-                className="w-16 text-xs border rounded px-1 py-0.5 h-6"
+                className="h-7 w-20 rounded-md border border-input bg-card px-2 text-xs shadow-feld focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/25"
                 autoFocus
               />
-              <button onClick={() => saveMarktdaten('vpi', parseFloat(editWert))} className="text-green-600 hover:text-green-700">
+              <button onClick={() => saveMarktdaten('vpi', parseFloat(editWert))} className="rounded-md p-1 text-success hover:bg-success/10" aria-label="Verbraucherpreisindex speichern">
                 <Check className="h-3.5 w-3.5" />
               </button>
-              <button onClick={() => setEditingTyp(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setEditingTyp(null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ) : (
             <div>
-              <div className="flex items-center gap-1">
-                <span className="text-sm font-bold text-gray-900">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold tabular-nums text-foreground">
                   {marktdaten?.vpi ? marktdaten.vpi.wert.toFixed(1) : '–'}
                 </span>
                 {isAdmin && (
                   <button
                     onClick={() => { setEditingTyp('vpi'); setEditWert(String(marktdaten?.vpi?.wert ?? '')); }}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100"
+                    aria-label="Verbraucherpreisindex bearbeiten"
                   >
-                    <Pencil className="h-2.5 w-2.5 text-gray-400" />
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
                   </button>
                 )}
               </div>
-              <span className="text-[10px] text-gray-400">VPI 2020=100</span>
+              <span className="text-xs text-muted-foreground">VPI 2020=100</span>
             </div>
           )}
         </div>
       </div>
 
       {/* Row 2: Monatliche Miete – volle Breite */}
-      <div 
-        className="metric-card p-4 sm:p-5 lg:p-6 rounded-xl sm:rounded-2xl border border-purple-100 bg-purple-50"
-        style={{ animationDelay: '0.3s' }}
-      >
-        <div className="flex items-center gap-2 mb-3 sm:mb-4">
-            <div className="p-2 sm:p-2.5 rounded-lg bg-purple-100 border border-purple-200">
-              <Euro className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm sm:text-base font-semibold text-gray-800">Monatliche Miete</p>
-              <p className="text-[10px] sm:text-xs text-gray-500">{getCurrentMonthYear()}</p>
-            </div>
+      <div className="metric-card relative overflow-hidden rounded-2xl p-5 sm:p-6 lg:p-7">
+        {/* Feine Karminlinie links als Markenzeichen der Leitkennzahl */}
+        <div className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden="true" />
+        <div className="mb-4 flex items-end justify-between gap-3 sm:mb-5">
+          <div>
+            <p className="eyebrow">Monatliche Miete</p>
+            <p className="mt-1 text-sm capitalize text-muted-foreground">{getCurrentMonthYear()}</p>
+          </div>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+            <Euro className="h-4 w-4 text-foreground/70" />
+          </div>
         </div>
 
         {/* Hauptmetriken */}
-        <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-3 sm:mb-4">
-          <div>
-            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">Erwartete Miete</p>
-            <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">€{erwartedMiete.toLocaleString()}</p>
+        <div className="mb-4 grid grid-cols-3 divide-x divide-border sm:mb-5">
+          <div className="pr-3 sm:pr-6">
+            <p className="mb-1.5 text-xs text-muted-foreground">Erwartete Miete</p>
+            <p className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl lg:text-4xl">{euro(erwartedMiete)}</p>
           </div>
-          <div>
-            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">Erfasste Miete</p>
-            <div className="flex items-center gap-1.5">
-              <p className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">€{(erfassedMiete || 0).toLocaleString()}</p>
+          <div className="px-3 sm:px-6">
+            <p className="mb-1.5 text-xs text-muted-foreground">Erfasste Miete</p>
+            <div className="flex items-center gap-2">
+              <p className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl lg:text-4xl">{euro(erfassedMiete || 0)}</p>
               {(erfassedMiete === 0 || erfassedMiete === null || erfassedMiete === undefined) && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 cursor-help" />
+                      <AlertTriangle className="h-4 w-4 flex-shrink-0 cursor-help text-warning" />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-xs">
                       <p className="text-xs">Noch keine Zahlungen für diesen Monat erfasst. Bitte laden Sie einen Kontoauszug (CSV) im Controlboard hoch.</p>
@@ -345,21 +350,21 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
               )}
             </div>
           </div>
-          <div>
-            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5">Differenz</p>
-            <p className={`text-lg sm:text-xl lg:text-2xl font-bold ${differenz > 0 ? 'text-red-600' : differenz < 0 ? 'text-green-600' : 'text-gray-900'}`}>
-              {differenz > 0 ? '-' : differenz < 0 ? '+' : ''}€{Math.abs(differenz).toLocaleString()}
+          <div className="pl-3 sm:pl-6">
+            <p className="mb-1.5 text-xs text-muted-foreground">Differenz</p>
+            <p className={`font-display text-2xl leading-none tabular-nums sm:text-3xl lg:text-4xl ${differenz > 0 ? 'text-brand' : differenz < 0 ? 'text-success' : 'text-foreground'}`}>
+              {differenz > 0 ? '−' : differenz < 0 ? '+' : ''}{euro(Math.abs(differenz))}
             </p>
           </div>
         </div>
 
         {/* Detailzeile */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-3 border-t border-purple-200/60 text-[10px] sm:text-xs text-gray-500">
-          <span>Kaltmiete: <strong className="text-gray-700">€{gesamtKaltmiete.toLocaleString()}</strong></span>
-          <span>Betriebskosten: <strong className="text-gray-700">€{gesamtBetriebskosten.toLocaleString()}</strong></span>
-          <span className="hidden sm:inline">|</span>
-          <span>Einheiten: <strong className="text-gray-700">{gesamtEinheiten || 0}</strong></span>
-          <span>Leerstand: <strong className={leerstände > 0 ? 'text-red-600' : 'text-green-600'}>{leerstände}</strong></span>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border/80 pt-3.5 text-xs text-muted-foreground">
+          <span>Kaltmiete <strong className="ml-1 font-semibold tabular-nums text-foreground">{euro(gesamtKaltmiete)}</strong></span>
+          <span>Betriebskosten <strong className="ml-1 font-semibold tabular-nums text-foreground">{euro(gesamtBetriebskosten)}</strong></span>
+          <span className="hidden h-3 w-px bg-border sm:inline-block" aria-hidden="true" />
+          <span>Einheiten <strong className="ml-1 font-semibold tabular-nums text-foreground">{gesamtEinheiten || 0}</strong></span>
+          <span>Leerstand <strong className={`ml-1 font-semibold tabular-nums ${leerstände > 0 ? 'text-brand' : 'text-success'}`}>{leerstände}</strong></span>
         </div>
       </div>
     </div>

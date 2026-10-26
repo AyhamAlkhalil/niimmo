@@ -1,7 +1,15 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Inter 4 (OFL, Lizenz in public/fonts) mit allen Varianten; siehe index.html */
+@font-face {
+  font-family: 'InterVariable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/InterVariable.woff2') format('woff2');
+}
 
 /* Hide scrollbar for horizontal scroll areas */
 .scrollbar-hide {
@@ -11,101 +19,121 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. */
 
+/*
+ * Designsystem (26.10.2026). Elfenbein-Grund, weiße Flächen, Anthrazit als Hauptfarbe und
+ * Karmin aus dem Logo als Akzent. Die Werte sind aus der Palette in tailwind.config.ts
+ * abgeleitet; alle Textrollen erreichen auf Weiß und auf dem Elfenbein-Grund mindestens
+ * 4,5:1 (WCAG AA), Erfolg und Warnung auch auf ihrer eigenen 10-%-Tönung.
+ * Bis dahin: SaaS-Blau als Hauptfarbe, ein blau-grauer Verlauf als Grund und rote
+ * Verlaufs-Effekte -- keines davon stammte aus dem Logo.
+ */
 @layer base {
   :root {
-    --background: 210 20% 96%;
-    --foreground: 222.2 84% 4.9%;
+    --canvas: 34 24% 94.3%;
+    --background: 34 24% 94.3%;
+    --foreground: 345 7% 11.8%;
 
-    --card: 210 15% 98%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 345 7% 11.8%;
 
-    --popover: 210 15% 98%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 345 7% 11.8%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 0 0% 98%;
+    /* Anthrazit aus dem Logo („Immo“) */
+    --primary: 345 7% 11.8%;
+    --primary-foreground: 36 33% 97.1%;
 
-    --secondary: 210 20% 95%;
-    --secondary-foreground: 217 50% 25%;
+    --secondary: 34 23% 93.9%;
+    --secondary-foreground: 345 7% 11.8%;
 
-    --muted: 210 20% 95%;
-    --muted-foreground: 210 10% 45%;
+    --muted: 34 21% 93.5%;
+    --muted-foreground: 20 4% 40.6%;
 
-    --accent: 210 25% 92%;
-    --accent-foreground: 217 50% 25%;
+    --accent: 33 23% 92.4%;
+    --accent-foreground: 345 7% 11.8%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 353 67% 44.7%;
+    --destructive-foreground: 0 0% 100%;
 
     /* Statusrollen fuer Betraege und Zuordnung (07.09.2026): Bis dahin gab es
        fuer "eingegangen" und "offen" keinen Token, jede Ansicht griff zu
        text-green-600 / bg-amber-50 (docs/architektur.md §5). Dunkle Toene,
        damit sie auch als Schriftfarbe auf hellem Grund lesbar sind. */
-    --success: 142 60% 32%;
-    --success-foreground: 0 0% 98%;
-    --warning: 32 90% 36%;
-    --warning-foreground: 0 0% 98%;
+    --success: 150 42% 29.2%;
+    --success-foreground: 0 0% 100%;
+    --warning: 37 94% 26.9%;
+    --warning-foreground: 0 0% 100%;
 
-    --border: 210 30% 89%;
-    --input: 210 30% 89%;
-    --ring: 217 91% 60%;
+    /* Karmin aus dem Logo (Ross, „Ni“): sparsam -- Markenzeichen, Auswahl, Hervorhebung */
+    --brand: 353 67% 44.7%;
+    --brand-foreground: 0 0% 100%;
+    --brand-soft: 0 62% 95.9%;
 
-    --radius: 0.5rem;
+    --border: 30 17% 88.2%;
+    --input: 33 13% 83.7%;
+    --ring: 13 5% 33.9%;
 
-    --sidebar-background: 210 25% 97%;
-    --sidebar-foreground: 210 15% 20%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 210 20% 94%;
-    --sidebar-accent-foreground: 217 50% 25%;
-    --sidebar-border: 210 30% 89%;
-    --sidebar-ring: 217 91% 60%;
+    --radius: 0.75rem;
+
+    --sidebar-background: 36 33% 97.1%;
+    --sidebar-foreground: 345 7% 11.8%;
+    --sidebar-primary: 345 7% 11.8%;
+    --sidebar-primary-foreground: 36 33% 97.1%;
+    --sidebar-accent: 33 23% 92.4%;
+    --sidebar-accent-foreground: 345 7% 11.8%;
+    --sidebar-border: 30 17% 88.2%;
+    --sidebar-ring: 13 5% 33.9%;
   }
 
+  /* Wird derzeit nirgends eingeschaltet; als stimmige Gegenstuecke vorgehalten */
   .dark {
-    --background: 0 15% 8%;
-    --foreground: 0 0% 95%;
+    --canvas: 340 8% 7.3%;
+    --background: 340 8% 7.3%;
+    --foreground: 33 27% 93.5%;
 
-    --card: 0 15% 8%;
-    --card-foreground: 0 0% 95%;
+    --card: 345 8% 9.8%;
+    --card-foreground: 33 27% 93.5%;
 
-    --popover: 0 15% 8%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 345 8% 9.8%;
+    --popover-foreground: 33 27% 93.5%;
 
-    --primary: 0 70% 60%;
-    --primary-foreground: 0 15% 8%;
+    --primary: 33 27% 93.5%;
+    --primary-foreground: 345 8% 9.8%;
 
-    --secondary: 0 10% 15%;
-    --secondary-foreground: 0 0% 95%;
+    --secondary: 10 9% 13.3%;
+    --secondary-foreground: 33 27% 93.5%;
 
-    --muted: 0 10% 15%;
-    --muted-foreground: 0 5% 65%;
+    --muted: 10 9% 13.3%;
+    --muted-foreground: 25 6% 62%;
 
-    --accent: 0 15% 20%;
-    --accent-foreground: 0 0% 95%;
+    --accent: 9 9% 15.1%;
+    --accent-foreground: 33 27% 93.5%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
+    --destructive: 355 71% 57.6%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 142 55% 55%;
-    --success-foreground: 0 15% 8%;
-    --warning: 38 90% 60%;
-    --warning-foreground: 0 15% 8%;
+    --success: 149 40% 52%;
+    --success-foreground: 345 8% 9.8%;
+    --warning: 38 80% 58%;
+    --warning-foreground: 345 8% 9.8%;
 
-    --border: 0 10% 15%;
-    --input: 0 10% 15%;
-    --ring: 0 70% 60%;
-    
-    --sidebar-background: 0 15% 10%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 0 70% 60%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 0 10% 18%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 0 10% 18%;
-    --sidebar-ring: 0 70% 60%;
+    --brand: 355 71% 57.6%;
+    --brand-foreground: 0 0% 100%;
+    --brand-soft: 355 30% 16%;
+
+    --border: 0 7% 16.9%;
+    --input: 0 7% 19%;
+    --ring: 25 6% 62%;
+
+    --sidebar-background: 345 8% 9.8%;
+    --sidebar-foreground: 33 27% 93.5%;
+    --sidebar-primary: 33 27% 93.5%;
+    --sidebar-primary-foreground: 345 8% 9.8%;
+    --sidebar-accent: 9 9% 15.1%;
+    --sidebar-accent-foreground: 33 27% 93.5%;
+    --sidebar-border: 0 7% 16.9%;
+    --sidebar-ring: 25 6% 62%;
   }
 }
 
@@ -114,288 +142,164 @@
     @apply border-border;
   }
 
-  body {
-    @apply bg-background text-foreground;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-    background: linear-gradient(135deg, #f0f4f8 0%, #e8f2f6 50%, #dfeef4 100%);
-    min-height: 100vh;
-    letter-spacing: -0.01em;
-    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
-  /* Einheitliche Schriftart für alle Texte */
-  h1, h2, h3, h4, h5, h6, p, span, div, button, input, select, label {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'InterVariable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    font-optical-sizing: auto;
+    min-height: 100vh;
+    letter-spacing: -0.006em;
+    /* cv08: großes I mit Serifen -- sonst gleichen sich I und l, und aus „NiImmo“ wird „Nilmmo“ */
+    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv08' 1;
+  }
+
+  /* Titelschrift hat nur einen Schnitt: font-bold an Überschriften soll sie nicht
+     künstlich verdicken, sondern einfach in ihrer eigenen Stärke stehen lassen */
+  .font-display,
+  .font-serif {
+    font-synthesis: none;
+    font-weight: 400;
+    letter-spacing: -0.005em;
+    font-feature-settings: 'kern' 1, 'liga' 1, 'lnum' 1;
+  }
+
+  ::selection {
+    background: hsl(var(--brand) / 0.16);
+    color: hsl(var(--foreground));
+  }
+
+  /* Dezente, warme Bildlaufleisten statt der grauen Systembalken */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(30 8% 76%) transparent;
+  }
+
+  /* Beträge und Datumsangaben in Tabellen stehen untereinander */
+  table {
+    font-variant-numeric: tabular-nums;
   }
 }
 
 @layer components {
+  /* Seitengrund: Elfenbein mit einem kaum sichtbaren Schimmer in Karmin und Ocker */
   .modern-dashboard-bg {
-    background: linear-gradient(135deg, hsl(0 100% 97%) 0%, hsl(0 100% 99%) 25%, hsl(0 0% 100%) 50%, hsl(0 100% 99%) 75%, hsl(0 100% 97%) 100%);
-    background-size: 400% 400%;
-    animation: gradient-shift 8s ease infinite;
     position: relative;
+    min-height: 100vh;
+    background-color: hsl(var(--canvas));
+    background-image:
+      radial-gradient(1100px 520px at 0% -8%, rgb(190 38 55 / 0.045), transparent 62%),
+      radial-gradient(900px 480px at 100% -6%, rgb(156 98 5 / 0.04), transparent 60%);
+    background-repeat: no-repeat;
   }
-  
-  @keyframes gradient-shift {
-    0% {
-      background-position: 0% 50%;
-    }
-    50% {
-      background-position: 100% 50%;
-    }
-    100% {
-      background-position: 0% 50%;
-    }
+
+  /* Die drei alten Kartensprachen münden in dieselbe Fläche wie die shadcn-Card */
+  .glass-card,
+  .elegant-card,
+  .metric-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    box-shadow:
+      0 0 0 1px rgb(32 28 29 / 0.02),
+      0 1px 2px 0 rgb(32 28 29 / 0.04),
+      0 4px 14px -6px rgb(32 28 29 / 0.08);
+    transition:
+      box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  
-  .modern-dashboard-bg::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(circle at 30% 20%, rgba(239, 68, 68, 0.03) 0%, transparent 50%),
-                radial-gradient(circle at 70% 80%, rgba(239, 68, 68, 0.02) 0%, transparent 50%);
-    animation: pulse-subtle 4s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 0;
+
+  .elegant-card:hover,
+  .metric-card:hover {
+    border-color: hsl(30 14% 82%);
+    box-shadow:
+      0 0 0 1px rgb(32 28 29 / 0.03),
+      0 2px 4px -1px rgb(32 28 29 / 0.05),
+      0 18px 36px -12px rgb(32 28 29 / 0.16);
   }
-  
-  @keyframes pulse-subtle {
-    0%, 100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.7;
-    }
-  }
-  
-  .elegant-card {
-    background: rgba(255, 255, 255, 0.98);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(239, 68, 68, 0.08);
-    box-shadow: 
-      0 8px 32px rgba(0, 0, 0, 0.04),
-      0 4px 16px rgba(239, 68, 68, 0.06),
-      0 0 0 1px rgba(255, 255, 255, 0.9) inset;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  
+
   .elegant-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 
-      0 16px 48px rgba(0, 0, 0, 0.08),
-      0 8px 24px rgba(239, 68, 68, 0.12),
-      0 0 0 1px rgba(255, 255, 255, 0.95) inset;
+    transform: translateY(-1px);
   }
-  
-  .glass-card {
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 0, 0, 0.05);
-    box-shadow: 
-      0 4px 24px rgba(0, 0, 0, 0.04),
-      0 2px 8px rgba(0, 0, 0, 0.02),
-      0 0 0 1px rgba(255, 255, 255, 0.8) inset;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  
-  .sidebar-card {
-    background: rgba(255, 255, 255, 0.98);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(0, 0, 0, 0.05);
-    box-shadow: 
-      0 2px 16px rgba(0, 0, 0, 0.04),
-      0 1px 4px rgba(0, 0, 0, 0.02);
-  }
-  
+
   .accent-red {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    background: hsl(var(--brand));
   }
-  
-  .accent-red-light {
-    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
-    border: 1px solid rgba(239, 68, 68, 0.1);
-  }
-  
+
+  /* War ein roter Schriftverlauf; jetzt die ruhige Markenfarbe */
   .text-gradient-red {
-    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 50%, #991b1b 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: hsl(var(--brand));
   }
-  
+
   .modern-input {
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    transition: all 0.2s ease;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--input));
+    box-shadow: inset 0 1px 1px 0 rgb(32 28 29 / 0.035);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
-  
+
   .modern-input:focus {
-    background: rgba(255, 255, 255, 1);
-    border-color: rgba(239, 68, 68, 0.3);
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.25);
     outline: none;
   }
-  
+
   .modern-button-ghost {
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid rgba(0, 0, 0, 0.05);
-    backdrop-filter: blur(10px);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   }
-  
+
   .modern-button-ghost:hover {
-    background: rgba(255, 255, 255, 0.9);
-    border-color: rgba(239, 68, 68, 0.2);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    background: hsl(var(--accent));
+    border-color: hsl(var(--input));
   }
-  
-  .status-badge-active {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    color: white;
+
+  .modern-button {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border: none;
     font-weight: 500;
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.1),
+      0 1px 2px 0 rgb(32 28 29 / 0.24),
+      0 2px 6px -2px rgb(32 28 29 / 0.22);
+    transition: background-color 0.2s ease, transform 0.2s ease;
   }
-  
-  .status-badge-terminated {
-    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-    color: white;
-    font-weight: 500;
+
+  .modern-button:hover {
+    background: hsl(var(--primary) / 0.9);
   }
-  
-  .status-badge-empty {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    color: white;
-    font-weight: 500;
-  }
-  
-  .metric-card {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
-    border: 1px solid rgba(0, 0, 0, 0.04);
-    transition: all 0.3s ease;
-    backdrop-filter: blur(10px);
-  }
-  
-  .metric-card:hover {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(248, 250, 252, 1) 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  }
-  
+
   .progress-bar {
-    background: linear-gradient(90deg, 
-      rgba(239, 68, 68, 0.1) 0%, 
-      rgba(239, 68, 68, 0.8) 50%, 
-      rgba(220, 38, 38, 1) 100%);
-    border-radius: 8px;
+    background: hsl(var(--brand));
+    border-radius: 999px;
     overflow: hidden;
     position: relative;
   }
-  
-  .progress-bar::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-    animation: shimmer 2s infinite;
-  }
-  
-  @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-  }
-  
+
   .floating-animation {
     animation: float 6s ease-in-out infinite;
   }
-  
+
   @keyframes float {
     0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-8px); }
+    50% { transform: translateY(-6px); }
   }
-  
-  .modern-button {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    color: white;
-    border: none;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  }
-  
-  .modern-button:hover {
-    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
-  }
-  
-  .calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 2px;
-  }
-  
-  .calendar-cell {
-    aspect-ratio: 1;
-    border: 1px solid rgba(0, 0, 0, 0.05);
-    background: rgba(255, 255, 255, 0.6);
-    transition: all 0.2s ease;
-  }
-  
-  .calendar-cell.today {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-    color: white;
-    font-weight: 600;
-  }
-  
+
   .modern-shadow {
-    box-shadow: 
-      0 1px 3px rgba(0, 0, 0, 0.05),
-      0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-  
-  .modern-shadow-lg {
-    box-shadow: 
-      0 4px 24px rgba(0, 0, 0, 0.06),
-      0 2px 8px rgba(0, 0, 0, 0.04);
+    box-shadow:
+      0 1px 2px 0 rgb(32 28 29 / 0.04),
+      0 2px 6px -1px rgb(32 28 29 / 0.06);
   }
 
-  /* Verbesserung der Select-Komponenten */
-  .modern-select-trigger {
-    cursor: pointer !important;
-    pointer-events: auto !important;
-  }
-
-  .modern-select-trigger:hover {
-    background-color: rgba(249, 250, 251, 1);
-  }
-
-  /* Einheitliche Schrift für alle Komponenten */
-  .font-consistent {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
-  }
-}
-
-@layer utilities {
-  .text-shadow-sm {
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  }
-  
-  .text-shadow {
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
-  }
-
-  /* Sicherstellen, dass alle Texte die einheitliche Schrift verwenden */
-  .font-sans {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif !important;
+  /* Kleine Überzeile über Seitentiteln, in Karmin */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.16em] text-brand;
   }
 }
 

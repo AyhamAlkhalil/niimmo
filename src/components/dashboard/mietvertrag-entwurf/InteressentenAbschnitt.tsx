@@ -147,7 +147,7 @@ export function InteressentenAbschnitt({
                 <span className="text-sm font-medium">Person {index + 1}</span>
                 {p.verhaeltnis && <span className="text-xs text-muted-foreground">({p.verhaeltnis})</span>}
                 {p.mieterId && (
-                  <Badge variant="secondary" className="gap-1 text-[10px]">
+                  <Badge variant="secondary" className="gap-1 text-xs">
                     <UserCheck className="h-3 w-3" />
                     vorhandener Mieter
                   </Badge>

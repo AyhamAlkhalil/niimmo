@@ -360,7 +360,7 @@ export const ZahlungenUebersicht = ({ onBack }: ZahlungenUebersichtProps = {}) =
             </Button>
           )}
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Zahlungsübersicht</h1>
+            <h1 className="font-display text-3xl leading-none text-foreground">Zahlungsübersicht</h1>
             <p className="text-gray-600 mt-1">
               Verwalten Sie Zahlungen und deren Zuordnung zu Mietverträgen
             </p>

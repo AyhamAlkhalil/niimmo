@@ -37,6 +37,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.7.0",
+    datum: "2026-10-26",
+    schwerpunkt: "Neues Erscheinungsbild",
+    aenderungen: [
+      { art: "neu", titel: "Neues Erscheinungsbild in den Farben der NiImmo Gruppe – ruhiger, klarer und in allen Fenstern einheitlich" },
+      { art: "neu", titel: "Neue Anmeldeseite, Kopfbereich mit geordneten Bereichen und übersichtlichere Kennzahlen auf Dashboard, Objekt und Vertrag" },
+    ],
+  },
+  {
     version: "1.6.4",
     datum: "2026-10-22",
     aenderungen: [

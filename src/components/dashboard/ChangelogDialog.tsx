@@ -145,7 +145,7 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
                     )}
                     <span className="font-mono text-sm font-semibold">{release.version}</span>
                     {istAktuell && (
-                      <Badge className="h-5 border-red-200 bg-red-100 px-1.5 text-[10px] text-red-800">
+                      <Badge className="h-5 border-red-200 bg-red-100 px-1.5 text-xs text-red-800">
                         aktuell
                       </Badge>
                     )}
@@ -183,7 +183,7 @@ export function ChangelogDialog({ open, onOpenChange }: ChangelogDialogProps) {
                                 <Badge
                                   variant="outline"
                                   className={cn(
-                                    "mt-0.5 h-5 shrink-0 gap-1 px-1.5 text-[10px]",
+                                    "mt-0.5 h-5 shrink-0 gap-1 px-1.5 text-xs",
                                     stil.klasse,
                                   )}
                                 >
@@ -250,15 +250,15 @@ export function VersionBadge({ className }: { className?: string }) {
         onClick={oeffnen}
         title={`Version ${APP_VERSION} — Updates ansehen`}
         className={cn(
-          "relative flex items-center gap-1 rounded-full border border-gray-200/70 bg-white/60 px-2 py-0.5 font-mono text-[11px] text-gray-500 transition-colors hover:bg-white hover:text-gray-800",
+          "relative flex items-center gap-1 rounded-full border border-border/80 bg-card px-2.5 py-0.5 text-xs font-medium tabular-nums tracking-[0.02em] text-muted-foreground shadow-sm transition-colors hover:border-input hover:text-foreground",
           className
         )}
       >
         v{APP_VERSION}
         {istNeu && (
           <span className="absolute -right-0.5 -top-0.5 flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand/60 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-brand ring-2 ring-card" />
           </span>
         )}
       </button>

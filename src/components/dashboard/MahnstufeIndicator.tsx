@@ -15,11 +15,11 @@ export const MahnstufeIndicator = ({ stufe, className }: MahnstufeIndicatorProps
             "w-6 h-8 rounded-md border transition-all duration-300 shadow-sm",
             level <= stufe
               ? level === 1
-                ? "bg-gradient-to-t from-yellow-400 to-yellow-500 border-yellow-300 shadow-yellow-200"
+                ? "bg-ochre-400 border-ochre-300"
                 : level === 2
-                ? "bg-gradient-to-t from-orange-400 to-orange-500 border-orange-300 shadow-orange-200"
-                : "bg-gradient-to-t from-red-400 to-red-500 border-red-300 shadow-red-200"
-              : "bg-gradient-to-t from-gray-100 to-gray-200 border-gray-300"
+                ? "bg-terracotta-500 border-terracotta-400"
+                : "bg-brand border-crimson-700"
+              : "bg-neutral-200 border-neutral-300"
           )}
         />
       ))}

@@ -68,11 +68,11 @@ const getUnit = (type: string) => {
 // der Übergabe standen deshalb als „Manuell“ da.
 const getQuelleLabel = (quelle: string | null) => {
   switch (quelle) {
-    case 'Übergabe (Einzug)': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-success/40 text-success" title="Aus dem Übergabeprotokoll (Einzug)">Übergabe Einzug</Badge>;
-    case 'Übergabe (Auszug)': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-warning/40 text-warning" title="Aus dem Übergabeprotokoll (Auszug)">Übergabe Auszug</Badge>;
-    case 'einzug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-success/40 text-success" title="Einzugsstand am Mietvertrag">Einzug</Badge>;
-    case 'auszug': return <Badge variant="outline" className="text-[9px] px-1 py-0 border-warning/40 text-warning" title="Auszugsstand am Mietvertrag">Auszug</Badge>;
-    default: return <Badge variant="outline" className="text-[9px] px-1 py-0">Manuell</Badge>;
+    case 'Übergabe (Einzug)': return <Badge variant="outline" className="text-xs px-1 py-0 border-success/40 text-success" title="Aus dem Übergabeprotokoll (Einzug)">Übergabe Einzug</Badge>;
+    case 'Übergabe (Auszug)': return <Badge variant="outline" className="text-xs px-1 py-0 border-warning/40 text-warning" title="Aus dem Übergabeprotokoll (Auszug)">Übergabe Auszug</Badge>;
+    case 'einzug': return <Badge variant="outline" className="text-xs px-1 py-0 border-success/40 text-success" title="Einzugsstand am Mietvertrag">Einzug</Badge>;
+    case 'auszug': return <Badge variant="outline" className="text-xs px-1 py-0 border-warning/40 text-warning" title="Auszugsstand am Mietvertrag">Auszug</Badge>;
+    default: return <Badge variant="outline" className="text-xs px-1 py-0">Manuell</Badge>;
   }
 };
 
@@ -223,11 +223,11 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <CollapsibleTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground gap-1">
+        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-xs text-muted-foreground hover:text-foreground gap-1">
           <History className="h-3 w-3" />
           {label || "Historie"}
           {historie && historie.length > 0 && (
-            <Badge variant="secondary" className="text-[9px] px-1 py-0 ml-0.5">{historie.length}</Badge>
+            <Badge variant="secondary" className="text-xs px-1 py-0 ml-0.5">{historie.length}</Badge>
           )}
         </Button>
       </CollapsibleTrigger>
@@ -238,16 +238,16 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
               <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
             </div>
           ) : ladeFehler ? (
-            <div className="flex items-center justify-center gap-2 py-2 text-[10px] text-destructive">
+            <div className="flex items-center justify-center gap-2 py-2 text-xs text-destructive">
               Historie konnte nicht geladen werden.
-              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]" onClick={() => refetch()}>Erneut laden</Button>
+              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => refetch()}>Erneut laden</Button>
             </div>
           ) : !historie || historie.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground text-center py-2">Keine Historie vorhanden</p>
+            <p className="text-xs text-muted-foreground text-center py-2">Keine Historie vorhanden</p>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="text-[10px]">
+                <TableRow className="text-xs">
                   <TableHead className="py-1 px-2 h-6">Datum</TableHead>
                   <TableHead className="py-1 px-2 h-6">Typ</TableHead>
                   <TableHead className="py-1 px-2 h-6">Zähler-Nr</TableHead>
@@ -264,13 +264,13 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
 
                   if (isEditing) {
                     return (
-                      <TableRow key={entry.id} className="text-[10px] bg-muted/30">
+                      <TableRow key={entry.id} className="text-xs bg-muted/30">
                         <TableCell className="py-0.5 px-2">
                           <Input
                             type="date"
                             value={editDatum}
                             onChange={(e) => setEditDatum(e.target.value)}
-                            className="h-5 text-[10px] px-1 w-28"
+                            className="h-5 text-xs px-1 w-28"
                           />
                         </TableCell>
                         <TableCell className="py-0.5 px-2">
@@ -284,7 +284,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                             value={editZaehlerNr}
                             onChange={(e) => setEditZaehlerNr(e.target.value)}
                             placeholder="Nr."
-                            className="h-5 text-[10px] px-1 w-20"
+                            className="h-5 text-xs px-1 w-20"
                           />
                         </TableCell>
                         <TableCell className="py-0.5 px-2 text-right">
@@ -293,7 +293,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                             step="0.01"
                             value={editStand}
                             onChange={(e) => setEditStand(e.target.value)}
-                            className="h-5 text-[10px] px-1 w-20 text-right ml-auto"
+                            className="h-5 text-xs px-1 w-20 text-right ml-auto"
                           />
                         </TableCell>
                         <TableCell className="py-0.5 px-2 text-right text-muted-foreground">—</TableCell>
@@ -321,7 +321,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                   }
 
                   return (
-                    <TableRow key={entry.id} className="text-[10px] group">
+                    <TableRow key={entry.id} className="text-xs group">
                       <TableCell className="py-0.5 px-2">
                         {format(new Date(entry.datum), 'dd.MM.yyyy', { locale: de })}
                       </TableCell>
@@ -376,7 +376,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                             </PopoverTrigger>
                             <PopoverContent className="w-48 p-3" side="left">
                               <p className="text-xs font-medium mb-2">Eintrag löschen?</p>
-                              <p className="text-[10px] text-muted-foreground mb-3">
+                              <p className="text-xs text-muted-foreground mb-3">
                                 {format(new Date(entry.datum), 'dd.MM.yyyy', { locale: de })} · {getTypLabel(entry.zaehler_typ)} · {entry.stand != null ? Number(entry.stand).toLocaleString('de-DE', { minimumFractionDigits: 1 }) : '–'}
                               </p>
                               <div className="flex gap-2">

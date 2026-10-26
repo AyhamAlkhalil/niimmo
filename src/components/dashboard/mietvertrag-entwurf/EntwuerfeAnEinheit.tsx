@@ -105,7 +105,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
           <div key={e.id} className="space-y-2 rounded-lg border border-dashed border-primary/50 bg-primary/5 p-2.5">
             <div className="min-w-0 text-xs">
               <div className="flex items-center gap-1.5">
-                <Badge variant="outline" className="border-primary/50 px-1.5 py-0 text-[10px] text-primary">
+                <Badge variant="outline" className="border-primary/50 px-1.5 py-0 text-xs text-primary">
                   Entwurf
                 </Badge>
                 <span className="truncate font-medium">{namen(e)}</span>

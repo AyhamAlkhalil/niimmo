@@ -378,17 +378,21 @@ export const HausmeisterDashboard = () => {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
+      {/* Markenlinie wie im Verwaltungs-Dashboard */}
+      <div className="h-[3px] bg-brand" aria-hidden="true" />
       <div className="container mx-auto px-3 py-3 sm:p-4 lg:p-6">
         {/* Compact Header */}
-        <div className="glass-card p-3 sm:p-4 rounded-xl mb-4">
+        <div className="mb-4 rounded-2xl border border-border bg-card p-3 shadow-card sm:p-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="Logo" className="h-7 sm:h-9 w-auto" />
+            <div className="flex items-center gap-3 sm:gap-4">
+              <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="Logo" className="h-9 w-auto mix-blend-multiply sm:h-11" />
+              <div className="hidden h-9 w-px bg-border sm:block" aria-hidden="true" />
               <div>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg sm:text-xl font-bold text-gradient-red">NiImmo</h1>
-                  <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-xs py-0">
-                    <Wrench className="h-3 w-3 mr-1" />
+                <p className="eyebrow">Zähler & Einheiten</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <h1 className="font-display text-2xl leading-none text-foreground">NiImmo <span className="italic text-muted-foreground">Gruppe</span></h1>
+                  <Badge variant="warning" className="py-0">
+                    <Wrench className="h-3 w-3" />
                     Hausmeister
                   </Badge>
                 </div>
@@ -503,7 +507,7 @@ export const HausmeisterDashboard = () => {
                         immobilie.allgemein_strom_stand_2 || immobilie.allgemein_gas_stand_2 || immobilie.allgemein_wasser_stand_2) && (
                         <>
                           <div className="mt-2 mb-1">
-                            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Hausanschlusszähler 2</span>
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Hausanschlusszähler 2</span>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
                             {(['wasser_2', 'strom_2', 'gas_2'] as const).map((type) => {

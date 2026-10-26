@@ -409,8 +409,8 @@ export function MietvertragTimelineView({
     const isGuthaben = isBka && Number(forderung.sollbetrag) < 0;
 
     const cardClass = isGuthaben
-      ? "group relative bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800/50 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200"
-      : "group relative bg-gradient-to-br from-rose-50 to-red-50 dark:from-rose-950/30 dark:to-red-950/30 border border-rose-200 dark:border-rose-800/50 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200";
+      ? "group relative bg-forest-50/60 border border-forest-200/70 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200"
+      : "group relative bg-crimson-50/50 border border-crimson-200/70 rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200";
     const iconBg = isGuthaben ? "bg-green-100 dark:bg-green-900/50" : "bg-rose-100 dark:bg-rose-900/50";
     const iconColor = isGuthaben ? "text-green-600 dark:text-green-400" : "text-rose-600 dark:text-rose-400";
     const labelColor = isGuthaben ? "text-green-700 dark:text-green-300" : "text-rose-700 dark:text-rose-300";
@@ -441,7 +441,7 @@ export function MietvertragTimelineView({
           </div>
           <span className={`text-xs sm:text-sm font-medium ${labelColor}`}>{label}</span>
           {isBka && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
               BKA
             </span>
           )}
@@ -485,12 +485,12 @@ export function MietvertragTimelineView({
     const isBKA = zahlung.kategorie === 'Betriebskostenabrechnung';
 
     const bgColor = isIgnored
-      ? 'from-gray-50 to-slate-50 dark:from-gray-950/30 dark:to-slate-950/30'
+      ? 'bg-neutral-50'
       : isKaution
-        ? 'from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30'
+        ? 'bg-navy-50/60'
         : isBKA
-          ? 'from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30'
-          : 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/30';
+          ? 'bg-ochre-50/60'
+          : 'bg-forest-50/60';
 
     const borderColor = isIgnored
       ? 'border-gray-200 dark:border-gray-800/50 border-dashed'
@@ -526,7 +526,7 @@ export function MietvertragTimelineView({
     return (
       <div
         key={zahlung.id}
-        className={`group relative bg-gradient-to-br ${bgColor} border ${borderColor} rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200 cursor-move ${
+        className={`group relative ${bgColor} border ${borderColor} rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200 cursor-move ${
           isIgnored ? 'opacity-50 hover:opacity-80' : ''
         }`}
         draggable
@@ -562,14 +562,14 @@ export function MietvertragTimelineView({
 
         {/* Empfänger / Auftraggeber */}
         {zahlung.empfaengername && (
-          <p className="text-[10px] sm:text-xs text-muted-foreground mb-1">
+          <p className="text-xs text-muted-foreground mb-1">
             <span className="font-medium">Von/An:</span> {zahlung.empfaengername}
           </p>
         )}
 
         {/* Verwendungszweck */}
         {zahlung.verwendungszweck && !zahlung.verwendungszweck.startsWith('SPLIT_GROUP_') && (
-          <p className="text-[10px] sm:text-xs text-muted-foreground mb-2 line-clamp-2">
+          <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
             {zahlung.verwendungszweck.split(' | SPLIT_GROUP_')[0]}
           </p>
         )}
@@ -580,7 +580,7 @@ export function MietvertragTimelineView({
           {editingPayment?.zahlungId === zahlung.id && editingPayment.field === 'kategorie' ? (
             <div className="flex items-center gap-1 flex-wrap">
               <Select value={editPaymentValue} onValueChange={setEditPaymentValue}>
-                <SelectTrigger className="w-32 sm:w-44 h-6 sm:h-7 text-[10px] sm:text-xs">
+                <SelectTrigger className="w-32 sm:w-44 h-6 sm:h-7 text-xs">
                   <SelectValue placeholder="Kategorie" />
                 </SelectTrigger>
                 <SelectContent>
@@ -605,7 +605,7 @@ export function MietvertragTimelineView({
             <div className="flex items-center gap-1">
               <Badge 
                 variant={isIgnored ? 'secondary' : 'outline'} 
-                className={`text-[10px] sm:text-xs ${isIgnored ? 'bg-gray-100 text-gray-400' : ''}`}
+                className={`text-xs ${isIgnored ? 'bg-gray-100 text-gray-400' : ''}`}
               >
                 {KATEGORIE_LABEL[zahlung.kategorie] ?? zahlung.kategorie ?? 'Sonstige'}
               </Badge>
@@ -652,7 +652,7 @@ export function MietvertragTimelineView({
           {editingPayment?.zahlungId === zahlung.id && editingPayment.field === 'monat' ? (
             <div className="flex items-center gap-1 flex-wrap">
               <Select value={editPaymentValue} onValueChange={(value) => setEditPaymentValue(value)}>
-                <SelectTrigger className="w-28 sm:w-32 h-6 sm:h-7 text-[10px] sm:text-xs">
+                <SelectTrigger className="w-28 sm:w-32 h-6 sm:h-7 text-xs">
                   <SelectValue placeholder="Monat wählen" />
                 </SelectTrigger>
                 <SelectContent>
@@ -690,7 +690,7 @@ export function MietvertragTimelineView({
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <Badge variant="secondary" className="text-[10px] sm:text-xs">
+              <Badge variant="secondary" className="text-xs">
                 {(() => {
                   const raw = (zahlung.zugeordneter_monat || zahlung.buchungsdatum || '').slice(0, 7);
                   if (!raw) return 'Unzugeordnet';
@@ -762,7 +762,7 @@ export function MietvertragTimelineView({
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <Badge variant="outline" className="text-[10px] sm:text-xs">
+              <Badge variant="outline" className="text-xs">
                 <ArrowRightLeft className="h-2.5 w-2.5 sm:h-3 sm:w-3 mr-1" />
                 Objekt
               </Badge>

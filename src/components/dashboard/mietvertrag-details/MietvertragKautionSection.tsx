@@ -44,30 +44,30 @@ export function MietvertragKautionSection({
   const betragAnzeige = (value: string | number) => formatBetrag(Number(value) || 0);
 
   return (
-    <Card className="border-0 shadow-lg rounded-2xl overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-background to-muted/50 border-b pb-4">
-        <CardTitle className="flex items-center space-x-3">
-          <div className="p-2 bg-primary/10 rounded-lg">
-            <Euro className="h-5 w-5 text-primary" />
+    <Card className="overflow-hidden rounded-2xl">
+      <CardHeader className="border-b border-border/70 pb-4">
+        <CardTitle className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+            <Euro className="h-4 w-4 text-foreground/70" />
           </div>
           <div>
-            <span className="text-lg md:text-xl font-semibold">Kaution Übersicht</span>
-            <p className="text-xs md:text-sm text-muted-foreground font-normal mt-0.5">
+            <span className="text-lg font-semibold md:text-xl">Kaution Übersicht</span>
+            <p className="mt-0.5 text-xs font-normal text-muted-foreground md:text-sm">
               Soll- und Ist-Beträge der Mietkaution
             </p>
           </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="p-4 md:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
           {/* Kaution Soll */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200/50 dark:border-blue-800/50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs md:text-sm font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+          <div className="rounded-xl border border-border/80 bg-neutral-50/60 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 Soll
               </span>
-              <div className="p-1.5 bg-blue-100 dark:bg-blue-800/40 rounded-lg">
-                <TrendingUp className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-600 dark:text-blue-400" />
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-navy-50 ring-1 ring-navy-100">
+                <TrendingUp className="h-3.5 w-3.5 text-navy-600" />
               </div>
             </div>
             <MietvertragEditableField
@@ -79,7 +79,7 @@ export function MietvertragKautionSection({
               onSave={(value) => speichere('soll', value)}
               onCancel={onCancelEditKaution}
               type="number"
-              className="font-bold text-xl md:text-2xl text-blue-800 dark:text-blue-200"
+              className="font-display text-3xl leading-none tabular-nums text-foreground md:text-3xl"
               formatter={betragAnzeige}
               hideEditButton={true}
               isGlobalEditMode={isGlobalEditMode}
@@ -87,13 +87,13 @@ export function MietvertragKautionSection({
           </div>
 
           {/* Kaution Ist */}
-          <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-50 to-green-50 dark:from-emerald-900/20 dark:to-green-900/20 border border-emerald-200/50 dark:border-emerald-800/50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs md:text-sm font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
+          <div className="rounded-xl border border-border/80 bg-neutral-50/60 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                 Ist (erhalten)
               </span>
-              <div className="p-1.5 bg-emerald-100 dark:bg-emerald-800/40 rounded-lg">
-                <CheckCircle className="h-3.5 w-3.5 md:h-4 md:w-4 text-emerald-600 dark:text-emerald-400" />
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-forest-50 ring-1 ring-forest-100">
+                <CheckCircle className="h-3.5 w-3.5 text-forest-600" />
               </div>
             </div>
             <MietvertragEditableField
@@ -105,7 +105,7 @@ export function MietvertragKautionSection({
               onSave={(value) => speichere('ist', value)}
               onCancel={onCancelEditKaution}
               type="number"
-              className="font-bold text-xl md:text-2xl text-emerald-800 dark:text-emerald-200"
+              className="font-display text-3xl leading-none tabular-nums text-foreground md:text-3xl"
               formatter={betragAnzeige}
               hideEditButton={true}
               isGlobalEditMode={isGlobalEditMode}
@@ -113,54 +113,54 @@ export function MietvertragKautionSection({
           </div>
 
           {/* Differenz */}
-          <div className={`p-4 rounded-xl border ${
-            kautionDifferenz > 0 
-              ? 'bg-gradient-to-br from-rose-50 to-red-50 dark:from-rose-900/20 dark:to-red-900/20 border-rose-200/50 dark:border-rose-800/50'
-              : kautionDifferenz < 0 
-                ? 'bg-gradient-to-br from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-200/50 dark:border-amber-800/50'
-                : 'bg-gradient-to-br from-slate-50 to-gray-50 dark:from-slate-900/20 dark:to-gray-900/20 border-slate-200/50 dark:border-slate-800/50'
+          <div className={`rounded-xl border p-4 ${
+            kautionDifferenz > 0
+              ? 'border-crimson-100 bg-crimson-50/60'
+              : kautionDifferenz < 0
+                ? 'border-ochre-100 bg-ochre-50/70'
+                : 'border-border/80 bg-neutral-50/60'
           }`}>
-            <div className="flex items-center justify-between mb-2">
-              <span className={`text-xs md:text-sm font-medium uppercase tracking-wide ${
-                kautionDifferenz > 0 
-                  ? 'text-rose-600 dark:text-rose-400'
-                  : kautionDifferenz < 0 
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-slate-600 dark:text-slate-400'
+            <div className="flex items-center justify-between mb-3">
+              <span className={`text-xs font-medium uppercase tracking-[0.08em] ${
+                kautionDifferenz > 0
+                  ? 'text-crimson-700'
+                  : kautionDifferenz < 0
+                    ? 'text-ochre-700'
+                    : 'text-muted-foreground'
               }`}>
                 Differenz
               </span>
-              <div className={`p-1.5 rounded-lg ${
-                kautionDifferenz > 0 
-                  ? 'bg-rose-100 dark:bg-rose-800/40'
-                  : kautionDifferenz < 0 
-                    ? 'bg-amber-100 dark:bg-amber-800/40'
-                    : 'bg-slate-100 dark:bg-slate-800/40'
+              <div className={`flex h-7 w-7 items-center justify-center rounded-full ring-1 ${
+                kautionDifferenz > 0
+                  ? 'bg-crimson-100/70 ring-crimson-200/70'
+                  : kautionDifferenz < 0
+                    ? 'bg-ochre-100/70 ring-ochre-200/70'
+                    : 'bg-neutral-100 ring-neutral-200'
               }`}>
-                <TrendingDown className={`h-3.5 w-3.5 md:h-4 md:w-4 ${
-                  kautionDifferenz > 0 
-                    ? 'text-rose-600 dark:text-rose-400'
-                    : kautionDifferenz < 0 
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-slate-600 dark:text-slate-400'
+                <TrendingDown className={`h-3.5 w-3.5 ${
+                  kautionDifferenz > 0
+                    ? 'text-crimson-700'
+                    : kautionDifferenz < 0
+                      ? 'text-ochre-700'
+                      : 'text-muted-foreground'
                 }`} />
               </div>
             </div>
-            <p className={`font-bold text-xl md:text-2xl ${
-              kautionDifferenz > 0 
-                ? 'text-rose-700 dark:text-rose-300' 
-                : kautionDifferenz < 0 
-                  ? 'text-amber-700 dark:text-amber-300' 
-                  : 'text-slate-700 dark:text-slate-300'
+            <p className={`font-display text-3xl leading-none tabular-nums ${
+              kautionDifferenz > 0
+                ? 'text-crimson-800'
+                : kautionDifferenz < 0
+                  ? 'text-ochre-800'
+                  : 'text-foreground'
             }`}>
               {formatBetrag(Math.abs(kautionDifferenz))}
             </p>
-            <p className={`text-xs md:text-sm mt-1 ${
-              kautionDifferenz > 0 
-                ? 'text-rose-600 dark:text-rose-400' 
-                : kautionDifferenz < 0 
-                  ? 'text-amber-600 dark:text-amber-400' 
-                  : 'text-slate-600 dark:text-slate-400'
+            <p className={`mt-2 text-xs md:text-sm ${
+              kautionDifferenz > 0
+                ? 'text-crimson-700'
+                : kautionDifferenz < 0
+                  ? 'text-ochre-700'
+                  : 'text-muted-foreground'
             }`}>
               {kautionDifferenz > 0 ? 'noch offen' : kautionDifferenz < 0 ? 'Überzahlung' : 'Vollständig'}
             </p>

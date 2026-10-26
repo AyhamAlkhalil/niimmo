@@ -40,7 +40,7 @@ export function ModernChatbotTrigger() {
       {/* Backdrop overlay when chat is open */}
       {isChatOpen && (
         <div 
-          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 animate-fade-in"
+          className="fixed inset-0 z-40 bg-neutral-950/30 backdrop-blur-[3px] animate-fade-in"
           onClick={() => setIsChatOpen(false)}
         />
       )}
@@ -53,41 +53,34 @@ export function ModernChatbotTrigger() {
           <MelderLeiste />
 
           <div className="relative">
-            {/* Subtle ring effect */}
-            <div className="absolute -inset-2 bg-gradient-to-r from-red-600 to-red-900 rounded-full opacity-20"></div>
-            
-            {/* Main button */}
+            {/* Anthrazit statt rotem Leuchtverlauf; ein kleiner Karminpunkt als Markenzeichen (26.10.2026) */}
             <Button
               onClick={() => setIsChatOpen(true)}
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
               size="lg"
-              className="relative h-16 w-16 rounded-full bg-gradient-to-r from-red-600 to-red-900 hover:from-red-700 hover:to-red-800 shadow-2xl transition-all duration-300 hover:scale-110 active:scale-95 group overflow-hidden"
+              aria-label="Chilla öffnen"
+              className="group relative h-14 w-14 overflow-hidden rounded-full bg-primary px-0 text-primary-foreground shadow-xl ring-1 ring-white/10 transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-primary/90 hover:shadow-2xl active:translate-y-0"
             >
-              {/* Background glow effect */}
-              <div className="absolute inset-0 bg-gradient-to-r from-red-400 to-red-600 opacity-0 group-hover:opacity-20 transition-opacity duration-300 rounded-full" />
-              
               {/* Icon container */}
               <div className="relative flex items-center justify-center">
-                <MessageCircle 
-                  className={`h-7 w-7 transition-all duration-300 ${
+                <MessageCircle
+                  className={`h-6 w-6 transition-all duration-300 ${
                     isHovered ? 'scale-90 opacity-80' : 'scale-100 opacity-100'
-                  }`} 
+                  }`}
                 />
-                <Sparkles 
-                  className={`absolute h-4 w-4 transition-all duration-300 ${
+                <Sparkles
+                  className={`absolute h-3.5 w-3.5 transition-all duration-300 ${
                     isHovered ? 'scale-110 opacity-100' : 'scale-75 opacity-0'
                   }`}
                 />
               </div>
-
-              {/* Ripple effect on click */}
-              <div className="absolute inset-0 rounded-full bg-white/20 scale-0 group-active:scale-100 transition-transform duration-200" />
             </Button>
+            <span className="pointer-events-none absolute right-0.5 top-0.5 h-3 w-3 rounded-full bg-brand ring-2 ring-card" aria-hidden="true" />
 
             {/* Tooltip */}
             <div 
-              className={`absolute bottom-full right-0 mb-3 px-3 py-2 bg-gray-900 text-white text-sm rounded-lg shadow-lg transition-all duration-200 ${
+              className={`absolute bottom-full right-0 mb-3 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-medium text-neutral-50 shadow-lg transition-all duration-200 ${
                 isHovered ? 'opacity-100 transform translate-y-0' : 'opacity-0 transform translate-y-1 pointer-events-none'
               }`}
             >
@@ -95,7 +88,7 @@ export function ModernChatbotTrigger() {
                 Chilla öffnen
               </div>
               {/* Tooltip arrow */}
-              <div className="absolute top-full right-4 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+              <div className="absolute top-full right-4 h-0 w-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-neutral-900"></div>
             </div>
           </div>
         </div>

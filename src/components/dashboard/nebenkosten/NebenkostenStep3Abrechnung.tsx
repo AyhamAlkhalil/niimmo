@@ -945,7 +945,7 @@ export function NebenkostenStep3Abrechnung({
 
       {/* Übersichts-Header */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        <Card className="bg-gradient-to-br from-slate-50 to-slate-100 border-slate-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-slate-200 flex items-center justify-center shrink-0">
@@ -966,7 +966,7 @@ export function NebenkostenStep3Abrechnung({
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-emerald-200 flex items-center justify-center shrink-0">
@@ -982,7 +982,7 @@ export function NebenkostenStep3Abrechnung({
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-red-200 flex items-center justify-center shrink-0">
@@ -998,7 +998,7 @@ export function NebenkostenStep3Abrechnung({
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+        <Card className="rounded-2xl">
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-green-200 flex items-center justify-center shrink-0">
@@ -1165,7 +1165,7 @@ export function NebenkostenStep3Abrechnung({
                                     {format(abrechnung.periode.bis, "dd.MM.yy", { locale: de })}
                                   </span>
                                   {nutzungsanteil < 0.99 && (
-                                    <Badge variant="outline" className="text-[10px] px-1 py-0">
+                                    <Badge variant="outline" className="text-xs px-1 py-0">
                                       {abrechnung.periode.tage} Tage
                                     </Badge>
                                   )}
@@ -1173,7 +1173,7 @@ export function NebenkostenStep3Abrechnung({
                                     abrechnung.mieterEmails.length === 0 && (
                                       <Badge
                                         variant="outline"
-                                        className="text-[10px] px-1 py-0 border-amber-300 text-amber-700"
+                                        className="text-xs px-1 py-0 border-amber-300 text-amber-700"
                                       >
                                         Keine E-Mail
                                       </Badge>

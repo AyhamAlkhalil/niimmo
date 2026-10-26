@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Edit2, Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface MietvertragEditableFieldProps {
   label: string;
@@ -121,7 +122,8 @@ export function MietvertragEditableField({
       ) : (
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
-            <p className={`text-sm md:text-lg ${className}`}>{displayValue}</p>
+            {/* cn statt Verkettung: sonst gewann text-sm gegen die Größe des Aufrufers (26.10.2026) */}
+            <p className={cn("text-sm md:text-lg", className)}>{displayValue}</p>
             {!hideEditButton && (
               <Button
                 onClick={handleEdit}

@@ -101,8 +101,8 @@ export function HerkunftHinweis({ quelle, vorvertragBeginn }: { quelle?: Herkunf
       variant="outline"
       className={
         quelle === 'vorvertrag'
-          ? 'ml-2 h-3.5 border-primary/40 bg-primary/5 px-1.5 py-0 text-[10px] font-normal leading-none text-primary'
-          : 'ml-2 h-3.5 px-1.5 py-0 text-[10px] font-normal leading-none text-muted-foreground'
+          ? 'ml-2 h-3.5 border-primary/40 bg-primary/5 px-1.5 py-0 text-xs font-normal leading-none text-primary'
+          : 'ml-2 h-3.5 px-1.5 py-0 text-xs font-normal leading-none text-muted-foreground'
       }
     >
       {herkunftText(quelle, vorvertragBeginn ?? null)}

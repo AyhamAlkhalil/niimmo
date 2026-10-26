@@ -58,7 +58,8 @@ export function MietvertragMeterReadings({
     {
       key: "kaltwasser",
       icon: Droplet,
-      color: "text-blue-500",
+      color: "text-navy-600",
+      chip: "bg-navy-50 ring-navy-100",
       label: "Kaltwasser",
       number: einheit?.kaltwasser_zaehler,
       einzug: vertrag.kaltwasser_einzug,
@@ -67,7 +68,8 @@ export function MietvertragMeterReadings({
     {
       key: "warmwasser", 
       icon: Thermometer,
-      color: "text-orange-500",
+      color: "text-terracotta-600",
+      chip: "bg-terracotta-50 ring-terracotta-100",
       label: "Warmwasser",
       number: einheit?.warmwasser_zaehler,
       einzug: vertrag.warmwasser_einzug,
@@ -76,7 +78,8 @@ export function MietvertragMeterReadings({
     {
       key: "strom",
       icon: Zap,
-      color: "text-yellow-500", 
+      color: "text-gold-600",
+      chip: "bg-gold-50 ring-gold-100",
       label: "Strom",
       number: einheit?.strom_zaehler,
       einzug: vertrag.strom_einzug,
@@ -85,7 +88,8 @@ export function MietvertragMeterReadings({
     {
       key: "gas",
       icon: Flame,
-      color: "text-red-500",
+      color: "text-crimson-600",
+      chip: "bg-crimson-50 ring-crimson-100",
       label: "Gas",
       number: einheit?.gas_zaehler,
       einzug: vertrag.gas_einzug,
@@ -94,18 +98,18 @@ export function MietvertragMeterReadings({
   ];
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden rounded-2xl">
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-        <CardHeader className="pb-3 bg-gradient-to-r from-primary/5 to-primary/10">
+        <CardHeader className="pb-4">
           <CollapsibleTrigger asChild>
             <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent group">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                  <Gauge className="h-5 w-5 text-primary" />
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-muted/60 transition-colors group-hover:bg-muted">
+                  <Gauge className="h-4 w-4 text-foreground/70" />
                 </div>
                 <CardTitle className="text-lg">Zählerstände & Verbrauch</CardTitle>
               </div>
-              <div className="p-2 rounded-full group-hover:bg-primary/10 transition-colors">
+              <div className="rounded-full p-2 transition-colors group-hover:bg-accent">
                 {isOpen ? (
                   <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform" />
                 ) : (
@@ -117,7 +121,7 @@ export function MietvertragMeterReadings({
         </CardHeader>
         
         <CollapsibleContent className="animate-accordion-down">
-          <CardContent className="space-y-6 pt-4">
+          <CardContent className="space-y-4 border-t border-border/70 pt-5">
             {meterReadings.map((meter, index) => {
               const IconComponent = meter.icon;
               // Erst ab einem Einzugsstand über 0: Bis zum 23.10.2026 schrieb die
@@ -129,16 +133,13 @@ export function MietvertragMeterReadings({
               return (
                 <div 
                   key={meter.key} 
-                  className="group relative overflow-hidden rounded-xl border border-border/50 bg-gradient-to-br from-background to-muted/30 p-5 shadow-sm transition-all hover:shadow-md hover:border-primary/20 animate-fade-in"
+                  className="group relative overflow-hidden rounded-xl border border-border/80 bg-card p-5 transition-[border-color,box-shadow] duration-300 ease-sanft hover:border-neutral-300 hover:shadow-md animate-fade-in"
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
                   {/* Header with Icon, Label and Meter Number */}
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center space-x-3">
-                      <div className={`p-2.5 rounded-xl bg-gradient-to-br ${meter.color === 'text-blue-500' ? 'from-blue-100 to-blue-200' : 
-                        meter.color === 'text-orange-500' ? 'from-orange-100 to-orange-200' :
-                        meter.color === 'text-yellow-500' ? 'from-yellow-100 to-yellow-200' :
-                        'from-red-100 to-red-200'} shadow-sm`}>
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-full ring-1 ${meter.chip}`}>
                         <IconComponent className={`h-5 w-5 ${meter.color}`} />
                       </div>
                       <div>
@@ -148,7 +149,7 @@ export function MietvertragMeterReadings({
                     </div>
                     
                     {/* Meter Number Field */}
-                    <div className="bg-muted/50 rounded-lg p-2">
+                    <div className="rounded-lg border border-border/70 bg-neutral-50/70 p-2">
                       <MietvertragEditableField
                         label="Zählernummer"
                         value={meter.number || ""}
@@ -172,8 +173,9 @@ export function MietvertragMeterReadings({
                   
                   {/* Reading Values */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <div className="text-xs text-green-700 font-medium mb-2 uppercase tracking-wide">
+                    <div className="rounded-lg border border-border/80 bg-neutral-50/60 p-4">
+                      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                        <span className="h-1.5 w-1.5 rounded-full bg-forest-500" aria-hidden="true" />
                         Einzugsstand
                       </div>
                       <MietvertragEditableField
@@ -194,8 +196,9 @@ export function MietvertragMeterReadings({
                       />
                     </div>
                     
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <div className="text-xs text-red-700 font-medium mb-2 uppercase tracking-wide">
+                    <div className="rounded-lg border border-border/80 bg-neutral-50/60 p-4">
+                      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                        <span className="h-1.5 w-1.5 rounded-full bg-brand" aria-hidden="true" />
                         Auszugsstand
                       </div>
                       <MietvertragEditableField
@@ -216,14 +219,14 @@ export function MietvertragMeterReadings({
                   
                   {/* Consumption Calculation */}
                   {hasConsumption && (
-                    <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-lg p-4 animate-fade-in">
+                    <div className="rounded-lg border border-border/80 bg-muted/50 p-4 animate-fade-in">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
-                          <span className="text-sm font-medium text-primary">Gesamtverbrauch</span>
+                          <div className="h-2 w-2 rounded-full bg-brand" />
+                          <span className="text-sm font-medium text-foreground">Gesamtverbrauch</span>
                         </div>
                         <div className="text-right">
-                          <div className="text-2xl font-bold text-primary">
+                          <div className="font-display text-3xl leading-none tabular-nums text-foreground">
                             {(Number(meter.auszug) - Number(meter.einzug)).toFixed(2)}
                           </div>
                           <div className="text-xs text-muted-foreground">

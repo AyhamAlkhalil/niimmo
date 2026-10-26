@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Mail, Lock, User, ArrowLeft } from 'lucide-react';
+import { Loader2, Mail, Lock, ArrowLeft } from 'lucide-react';
 
 interface AuthFormProps {
   mode: 'login' | 'signup';
@@ -137,12 +137,9 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
   // Removed handleButtonClick - form submission should be handled by onSubmit only
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader className="text-center">
-        <div className="flex justify-center mb-4">
-          <User className="h-12 w-12 text-red-500" />
-        </div>
-        <CardTitle className="text-2xl font-bold">
+    <Card className="mx-auto w-full max-w-md rounded-2xl shadow-lg">
+      <CardHeader className="pb-5">
+        <CardTitle className="text-xl">
           {resetModus ? 'Passwort zurücksetzen' : mode === 'login' ? 'Anmelden' : 'Registrieren'}
         </CardTitle>
         <CardDescription>
@@ -155,11 +152,11 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="email">E-Mail</Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Mail className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="email"
                 type="email"
@@ -167,7 +164,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="pl-10"
+                className="h-11 pl-10"
                 disabled={loading}
               />
             </div>
@@ -177,7 +174,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
           <div className="space-y-2">
             <Label htmlFor="password">Passwort</Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 id="password"
                 type="password"
@@ -185,7 +182,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="pl-10"
+                className="h-11 pl-10"
                 disabled={loading}
               />
             </div>
@@ -196,7 +193,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Passwort bestätigen</Label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="confirmPassword"
                   type="password"
@@ -204,7 +201,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  className="pl-10"
+                  className="h-11 pl-10"
                   disabled={loading}
                 />
               </div>
@@ -218,14 +215,15 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
           )}
 
           {success && (
-            <Alert className="border-green-500 text-green-700">
+            <Alert className="border-success/30 bg-success/5 text-success">
               <AlertDescription>{success}</AlertDescription>
             </Alert>
           )}
 
           <Button 
             type="button"
-            className="w-full cursor-pointer relative z-10" 
+            size="lg"
+            className="relative z-10 w-full cursor-pointer" 
             disabled={loading}
             onClick={(e) => {
               if (resetModus) {
@@ -251,7 +249,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
               <button
                 type="button"
                 onClick={() => { setResetModus(false); setError(null); setSuccess(null); }}
-                className="inline-flex items-center gap-1 text-sm text-blue-600 underline hover:text-blue-800"
+                className="inline-flex items-center gap-1 text-sm font-medium text-foreground/80 underline decoration-neutral-300 underline-offset-4 transition-colors hover:text-brand hover:decoration-current"
                 disabled={loading}
               >
                 <ArrowLeft className="h-3.5 w-3.5" /> Zurück zur Anmeldung
@@ -263,7 +261,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
                     <button
                       type="button"
                       onClick={() => { setResetModus(true); setError(null); setSuccess(null); }}
-                      className="text-sm text-blue-600 underline hover:text-blue-800"
+                      className="text-sm font-medium text-foreground/80 underline decoration-neutral-300 underline-offset-4 transition-colors hover:text-brand hover:decoration-current"
                       disabled={loading}
                     >
                       Passwort vergessen?
@@ -274,7 +272,7 @@ export const AuthForm = ({ mode, onToggleMode }: AuthFormProps) => {
                   <button
                     type="button"
                     onClick={onToggleMode}
-                    className="text-sm text-blue-600 hover:text-blue-800 underline cursor-pointer"
+                    className="cursor-pointer text-sm text-muted-foreground underline decoration-neutral-300 underline-offset-4 transition-colors hover:text-brand hover:decoration-current"
                     disabled={loading}
                   >
                     {mode === 'login' 

@@ -274,7 +274,7 @@ export const ProblemMeldenDialog = ({
                 >
                   <span
                     className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                      "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
                       verantwortlichId === person.id
                         ? "bg-white/25 text-white"
                         : "bg-gray-200 text-gray-700",
@@ -302,10 +302,10 @@ export const ProblemMeldenDialog = ({
 
           {kontext && (
             <div className="flex flex-wrap gap-1.5">
-              <Badge variant="outline" className="text-[10px] font-normal">
+              <Badge variant="outline" className="text-xs font-normal">
                 Fenster {kontext.fensterbreite} × {kontext.fensterhoehe}
               </Badge>
-              <Badge variant="outline" className="text-[10px] font-normal">
+              <Badge variant="outline" className="text-xs font-normal">
                 Ansicht {kontext.pfad}
               </Badge>
             </div>
@@ -318,7 +318,6 @@ export const ProblemMeldenDialog = ({
             <Button
               onClick={absenden}
               disabled={!titel.trim() || anlegen.isPending}
-              className="bg-red-600 hover:bg-red-700"
             >
               {anlegen.isPending ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />

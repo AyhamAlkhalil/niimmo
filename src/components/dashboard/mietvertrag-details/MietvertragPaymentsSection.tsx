@@ -107,10 +107,10 @@ export function MietvertragPaymentsSection({
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Fällige Forderungen */}
-            <div className={`metric-card p-6 rounded-xl transition-all duration-300 hover:scale-[1.02] ${
+            <div className={`metric-card p-6 rounded-xl transition-all duration-300 ${
               faelligeForderungenBetrag > 0 
-                ? 'border-destructive/20 bg-gradient-to-br from-destructive/5 via-destructive/3 to-transparent' 
-                : 'border-muted bg-gradient-to-br from-muted/50 to-transparent'
+                ? 'border-crimson-200/70 bg-crimson-50/50' 
+                : 'border-border bg-neutral-50/60'
             }`}>
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-3 rounded-lg ${faelligeForderungenBetrag > 0 ? 'bg-destructive/10' : 'bg-muted/50'}`}>
@@ -133,7 +133,7 @@ export function MietvertragPaymentsSection({
             </div>
 
             {/* Geleistete Zahlungen */}
-            <div className="metric-card p-6 rounded-xl transition-all duration-300 hover:scale-[1.02] border-primary/20 bg-gradient-to-br from-primary/5 via-primary/3 to-transparent">
+            <div className="metric-card p-6 rounded-xl transition-all duration-300 border-border bg-card">
               <div className="flex items-start justify-between mb-4">
                 <div className="p-3 rounded-lg bg-primary/10">
                   <TrendingUp className="h-5 w-5 text-primary" />
@@ -153,10 +153,10 @@ export function MietvertragPaymentsSection({
             </div>
 
             {/* Rückstand / Guthaben */}
-            <div className={`metric-card p-6 rounded-xl transition-all duration-300 hover:scale-[1.02] ${
+            <div className={`metric-card p-6 rounded-xl transition-all duration-300 ${
               rueckstand > 0 
-                ? 'border-yellow-400/30 bg-gradient-to-br from-yellow-50/80 via-yellow-25/40 to-transparent' 
-                : 'border-green-400/30 bg-gradient-to-br from-green-50/80 via-green-25/40 to-transparent'
+                ? 'border-ochre-200/70 bg-ochre-50/60' 
+                : 'border-forest-200/70 bg-forest-50/60'
             }`}>
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-3 rounded-lg ${rueckstand > 0 ? 'bg-yellow-100' : 'bg-green-100'}`}>
@@ -205,7 +205,7 @@ export function MietvertragPaymentsSection({
 
       {/* Linked Contracts Badge & Timeline Toggle */}
       {hasLinkedContracts && (
-        <Card className="border-primary/30 bg-gradient-to-r from-primary/5 to-transparent">
+        <Card className="border-border bg-neutral-50/60">
           <CardContent className="py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

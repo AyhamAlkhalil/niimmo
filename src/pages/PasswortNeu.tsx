@@ -90,21 +90,24 @@ const PasswortNeu = () => {
           <img
             src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png"
             alt="NiImmo Logo"
-            className="mx-auto mb-4 h-16 w-auto"
+            className="mx-auto mb-4 h-16 w-auto mix-blend-multiply"
           />
-          <h1 className="text-gradient-red mb-2 text-3xl font-bold">NiImmo Dashboard</h1>
+          <p className="eyebrow">Zugang</p>
+          <h1 className="mt-2 font-display text-4xl leading-none text-foreground">Neues Passwort</h1>
         </div>
 
-        <Card className="mx-auto w-full max-w-md">
+        <Card className="mx-auto w-full max-w-md rounded-2xl shadow-lg">
           <CardHeader className="text-center">
-            <div className="mb-4 flex justify-center">
-              {zustand === "fertig" ? (
-                <CheckCircle2 className="h-12 w-12 text-green-600" />
-              ) : (
-                <Lock className="h-12 w-12 text-red-500" />
-              )}
+            <div className="mb-3 flex justify-center">
+              <div className={zustand === "fertig" ? "flex h-12 w-12 items-center justify-center rounded-full bg-success/10" : "flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft"}>
+                {zustand === "fertig" ? (
+                  <CheckCircle2 className="h-5 w-5 text-success" />
+                ) : (
+                  <Lock className="h-5 w-5 text-brand" />
+                )}
+              </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Neues Passwort</CardTitle>
+            <CardTitle className="text-xl">Zugang sichern</CardTitle>
             <CardDescription>
               {zustand === "pruefe" && "Der Link wird geprüft..."}
               {zustand === "bereit" && "Vergeben Sie ein neues Passwort für Ihren Zugang."}
@@ -135,7 +138,7 @@ const PasswortNeu = () => {
             )}
 
             {zustand === "fertig" && (
-              <Alert className="border-green-500 text-green-700">
+              <Alert className="border-success/30 bg-success/5 text-success">
                 <AlertDescription>Sie werden gleich weitergeleitet.</AlertDescription>
               </Alert>
             )}
@@ -145,7 +148,7 @@ const PasswortNeu = () => {
                 <div className="space-y-2">
                   <Label htmlFor="passwort">Neues Passwort</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="passwort"
                       type="password"
@@ -162,7 +165,7 @@ const PasswortNeu = () => {
                 <div className="space-y-2">
                   <Label htmlFor="wiederholung">Passwort wiederholen</Label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="wiederholung"
                       type="password"
