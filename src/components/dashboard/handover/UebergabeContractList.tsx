@@ -5,6 +5,7 @@ import { format, differenceInCalendarDays, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { getVertragsende } from "@/utils/contractUtils";
+import { mieterName as namenText } from "@/utils/benutzerName";
 
 interface ContractWithDetails {
   id: string;
@@ -155,7 +156,7 @@ export const UebergabeContractList = ({
 
   const renderContractRow = (group: ContractGroup) => {
     const mainContract = group.contracts[0];
-    const mieterName = mainContract.mieter.map(m => `${m.vorname} ${m.nachname}`).join(", ");
+    const mieterName = mainContract.mieter.map(m => namenText(m)).filter(Boolean).join(", ");
     const totalMiete = (mainContract.kaltmiete || 0) + (mainContract.betriebskosten || 0);
     const protokoll = protokolle?.get(mainContract.id);
 

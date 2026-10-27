@@ -296,6 +296,10 @@ serve(async (req) => {
     const failedEmails: { email: string; error: string; ursache: Ursache }[] = [];
     const htmlBody = htmlMaskieren(body).replace(/\n/g, "<br>");
 
+    // Dateiname mit dem Übergabedatum aus der Anfrage; bis zum 27.10.2026 stand dort der UTC-Tag des
+    // Versands (zwischen 0 und 2 Uhr deutscher Zeit der Vortag)
+    const tag = /^\d{4}-\d{2}-\d{2}$/.test(String(anfrage?.uebergabeDatum ?? '')) ? String(anfrage.uebergabeDatum) : new Date().toISOString().split('T')[0];
+    const anhangName = `Uebergabeprotokoll_${tag}.pdf`;
     const mailId = await mailVormerken(rollenClient, {
       typ: 'uebergabe',
       status: 'entwurf',
@@ -304,7 +308,7 @@ serve(async (req) => {
       html: htmlBody,
       empfaenger: recipients.map((r) => r.email),
       anhang_pfad: pdfPath ?? null,
-      anhang_name: pdfBuffer ? `Uebergabeprotokoll_${new Date().toISOString().split('T')[0]}.pdf` : null,
+      anhang_name: pdfBuffer ? anhangName : null,
       erstellt_von: userData.user.id,
     });
 
@@ -321,7 +325,7 @@ serve(async (req) => {
 
         if (pdfBuffer) {
           mailOptions.attachments = [{
-            filename: `Uebergabeprotokoll_${new Date().toISOString().split('T')[0]}.pdf`,
+            filename: anhangName,
             content: pdfBuffer,
             contentType: 'application/pdf',
           }];

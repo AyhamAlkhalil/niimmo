@@ -949,12 +949,23 @@ export const UebergabeDialog = ({
     return true;
   };
 
-  const handleDownloadPdf = () => {
-    if (!pdfBlobUrl) return;
+  const handleDownloadPdf = async () => {
     const datumStr = uebergabeDatum ? format(uebergabeDatum, "dd-MM-yyyy") : "datum";
     const fileName = `Uebergabeprotokoll_${isEinzug ? "Einzug" : "Auszug"}_${mieterName?.replace(/\s+/g, "_") || "Mieter"}_${datumStr}.pdf`;
+    let href = pdfBlobUrl;
+    // „Bereits gespeichert“ nach dem Wiederöffnen: In dieser Sitzung gibt es kein lokales PDF, der Knopf
+    // tat bis zum 27.10.2026 nichts. Dann das gespeicherte Protokoll über einen kurzen Link laden.
+    if (!href && savedPdfPath) {
+      const { data, error } = await supabase.storage.from("dokumente").createSignedUrl(savedPdfPath, 300, { download: fileName });
+      if (error || !data?.signedUrl) {
+        melden({ art: "fehler", titel: "Download nicht möglich", text: "Das gespeicherte Protokoll konnte nicht geladen werden. Es liegt unter Dokumente des Vertrags." });
+        return;
+      }
+      href = data.signedUrl;
+    }
+    if (!href) return;
     const a = document.createElement("a");
-    a.href = pdfBlobUrl;
+    a.href = href;
     a.download = fileName;
     document.body.appendChild(a);
     a.click();

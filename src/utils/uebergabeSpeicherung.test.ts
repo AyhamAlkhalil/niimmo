@@ -401,3 +401,25 @@ describe("uploadZeitlimitFuer", () => {
     expect(dialog).toMatch(/uploadZeitlimitFuer\(aktuellesPdf\.size\)/);
   });
 });
+
+describe("Übergabe: Namen, Mailanhang und Download nach „Bereits gespeichert“", () => {
+  it("druckt kein „null“, benennt den Anhang nach dem Übergabedatum und lädt das gespeicherte PDF", () => {
+    // 27.10.2026
+    const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
+    expect(dialog).toMatch(/if \(!href && savedPdfPath\)/);
+    const mail = readFileSync("supabase/functions/send-uebergabe-email/index.ts", "utf-8");
+    expect(mail).toMatch(/const anhangName = `Uebergabeprotokoll_\$\{tag\}\.pdf`;/);
+    expect(mail).not.toMatch(/filename: `Uebergabeprotokoll_\$\{new Date\(\)\.toISOString/);
+    const seite = readFileSync("src/pages/Uebergabe.tsx", "utf-8");
+    expect(seite).not.toMatch(/`\$\{m\.vorname\} \$\{m\.nachname\}`/);
+  });
+});
+
+describe("mieterName", () => {
+  it("setzt Namen ohne „null“ zusammen", async () => {
+    const { mieterName } = await import("./benutzerName");
+    expect(mieterName({ vorname: "Anna", nachname: null })).toBe("Anna");
+    expect(mieterName({ vorname: " Anna ", nachname: "Beispiel" })).toBe("Anna Beispiel");
+    expect(mieterName({ vorname: null, nachname: undefined })).toBe("");
+  });
+});

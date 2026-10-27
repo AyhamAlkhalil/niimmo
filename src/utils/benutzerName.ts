@@ -13,3 +13,11 @@ export function kurzName(benutzer: { anzeigename: string }): string {
   if (teile.length === 1) return teile[0];
   return `${teile[0]} ${teile[teile.length - 1].charAt(0)}.`;
 }
+
+/**
+ * „Vorname Nachname“ eines Mieters ohne „null“ oder doppelte Leerzeichen; die Spalten dürfen leer
+ * sein. Bis zum 27.10.2026 stand bei fehlendem Nachnamen „null“ in Übergabeprotokoll und Mails.
+ */
+export function mieterName(m: { vorname?: string | null; nachname?: string | null }): string {
+  return [m.vorname, m.nachname].map((t) => (t ?? '').trim()).filter(Boolean).join(' ');
+}

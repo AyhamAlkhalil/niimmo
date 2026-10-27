@@ -25,6 +25,7 @@ import { browserAblage, entwuerfeAuflisten, entwurfLoeschen, type EntwurfEintrag
 import { letzteProtokolle, type ProtokollZeile } from "@/utils/uebergabeProtokolle";
 import { mietsacheText } from "@/utils/uebergabeAblauf";
 import { toast } from "sonner";
+import { mieterName as namenText } from "@/utils/benutzerName";
 
 interface UebergabeProps {
   onBack: () => void;
@@ -248,7 +249,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
   const vertragsTitel = (ids: string[]) => {
     const vertraege = ids.map((id) => contracts?.find((c) => c.id === id)).filter((c): c is ContractWithDetails => !!c);
     if (vertraege.length === 0) return null;
-    const mieter = vertraege[0].mieter.map((m) => `${m.vorname} ${m.nachname}`).join(", ") || "Kein Mieter";
+    const mieter = vertraege[0].mieter.map((m) => namenText(m)).filter(Boolean).join(", ") || "Kein Mieter";
     const objekt = [vertraege[0].einheit.immobilie.name, vertraege[0].einheit.etage].filter(Boolean).join(", ");
     return { mieter, objekt: vertraege.length > 1 ? `${objekt} (+${vertraege.length - 1})` : objekt };
   };
@@ -437,7 +438,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           onClose={handleDialogClose}
           vertragIds={dialogVertragIds}
           contracts={dialogVertraege}
-          mieterName={selectedContracts[0].mieter.map(m => `${m.vorname} ${m.nachname}`).join(", ")}
+          mieterName={selectedContracts[0].mieter.map(m => namenText(m)).filter(Boolean).join(", ")}
           onSuccess={handleSuccess}
           isEinzug={uebergabeType === "einzug"}
         />
