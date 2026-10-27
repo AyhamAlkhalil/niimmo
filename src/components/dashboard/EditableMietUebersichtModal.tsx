@@ -258,7 +258,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: rows, isLoading } = useQuery({
+  const { data: rows, isLoading, isError, refetch } = useQuery({
     queryKey: ["miet-overview"],
     queryFn: async () => {
       const [{ data: einheitenData, error: einheitenError }, darlehenRes] = await Promise.all([
@@ -617,6 +617,18 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
         <div className="text-center space-y-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
           <p className="text-sm text-muted-foreground">Stammdaten werden geladen...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Bis zum 27.10.2026 erschien bei einem Ladefehler „Keine Daten vorhanden“
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div role="alert" className="max-w-md space-y-3 text-center">
+          <p className="text-sm text-destructive">Die Stammdaten konnten nicht geladen werden.</p>
+          <button type="button" onClick={() => refetch()} className="text-sm font-medium text-primary underline-offset-4 hover:underline">Erneut versuchen</button>
         </div>
       </div>
     );

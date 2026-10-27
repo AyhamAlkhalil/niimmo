@@ -58,7 +58,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Record<string, string>>({});
 
-  const { data: rows = [], isLoading } = useQuery({
+  const { data: rows = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["mietaufstellung-bank"],
     queryFn: async () => {
       const [einheitenRes, darlehenRes] = await Promise.all([
@@ -203,6 +203,18 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         <div className="glass-card p-12 rounded-3xl flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-red-500" />
           <p className="text-gray-600 font-sans">Lade Mietaufstellung...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Ein Ladefehler sah bis zum 27.10.2026 aus wie eine leere Aufstellung mit 0,00 € — auch im Druck
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div role="alert" className="max-w-md space-y-3 text-center">
+          <p className="text-sm text-destructive">Die Mietaufstellung konnte nicht geladen werden. Es werden keine Summen angezeigt, damit keine falsche Aufstellung gedruckt wird.</p>
+          <button type="button" onClick={() => refetch()} className="text-sm font-medium text-primary underline-offset-4 hover:underline">Erneut versuchen</button>
         </div>
       </div>
     );

@@ -26,3 +26,19 @@ describe('Zählerverwaltung', () => {
     expect(quelle).toMatch(/getLaufenderVertrag\(contracts\.filter/);
   });
 });
+
+describe('Ladefehler sehen nicht wie 0 € oder „keine Daten“ aus', () => {
+  it('zeigen Bankaufstellung, Mietübersicht, Darlehen, Versicherungen und Objektkopf einen Fehler', () => {
+    // 27.10.2026: Fehler erschienen als leere Aufstellung, „Keine Daten“, Gesamtschuld 0 € oder 0 € Miete
+    const dateien = {
+      bank: 'src/components/dashboard/MietaufstellungBank.tsx',
+      uebersicht: 'src/components/dashboard/EditableMietUebersichtModal.tsx',
+      versicherungen: 'src/components/dashboard/ImmobilienVersicherungenTab.tsx',
+    };
+    for (const pfad of Object.values(dateien)) {
+      expect(readFileSync(pfad, 'utf-8'), pfad).toMatch(/isError/);
+    }
+    expect(readFileSync('src/components/dashboard/DarlehenVerwaltung.tsx', 'utf-8')).toMatch(/darlehenFehler \|\| zuordnungFehler \|\| buchungenFehler \?/);
+    expect(readFileSync('src/components/dashboard/ImmobilienDetail.tsx', 'utf-8')).toMatch(/mietenBekannt \? formatBetragKompakt\(gesamtKaltmiete\) : '—'/);
+  });
+});

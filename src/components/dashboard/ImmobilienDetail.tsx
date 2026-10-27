@@ -196,6 +196,8 @@ export const ImmobilienDetail = ({
 
   const { kaltmiete: gesamtKaltmiete, betriebskosten: gesamtBetriebskosten } = summiereLaufendeMieten(alleMietvertraege);
   const gesamtWarmmiete = gesamtKaltmiete + gesamtBetriebskosten;
+  // Beim Laden und bei einem Fehler „—“ statt 0 € (bis 27.10.2026 standen dort 0 €)
+  const mietenBekannt = !!alleMietvertraege && !mietenFehler;
   // Exclude non-residential unit types (Garage, Stellplatz, Lager, Sonstiges) from total QM calculation
   const wohnflaechenEinheiten = einheiten?.filter(e => 
     !['Garage', 'Stellplatz', 'Lager', 'Sonstiges'].includes(e.einheitentyp || '')
@@ -316,15 +318,15 @@ export const ImmobilienDetail = ({
             </div>
             <div>
               <dt className="eyebrow">Kaltmiete</dt>
-              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{formatBetragKompakt(gesamtKaltmiete)} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{mietenBekannt ? formatBetragKompakt(gesamtKaltmiete) : '—'} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
             </div>
             <div className="mt-4 sm:mt-0">
               <dt className="eyebrow">Betriebskosten</dt>
-              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{formatBetragKompakt(gesamtBetriebskosten)} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{mietenBekannt ? formatBetragKompakt(gesamtBetriebskosten) : '—'} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
             </div>
             <div className="mt-4 sm:mt-0">
               <dt className="eyebrow">Warmmiete</dt>
-              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{formatBetragKompakt(gesamtWarmmiete)} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{mietenBekannt ? formatBetragKompakt(gesamtWarmmiete) : '—'} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
             </div>
           </dl>
 

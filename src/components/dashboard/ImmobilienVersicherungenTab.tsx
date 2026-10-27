@@ -72,7 +72,7 @@ export const ImmobilienVersicherungenTab = ({ immobilieId }: ImmobilienVersicher
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Fetch versicherungen
-  const { data: versicherungen, isLoading } = useQuery({
+  const { data: versicherungen, isLoading, isError, refetch } = useQuery({
     queryKey: ["versicherungen", immobilieId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -334,6 +334,12 @@ export const ImmobilienVersicherungenTab = ({ immobilieId }: ImmobilienVersicher
       {/* Versicherungsliste */}
       {isLoading ? (
         <div className="text-center py-8 text-muted-foreground">Laden...</div>
+      ) : isError ? (
+        // Bis zum 27.10.2026 sah ein Ladefehler aus wie „Noch keine Versicherungen hinterlegt“
+        <div role="alert" className="text-center py-8 text-sm text-destructive space-y-2">
+          <div>Die Versicherungen konnten nicht geladen werden.</div>
+          <button type="button" onClick={() => refetch()} className="font-medium text-primary underline-offset-4 hover:underline">Erneut versuchen</button>
+        </div>
       ) : !versicherungen?.length ? (
         <Card>
           <CardContent className="py-12 text-center">
