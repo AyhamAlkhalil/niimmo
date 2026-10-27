@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts"
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
 const ALLOWED_ORIGINS = [
   'https://immobilien-blick-dashboard.lovable.app',
@@ -51,9 +51,16 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
   const authClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
-  const { error: authError } = await authClient.auth.getUser();
-  if (authError) {
+  const { data: userData, error: authError } = await authClient.auth.getUser();
+  if (authError || !userData?.user?.id) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+  // Die Antwort enthält Mieten und Kontaktdaten aller Mieter, gelesen mit Service-Role. Bis zum
+  // 27.10.2026 genügte jedes Login (auch der Hausmeister). Wie in process-payments.
+  const rollenClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data: istAdmin, error: rolleError } = await rollenClient.rpc('is_admin', { _user_id: userData.user.id });
+  if (rolleError || istAdmin !== true) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {
@@ -74,6 +81,7 @@ const handler = async (req: Request): Promise<Response> => {
         letzte_mieterhoehung_am,
         start_datum,
         status,
+        mietanpassung_art,
         einheit_id,
         einheiten!inner(
           zaehler,
@@ -103,6 +111,9 @@ const handler = async (req: Request): Promise<Response> => {
     const currentDate = new Date();
 
     for (const contract of contracts || []) {
+      // Staffel- und Indexmiete schließen die Erhöhung nach § 558 aus (§§ 557a Abs. 2, 557b Abs. 2
+      // BGB); bis zum 27.10.2026 wurden auch sie angeboten
+      if (contract.mietanpassung_art === 'staffel' || contract.mietanpassung_art === 'index') continue;
       const startDate = new Date(contract.start_datum);
       const lastIncreaseDate = contract.letzte_mieterhoehung_am 
         ? new Date(contract.letzte_mieterhoehung_am) 
@@ -183,7 +194,7 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Die Prüfung der möglichen Mieterhöhungen ist fehlgeschlagen.'
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

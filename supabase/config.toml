@@ -37,3 +37,6 @@ verify_jwt = false
 # Prüft Login und Admin-Rolle selbst (siehe index.ts).
 [functions.send-kuendigungsbestaetigung]
 verify_jwt = false
+
+[functions.fetch-marktdaten]
+verify_jwt = false
