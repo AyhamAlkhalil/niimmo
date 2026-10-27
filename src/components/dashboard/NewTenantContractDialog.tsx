@@ -611,6 +611,15 @@ export const NewTenantContractDialog = ({
         throw new Error('Fehler: Nicht alle Mieter wurden korrekt verknüpft.');
       }
 
+      // Step 5b: Forderungen seit Mietbeginn — wie beim Aktivieren eines Entwurfs. Bis zum 27.10.2026
+      // entstand für einen rückwirkend erfassten Vertrag (Beginn 01.09., erfasst 27.10.) nie eine
+      // Septemberforderung; der Rückstand war still zu niedrig.
+      const hinweise: string[] = [];
+      const { error: nachholFehler } = await supabase.rpc('mietforderungen_nachholen', { p_mietvertrag_id: contractResult.id });
+      if (nachholFehler) {
+        hinweise.push('Die Forderungen seit Mietbeginn konnten nicht angelegt werden — bitte in der Vertragsansicht prüfen.');
+      }
+
       // Step 6: Upload documents if any
       if (uploadedFiles.length > 0) {
         for (const file of uploadedFiles) {
@@ -623,7 +632,8 @@ export const NewTenantContractDialog = ({
             .upload(fileName, file);
           
           if (uploadError) {
-            // Don't fail the whole contract creation
+            // Den Vertrag nicht scheitern lassen, aber melden (bis 27.10.2026 still übergangen)
+            hinweise.push(`Das Dokument „${file.name}“ konnte nicht hochgeladen werden.`);
             continue;
           }
           
@@ -640,7 +650,9 @@ export const NewTenantContractDialog = ({
             });
           
           if (docError) {
-            console.error('Mietvertrag angelegt, aber der Dokumenteintrag fehlt:', docError);
+            // Ohne Zeile in dokumente ist die Datei unsichtbar
+            await supabase.storage.from('dokumente').remove([fileName]);
+            hinweise.push(`Das Dokument „${file.name}“ konnte nicht abgelegt werden.`);
           }
         }
       }
@@ -650,10 +662,13 @@ export const NewTenantContractDialog = ({
       await queryClient.invalidateQueries({ queryKey: ['einheiten'] });
       await queryClient.invalidateQueries({ queryKey: ['all-tenants'] });
       
-      toast({
-        title: "✅ Mietvertrag erfolgreich erstellt!",
-        description: `Vertrag wurde mit ${tenantIds.length} Mieter${tenantIds.length > 1 ? 'n' : ''} verknüpft und alle Daten gespeichert.`,
-      });
+      // Nur ein Toast (TOAST_LIMIT = 1): Hinweise statt der Erfolgsmeldung
+      toast(hinweise.length > 0
+        ? { title: "Mietvertrag angelegt — bitte prüfen", description: hinweise.join(' '), variant: "destructive" }
+        : {
+            title: "✅ Mietvertrag erfolgreich erstellt!",
+            description: `Vertrag wurde mit ${tenantIds.length} Mieter${tenantIds.length > 1 ? 'n' : ''} verknüpft und alle Daten gespeichert.`,
+          });
       
       onClose();
       

@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { format } from "date-fns";
-import { getVertragsende, istVergangenerTag, mietendeFelder } from "@/utils/contractUtils";
+import { getVertragsende, istVergangenerTag, mietendeFelder, statusNachMietende } from "@/utils/contractUtils";
 import {
   VERTRAG_ZAEHLER_FELDER,
   geaenderteZaehlernummern,
@@ -161,7 +161,8 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, vertrag.start_datum, ende, vertragId))) return;
         }
         const isPast = istVergangenerTag(newEndForDb);
-        const { error } = await supabase.from('mietvertrag').update({ ...felder, ...(isPast ? { status: 'beendet' } : {}) }).eq('id', vertragId);
+        const neuerStatus = statusNachMietende(vertrag.status, newEndForDb, 'kuendigungsdatum' in felder ? felder.kuendigungsdatum : vertrag.kuendigungsdatum);
+        const { error } = await supabase.from('mietvertrag').update({ ...felder, ...(neuerStatus ? { status: neuerStatus } : {}) }).eq('id', vertragId);
         if (error) throw error;
         toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
         setEditingMietvertrag(null);
@@ -480,7 +481,12 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           if (field === 'ende_datum') {
             // Unverändert nichts schreiben -- sonst bekäme ein Altvertrag ohne ende_datum still eins.
             if (endDatumChanged && !('fehler' in endeFelder)) Object.assign(mietvertragUpdates, endeFelder);
-            if (istVergangenerTag(endForDb)) mietvertragUpdates.status = 'beendet';
+            const neuerStatus = statusNachMietende(
+              vertrag?.status,
+              endForDb,
+              !('fehler' in endeFelder) && 'kuendigungsdatum' in endeFelder ? endeFelder.kuendigungsdatum : vertrag?.kuendigungsdatum
+            );
+            if (neuerStatus) mietvertragUpdates.status = neuerStatus;
             return;
           }
           mietvertragUpdates[field] = editedValues[field];

@@ -147,16 +147,23 @@ export const mietendeFelder = (
 };
 
 /**
- * Vertragsfelder nach einer Mahnung mit fristloser Kuendigung (Stufe 3): beide Felder auf
- * das Ende der Raeumungsfrist, wie mietendeFelder() es verlangt.
- *
- * Bis zum 27.10.2026 stand `kuendigungsdatum` auf dem Versandtag und `ende_datum` auf dem
- * Raeumungsende. Der Nachtlauf update_expired_terminated_contracts prueft
- * `kuendigungsdatum < CURRENT_DATE` und setzte den Vertrag schon in der Folgenacht auf
- * 'beendet': Leerstand im Objekt, keine Sollstellung bis zur Raeumung, waehrend
- * getVertragsende() weiter das spaetere Datum nannte. Bis zur Rueckgabe schuldet der
- * Mieter Nutzungsentschaedigung in Hoehe der Miete (§ 546a BGB).
+ * Status nach einer Aenderung des Mietendes in der Vertragsbearbeitung: vergangenes Ende -> beendet;
+ * ein beendeter Vertrag mit Ende ab heute oder ohne Ende laeuft wieder (gekuendigt mit
+ * Kuendigungsdatum, sonst aktiv); sonst bleibt der Status. Bis zum 27.10.2026 kam ein beendeter
+ * Vertrag nie zurueck: Wer das Mietende versehentlich auf 2025 statt 2026 setzte, behielt nach der
+ * Korrektur „beendet“ -- keine Sollstellung, Leerstand, fehlte in allen Summen.
  */
+export const statusNachMietende = (
+  bisherigerStatus: string | null | undefined,
+  neuesEnde: string | null,
+  kuendigungsdatum: string | null | undefined,
+  heute: Date = new Date()
+): "beendet" | "gekuendigt" | "aktiv" | undefined => {
+  if (istVergangenerTag(neuesEnde, heute)) return "beendet";
+  if (bisherigerStatus === "beendet") return kuendigungsdatum ? "gekuendigt" : "aktiv";
+  return undefined;
+};
+
 /**
  * Raeumungsfrist in ganzen Tagen, fuer Schreiben und Vertrag gleich: erst abrunden, dann pruefen
  * (0,5 Tage waeren sonst „heute raeumen“), mehr als ein Jahr ist ein Tippfehler, sonst 14.
@@ -168,6 +175,17 @@ export const raeumungsfristInTagen = (eingabe: number): number => {
   return Number.isFinite(ganz) && ganz > 0 && ganz <= 365 ? ganz : 14;
 };
 
+/**
+ * Vertragsfelder nach einer Mahnung mit fristloser Kuendigung (Stufe 3): beide Felder auf
+ * das Ende der Raeumungsfrist, wie mietendeFelder() es verlangt.
+ *
+ * Bis zum 27.10.2026 stand `kuendigungsdatum` auf dem Versandtag und `ende_datum` auf dem
+ * Raeumungsende. Der Nachtlauf update_expired_terminated_contracts prueft
+ * `kuendigungsdatum < CURRENT_DATE` und setzte den Vertrag schon in der Folgenacht auf
+ * 'beendet': Leerstand im Objekt, keine Sollstellung bis zur Raeumung, waehrend
+ * getVertragsende() weiter das spaetere Datum nannte. Bis zur Rueckgabe schuldet der
+ * Mieter Nutzungsentschaedigung in Hoehe der Miete (§ 546a BGB).
+ */
 export const fristloseKuendigungFelder = (
   raeumungsfristTage: number,
   versandtag: Date = new Date(),

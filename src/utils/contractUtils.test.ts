@@ -7,6 +7,7 @@ import {
   fristloseKuendigungFelder,
   raeumungsfristInTagen,
   vertragsendeDerKuendigung,
+  statusNachMietende,
   istVergangenerTag,
   istLaufenderVertrag,
   getLaufenderVertrag,
@@ -261,5 +262,21 @@ describe("fristloseKuendigungFelder mit bestehendem Ende", () => {
     expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2026-10-31").ende_datum).toBe("2026-10-31");
     expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2027-03-31").ende_datum).toBe("2026-11-10");
     expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), null).kuendigungsdatum).toBe("2026-11-10");
+  });
+});
+
+describe("statusNachMietende", () => {
+  const heute = new Date(2026, 9, 27, 10, 0);
+  it("lässt einen beendeten Vertrag nach Korrektur des Mietendes wieder laufen", () => {
+    // 27.10.2026: Ende versehentlich 2025, korrigiert auf 2026 — der Vertrag blieb beendet
+    expect(statusNachMietende("beendet", "2026-12-31", "2026-12-31", heute)).toBe("gekuendigt");
+    expect(statusNachMietende("beendet", "2027-06-30", null, heute)).toBe("aktiv");
+    expect(statusNachMietende("beendet", null, null, heute)).toBe("aktiv");
+  });
+
+  it("beendet bei vergangenem Ende und lässt laufende Verträge sonst unberührt", () => {
+    expect(statusNachMietende("aktiv", "2026-10-26", null, heute)).toBe("beendet");
+    expect(statusNachMietende("aktiv", "2026-10-27", null, heute)).toBeUndefined();
+    expect(statusNachMietende("gekuendigt", "2026-12-31", "2026-12-31", heute)).toBeUndefined();
   });
 });
