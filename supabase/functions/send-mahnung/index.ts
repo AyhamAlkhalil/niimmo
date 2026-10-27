@@ -86,7 +86,9 @@ function generateMahnungHtml(data: MahnungEmailRequest): string {
       break;
     case 3:
     default:
-      eskalationsText = '<strong>Dies ist unsere letzte Mahnung.</strong> Sollte der Gesamtbetrag nicht innerhalb der genannten Frist auf unserem Konto eingehen, werden wir ohne weitere Ankündigung rechtliche Schritte einleiten und das Mietverhältnis fristlos kündigen. Die dadurch entstehenden Kosten gehen zu Ihren Lasten.';
+      // Das beigefügte Schreiben spricht die fristlose Kündigung aus, und der Vertrag steht danach auf
+      // „gekündigt“. Bis zum 27.10.2026 kündigte die Mail sie nur an („werden … kündigen“).
+      eskalationsText = '<strong>Mit dem beigefügten Schreiben kündigen wir das Mietverhältnis fristlos.</strong> Bitte gleichen Sie den Gesamtbetrag dennoch innerhalb der genannten Frist aus und beachten Sie die im Schreiben genannte Räumungsfrist. Die entstehenden Kosten gehen zu Ihren Lasten.';
       headerColor = '#C0392B';
       break;
   }
@@ -358,7 +360,8 @@ serve(async (req) => {
     }
 
     let pdfBuffer: Buffer | null = null;
-    let pdfFilename = `Mahnung_Stufe${data.mahnstufe}_${new Date().toISOString().split('T')[0]}.pdf`;
+    // Datum in deutscher Zeit; toISOString() lag zwischen 0 und 2 Uhr auf dem Vortag
+    let pdfFilename = `Mahnung_Stufe${data.mahnstufe}_${berlinerTag(0).split('.').reverse().join('-')}.pdf`;
     if (data.pdfPath) {
       console.log('Loading PDF from storage:', data.pdfPath);
       const { data: fileData, error: fileError } = await supabase.storage

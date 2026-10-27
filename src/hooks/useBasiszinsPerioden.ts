@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { BASISZINSSATZ_PERIODEN_FALLBACK } from "@/utils/verzugszinsen";
+import { BASISZINSSATZ_PERIODEN_FALLBACK, mitAelterenPerioden } from "@/utils/verzugszinsen";
 
 /**
  * Liefert alle Basiszinssatz-Perioden aus der marktdaten-Tabelle.
@@ -31,7 +31,7 @@ export function useBasiszinsPerioden() {
   });
 
   return {
-    perioden: data ?? BASISZINSSATZ_PERIODEN_FALLBACK,
+    perioden: data ? mitAelterenPerioden(data) : BASISZINSSATZ_PERIODEN_FALLBACK,
     isLoading,
     fromDB: !!data,
   };
@@ -58,3 +58,4 @@ export function useAktuellerVpi() {
 
   return { vpi: data, isLoading };
 }
+

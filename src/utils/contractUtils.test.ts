@@ -254,3 +254,12 @@ describe("vertragsendeDerKuendigung", () => {
     expect(dialog).toMatch(/kuendigungsdatum: vertragsende,[\s\S]{0,600}ende_datum: vertragsende,/);
   });
 });
+
+describe("fristloseKuendigungFelder mit bestehendem Ende", () => {
+  it("schiebt ein früheres Vertragsende nicht nach hinten", () => {
+    // 27.10.2026: Ende 31.10. wurde durch Stufe 3 zum 10.11., die Sollstellung legte November an
+    expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2026-10-31").ende_datum).toBe("2026-10-31");
+    expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2027-03-31").ende_datum).toBe("2026-11-10");
+    expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), null).kuendigungsdatum).toBe("2026-11-10");
+  });
+});

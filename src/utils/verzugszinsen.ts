@@ -177,32 +177,97 @@ export function berechneVerzugszins(
   };
 }
 
+/** Lokale Mitternacht eines Kalendertags JJJJ-MM-TT (new Date('JJJJ-MM-TT') wäre UTC). */
+function lokalerTag(iso: string): Date {
+  const [j, m, t] = iso.slice(0, 10).split('-').map(Number);
+  return new Date(j, m - 1, t);
+}
+
 /**
- * Berechnet Verzugszinsen fuer mehrere Rueckstandsposten.
- * @param posten Array von { betrag, faelligAb } - faelligAb = Datum ab dem Verzug gilt (4. Werktag Folgemonat)
+ * Berechnet Verzugszinsen fuer mehrere Rueckstandsposten, je Basiszins-Periode getrennt.
+ *
+ * Bis zum 27.10.2026 galt der Satz zu Verzugsbeginn fuer den ganzen Zeitraum: Ein Verzug ab
+ * 04.06.2026 lief durchgehend mit 1,27 + 5 %, obwohl ab 01.07. ein anderer Satz galt.
+ *
+ * @param posten Array von { betrag, faelligAb } - faelligAb = Datum ab dem Verzug gilt
  * @param stichtag Datum bis zu dem Zinsen berechnet werden (default: heute)
  * @param perioden Optionale DB-Basiszinssatz-Perioden
  */
 export function berechneAlleVerzugszinsen(
   posten: Array<{ betrag: number; faelligAb: string }>,
   stichtag?: Date,
-  perioden?: Array<{ ab: string; satz: number }>
+  perioden: Array<{ ab: string; satz: number }> = BASISZINSSATZ_PERIODEN_FALLBACK
 ): { details: VerzugszinsPosten[]; gesamt: number } {
-  const bis = stichtag || new Date();
+  // Kalendertag ohne Uhrzeit: sonst rechnete die Mahnung ab 12 Uhr einen Zinstag mehr (27.10.2026)
+  const jetzt = stichtag || new Date();
+  const bis = new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate());
   const details: VerzugszinsPosten[] = [];
   let gesamt = 0;
+  const grenzen = [...new Set(perioden.map((p) => p.ab.slice(0, 10)))].sort();
 
   for (const p of posten) {
-    const von = new Date(p.faelligAb);
+    const von = lokalerTag(p.faelligAb);
     if (von >= bis) continue;
 
-    const ergebnis = berechneVerzugszins(p.betrag, von, bis, perioden);
-    details.push(ergebnis);
-    gesamt += ergebnis.zinsbetrag;
+    const monatLabel = von.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+    let start = von;
+    for (const grenze of [...grenzen.map(lokalerTag).filter((g) => g > von && g < bis), bis]) {
+      const teil = berechneVerzugszins(p.betrag, start, grenze, perioden);
+      if (teil.tage > 0) {
+        details.push({ ...teil, monat: start === von ? monatLabel : `${monatLabel} ab ${start.toLocaleDateString('de-DE')}` });
+        gesamt += teil.zinsbetrag;
+      }
+      start = grenze;
+    }
   }
 
   return {
     details,
     gesamt: Math.round(gesamt * 100) / 100,
   };
+}
+
+/**
+ * Verteilt einen Mietrückstand auf die jüngsten fälligen Monate (je eine Monatsmiete, der Rest
+ * auf den ältesten) und gibt je Monat den Verzugsbeginn zurück: 4. Werktag des Mietmonats
+ * (§ 556b Abs. 1 BGB). Zahlungen tilgen die älteste Schuld zuerst (§ 366 Abs. 2 BGB), offen
+ * bleiben also die jüngsten Monate.
+ *
+ * Der jüngste Monat ist der, dessen Forderung schon fällig ist (Fälligkeit wie in der
+ * Rückstandsliste: sollmonat + 7, also der 8.). Bis zum 27.10.2026 verteilte der Mahndialog den
+ * Betrag gleichmäßig auf eine aufgerundete Monatszahl und setzte vom 1. bis 7. jedes Monats jeden
+ * Posten einen Monat zu spät an; der jüngste fiel ganz weg (am 04.11. ergab Oktober 0,00 €).
+ */
+export function verzugspostenAusRueckstand(
+  rueckstand: number,
+  monatsmiete: number,
+  heute: Date = new Date(),
+  faelligkeitsTag = 8
+): Array<{ betrag: number; faelligAb: string }> {
+  if (!(rueckstand > 0)) return [];
+  const juengster = new Date(heute.getFullYear(), heute.getMonth() - (heute.getDate() >= faelligkeitsTag ? 0 : 1), 1);
+  const verzugAb = (mietmonat: Date) =>
+    toLocalIso(berechneVerzugsbeginn(new Date(mietmonat.getFullYear(), mietmonat.getMonth() - 1, 1)));
+
+  if (!(monatsmiete > 0)) return [{ betrag: Math.round(rueckstand * 100) / 100, faelligAb: verzugAb(juengster) }];
+
+  const posten: Array<{ betrag: number; faelligAb: string }> = [];
+  let rest = Math.round(rueckstand * 100);
+  const miete = Math.round(monatsmiete * 100);
+  for (let i = 0; rest > 0 && i < 600; i++) {
+    const betrag = Math.min(miete, rest);
+    posten.unshift({ betrag: betrag / 100, faelligAb: verzugAb(new Date(juengster.getFullYear(), juengster.getMonth() - i, 1)) });
+    rest -= betrag;
+  }
+  return posten;
+}
+
+/**
+ * Die DB-Perioden beginnen erst mit dem ersten Abruf (01.03.2026); ein älterer Verzug fiel bis zum
+ * 27.10.2026 auf den ältesten DB-Satz. Ältere Zeiträume kommen aus der eingebauten Liste.
+ */
+export function mitAelterenPerioden(db: Array<{ ab: string; satz: number }>): Array<{ ab: string; satz: number }> {
+  const aeltesteDb = db.reduce((min, p) => (p.ab < min ? p.ab : min), db[0]?.ab ?? '9999-12-31');
+  return [...db, ...BASISZINSSATZ_PERIODEN_FALLBACK.filter((p) => p.ab < aeltesteDb)]
+    .sort((a, b) => b.ab.localeCompare(a.ab));
 }

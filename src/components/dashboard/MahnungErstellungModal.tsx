@@ -15,8 +15,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, AlertTriangle, Download, Mail, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { generateMahnungPdf, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
-import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, getVerzugszinssatz, toLocalIso } from "@/utils/verzugszinsen";
+import { generateMahnungPdf, monatsmietenText, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
+import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
@@ -36,6 +36,8 @@ interface MahnungErstellungModalProps {
     immobilie_name?: string;
     immobilie_adresse?: string;
     mahnstufe?: number;
+    /** Ergebnis von getVertragsende(); Stufe 3 schiebt ein früheres Ende nicht nach hinten */
+    vertragsende?: string | null;
     mieter?: Array<{
       vorname: string;
       nachname: string;
@@ -72,7 +74,8 @@ export function MahnungErstellungModal({
 
   // Mahnung data
   const mahnstufe = (contractData?.mahnstufe || 0) + 1;
-  const [anrede, setAnrede] = useState<string>("Herr");
+  // Leer = alle Mieter neutral beim Namen; „Herr“ als Vorgabe sprach jede Mieterin falsch an
+  const [anrede, setAnrede] = useState<string>("");
   const [mieterAdresse, setMieterAdresse] = useState<string>("");
   const [mieterPlzOrt, setMieterPlzOrt] = useState<string>("");
   const [einheitBezeichnung, setEinheitBezeichnung] = useState<string>("");
@@ -111,7 +114,7 @@ export function MahnungErstellungModal({
       
       const firstMieter = contractData.mieter?.[0];
       setEmailRecipient(firstMieter?.hauptmail || '');
-      setAnrede(firstMieter ? "Herr" : "Herr");
+      setAnrede("");
       setMieterAdresse(contractData.immobilie_adresse?.split(',')[0]?.trim() || '');
       setMieterPlzOrt(contractData.immobilie_adresse?.includes(',') 
         ? contractData.immobilie_adresse.split(',').slice(1).join(',').trim() 
@@ -119,12 +122,17 @@ export function MahnungErstellungModal({
       setEinheitBezeichnung("WE");
       
       const monatsmiete = (contractData.current_kaltmiete || 0) + (contractData.current_betriebskosten || 0);
-      const monate = monatsmiete > 0 ? Math.ceil(rueckstand / monatsmiete) : 1;
-      setAnzahlMonatsmieten(String(Math.max(1, monate)));
+      // Abgerundet auf eine Stelle (monatsmietenText): aufgerundet stand 1,1 als „2 Monatsmieten“ im Schreiben
+      const monate = monatsmiete > 0 ? Math.floor((rueckstand / monatsmiete) * 10) / 10 : 0;
+      setAnzahlMonatsmieten(String(monate));
       
+      // Je Schreiben dieser Mahnfolge einschließlich des jetzigen (Miete ist kalendermäßig fällig,
+      // § 286 Abs. 2 Nr. 1 BGB). Bis zum 27.10.2026 ergab max(1, alteStufe || 1) für Stufe 1/2/3
+      // die Anzahl 1/1/2.
+      const anzahlSchreiben = (contractData.mahnstufe || 0) + 1;
       setMahnkostenProSchreiben("11.00");
-      setAnzahlMahnschreiben(String(Math.max(1, contractData.mahnstufe || 1)));
-      setMahnkostenGesamt((11 * Math.max(1, contractData.mahnstufe || 1)).toFixed(2));
+      setAnzahlMahnschreiben(String(anzahlSchreiben));
+      setMahnkostenGesamt((11 * anzahlSchreiben).toFixed(2));
       
       setVerzugszinsenGesamt("0.00");
       setVerzugszinsenDetails([]);
@@ -134,7 +142,10 @@ export function MahnungErstellungModal({
       setUseFreitext(false);
       setFreitext("");
     }
-  }, [isOpen, contractData, rueckstand]);
+    // Nur beim Öffnen oder Vertragswechsel: contractData ist bei jedem Rendern des Vertragsfensters
+    // ein neues Objekt -- bis zum 27.10.2026 fielen berechnete Zinsen beim Fensterfokus still auf 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, contractData?.mietvertrag_id]);
 
   // Recalculate Mahnkosten when sub-values change
   useEffect(() => {
@@ -151,7 +162,7 @@ export function MahnungErstellungModal({
       : 'N/A';
 
     if (mahnstufe >= 3) {
-      return `Sie haben seit Beginn des Mietverhältnisses am ${vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${anzahlMonatsmieten} Monatsmieten in Höhe von insgesamt ${rueckstandFormatted} €. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
+      return `Sie haben seit Beginn des Mietverhältnisses am ${vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${monatsmietenText(parseFloat(anzahlMonatsmieten))} in Höhe von insgesamt ${rueckstandFormatted} €. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
     } else if (mahnstufe === 2) {
       return `trotz unserer ersten Mahnung sind die folgenden Zahlungen weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.\nDer Mietrückstand beläuft sich auf insgesamt ${rueckstandFormatted} €.`;
     } else {
@@ -185,6 +196,7 @@ export function MahnungErstellungModal({
       anrede,
       mieterName: firstName,
       mieterNachname: nachname,
+      mieter: mieterList.map(m => ({ vorname: m.vorname, nachname: m.nachname })),
       mieterAdresse,
       mieterPlzOrt,
       einheitBezeichnung,
@@ -194,13 +206,14 @@ export function MahnungErstellungModal({
       datum: datumStr,
       offeneForderungen: [],
       gesamtRueckstand: parseFloat(gesamtRueckstand) || 0,
-      anzahlMonatsmieten: parseInt(anzahlMonatsmieten) || 1,
+      anzahlMonatsmieten: parseFloat(anzahlMonatsmieten) || 0,
       verzugszinsenDetails,
       verzugszinsenGesamt: parseFloat(verzugszinsenGesamt) || 0,
       mahnkostenProSchreiben: parseFloat(mahnkostenProSchreiben) || 0,
       anzahlMahnschreiben: parseInt(anzahlMahnschreiben) || 0,
       mahnkostenGesamt: parseFloat(mahnkostenGesamt) || 0,
       zahlungsfristDatum: zahlungsfristStr,
+      zahlungsfristTage: parseInt(zahlungsfristTage) || 7,
       raeumungsfristDatum: raeumungsfristStr,
       uebergabeDatum: uebergabeDatum
         ? new Date(uebergabeDatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -293,13 +306,18 @@ export function MahnungErstellungModal({
                            mahnstufe === 2 ? '2. Mahnung' : 
                            `${mahnstufe}. Mahnung / Letzte Zahlungsaufforderung`;
       
-      await supabase.from('dokumente').insert({
+      const { error: dokumentFehler } = await supabase.from('dokumente').insert({
         titel: `${mahnungTitle} ${new Date().toLocaleDateString('de-DE')}`,
         pfad: filePath,
         kategorie: 'Schriftverkehr',
         dateityp: 'application/pdf',
         mietvertrag_id: contractData.mietvertrag_id,
       });
+      // Ohne Zeile in dokumente ist das Schreiben unsichtbar (bis 27.10.2026 ungeprüft, Erfolg gemeldet)
+      if (dokumentFehler) {
+        await supabase.storage.from('dokumente').remove([filePath]);
+        throw new Error('Das Schreiben konnte nicht unter Dokumente abgelegt werden: ' + dokumentFehler.message);
+      }
       
       setPdfPath(filePath);
       
@@ -377,7 +395,7 @@ export function MahnungErstellungModal({
         const { error: statusError } = await supabase
           .from('mietvertrag')
           .update({
-            ...fristloseKuendigungFelder(parseInt(raeumungsfristTage)),
+            ...fristloseKuendigungFelder(parseInt(raeumungsfristTage), new Date(), contractData.vertragsende),
             aktualisiert_am: new Date().toISOString(),
           })
           .eq('id', contractData.mietvertrag_id);
@@ -416,21 +434,13 @@ export function MahnungErstellungModal({
     }
   };
 
+  const monatsmieteDesVertrags = (contractData?.current_kaltmiete || 0) + (contractData?.current_betriebskosten || 0);
   const autoBerechneVerzugszinsen = useCallback(() => {
     const parsedBetrag = parseFloat(gesamtRueckstand) || 0;
-    const monate = parseInt(anzahlMonatsmieten) || 1;
-    const monatsBetrag = parsedBetrag / monate;
     const heute = new Date();
-
-    // Verzugsbeginn: 4. Werktag des Folgemonats (§ 556b Abs. 1 BGB)
-    const posten: Array<{ betrag: number; faelligAb: string }> = [];
-    for (let i = 0; i < monate; i++) {
-      // Faelligkeitsmonat: monate - i Monate zurueck (Miete fuer diesen Monat war faellig)
-      const faelligkeitsMonat = new Date(heute.getFullYear(), heute.getMonth() - (monate - i), 1);
-      const verzugsbeginn = berechneVerzugsbeginn(faelligkeitsMonat);
-      posten.push({ betrag: monatsBetrag, faelligAb: toLocalIso(verzugsbeginn) });
-    }
-
+    // Offen sind die jüngsten fälligen Monate, je eine Monatsmiete; Verzug ab 4. Werktag des
+    // Mietmonats, Zinssatz je Basiszins-Periode (utils/verzugszinsen.ts, seit 27.10.2026)
+    const posten = verzugspostenAusRueckstand(parsedBetrag, monatsmieteDesVertrags, heute);
     const ergebnis = berechneAlleVerzugszinsen(posten, heute, perioden);
 
     setVerzugszinsenDetails(ergebnis.details.map(d => ({
@@ -438,7 +448,7 @@ export function MahnungErstellungModal({
       betrag: d.zinsbetrag,
     })));
     setVerzugszinsenGesamt(ergebnis.gesamt.toFixed(2));
-  }, [gesamtRueckstand, anzahlMonatsmieten, perioden]);
+  }, [gesamtRueckstand, monatsmieteDesVertrags, perioden]);
 
   // Verzugszinsen automatisch berechnen wenn Modal öffnet oder Rückstand/Monate ändern
   useEffect(() => {

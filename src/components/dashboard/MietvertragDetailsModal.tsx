@@ -14,6 +14,7 @@ import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
 import { calculateMietvertragRueckstand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
+import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragDetailsModalProps {
   isOpen: boolean;
@@ -252,6 +253,7 @@ export default function MietvertragDetailsModal({
             immobilie_name: immobilie?.name,
             immobilie_adresse: immobilie?.adresse,
             mahnstufe: vertrag.mahnstufe || 0,
+            vertragsende: getVertragsende(vertrag),
             mieter: mieter as any[]
           } : null}
           // Gleiche Rechnung wie die Rueckstandsliste. Die eigene Formel bis zum 07.10.2026

@@ -1,11 +1,14 @@
 import { jsPDF } from 'jspdf';
 import { COMPANY } from '@/config/company';
+import { anredeFuerSchreiben } from './kuendigungsbestaetigung';
 
 export interface MahnungPdfData {
   // Empfänger
   anrede: string;
   mieterName: string;
   mieterNachname: string;
+  /** Alle Mieter des Vertrags; ohne Angabe gilt nur mieterNachname. */
+  mieter?: Array<{ vorname: string; nachname: string }>;
   mieterAdresse: string;
   mieterPlzOrt: string;
   
@@ -39,6 +42,8 @@ export interface MahnungPdfData {
   
   // Zahlungsfrist
   zahlungsfristDatum: string;
+  /** Länge der Frist in Tagen, wie im Dialog eingetragen (Vorgabe 7). */
+  zahlungsfristTage?: number;
   raeumungsfristDatum?: string;
   uebergabeDatum?: string;
 
@@ -136,7 +141,8 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
   doc.setFontSize(11);
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.anrede, marginLeft, y);
+  const anrede = anredeFuerSchreiben(data.anrede, data.mieter ?? [{ vorname: '', nachname: data.mieterNachname }]);
+  if (anrede.anschrift) doc.text(anrede.anschrift, marginLeft, y);
   y += 6;
   doc.text(data.mieterName, marginLeft, y);
   y += 6;
@@ -218,7 +224,7 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   
-  const salutation = `Sehr geehrter ${data.anrede} ${data.mieterNachname},`;
+  const salutation = anrede.gruss;
   doc.text(salutation, marginLeft, y);
   y += 8;
   
@@ -231,7 +237,7 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
     let bodyText: string;
     
     if (data.mahnstufe >= 3) {
-      bodyText = `Sie haben seit Beginn des Mietverhältnisses am ${data.vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${data.anzahlMonatsmieten} Monatsmieten in Höhe von insgesamt ${formatEuro(data.gesamtRueckstand)} €. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
+      bodyText = `Sie haben seit Beginn des Mietverhältnisses am ${data.vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${monatsmietenText(data.anzahlMonatsmieten)} in Höhe von insgesamt ${formatEuro(data.gesamtRueckstand)} €. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
     } else if (data.mahnstufe === 2) {
       bodyText = `trotz unserer ersten Mahnung sind die folgenden Zahlungen weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.\nDer Mietrückstand beläuft sich auf insgesamt ${formatEuro(data.gesamtRueckstand)} €.`;
     } else {
@@ -296,7 +302,7 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
     }
 
     y = checkPageBreak(y, 20);
-    const fristText = `Unabhängig hiervon setze ich Ihnen – ohne Anerkennung einer Rechtspflicht – eine Frist von 7 Kalendertagen, spätestens bis zum ${data.zahlungsfristDatum}, um sämtliche Mietrückstände nebst Zinsen vollständig auszugleichen. Sollten Sie die Rückstände nicht innerhalb dieser Frist begleichen, werde ich die fristlose Kündigung vollumfänglich durchsetzen und Räumungsklage erheben.`;
+    const fristText = `Unabhängig hiervon setze ich Ihnen – ohne Anerkennung einer Rechtspflicht – eine Frist von ${data.zahlungsfristTage ?? 7} Kalendertagen, spätestens bis zum ${data.zahlungsfristDatum}, um sämtliche Mietrückstände nebst Zinsen vollständig auszugleichen. Sollten Sie die Rückstände nicht innerhalb dieser Frist begleichen, werde ich die fristlose Kündigung vollumfänglich durchsetzen und Räumungsklage erheben.`;
     y = drawJustifiedText(fristText, marginLeft, y, contentWidth, lineHeight);
     y += 4;
   } else {
@@ -421,4 +427,14 @@ function addFooter(doc: jsPDF) {
 
 function formatEuro(betrag: number): string {
   return betrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * „1,5 Monatsmieten“ — die Zahl, mit der Stufe 3 den Verzug nach § 543 Abs. 2 Nr. 3 BGB begründet.
+ * Bis zum 27.10.2026 rundete der Dialog auf (Math.ceil): 1,1 Monatsmieten Rückstand standen als
+ * „2 Monatsmieten“ im Kündigungsschreiben, also genau an der Schwelle, die nicht erreicht war.
+ */
+export function monatsmietenText(anzahl: number): string {
+  const wert = Number.isFinite(anzahl) ? Math.floor(anzahl * 10) / 10 : 0;
+  return `${wert.toLocaleString('de-DE', { maximumFractionDigits: 1 })} ${wert === 1 ? 'Monatsmiete' : 'Monatsmieten'}`;
 }

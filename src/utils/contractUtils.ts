@@ -170,12 +170,18 @@ export const raeumungsfristInTagen = (eingabe: number): number => {
 
 export const fristloseKuendigungFelder = (
   raeumungsfristTage: number,
-  versandtag: Date = new Date()
+  versandtag: Date = new Date(),
+  bestehendesEnde?: string | null
 ): { status: "gekuendigt"; kuendigungsdatum: string; ende_datum: string } => {
   const tage = raeumungsfristInTagen(raeumungsfristTage);
   const basis = Number.isNaN(versandtag.getTime()) ? new Date() : versandtag;
   const ende = new Date(basis.getFullYear(), basis.getMonth(), basis.getDate() + tage);
-  const tag = alsIsoTag(ende);
+  const raeumung = alsIsoTag(ende);
+  // Endet der Vertrag ohnehin frueher (ordentliche Kuendigung, Befristung), bleibt es dabei:
+  // Bis zum 27.10.2026 schob Stufe 3 ein Ende zum 31.10. auf den 10.11., und die Sollstellung
+  // legte eine volle Novembermiete an.
+  const frueher = bestehendesEnde?.slice(0, 10);
+  const tag = frueher && frueher < raeumung ? frueher : raeumung;
   return { status: "gekuendigt", kuendigungsdatum: tag, ende_datum: tag };
 };
 
