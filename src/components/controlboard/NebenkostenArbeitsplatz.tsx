@@ -103,6 +103,7 @@ export function NebenkostenArbeitsplatz() {
           .in("kategorie", ["Nichtmiete", "Nebenkosten"])
           .is("immobilie_id", null)
           .order("buchungsdatum", { ascending: false })
+          .order("id") // eindeutige Reihenfolge über die Seiten
           .range(von, bis)
       ),
   });
@@ -118,6 +119,7 @@ export function NebenkostenArbeitsplatz() {
           .in("kategorie", ["Nichtmiete", "Nebenkosten"])
           .not("immobilie_id", "is", null)
           .order("buchungsdatum", { ascending: false })
+          .order("id") // eindeutige Reihenfolge über die Seiten
           .range(von, bis)
           .then((antwort) => ({ data: antwort.data as unknown as NebenkostenZahlungRoh[] | null, error: antwort.error, count: antwort.count }))
       ),

@@ -230,6 +230,9 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           .is('mietvertrag_id', null)
           .in('kategorie', ['Miete', 'Mietkaution', 'Rücklastschrift', 'Betriebskostenabrechnung'])
           .order('buchungsdatum', { ascending: false })
+          // id als eindeutiger letzter Schlüssel: Gleichstände bei buchungsdatum verschoben sich
+          // sonst zwischen den Seiten (27.10.2026: 9 Buchungen doppelt, 9 fehlten)
+          .order('id')
           .range(von, bis)
       ),
   });
@@ -254,6 +257,9 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             { count: mitZaehlung ? 'exact' : undefined }
           )
           .order('buchungsdatum', { ascending: false })
+          // id als eindeutiger letzter Schlüssel: Gleichstände bei buchungsdatum verschoben sich
+          // sonst zwischen den Seiten (27.10.2026: 9 Buchungen doppelt, 9 fehlten)
+          .order('id')
           .range(von, bis)
           .then((antwort) => ({ data: antwort.data as unknown as ZahlungRoh[] | null, error: antwort.error, count: antwort.count }))
       );
@@ -495,6 +501,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                 .from('zahlungen')
                 .select('id, kategorie, mietvertrag_id, buchungsdatum, betrag, iban, verwendungszweck', { count: mitZaehlung ? 'exact' : undefined })
                 .in('buchungsdatum', tage)
+                // Eindeutige Reihenfolge, sonst verfehlt die Duplikatprüfung ab 1000 Zeilen Treffer
+                .order('id')
                 .range(von, bis)
             );
       bestehende = bestehendeIndexieren(zeilen);

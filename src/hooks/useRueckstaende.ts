@@ -151,12 +151,16 @@ export const useRueckstaende = () => {
           supabase
             .from('mietforderungen')
             .select('id, mietvertrag_id, sollmonat, sollbetrag, ist_faellig, faelligkeitsdatum, faellig_seit, typ')
+            // Ohne ORDER BY ist die Zeilenfolge zwischen den Seiten undefiniert (27.10.2026)
+            .order('id')
             .range(from, to)
         ),
         loadAllPages<any>((from, to) =>
           supabase
             .from('zahlungen')
             .select('id, mietvertrag_id, betrag, buchungsdatum, kategorie, zugeordneter_monat, ruecklastschrift_gebuehr')
+            // Ohne ORDER BY ist die Zeilenfolge zwischen den Seiten undefiniert (27.10.2026)
+            .order('id')
             .range(from, to)
         ),
       ]);
