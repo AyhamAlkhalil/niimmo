@@ -522,7 +522,8 @@ function namensVarianten(name: string): string[] {
   if (!klein) return [];
   const mitE = klein.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
   const ohneE = klein.replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss");
-  return [...new Set([mitE, ohneE])];
+  // Die Originalschreibweise bleibt dabei (Zahlungen von Hand oder aus Exporten mit Umlaut)
+  return [...new Set([klein, mitE, ohneE])];
 }
 
 /**

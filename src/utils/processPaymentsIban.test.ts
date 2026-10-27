@@ -175,7 +175,7 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
   it('findet Mieter mit Umlaut im Namen, auch wenn die Bank ue oder u schreibt', async () => {
     const mueller = { ...vertrag('m', 700, null), mietvertrag_mieter: [{ mieter: { id: 'm1', vorname: 'Jörg', nachname: 'Müller' } }] };
     const vertraege = await fn.getContractContext(client([mueller]));
-    expect(vertraege[0].mieterNamen).toEqual(expect.arrayContaining(['joerg', 'jorg', 'mueller', 'muller']));
+    expect(vertraege[0].mieterNamen).toEqual(expect.arrayContaining(['jörg', 'joerg', 'jorg', 'müller', 'mueller', 'muller']));
     expect(fn.matchPaymentByRules({ ...zahlung(650, ''), verwendungszweck: 'MIETE JOERG MUELLER', empfaengername: 'JOERG MUELLER' }, vertraege, []).mietvertrag_id).toBe('m');
   });
 
