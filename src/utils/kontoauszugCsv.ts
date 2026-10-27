@@ -27,7 +27,7 @@ export function textAusCsvDatei(bytes: ArrayBuffer): string {
   } catch {
     text = new TextDecoder('windows-1252').decode(bytes);
   }
-  return text.replace(/^﻿/, '');
+  return text.replace(/^\uFEFF/, '');
 }
 
 /** Zerlegt CSV-Text in Zeilen und Felder; Anführungszeichen schützen Trenner und Zeilenumbrüche. */
