@@ -15,6 +15,7 @@ import { DecimalInput } from "@/components/ui/decimal-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { sortPropertiesByName, getLaufenderVertrag, getVertragsende } from "@/utils/contractUtils";
+import { uebersichtsBetrag } from "@/utils/vertragMiete";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -408,11 +409,19 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
   );
 
   const handleSaveField = useCallback(
-    (table: string, id: string, field: string, value: unknown) => {
+    (table: string, id: string, field: string, value: unknown, type?: string) => {
+      if (type === "number" || type === "qm") {
+        const geprueft = uebersichtsBetrag(field, value);
+        if ("fehler" in geprueft) {
+          toast({ title: "Nicht gespeichert", description: geprueft.fehler, variant: "destructive" });
+          return;
+        }
+        value = geprueft.wert;
+      }
       if (field === "kaltmiete") {
         const row = rows?.find((r) => r.contractId === id);
         const oldValue = row?.kaltmiete ?? 0;
-        const newValue = typeof value === "number" ? value : parseFloat(String(value)) || 0;
+        const newValue = value as number;
         if (newValue !== oldValue) {
           setPendingKaltmiete({ contractId: id, oldValue, newValue });
           return;
@@ -420,7 +429,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
       }
       saveField(table, id, field, value);
     },
-    [rows, saveField]
+    [rows, saveField, toast]
   );
 
   // ── Export ────────────────────────────────────────────────────────────────
@@ -480,13 +489,13 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
           ) : type === "personen" ? (
             <Input type="number" step="1" min="1" value={(displayValue as number) ?? ""} onChange={(e) => setEditing({ ...editing!, value: e.target.value ? parseInt(e.target.value) : null })} className="h-7 text-xs w-14 border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
           ) : type === "number" || type === "qm" ? (
-            <DecimalInput step="0.01" value={displayValue as number} onValueChange={(wert) => setEditing({ ...editing!, value: wert ?? 0 })} className="h-7 text-xs w-20 border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
+            <DecimalInput step="0.01" value={displayValue as number} onValueChange={(wert) => setEditing({ ...editing!, value: wert })} className="h-7 text-xs w-20 border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value, type)} />
           ) : type === "date" ? (
             <Input type="date" value={(displayValue as string)?.slice(0, 10) || ""} onChange={(e) => setEditing({ ...editing!, value: e.target.value })} className="h-7 text-xs w-[120px] border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
           ) : (
             <Input value={displayValue as string} onChange={(e) => setEditing({ ...editing!, value: e.target.value })} className="h-7 text-xs w-full min-w-[80px] border-primary" autoFocus onKeyDown={(e) => e.key === "Enter" && handleSaveField(table, rowId, field, editing!.value)} />
           )}
-          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" onClick={() => handleSaveField(table, rowId, field, editing!.value)}>
+          <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" onClick={() => handleSaveField(table, rowId, field, editing!.value, type)}>
             <Check className="h-3 w-3 text-green-600" />
           </Button>
           <Button size="sm" variant="ghost" className="h-6 w-6 p-0 shrink-0" onClick={() => setEditing(null)}>

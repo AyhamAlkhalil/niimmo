@@ -54,3 +54,21 @@ export function geaenderteMietbetraege(
   }
   return { aenderungen, fehlend, ungueltig };
 }
+
+/**
+ * Ein Zahlenfeld der Mietübersicht (EditableMietUebersichtModal) vor dem Speichern.
+ *
+ * Bis zum 27.10.2026 machte die Zelle aus einem geleerten Feld `wert ?? 0` und speicherte
+ * es mit „✓ Gespeichert“ — bei den Betriebskosten ohne Rückfrage, bei der Kaltmiete nach
+ * dem Dialog Erhöhung/Korrektur mit 0 als neuem Wert. Der Trigger senkte dann die Forderungen.
+ * Kaltmiete und Betriebskosten des Vertrags brauchen einen Betrag; Fläche und Soll-Miete
+ * der Einheit dürfen leer sein (unbekannt) und werden dann als leer gespeichert, nicht als 0.
+ */
+export function uebersichtsBetrag(feld: string, wert: unknown): { wert: number | null } | { fehler: string } {
+  const betrag = leseKautionsbetrag(wert);
+  if (betrag === undefined) return { fehler: "Bitte einen gültigen, nicht negativen Wert eingeben." };
+  if (betrag === null && (feld === "kaltmiete" || feld === "betriebskosten")) {
+    return { fehler: `${mietFeldBezeichnung(feld)} fehlt – ein leeres Feld wird nicht als 0 € gespeichert.` };
+  }
+  return { wert: betrag };
+}

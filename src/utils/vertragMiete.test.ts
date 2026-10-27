@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from '@/constants/config';
-import { geaenderteMietbetraege, mietfeldVorbelegung } from './vertragMiete';
+import { geaenderteMietbetraege, mietfeldVorbelegung, uebersichtsBetrag } from './vertragMiete';
 
 const vertrag = { kaltmiete: 800, betriebskosten: 200, ruecklastschrift_gebuehr: 7.5 };
 
@@ -46,5 +47,31 @@ describe('geaenderteMietbetraege', () => {
     const vorbelegt = mietfeldVorbelegung('ruecklastschrift_gebuehr', null);
     expect(vorbelegt).toBe(RUECKLASTSCHRIFT_GEBUEHR_EUR);
     expect(geaenderteMietbetraege({ ruecklastschrift_gebuehr: null }, { ruecklastschrift_gebuehr: vorbelegt }).aenderungen).toEqual({});
+  });
+});
+
+describe('uebersichtsBetrag (Mietübersicht)', () => {
+  it('speichert geleerte Kaltmiete oder Betriebskosten nicht als 0', () => {
+    // 27.10.2026: Die Zelle machte aus einem leeren Feld 0, „✓ Gespeichert“, der Trigger senkte die Forderungen
+    expect(uebersichtsBetrag('kaltmiete', null)).toEqual({ fehler: expect.stringMatching(/Kaltmiete fehlt/) });
+    expect(uebersichtsBetrag('betriebskosten', '')).toEqual({ fehler: expect.stringMatching(/Betriebskosten fehlt/) });
+  });
+
+  it('lässt Fläche und Soll-Miete der Einheit leer statt 0', () => {
+    expect(uebersichtsBetrag('qm', null)).toEqual({ wert: null });
+    expect(uebersichtsBetrag('soll_miete', null)).toEqual({ wert: null });
+  });
+
+  it('nimmt 0 und Beträge an, weist Negatives und Unlesbares ab', () => {
+    expect(uebersichtsBetrag('betriebskosten', 0)).toEqual({ wert: 0 });
+    expect(uebersichtsBetrag('kaltmiete', 812.5)).toEqual({ wert: 812.5 });
+    expect(uebersichtsBetrag('kaltmiete', -5)).toHaveProperty('fehler');
+    expect(uebersichtsBetrag('qm', Number.NaN)).toHaveProperty('fehler');
+  });
+
+  it('wird von der Zelle benutzt, die keinen leeren Wert mehr zu 0 macht', () => {
+    const quelle = readFileSync('src/components/dashboard/EditableMietUebersichtModal.tsx', 'utf-8');
+    expect(quelle).not.toMatch(/value: wert \?\? 0/);
+    expect(quelle).toMatch(/uebersichtsBetrag\(field, value\)/);
   });
 });
