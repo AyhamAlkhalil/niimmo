@@ -17,6 +17,11 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OCRProcessingService } from "@/services/ocrProcessingService";
 import { dateiendung } from "@/utils/storagePfad";
+import { nimmAnlageZurueck } from "@/services/mietvertragDirektService";
+import { vertragsReihenfolge, type VertragsmieterQuelle } from "@/utils/mietvertrag/vertragsmieter";
+import { sucheMieter } from "@/utils/mietvertrag/entwurf";
+import { alleSeiten } from "@/utils/supabaseSeiten";
+import type { Tables } from "@/integrations/supabase/types";
 
 /** Eine nie ausgefüllte Karte im Reiter „Neue Mieter" — zählt nicht und sperrt nichts. */
 const istLeererNeuerMieter = (t: NewTenant) =>
@@ -40,7 +45,6 @@ interface NewTenant {
   hauptmail: string;
   telnr: string;
   geburtsdatum: string;
-  rolle: 'hauptmieter' | 'mitmieter';
   istUnternehmen: boolean;
   firmenname: string;
 }
@@ -83,13 +87,17 @@ export const NewTenantContractDialog = ({
     hauptmail: '',
     telnr: '',
     geburtsdatum: '',
-    rolle: 'hauptmieter',
     istUnternehmen: false,
     firmenname: ''
   }]);
   
   // Existing tenant selection state
   const [selectedTenantIds, setSelectedTenantIds] = useState<string[]>([]);
+  /**
+   * Der eine Hauptmieter: neue Karte (Index in newTenants) oder bestehender Mieter.
+   * Ohne Wahl der erste ausgefüllte neue, sonst der erste bestehende (vertragsReihenfolge).
+   */
+  const [hauptWahl, setHauptWahl] = useState<{ art: 'karte'; karte: number } | { art: 'bestand'; id: string } | null>(null);
   const [tenantSearchTerm, setTenantSearchTerm] = useState('');
   
   // Contract data state
@@ -115,18 +123,24 @@ export const NewTenantContractDialog = ({
   const [ocrResults, setOcrResults] = useState<any>(null);
   const [dragActive, setDragActive] = useState(false);
   
-  // Query existing tenants for selection
-  const { data: existingTenants, isLoading: tenantsLoading } = useQuery({
+  // Bestehende Mieter zur Auswahl — seitenweise, PostgREST liefert sonst still höchstens 1000
+  const {
+    data: existingTenants,
+    isLoading: tenantsLoading,
+    isError: tenantsError,
+    refetch: refetchTenants,
+    isFetching: tenantsFetching,
+  } = useQuery({
     queryKey: ['all-tenants'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('mieter')
-        .select('*')
-        .order('nachname', { ascending: true });
-      
-      if (error) throw error;
-      return data || [];
-    }
+    queryFn: () =>
+      alleSeiten<Tables<'mieter'>>((von, bis, mitZaehlung) =>
+        supabase
+          .from('mieter')
+          .select('*', { count: mitZaehlung ? 'exact' : undefined })
+          .order('nachname', { ascending: true })
+          .order('id')
+          .range(von, bis)
+      ),
   });
 
   // Reset form when dialog opens/closes
@@ -141,11 +155,11 @@ export const NewTenantContractDialog = ({
         hauptmail: '',
         telnr: '',
         geburtsdatum: '',
-        rolle: 'hauptmieter',
         istUnternehmen: false,
         firmenname: ''
       }]);
       setSelectedTenantIds([]);
+      setHauptWahl(null);
       setContractData({
         kaltmiete: '',
         betriebskosten: '',
@@ -187,17 +201,14 @@ export const NewTenantContractDialog = ({
       hauptmail: '',
       telnr: '',
       geburtsdatum: '',
-      rolle: 'mitmieter',
       istUnternehmen: false,
       firmenname: ''
     }]);
   };
 
-  const updateNewTenant = (index: number, field: keyof NewTenant, value: string | boolean | 'hauptmieter' | 'mitmieter') => {
+  const updateNewTenant = (index: number, field: keyof NewTenant, value: string | boolean) => {
     const updated = [...newTenants];
-    if (field === 'rolle') {
-      updated[index][field] = value as 'hauptmieter' | 'mitmieter';
-    } else if (field === 'istUnternehmen') {
+    if (field === 'istUnternehmen') {
       updated[index][field] = value as boolean;
       // Bei Wechsel zu Unternehmen: Felder leeren
       if (value === true) {
@@ -208,7 +219,7 @@ export const NewTenantContractDialog = ({
         updated[index].firmenname = '';
       }
     } else {
-      updated[index][field as keyof Omit<NewTenant, 'rolle' | 'istUnternehmen'>] = value as string;
+      updated[index][field as keyof Omit<NewTenant, 'istUnternehmen'>] = value as string;
     }
     setNewTenants(updated);
   };
@@ -216,10 +227,16 @@ export const NewTenantContractDialog = ({
   const removeNewTenant = (index: number) => {
     if (newTenants.length > 1) {
       setNewTenants(newTenants.filter((_, i) => i !== index));
+      // Die Wahl zeigt auf einen Kartenindex — nach dem Entfernen rücken die folgenden nach
+      if (hauptWahl?.art === 'karte') {
+        if (hauptWahl.karte === index) setHauptWahl(null);
+        else if (hauptWahl.karte > index) setHauptWahl({ art: 'karte', karte: hauptWahl.karte - 1 });
+      }
     }
   };
 
   const toggleExistingTenant = (tenantId: string) => {
+    if (selectedTenantIds.includes(tenantId) && hauptWahl?.art === 'bestand' && hauptWahl.id === tenantId) setHauptWahl(null);
     setSelectedTenantIds(prev => 
       prev.includes(tenantId) 
         ? prev.filter(id => id !== tenantId)
@@ -227,16 +244,36 @@ export const NewTenantContractDialog = ({
     );
   };
 
+
   // Neue und bestehende Mieter kommen zusammen in den Vertrag (27.10.2026). Bis dahin
   // zählte nur der gerade offene Reiter — ein bestehender Mieter mit neuem Partner ging nicht.
   const ausgefuellteNeueMieter = newTenants.filter(t => !istLeererNeuerMieter(t));
   const mieterGesamt = ausgefuellteNeueMieter.length + selectedTenantIds.length;
+  // Position 1 ist der Hauptmieter — so lesen Briefe und PDF die Mieter. Die Reihenfolge
+  // zählt nur ausgefüllte Karten; die Wahl merkt sich den Kartenindex.
+  const ausgefuellteKarten = newTenants.flatMap((t, i) => (istLeererNeuerMieter(t) ? [] : [i]));
+  const reihenfolge = vertragsReihenfolge(
+    ausgefuellteNeueMieter.length,
+    selectedTenantIds,
+    hauptWahl?.art === 'karte' ? { art: 'neu', index: ausgefuellteKarten.indexOf(hauptWahl.karte) } : hauptWahl
+  );
+  const hauptmieter: VertragsmieterQuelle | null = reihenfolge[0]?.quelle ?? null;
+  const istHauptmieterKarte = (karte: number) =>
+    hauptmieter?.art === 'neu' && ausgefuellteKarten[hauptmieter.index] === karte;
+  // Dieselbe Suche wie im Vertragsentwurf: Umlaute, mehrere Wörter, Rufnummern mit Vorwahl
+  const gefundeneMieter = sucheMieter(existingTenants ?? [], tenantSearchTerm);
+  const hauptmieterName = (() => {
+    if (!hauptmieter) return null;
+    if (hauptmieter.art === 'neu') {
+      const t = ausgefuellteNeueMieter[hauptmieter.index];
+      return t.istUnternehmen ? t.firmenname.trim() : `${t.vorname} ${t.nachname}`.trim();
+    }
+    const m = existingTenants?.find(x => x.id === hauptmieter.id);
+    return m ? (m.ist_unternehmen && m.firmenname ? m.firmenname : `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()) : null;
+  })();
 
-  const validateTenantStep = () => {
-    if (mieterGesamt === 0 || !ausgefuellteNeueMieter.every(hatPflichtnamen)) return false;
-    // Ohne bestehenden Mieter muss einer der neuen Hauptmieter sein
-    return selectedTenantIds.length > 0 || ausgefuellteNeueMieter.some(t => t.rolle === 'hauptmieter');
-  };
+  // Einen Hauptmieter gibt es immer, sobald ein Mieter da ist (vertragsReihenfolge)
+  const validateTenantStep = () => mieterGesamt > 0 && ausgefuellteNeueMieter.every(hatPflichtnamen);
 
   const validateContractStep = () => {
     return contractData.kaltmiete && contractData.betriebskosten && contractData.start_datum;
@@ -360,10 +397,13 @@ export const NewTenantContractDialog = ({
             hauptmail: mieter.hauptmail || '',
             telnr: mieter.telnr || '',
             geburtsdatum: mieter.geburtsdatum || '',
-            rolle: mieter.rolle || 'hauptmieter',
             istUnternehmen: false,
             firmenname: ''
           })));
+          // Genau ein Hauptmieter: der erste, den das Dokument so nennt (die Auslese
+          // liefert nur „hauptmieter" oder „mitmieter"); sonst greift der erste neue
+          const erster = d.mieter.findIndex((mieter: { rolle?: string }) => mieter.rolle === 'hauptmieter');
+          setHauptWahl(erster >= 0 ? { art: 'karte', karte: erster } : null);
           
           toast({
             title: "✅ Dokument erfolgreich verarbeitet!",
@@ -439,8 +479,32 @@ export const NewTenantContractDialog = ({
       }
       
       
-      // Step 2: Create new tenants; bestehende kommen danach dazu
+      // Step 2: Überschneidung prüfen, bevor irgendetwas angelegt wird — bis zum
+      // 27.10.2026 kam die Frage erst nach den neuen Mietern, ein Abbruch ließ sie verwaist zurück
+      const { checkContractOverlap } = await import('@/utils/contractOverlapValidation');
+      const overlapCheck = await checkContractOverlap(
+        einheitId,
+        contractData.start_datum,
+        contractData.ende_datum || null
+      );
+
+      if (overlapCheck.hasOverlap && overlapCheck.warningMessage) {
+        const userConfirmed = window.confirm(
+          `${overlapCheck.warningMessage}\n\nMöchten Sie den Mietvertrag mit Startdatum ${new Date(contractData.start_datum).toLocaleDateString('de-DE')} trotzdem erstellen?`
+        );
+
+        if (!userConfirmed) {
+          toast({
+            title: "Vertragserstellung abgebrochen",
+            description: "Der Mietvertrag wurde nicht erstellt.",
+          });
+          return;
+        }
+      }
+
+      // Step 3: Create new tenants; bestehende kommen danach dazu
       const tenantIds: string[] = [];
+      const neueIds: string[] = [];
       
       for (const tenant of ausgefuellteNeueMieter) {
         // Bei Unternehmen: Firmenname zusaetzlich in Vorname und Nachname aufteilen,
@@ -483,35 +547,12 @@ export const NewTenantContractDialog = ({
         
         createdTenantIds.push(data.id);
         tenantIds.push(data.id);
+        neueIds.push(data.id);
       }
       tenantIds.push(...selectedTenantIds);
       
       if (tenantIds.length === 0) {
         throw new Error('Keine Mieter für die Verknüpfung vorhanden.');
-      }
-      
-      // Step 3: Check for overlapping contracts before creating
-      const { checkContractOverlap } = await import('@/utils/contractOverlapValidation');
-      const overlapCheck = await checkContractOverlap(
-        einheitId,
-        contractData.start_datum,
-        contractData.ende_datum || null
-      );
-
-      if (overlapCheck.hasOverlap && overlapCheck.warningMessage) {
-        // Show warning dialog to user
-        const userConfirmed = window.confirm(
-          `${overlapCheck.warningMessage}\n\nMöchten Sie den Mietvertrag mit Startdatum ${new Date(contractData.start_datum).toLocaleDateString('de-DE')} trotzdem erstellen?`
-        );
-
-        if (!userConfirmed) {
-          toast({
-            title: "Vertragserstellung abgebrochen",
-            description: "Der Mietvertrag wurde nicht erstellt.",
-          });
-          setIsLoading(false);
-          return;
-        }
       }
       
       // Step 4: Create contract
@@ -544,10 +585,12 @@ export const NewTenantContractDialog = ({
 
       createdContractId = contractResult.id;
 
-      // Step 4: Link tenants to contract via mietvertrag_mieter
-      const tenantLinks = tenantIds.map(tenantId => ({
+      // Step 5: Link tenants to contract via mietvertrag_mieter
+      const tenantLinks = reihenfolge.map(m => ({
         mietvertrag_id: contractResult.id,
-        mieter_id: tenantId
+        mieter_id: m.quelle.art === 'neu' ? neueIds[m.quelle.index] : m.quelle.id,
+        rolle: m.rolle,
+        position: m.position
       }));
       
       const { error: linkError } = await supabase
@@ -568,7 +611,7 @@ export const NewTenantContractDialog = ({
         throw new Error('Fehler: Nicht alle Mieter wurden korrekt verknüpft.');
       }
 
-      // Step 5: Upload documents if any
+      // Step 6: Upload documents if any
       if (uploadedFiles.length > 0) {
         for (const file of uploadedFiles) {
           // Endung nur aus sicheren Zeichen — ein Umlaut im Pfad lässt den Upload scheitern
@@ -602,7 +645,7 @@ export const NewTenantContractDialog = ({
         }
       }
       
-      // Step 6: Refresh data
+      // Step 7: Refresh data
       await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
       await queryClient.invalidateQueries({ queryKey: ['einheiten'] });
       await queryClient.invalidateQueries({ queryKey: ['all-tenants'] });
@@ -615,34 +658,13 @@ export const NewTenantContractDialog = ({
       onClose();
       
     } catch (error: any) {
-      // Rollback: Clean up created records if contract creation failed
-      if (createdContractId) {
-        try {
-          // Delete contract (this will cascade to mietvertrag_mieter due to foreign key)
-          await supabase
-            .from('mietvertrag')
-            .delete()
-            .eq('id', createdContractId);
-        } catch (rollbackError) {
-          console.error('Rollback des Mietvertrags fehlgeschlagen, Datensatz bleibt verwaist:', createdContractId, rollbackError);
-        }
-      }
-
-      if (createdTenantIds.length > 0 && !createdContractId) {
-        // Only delete tenants if contract creation failed (not if linking failed)
-        try {
-          await supabase
-            .from('mieter')
-            .delete()
-            .in('id', createdTenantIds);
-        } catch (rollbackError) {
-          console.error('Rollback der Mieter fehlgeschlagen, Datensaetze bleiben verwaist:', createdTenantIds, rollbackError);
-        }
-      }
+      const reste = await nimmAnlageZurueck(createdContractId, createdTenantIds);
       
       toast({
         title: "❌ Fehler beim Erstellen des Mietvertrags",
-        description: error.message || "Bitte überprüfen Sie Ihre Eingaben und versuchen Sie es erneut.",
+        description: [error.message || "Bitte überprüfen Sie Ihre Eingaben und versuchen Sie es erneut.", reste]
+          .filter(Boolean)
+          .join(' '),
         variant: "destructive"
       });
     } finally {
@@ -807,13 +829,18 @@ export const NewTenantContractDialog = ({
                 )}
                 
                 <div>
-                  <Label htmlFor={`role-${index}`}>Rolle *</Label>
-                  <Select 
-                    value={tenant.rolle} 
-                    onValueChange={(value) => updateNewTenant(index, 'rolle', value as 'hauptmieter' | 'mitmieter')}
+                  <Label htmlFor={`role-${index}`}>Rolle</Label>
+                  {/* Zeigt die Rolle, die gespeichert wird: genau einer ist Hauptmieter. Mitmieter wird
+                      man, indem ein anderer Hauptmieter wird — eine leere Karte zählt noch nicht. */}
+                  <Select
+                    value={istLeererNeuerMieter(tenant) ? '' : istHauptmieterKarte(index) ? 'hauptmieter' : 'mitmieter'}
+                    disabled={istLeererNeuerMieter(tenant)}
+                    onValueChange={(value) => {
+                      if (value === 'hauptmieter') setHauptWahl({ art: 'karte', karte: index });
+                    }}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Rolle auswählen" />
+                    <SelectTrigger id={`role-${index}`}>
+                      <SelectValue placeholder="ergibt sich nach Eingabe des Namens" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="hauptmieter">
@@ -822,7 +849,7 @@ export const NewTenantContractDialog = ({
                           Hauptmieter
                         </div>
                       </SelectItem>
-                      <SelectItem value="mitmieter">
+                      <SelectItem value="mitmieter" disabled={istHauptmieterKarte(index)}>
                         <div className="flex items-center gap-2">
                           <UserCheck className="h-4 w-4 text-blue-600" />
                           Mitmieter
@@ -830,6 +857,11 @@ export const NewTenantContractDialog = ({
                       </SelectItem>
                     </SelectContent>
                   </Select>
+                  {istHauptmieterKarte(index) && mieterGesamt > 1 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Zum Wechseln bei einem anderen Mieter „Hauptmieter" wählen.
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -863,19 +895,21 @@ export const NewTenantContractDialog = ({
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
+        ) : tenantsError ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-center text-sm">
+            <p className="text-destructive">Die bestehenden Mieter konnten nicht geladen werden.</p>
+            <Button type="button" variant="outline" size="sm" disabled={tenantsFetching} onClick={() => refetchTenants()}>
+              {tenantsFetching && <Loader2 className="h-4 w-4 animate-spin" />}
+              Erneut laden
+            </Button>
+          </div>
+        ) : !existingTenants?.length ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Es gibt noch keine Mieter im Bestand.</p>
+        ) : gefundeneMieter.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Kein Mieter gefunden.</p>
         ) : (
           <div className="space-y-2 max-h-96 overflow-y-auto">
-            {existingTenants
-              ?.filter(tenant => {
-                const searchLower = tenantSearchTerm.toLowerCase();
-                return (
-                  tenant.vorname?.toLowerCase().includes(searchLower) ||
-                  tenant.nachname?.toLowerCase().includes(searchLower) ||
-                  tenant.hauptmail?.toLowerCase().includes(searchLower) ||
-                  tenant.telnr?.toLowerCase().includes(searchLower)
-                );
-              })
-              .map((tenant) => (
+            {gefundeneMieter.map((tenant) => (
               <Card 
                 key={tenant.id}
                 className={`cursor-pointer transition-colors ${
@@ -890,12 +924,35 @@ export const NewTenantContractDialog = ({
                       onChange={() => toggleExistingTenant(tenant.id)}
                     />
                     <div className="flex-1">
-                      <p className="font-medium">{tenant.vorname} {tenant.nachname}</p>
+                      <p className="font-medium">
+                        {tenant.ist_unternehmen && tenant.firmenname ? tenant.firmenname : `${tenant.vorname ?? ''} ${tenant.nachname ?? ''}`.trim()}
+                      </p>
                       <div className="text-sm text-muted-foreground space-y-1">
                         {tenant.hauptmail && <p>{tenant.hauptmail}</p>}
                         {tenant.telnr && <p>{tenant.telnr}</p>}
                       </div>
                     </div>
+                    {selectedTenantIds.includes(tenant.id) &&
+                      (hauptmieter?.art === 'bestand' && hauptmieter.id === tenant.id ? (
+                        <Badge variant="secondary" className="gap-1 whitespace-nowrap">
+                          <Crown className="h-3 w-3" />
+                          Hauptmieter
+                        </Badge>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 whitespace-nowrap text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setHauptWahl({ art: 'bestand', id: tenant.id });
+                          }}
+                        >
+                          <Crown className="h-3 w-3" />
+                          Als Hauptmieter
+                        </Button>
+                      ))}
                     {selectedTenantIds.includes(tenant.id) && (
                       <Check className="h-5 w-5 text-primary" />
                     )}
@@ -1369,9 +1426,7 @@ export const NewTenantContractDialog = ({
             <p>
               Mieter: {mieterGesamt} ({ausgefuellteNeueMieter.length} neu, {selectedTenantIds.length} bestehend)
             </p>
-            {ausgefuellteNeueMieter.length > 0 && (
-              <p>Hauptmieter: {ausgefuellteNeueMieter.filter(t => t.rolle === 'hauptmieter').length}</p>
-            )}
+            {hauptmieterName && <p>Hauptmieter: {hauptmieterName}</p>}
             <p>Kaltmiete: {contractData.kaltmiete}€</p>
             <p>Betriebskosten: {contractData.betriebskosten}€</p>
             <p>Warmmiete: {(parseFloat(contractData.kaltmiete || '0') + parseFloat(contractData.betriebskosten || '0')).toFixed(2)}€</p>
