@@ -75,7 +75,7 @@ läuft das Anlegen der Zielkostenart beim Aufteilen vor dem eigentlichen Umbuche
 Transaktion: Scheitert das Umbuchen, bleibt eine leere Kostenart stehen. Sie ist unsichtbar, blockiert
 nichts und wird beim nächsten Versuch wiederverwendet.
 
-**Als Nächstes:** C3 (Abfragen ohne Paginierung), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
+**Als Nächstes:** C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).
 
 **Nur mit dem Kunden zu klären:** D1 (Betriebskosten), D2 (Übergabe), D3 (Gewerbeverträge) und die
@@ -160,7 +160,7 @@ destrukturiert `error` an zwei Stellen ohne es zu lesen und prüft auch den Fehl
 Scheitert eine Zeile an RLS oder einem Constraint, fehlt sie dauerhaft — Protokoll und Meldung führen sie als
 verarbeitet. Der Rückstand des Mieters ist zu hoch, ohne auffindbare Ursache.
 
-**C3 · Auswertungen rechnen mit einem Bruchteil der Daten.** PostgREST liefert still 1000 Zeilen. Betroffen sind
+**C3 ✅ (am 27.10.2026 geprüft: `Analytics.tsx` blättert und ist nicht mehr erreichbar, `ZahlungenUebersicht.tsx` ist nicht eingebunden, `MietUebersichtModal.tsx` gibt es nicht mehr, `useRueckstaende.ts` lädt `dokumente` nicht mehr; Import-Rückschau blättert) · Auswertungen rechnen mit einem Bruchteil der Daten.** PostgREST liefert still 1000 Zeilen. Betroffen sind
 `Analytics.tsx:59-66`, `ZahlungenUebersicht.tsx:60-66`, `MietUebersichtModal.tsx:271-281`, `useRueckstaende.ts:139`
 — bei 3505 Zahlungen und 1465 Dokumenten. Keine Fehlermeldung, nur zu niedrige Zahlen.
 
@@ -173,8 +173,11 @@ Kasten „Alle Mietverträge sind ausgeglichen".
 beglichen hat, wird über genau diesen Betrag erneut gemahnt — während die Finanzübersicht im selben Fenster ihn
 als ausgeglichen führt.
 
-**C6 · Die Sollstellung ist bei Heizkostenvorauszahlung dauerhaft zu niedrig.**
-`mietvertrag.heizkosten_vorauszahlung` wird im gesamten Backend nicht verwendet.
+**C6 ✅ (am 27.10.2026 geprüft) · Die Sollstellung ist bei Heizkostenvorauszahlung dauerhaft zu niedrig.**
+`mietvertrag.heizkosten_vorauszahlung` wird im Backend nicht verwendet — muss es auch nicht: Der Entwurf schreibt
+`betriebskosten = BK-Vorauszahlung + Heizkosten` und die Heizkosten nur zusätzlich getrennt, der Generator zieht sie
+für § 4 wieder ab. Sollstellung, Rückstand und Mahnung rechnen mit `kaltmiete + betriebskosten` und enthalten die
+Heizkosten damit. Live hat kein Vertrag `heizkosten_vorauszahlung > 0`.
 
 **C7 ✅ · Der manuelle Kündigungsweg setzt `ende_datum` nicht** (`TerminationDialog.tsx:273-280`) und stellt damit
 genau den Zustand wieder her, der am 03.09.2026 bereinigt wurde. Kurios: Die *toten* Komponenten

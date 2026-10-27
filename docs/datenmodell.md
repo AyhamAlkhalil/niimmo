@@ -80,8 +80,10 @@ Es gibt **keinen** Statuswert an der Einheit. „Leer" wird an zehn Stellen unte
 `sollbetrag` ist ein Buchungsbeleg: Nach dem Anlegen ändert der Cron ihn nicht mehr — eine Minderung, Korrektur oder
 Löschung von Hand bleibt stehen. Mietänderungen zieht der Trigger `update_forderungen_on_rent_change` ab dem laufenden
 Monat nach (nur Forderungen auf der alten Miete). Bis zum 27.10.2026 zog der Cron jede Abweichung täglich zurück.
-`heizkosten_vorauszahlung` geht **nicht** ein — bei Verträgen mit gesonderter Heizkostenvorauszahlung ist die
-Sollstellung dauerhaft zu niedrig.
+`heizkosten_vorauszahlung` steht nur zusätzlich am Vertrag: `betriebskosten` enthält die Heizkosten bereits (der
+Entwurf schreibt BK-Vorauszahlung + Heizkosten), Sollstellung und Rückstand sind damit vollständig. Wer in der
+Vertragsbearbeitung nur den reinen BK-Betrag einträgt, senkt die Sollstellung um die Heizkosten.
+Der erste und der letzte Vertragsmonat werden taggenau anteilig sollgestellt (seit 27.10.2026 auch der letzte).
 
 `sollstellung_monate` (`mietvertrag_id`, `sollmonat`): je Vertrag und Monat ein Eintrag, sobald die Miete angelegt ist
 (Cron oder `mietforderungen_nachholen`). Soll ein Monat neu erzeugt werden, zuerst diese Zeile löschen.
