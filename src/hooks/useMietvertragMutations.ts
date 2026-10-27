@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
-import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { format } from "date-fns";
 import { getVertragsende, mietendeFelder } from "@/utils/contractUtils";
 import {
@@ -18,6 +17,7 @@ import {
   type ZaehlerstandAenderungen,
 } from "@/utils/vertragZaehlerstaende";
 import { geaenderteKaution, kautionFeldBezeichnung, leseKautionsbetrag } from "@/utils/vertragKaution";
+import { geaenderteMietbetraege, mietFeldBezeichnung, mietfeldVorbelegung } from "@/utils/vertragMiete";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -371,10 +371,11 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     const initialValues: Record<string, any> = {
       start_datum: vertrag?.start_datum || '',
       ende_datum: getVertragsende(vertrag) || '',
-      kaltmiete: vertrag?.kaltmiete || 0,
-      betriebskosten: vertrag?.betriebskosten || 0,
+      // Bis 27.10.2026 `|| 0` bzw. `|| 7,50`: 0 € Gebühr wurde still zu 7,50 € (vertragMiete.ts)
+      kaltmiete: mietfeldVorbelegung('kaltmiete', vertrag?.kaltmiete),
+      betriebskosten: mietfeldVorbelegung('betriebskosten', vertrag?.betriebskosten),
       anzahl_personen: vertrag?.anzahl_personen ?? null,
-      ruecklastschrift_gebuehr: vertrag?.ruecklastschrift_gebuehr || RUECKLASTSCHRIFT_GEBUEHR_EUR,
+      ruecklastschrift_gebuehr: mietfeldVorbelegung('ruecklastschrift_gebuehr', vertrag?.ruecklastschrift_gebuehr),
       neue_anschrift: vertrag?.neue_anschrift || '',
       bankkonto_mieter: vertrag?.bankkonto_mieter || '',
       // Bis 26.10.2026 `|| 0`: Eine leere Kaution wurde beim nächsten Speichern zu 0
@@ -438,6 +439,18 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         return;
       }
 
+      // Kaltmiete, Betriebskosten, Gebühr: nur geänderte Felder; ein geleerter Betrag wird
+      // gemeldet statt als 0 gespeichert (bis 27.10.2026 senkte das still die Forderungen)
+      const miete = geaenderteMietbetraege(vertrag, editedValues);
+      if (miete.fehlend.length > 0) {
+        toast({ title: "Betrag fehlt", description: `${miete.fehlend.map(mietFeldBezeichnung).join(', ')} darf nicht leer sein. Bitte einen Betrag eintragen (0, wenn wirklich nichts anfällt).`, variant: "destructive" });
+        return;
+      }
+      if (miete.ungueltig.length > 0) {
+        toast({ title: "Ungültiger Betrag", description: `Bitte prüfen: ${miete.ungueltig.map(mietFeldBezeichnung).join(', ')}.`, variant: "destructive" });
+        return;
+      }
+
       // Overlap check only if dates actually changed
       // Beide Seiten gleich normalisieren: Ein leeres Ende ist null, nicht '' -- sonst gilt bei
       // jedem unbefristeten Vertrag das Ende als geändert und die Prüfung läuft bei jedem Speichern.
@@ -458,8 +471,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       }
 
       const mietvertragFields = [
-        'start_datum', 'ende_datum', 'kaltmiete', 'betriebskosten', 'anzahl_personen',
-        'ruecklastschrift_gebuehr', 'neue_anschrift', 'bankkonto_mieter',
+        'start_datum', 'ende_datum', 'anzahl_personen', 'neue_anschrift', 'bankkonto_mieter',
       ];
 
       mietvertragFields.forEach(field => {
@@ -474,14 +486,12 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           mietvertragUpdates[field] = editedValues[field];
         }
       });
-      Object.assign(mietvertragUpdates, zaehler.aenderungen, kaution.aenderungen);
+      Object.assign(mietvertragUpdates, zaehler.aenderungen, kaution.aenderungen, miete.aenderungen);
 
       // Check if kaltmiete changed
-      const oldKaltmiete = Number(vertrag?.kaltmiete || 0);
-      const newKaltmiete = Number(editedValues.kaltmiete ?? oldKaltmiete);
-      if (newKaltmiete !== oldKaltmiete) {
+      if (miete.aenderungen.kaltmiete !== undefined) {
         setPendingGlobalUpdates(mietvertragUpdates);
-        setPendingKaltmieteValue(newKaltmiete);
+        setPendingKaltmieteValue(miete.aenderungen.kaltmiete);
         setShowRentIncreaseConfirm(true);
         return;
       }

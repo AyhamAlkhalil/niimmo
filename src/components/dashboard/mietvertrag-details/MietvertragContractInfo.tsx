@@ -203,12 +203,10 @@ export function MietvertragContractInfo({
                 value={Number(kaltmiete || 0)}
                 isEditing={isGlobalEditMode || editingMietvertrag === 'kaltmiete'}
                 onEdit={() => !isGlobalEditMode && onStartEdit('kaltmiete')}
-                onValueChange={isGlobalEditMode ? (raw) => {
-                  const parsed = parseFloat(raw);
-                  onUpdateEditedValue?.('kaltmiete', isNaN(parsed) ? 0 : parsed);
-                } : undefined}
+                // Rohwert wie bei der Kaution: Aus '' wurde bis 27.10.2026 still 0 (vertragMiete.ts)
+                onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('kaltmiete', raw) : undefined}
                 onSave={(value) => {
-                  if (isGlobalEditMode) onUpdateEditedValue?.('kaltmiete', parseFloat(value));
+                  if (isGlobalEditMode) onUpdateEditedValue?.('kaltmiete', value);
                   else onEditMietvertrag('kaltmiete', value);
                 }}
                 onCancel={onCancelEdit}
@@ -225,12 +223,10 @@ export function MietvertragContractInfo({
                 value={Number(betriebskosten || 0)}
                 isEditing={isGlobalEditMode || editingMietvertrag === 'betriebskosten'}
                 onEdit={() => !isGlobalEditMode && onStartEdit('betriebskosten')}
-                onValueChange={isGlobalEditMode ? (raw) => {
-                  const parsed = parseFloat(raw);
-                  onUpdateEditedValue?.('betriebskosten', isNaN(parsed) ? 0 : parsed);
-                } : undefined}
+                // Rohwert wie bei der Kaution: Aus '' wurde bis 27.10.2026 still 0 (vertragMiete.ts)
+                onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('betriebskosten', raw) : undefined}
                 onSave={(value) => {
-                  if (isGlobalEditMode) onUpdateEditedValue?.('betriebskosten', parseFloat(value));
+                  if (isGlobalEditMode) onUpdateEditedValue?.('betriebskosten', value);
                   else onEditMietvertrag('betriebskosten', value);
                 }}
                 onCancel={onCancelEdit}
@@ -379,7 +375,7 @@ export function MietvertragContractInfo({
             {vertrag.lastschrift && (
               <MietvertragEditableField
                 label="Rücklastschrift-Gebühr"
-                value={Number(vertrag.ruecklastschrift_gebuehr || RUECKLASTSCHRIFT_GEBUEHR_EUR)}
+                value={Number(vertrag.ruecklastschrift_gebuehr ?? RUECKLASTSCHRIFT_GEBUEHR_EUR)}
                 isEditing={editingMietvertrag === 'ruecklastschrift_gebuehr'}
                 onEdit={() => onStartEdit('ruecklastschrift_gebuehr')}
                 onSave={(value) => onEditMietvertrag('ruecklastschrift_gebuehr', value)}
