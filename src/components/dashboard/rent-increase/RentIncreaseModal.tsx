@@ -49,6 +49,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  // Eingaben, aus denen pdfBlob entstand — gespeichert wird nur ein PDF zum aktuellen Stand
+  const [pdfStand, setPdfStand] = useState<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [showConfirmSave, setShowConfirmSave] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -56,7 +58,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // Editable fields
   const [neueKaltmiete, setNeueKaltmiete] = useState("0.00");
   const [neueBetriebskosten, setNeueBetriebskosten] = useState("0.00");
-  const [anrede, setAnrede] = useState("Herr");
+  // Leer = alle Mieter neutral beim Namen; „Herr“ als Vorgabe sprach jede Mieterin falsch an
+  const [anrede, setAnrede] = useState("");
   const [mieterAdresse, setMieterAdresse] = useState("");
   const [mieterPlzOrt, setMieterPlzOrt] = useState("");
   const [einheitBezeichnung, setEinheitBezeichnung] = useState("WE");
@@ -94,12 +97,17 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     fetchAngespannt();
   }, [isOpen, contractData?.immobilie_id]);
 
-  // Reset when modal opens
+  // Reset when modal opens — nur beim Öffnen oder Vertragswechsel. Bis zum 27.10.2026 hing er am
+  // Objekt contractData, das die Liste bei jedem Neuladen neu baut: Eingaben fielen still zurück,
+  // und das PDF eines zuvor geöffneten Vertrags blieb speicherbar.
   useEffect(() => {
     if (isOpen && contractData) {
+      setPdfBlob(null);
+      setPdfStand(null);
+      setPdfBlobUrl(null);
       setNeueKaltmiete(contractData.current_kaltmiete.toFixed(2));
       setNeueBetriebskosten(contractData.current_betriebskosten.toFixed(2));
-      setAnrede("Herr");
+      setAnrede("");
       setMieterAdresse(contractData.immobilie_adresse?.split(',')[0]?.trim() || '');
       setMieterPlzOrt(contractData.immobilie_adresse?.includes(',')
         ? contractData.immobilie_adresse.split(',').slice(1).join(',').trim()
@@ -109,7 +117,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       setBegruendungText("");
       setMieterHatZugestimmt(false);
     }
-  }, [isOpen, contractData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, contractData?.mietvertrag_id]);
 
   // Build PDF data
   const buildPdfData = useCallback((): MieterhoehungPdfData | null => {
@@ -131,6 +140,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       anrede,
       mieterName: fullName,
       mieterNachname: nachname,
+      mieter: mieterList.map(m => ({ vorname: m.vorname, nachname: m.nachname })),
       mieterAdresse,
       mieterPlzOrt,
       immobilieName: contractData.immobilie_name || '',
@@ -145,7 +155,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       begruendungsart,
       begruendungText,
     };
-  }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten]);
+  }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText]);
 
   // Generate PDF preview with debounce
   const regeneratePreview = useCallback(async () => {
@@ -156,9 +166,13 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     try {
       const blob = await generateMieterhoehungPdf(pdfData);
       setPdfBlob(blob);
+      setPdfStand(JSON.stringify(pdfData));
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
+      // Kein altes Schreiben stehen lassen, das danach gespeichert werden könnte
+      setPdfBlob(null);
+      setPdfStand(null);
       console.error('Mieterhoehungs-Vorschau konnte nicht erzeugt werden:', err);
       toast({
         title: "Vorschau nicht moeglich",
@@ -180,7 +194,9 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [isOpen, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten]);
+    // Begründung und Vertrag gehören dazu: ohne sie blieb die Begründung (§ 558a) im PDF auf dem alten Stand
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, contractData?.mietvertrag_id, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText]);
 
   // Cleanup
   useEffect(() => {
@@ -194,6 +210,10 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     const miete = neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten);
     if ('fehler' in miete) {
       toast({ title: "Neue Miete unvollständig", description: miete.fehler, variant: "destructive" });
+      return null;
+    }
+    if (!pdfBlob || pdfStand !== JSON.stringify(buildPdfData())) {
+      toast({ title: "Vorschau wird noch erstellt", description: "Das Schreiben entspricht noch nicht den aktuellen Eingaben. Bitte einen Moment warten." });
       return null;
     }
     return miete;
@@ -379,7 +399,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Label className="text-xs">Anrede</Label>
-                      <Input value={anrede} onChange={(e) => setAnrede(e.target.value)} className="h-8 text-sm" />
+                      <Input value={anrede} onChange={(e) => setAnrede(e.target.value)} placeholder="Herr, Frau oder leer" className="h-8 text-sm" />
                     </div>
                     <div>
                       <Label className="text-xs">Einheit</Label>

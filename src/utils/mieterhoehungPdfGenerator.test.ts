@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { pruefeErhoehungsdaten, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData } from './mieterhoehungPdfGenerator';
+import { pruefeErhoehungsdaten, erhoehungsAnrede, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData } from './mieterhoehungPdfGenerator';
 
 const BASIS: MieterhoehungPdfData = {
   anrede: 'Herr',
@@ -111,5 +111,31 @@ describe('Das Erhöhungsmodal ändert die Miete nur mit Zustimmung', () => {
   it('warnt, wenn die Erhöhung erst später geschuldet ist', () => {
     expect(quelle).toContain('erhoehungGiltSpaeter');
     expect(quelle).toContain('558b Abs. 1 BGB');
+  });
+});
+
+describe('erhoehungsAnrede', () => {
+  const anna = { vorname: 'Anna', nachname: 'Beispiel' };
+  const ben = { vorname: 'Ben', nachname: 'Muster' };
+
+  it('beugt Herr und Frau bei genau einem Mieter', () => {
+    // 27.10.2026: fest „Sehr geehrter ${anrede}“ ergab „Sehr geehrter Frau Beispiel“
+    expect(erhoehungsAnrede('Frau', [anna])).toEqual({ anschrift: 'Frau', gruss: 'Sehr geehrte Frau Beispiel,' });
+    expect(erhoehungsAnrede(' herr ', [ben])).toEqual({ anschrift: 'Herrn', gruss: 'Sehr geehrter Herr Muster,' });
+  });
+
+  it('spricht mehrere Mieter alle an und rät ohne Anrede nicht', () => {
+    expect(erhoehungsAnrede('Herr', [anna, ben])).toEqual({ anschrift: '', gruss: 'Guten Tag Anna Beispiel und Ben Muster,' });
+    expect(erhoehungsAnrede('', [anna])).toEqual({ anschrift: '', gruss: 'Guten Tag Anna Beispiel,' });
+    expect(erhoehungsAnrede('Familie', [anna, ben]).anschrift).toBe('Familie');
+    expect(erhoehungsAnrede('', []).gruss).toBe('Sehr geehrte Damen und Herren,');
+  });
+
+  it('speichert nur ein Schreiben zum aktuellen Stand, Begründung eingeschlossen', () => {
+    // 27.10.2026: Begründung fehlte in den Abhängigkeiten, ein altes PDF blieb speicherbar
+    const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
+    expect(modal).toMatch(/neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText\]\);/);
+    expect(modal).toMatch(/if \(!pdfBlob \|\| pdfStand !== JSON\.stringify\(buildPdfData\(\)\)\)/);
+    expect(modal).toMatch(/\}, \[isOpen, contractData\?\.mietvertrag_id\]\);/);
   });
 });

@@ -1,11 +1,14 @@
 import { jsPDF } from 'jspdf';
 import { COMPANY } from '@/config/company';
+import { briefanrede } from './kuendigungsbestaetigung';
 
 export interface MieterhoehungPdfData {
   // Empfänger
   anrede: string;
   mieterName: string;
   mieterNachname: string;
+  /** Alle Mieter des Vertrags; ohne Angabe gilt nur mieterName/mieterNachname. */
+  mieter?: Array<{ vorname: string; nachname: string }>;
   mieterAdresse: string;
   mieterPlzOrt: string;
   
@@ -160,8 +163,11 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   doc.setFontSize(11);
   doc.setTextColor(0, 0, 0);
   doc.setFont('helvetica', 'bold');
-  doc.text(data.anrede, marginLeft, y);
-  y += 6;
+  const anrede = erhoehungsAnrede(data.anrede, data.mieter ?? [{ vorname: '', nachname: data.mieterNachname }]);
+  if (anrede.anschrift) {
+    doc.text(anrede.anschrift, marginLeft, y);
+    y += 6;
+  }
   doc.text(data.mieterName, marginLeft, y);
   y += 6;
   doc.setFont('helvetica', 'normal');
@@ -228,7 +234,7 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   
-  const salutation = `Sehr geehrter ${data.anrede} ${data.mieterNachname},`;
+  const salutation = anrede.gruss;
   doc.text(salutation, marginLeft, y);
   y += 8;
   
@@ -403,4 +409,31 @@ function addFooter(doc: jsPDF) {
 
 function formatEuro(betrag: number): string {
   return betrag.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Anschriftzeile und Briefanrede des Erhöhungsschreibens.
+ *
+ * Bis zum 27.10.2026 stand fest „Sehr geehrter ${anrede} ${Nachname des ersten Mieters}“: Mit „Frau“
+ * entstand „Sehr geehrter Frau …“, bei mehreren Mietern wurde nur der erste angesprochen, und über
+ * zwei Namen stand „Herr“. Jetzt: genau ein Mieter mit Herr/Frau wird gebeugt angesprochen
+ * („Herrn“ in der Anschrift), sonst alle Mieter neutral beim Namen (briefanrede).
+ */
+export function erhoehungsAnrede(
+  anrede: string,
+  mieter: Array<{ vorname: string; nachname: string }>
+): { anschrift: string; gruss: string } {
+  const personen = mieter.filter((m) => `${m.vorname} ${m.nachname}`.trim());
+  const art = anrede.trim().toLowerCase();
+  if (personen.length === 1 && (art === 'herr' || art === 'frau')) {
+    const p = personen[0];
+    const name = p.nachname.trim() || `${p.vorname} ${p.nachname}`.replace(/\s+/g, ' ').trim();
+    return art === 'frau'
+      ? { anschrift: 'Frau', gruss: `Sehr geehrte Frau ${name},` }
+      : { anschrift: 'Herrn', gruss: `Sehr geehrter Herr ${name},` };
+  }
+  return {
+    anschrift: art === 'herr' || art === 'frau' ? '' : anrede.trim(),
+    gruss: briefanrede(personen.map((m) => ({ ...m, anrede: 'ohne' as const }))),
+  };
 }
