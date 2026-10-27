@@ -291,6 +291,12 @@ export function InteressentenAbschnitt({
                     Doch als neuen Mieter anlegen
                   </Button>
                 )}
+                {p.mieterId && (
+                  <p className="text-xs text-muted-foreground">
+                    Ergänzte oder geänderte Kontaktdaten übernimmt das Aktivieren in seine Stammdaten; leere Felder
+                    löschen dort nichts.
+                  </p>
+                )}
 
                 {!p.istUnternehmen && (
                   <div className="space-y-1">

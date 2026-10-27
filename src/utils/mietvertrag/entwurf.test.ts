@@ -553,6 +553,43 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
     ]);
   });
 
+  it('gibt bei Bestandsmietern die Kartenangaben für die Stammdaten mit, bei neuen nicht', () => {
+    const bestehend = {
+      ...mitBestandsmieter(leerePerson(), bestandsMieter),
+      email: ' neu@example.de ',
+      telefon: '0511 2',
+      geburtsdatum: '1980-05-06',
+      strasse: 'Teststr.',
+      hausnummer: '3',
+      plz: '30159',
+      ort: 'Hannover',
+    };
+    const neu = { ...leerePerson(), vorname: 'Erika', nachname: 'Neu', email: 'erika@example.de' };
+    const z = aktivierungsDaten({
+      id: 'v1',
+      einheitId: 'e1',
+      daten: baueEntwurf(grundlagen()).daten,
+      herkunft: {},
+      vorvertragId: null,
+      mitVorlage: true,
+      personen: [bestehend, neu],
+    });
+    expect(z.verknuepfungen[0].stammdaten).toEqual({
+      anrede: 'Herr',
+      hauptmail: 'neu@example.de',
+      telnr: '0511 2',
+      geburtsdatum: '1980-05-06',
+      vertreten_durch: null,
+      strasse: 'Teststr.',
+      hausnummer: '3',
+      plz: '30159',
+      ort: 'Hannover',
+    });
+    // Name und Firma gehen nie mit — die bleiben im Bestand, wie sie sind
+    expect(Object.keys(z.verknuepfungen[0].stammdaten ?? {})).not.toContain('vorname');
+    expect(z.verknuepfungen[1]).not.toHaveProperty('stammdaten');
+  });
+
   describe('wo der Mieter wohnt oder wohnte', () => {
     const stichtag = new Date('2026-10-27T12:00:00');
     type Vertrag = NonNullable<MieterVertragsbezug['mietvertrag']>;

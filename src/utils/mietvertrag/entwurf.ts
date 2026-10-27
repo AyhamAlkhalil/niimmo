@@ -991,6 +991,16 @@ export function vertragsZeile(a: VertragsZeileArgs): TablesInsert<'mietvertrag'>
   };
 }
 
+/**
+ * Angaben eines Bestandsmieters, wie sie auf der Karte stehen. Die Aktivierung
+ * übernimmt daraus, was neu oder geändert ist — leere Felder löschen nichts, und
+ * eine vorhandene Anschrift bleibt (sie kann die eines anderen Vertrags sein).
+ */
+export type BestandsStammdaten = Pick<
+  TablesInsert<'mieter'>,
+  'anrede' | 'hauptmail' | 'telnr' | 'geburtsdatum' | 'vertreten_durch' | 'strasse' | 'hausnummer' | 'plz' | 'ort'
+>;
+
 export interface AktivierungsDaten {
   vertrag: TablesInsert<'mietvertrag'>;
   /** Neu anzulegende Mieter; `schluessel` verbindet sie mit der Verknüpfung. */
@@ -1000,12 +1010,22 @@ export interface AktivierungsDaten {
     schluessel: string;
     rolle: Tables<'mietvertrag_mieter'>['rolle'];
     position: number;
+    /** Nur bei Bestandsmietern: Kartenangaben für die Stammdaten (seit 27.10.2026). */
+    stammdaten?: BestandsStammdaten;
   }[];
+}
+
+/** Kartenangaben eines Bestandsmieters in Spaltenform — wie bei einem neuen Mieter. */
+function bestandsStammdaten(p: EntwurfPerson): BestandsStammdaten {
+  const { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort } = mieterZeile(p);
+  return { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort };
 }
 
 /**
  * Was `aktiviere_mietvertrag_entwurf` in einer Transaktion anlegt. Leere
  * Personenkarten fallen weg, ein zweimal gewählter Bestandsmieter zählt einmal.
+ * Bestandsmieter bringen ihre Kartenangaben mit — bis zum 27.10.2026 landete eine
+ * dort geänderte Mail oder Rufnummer nur im Vertrag, nie in den Stammdaten.
  */
 export function aktivierungsDaten(a: VertragsZeileArgs & { personen: EntwurfPerson[] }): AktivierungsDaten {
   const gesehen = new Set<string>();
@@ -1025,6 +1045,7 @@ export function aktivierungsDaten(a: VertragsZeileArgs & { personen: EntwurfPers
       schluessel: p.schluessel,
       rolle: mieterRolle(i + 1),
       position: i + 1,
+      ...(p.mieterId ? { stammdaten: bestandsStammdaten(p) } : {}),
     })),
   };
 }
