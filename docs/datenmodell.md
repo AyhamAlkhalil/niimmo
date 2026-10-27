@@ -75,11 +75,16 @@ Es gibt **keinen** Statuswert an der Einheit. „Leer" wird an zehn Stellen unte
 | Feld | Werte | Wer setzt |
 |---|---|---|
 | `ist_faellig` / `faellig_seit` | bool / Datum | `check-faelligkeiten` (Cron) |
-| `typ` | `Miete` oder `BKA` (Check-Constraint); auch Rücklastschrift-Gebühren tragen `Miete` | `generate_monthly_mietforderungen` (SQL, Cron 05:00 UTC) passt nur die älteste Mietforderung des Monats an, nie eine Gebühr oder BKA-Forderung (seit 27.10.2026) |
+| `typ` | `Miete` oder `BKA` (Check-Constraint); auch Rücklastschrift-Gebühren tragen `Miete` (eine je Vertrag und Buchungstag) | `generate_monthly_mietforderungen` (SQL, Cron 05:00 UTC) legt die Monatsmiete je Vertrag und Monat **einmal** an und vermerkt das in `sollstellung_monate` (seit 27.10.2026) |
 
-`sollbetrag` ist zugleich abgeleiteter Wert und Buchungsbeleg: Der Cron zieht jede Abweichung über einen Cent auf
-`kaltmiete + betriebskosten` zurück. `heizkosten_vorauszahlung` geht **nicht** ein — bei Verträgen mit gesonderter
-Heizkostenvorauszahlung ist die Sollstellung dauerhaft zu niedrig.
+`sollbetrag` ist ein Buchungsbeleg: Nach dem Anlegen ändert der Cron ihn nicht mehr — eine Minderung, Korrektur oder
+Löschung von Hand bleibt stehen. Mietänderungen zieht der Trigger `update_forderungen_on_rent_change` ab dem laufenden
+Monat nach (nur Forderungen auf der alten Miete). Bis zum 27.10.2026 zog der Cron jede Abweichung täglich zurück.
+`heizkosten_vorauszahlung` geht **nicht** ein — bei Verträgen mit gesonderter Heizkostenvorauszahlung ist die
+Sollstellung dauerhaft zu niedrig.
+
+`sollstellung_monate` (`mietvertrag_id`, `sollmonat`): je Vertrag und Monat ein Eintrag, sobald die Miete angelegt ist
+(Cron oder `mietforderungen_nachholen`). Soll ein Monat neu erzeugt werden, zuerst diese Zeile löschen.
 
 ### Zahlung — `zahlungen`
 
