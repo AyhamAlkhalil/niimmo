@@ -181,9 +181,19 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
   const authClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
-  const { error: authError } = await authClient.auth.getUser();
-  if (authError) {
+  const { data: userData, error: authError } = await authClient.auth.getUser();
+  if (authError || !userData?.user?.id) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  // Die Antwort enthaelt ganze Zahlungszeilen (IBAN, Verwendungszweck, Betrag), die
+  // Function liest und schreibt mit Service-Role. Bis zum 27.10.2026 genuegte jedes
+  // Login -- der Hausmeister bekam so Zahlungsdaten, die ihm die RLS verwehrt, und
+  // konnte mit force:true beliebig viele KI-Aufrufe ausloesen. Wie in send-mahnung.
+  const rollenClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data: istAdmin, error: rolleError } = await rollenClient.rpc('is_admin', { _user_id: userData.user.id });
+  if (rolleError || istAdmin !== true) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {
