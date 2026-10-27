@@ -70,7 +70,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       const altWert = vertrag ? Number(vertrag[field as keyof Mietvertrag] ?? 0) : undefined;
       const updateData: Partial<Mietvertrag> = { [field]: numericValue };
       if (field === 'kaltmiete' && isOfficialRentIncrease) {
-        updateData.letzte_mieterhoehung_am = new Date().toISOString().split('T')[0];
+        updateData.letzte_mieterhoehung_am = format(new Date(), 'yyyy-MM-dd');
       }
 
       const { error } = await supabase.from('mietvertrag').update(updateData).eq('id', vertragId);
@@ -224,7 +224,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     if (pendingGlobalUpdates) {
       const updates = { ...pendingGlobalUpdates };
       if (isOfficialIncrease) {
-        updates.letzte_mieterhoehung_am = new Date().toISOString().split('T')[0];
+        updates.letzte_mieterhoehung_am = format(new Date(), 'yyyy-MM-dd');
       }
       await finishGlobalSave(updates);
       setPendingGlobalUpdates(null);

@@ -964,7 +964,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
             <Button variant="outline" onClick={() => { if (pendingKaltmiete) { saveField("mietvertrag", pendingKaltmiete.contractId, "kaltmiete", pendingKaltmiete.newValue); setPendingKaltmiete(null); } }}>
               Nein, nur Korrektur
             </Button>
-            <AlertDialogAction onClick={() => { if (pendingKaltmiete) { saveField("mietvertrag", pendingKaltmiete.contractId, "kaltmiete", pendingKaltmiete.newValue, { letzte_mieterhoehung_am: new Date().toISOString().split("T")[0] }); setPendingKaltmiete(null); } }}>
+            <AlertDialogAction onClick={() => { if (pendingKaltmiete) { saveField("mietvertrag", pendingKaltmiete.contractId, "kaltmiete", pendingKaltmiete.newValue, { letzte_mieterhoehung_am: format(new Date(), "yyyy-MM-dd") }); setPendingKaltmiete(null); } }}>
               Ja, offizielle Mieterhöhung
             </AlertDialogAction>
           </AlertDialogFooter>

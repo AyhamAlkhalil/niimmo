@@ -8,6 +8,7 @@
  */
 import { istIbanGueltig, istPlausiblesDatum } from '../pdf/briefLayout';
 import type { MietvertragDaten } from './typen';
+import { format } from 'date-fns';
 
 export type Schwere = 'blocker' | 'warnung';
 
@@ -469,7 +470,8 @@ export function hatBlocker(befunde: Befund[]): boolean {
 }
 
 function heute(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Lokaler Kalendertag: toISOString() lag zwischen 0 und 2 Uhr auf dem Vortag
+  return format(new Date(), 'yyyy-MM-dd');
 }
 
 function monateZwischen(von: string, bis: string): number {

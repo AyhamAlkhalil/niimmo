@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatEuroKompakt } from "@/utils/betragAnzeige";
 import { useState, type ReactNode } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
-import { getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
+import { alsIsoTag, getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
 
 interface DashboardStatsProps {
   immobilien: any[] | undefined;
@@ -32,7 +32,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const { data: mietvertraege } = useQuery({
     queryKey: ['alle-mietvertrag'],
     queryFn: async () => {
-      const heute = new Date().toISOString().split('T')[0];
+      const heute = alsIsoTag(new Date());
       const { data, error } = await supabase
         .from('mietvertrag')
         .select(`
@@ -65,7 +65,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     queryKey: ['erfasste-miete'],
     queryFn: async () => {
       const heute = new Date();
-      const aktuellerMonat = heute.toISOString().slice(0, 7);
+      const aktuellerMonat = alsIsoTag(heute).slice(0, 7);
       const { data: zahlungen, error } = await supabase
         .from('zahlungen')
         .select('betrag')
@@ -96,7 +96,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   });
 
   const saveMarktdaten = async (typ: 'basiszinssatz' | 'vpi', wert: number) => {
-    const heute = new Date().toISOString().split('T')[0];
+    const heute = alsIsoTag(new Date());
     await (supabase as any).from('marktdaten').upsert({
       typ,
       wert,
