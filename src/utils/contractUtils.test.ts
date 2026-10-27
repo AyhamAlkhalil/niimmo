@@ -179,6 +179,13 @@ describe("fristloseKuendigungFelder", () => {
     expect(fristloseKuendigungFelder(1, new Date(2026, 2, 28, 1, 0)).ende_datum).toBe("2026-03-29");
   });
 
+  it("macht aus einer Bruchteilsfrist nie den Versandtag und begrenzt Tippfehler", () => {
+    expect(fristloseKuendigungFelder(0.5, new Date(2026, 9, 1)).ende_datum).toBe("2026-10-15");
+    expect(fristloseKuendigungFelder(2.9, new Date(2026, 9, 1)).ende_datum).toBe("2026-10-03");
+    expect(fristloseKuendigungFelder(1e12, new Date(2026, 9, 1)).ende_datum).toBe("2026-10-15");
+    expect(fristloseKuendigungFelder(14, new Date("x")).ende_datum).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
   it("nimmt 14 Tage, wenn die Frist fehlt oder ungültig ist", () => {
     expect(fristloseKuendigungFelder(Number.NaN, new Date(2026, 9, 27)).ende_datum).toBe("2026-11-10");
     expect(fristloseKuendigungFelder(0, new Date(2026, 9, 27)).ende_datum).toBe("2026-11-10");
@@ -196,5 +203,7 @@ describe("istVergangenerTag", () => {
   it("ist für fehlende Daten false", () => {
     expect(istVergangenerTag(null)).toBe(false);
     expect(istVergangenerTag("")).toBe(false);
+    // Ein ungültiges „heute“ darf keinen Vertrag beenden
+    expect(istVergangenerTag("2026-10-31", new Date("x"))).toBe(false);
   });
 });

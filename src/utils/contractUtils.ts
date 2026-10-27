@@ -161,8 +161,11 @@ export const fristloseKuendigungFelder = (
   raeumungsfristTage: number,
   versandtag: Date = new Date()
 ): { status: "gekuendigt"; kuendigungsdatum: string; ende_datum: string } => {
-  const tage = Number.isFinite(raeumungsfristTage) && raeumungsfristTage > 0 ? Math.floor(raeumungsfristTage) : 14;
-  const ende = new Date(versandtag.getFullYear(), versandtag.getMonth(), versandtag.getDate() + tage);
+  // Erst abrunden, dann pruefen: 0,5 Tage waeren sonst „heute raeumen“. Mehr als ein Jahr ist ein Tippfehler.
+  const ganz = Math.floor(raeumungsfristTage);
+  const tage = Number.isFinite(ganz) && ganz > 0 && ganz <= 365 ? ganz : 14;
+  const basis = Number.isNaN(versandtag.getTime()) ? new Date() : versandtag;
+  const ende = new Date(basis.getFullYear(), basis.getMonth(), basis.getDate() + tage);
   const tag = alsIsoTag(ende);
   return { status: "gekuendigt", kuendigungsdatum: tag, ende_datum: tag };
 };
@@ -183,7 +186,7 @@ export const alsIsoTag = (d: Date): string =>
  * Vertragsbearbeitung setzte den Vertrag so am letzten Tag auf 'beendet' (27.10.2026).
  */
 export const istVergangenerTag = (tag: string | null | undefined, heute: Date = new Date()): boolean =>
-  !!tag && tag.slice(0, 10) < alsIsoTag(heute);
+  !!tag && !Number.isNaN(heute.getTime()) && tag.slice(0, 10) < alsIsoTag(heute);
 
 export interface VertragZeitraum {
   status?: string | null;
