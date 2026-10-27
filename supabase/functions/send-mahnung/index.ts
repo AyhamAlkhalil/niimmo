@@ -49,16 +49,29 @@ interface MahnungEmailRequest {
   forderungen?: Array<{ sollmonat: string; sollbetrag: number }>;
 }
 
+/**
+ * Kalendertag in deutscher Zeit, um versatzTage verschoben, als TT.MM.JJJJ. Die Function laeuft
+ * in UTC: Zwischen 0 und 2 Uhr nannte die Mail bis zum 27.10.2026 Datum und Frist einen Tag
+ * frueher als das Schreiben, das im Browser entsteht.
+ */
+function berlinerTag(versatzTage: number): string {
+  const [tag, monat, jahr] = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric' })
+    .format(new Date())
+    .split('.')
+    .map(Number);
+  // UTC-Mittag: Addieren von Tagen ueber eine Zeitumstellung hinweg bleibt auf dem Kalendertag
+  const ziel = new Date(Date.UTC(jahr, monat - 1, tag + versatzTage, 12));
+  return new Intl.DateTimeFormat('de-DE', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }).format(ziel);
+}
+
 function generateMahnungHtml(data: MahnungEmailRequest): string {
   // Bei leerem Fristfeld kam null an -- die Mail nannte dann den heutigen Tag als Frist,
   // das PDF heute + 7 (27.10.2026). Gleiche Vorgabe wie im PDF.
   const fristTage = Number.isFinite(Number(data.zahlungsfristTage)) && Number(data.zahlungsfristTage) > 0
     ? Number(data.zahlungsfristTage)
     : 7;
-  const zahlungsfristDatum = new Date();
-  zahlungsfristDatum.setDate(zahlungsfristDatum.getDate() + fristTage);
-  const fristFormatted = zahlungsfristDatum.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const fristFormatted = berlinerTag(fristTage);
+  const heute = berlinerTag(0);
 
   let eskalationsText = '';
   let headerColor = '#E67E22';
@@ -247,7 +260,9 @@ serve(async (req) => {
     const smtpFromName = Deno.env.get("MAHNUNG_SMTP_FROM_NAME") || Deno.env.get("SMTP_FROM_NAME") || "NiImmo Hausverwaltung";
 
     if (!smtpHost || !smtpUser || !smtpPass || !smtpFromEmail) {
-      throw new Error("SMTP-Konfiguration für Mahnungen unvollständig. Bitte MAHNUNG_SMTP_* Secrets konfigurieren.");
+      console.error('SMTP-Konfiguration fuer Mahnungen unvollstaendig (MAHNUNG_SMTP_*)');
+      return new Response(JSON.stringify({ success: false, error: 'Der Mailversand für Mahnungen ist nicht eingerichtet. Es wurde nichts versendet.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     // Load PDF from Supabase Storage
@@ -472,11 +487,13 @@ serve(async (req) => {
     );
 
   } catch (error) {
+    // Die Meldung des Mailservers (Host, Kennung, Antwortcode) bleibt im Protokoll und in der
+    // Tabelle mails; an den Aufrufer ging sie bis zum 27.10.2026 roh zurueck.
     console.error('Error in send-mahnung function:', error);
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: 'Die Mahnung konnte nicht versendet werden. Die Mahnstufe wurde nicht erhöht; Einzelheiten stehen im Protokoll der Function.'
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

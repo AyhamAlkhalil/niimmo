@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 
 /**
  * send-mahnung läuft unter Deno und hier nicht. Der Test liest den Quelltext und sichert die
@@ -43,5 +44,31 @@ describe('send-mahnung CC-Adressen', () => {
     expect(handler.indexOf('kopie.some((adresse) => !MAILADRESSE.test(adresse))')).toBeLessThan(handler.indexOf('transporter.sendMail('));
     expect(handler).toMatch(/mailOptions\.cc = kopie\.join/);
     expect(handler).not.toMatch(/data\.ccEmails\.join/);
+  });
+});
+
+describe('send-mahnung Datum und Fehler', () => {
+  const start = quelle.indexOf('function berlinerTag(');
+  const code = quelle.slice(start, quelle.indexOf('\n}\n', start) + 3);
+  const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  const berlinerTag: (versatz: number) => string = new Function(`${js}\nreturn berlinerTag;`)();
+
+  afterEach(() => vi.useRealTimers());
+
+  it('nennt Datum und Frist in deutscher Zeit, auch zwischen 0 und 2 Uhr', () => {
+    // 27.10.2026: Die Function läuft in UTC, die Mail lag dann einen Tag vor dem Schreiben
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-27T23:30:00Z'));
+    expect(berlinerTag(0)).toBe('28.10.2026');
+    expect(berlinerTag(7)).toBe('04.11.2026');
+    vi.setSystemTime(new Date('2026-07-31T22:30:00Z'));
+    expect(berlinerTag(0)).toBe('01.08.2026');
+    vi.setSystemTime(new Date('2026-03-27T12:00:00Z'));
+    expect(berlinerTag(3)).toBe('30.03.2026');
+  });
+
+  it('gibt keine Rohmeldung des Mailservers an den Aufrufer zurück', () => {
+    expect(handler).not.toMatch(/error: error instanceof Error \? error\.message/);
+    expect(handler).not.toMatch(/throw new Error\("SMTP-Konfiguration/);
   });
 });
