@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   KAPPUNGSGRENZE_ANGESPANNT_PROZENT,
   KAPPUNGSGRENZE_REGEL_PROZENT,
+  kappungsBasis,
   kappungsgrenzeProzent,
   maximaleKaltmiete,
   neueMieteAusEingabe,
@@ -103,5 +104,27 @@ describe('neueMieteAusEingabe', () => {
     expect(modal).toMatch(/const neueMiete = pruefeNeueMiete\(\);\s*if \(!neueMiete\) return;/);
     expect(modal).not.toMatch(/parseFloat\(neueBetriebskosten\) \|\| 0,\s*\n\s*(letzte_mieterhoehung_am|begruendungsart)/);
     expect(modal).toMatch(/if \(dokumentError\) throw dokumentError;/);
+  });
+});
+
+describe('kappungsBasis (§ 558 Abs. 3 BGB)', () => {
+  it('rechnet von der Miete vor drei Jahren, wenn eine Erhöhung im Fenster gespeichert ist', () => {
+    // 27.10.2026: 500 € → 550 € (vor einem Jahr) → angeboten wurden bis 660 € statt 600 €
+    const b = kappungsBasis(550, '2027-01-01', '2026-01-01', [{ wirksam_ab: '2026-01-01', alte_kaltmiete: 500, status: 'wirksam' }]);
+    expect(b).toEqual({ betrag: 500, sicher: true });
+  });
+
+  it('meldet eine unbekannte Basis, wenn nur das Datum einer Erhöhung im Fenster steht', () => {
+    expect(kappungsBasis(550, '2027-01-01', '2025-06-01', [])).toEqual({ betrag: 550, sicher: false });
+  });
+
+  it('nimmt die heutige Miete, wenn im Fenster keine Erhöhung lag', () => {
+    expect(kappungsBasis(550, '2027-01-01', '2023-06-01', [{ wirksam_ab: '2023-06-01', alte_kaltmiete: 480, status: 'wirksam' }])).toEqual({ betrag: 550, sicher: true });
+    expect(kappungsBasis(550, '2027-01-01', null, [{ wirksam_ab: '2026-06-01', alte_kaltmiete: 500, status: 'verlangt' }])).toEqual({ betrag: 550, sicher: true });
+  });
+
+  it('speichert als letzte Erhöhung das Wirksamwerden', () => {
+    const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
+    expect(modal).toMatch(/letzte_mieterhoehung_am: wirksamIso,/);
   });
 });

@@ -83,3 +83,26 @@ export function neueMieteAusEingabe(
   if (bk === null) return { fehler: 'Bitte die neuen Betriebskosten eintragen (0 € ist möglich).' };
   return { kaltmiete: kalt, betriebskosten: bk };
 }
+
+/**
+ * Ausgangsmiete der Kappungsgrenze (§ 558 Abs. 3 BGB): die Miete drei Jahre vor dem Wirksamwerden.
+ * Bis zum 27.10.2026 rechnete der Dialog von der heutigen Miete: 500 € → 550 € (vor einem Jahr) →
+ * angeboten wurden bis 660 € statt 600 €. Gibt es im Fenster eine gespeicherte, wirksame Erhöhung,
+ * ist deren alte Miete die Basis. Steht nur ein Datum der letzten Erhöhung im Fenster (ohne Vorgang),
+ * ist die Basis unbekannt: dann die heutige Miete mit sicher = false, der Dialog warnt.
+ */
+export function kappungsBasis(
+  aktuelleKaltmiete: number,
+  wirksamAbIso: string,
+  letzteErhoehungAm: string | null | undefined,
+  erhoehungen: ReadonlyArray<{ wirksam_ab: string | null; alte_kaltmiete: number | string | null; status?: string | null }>
+): { betrag: number; sicher: boolean } {
+  const [j, m, t] = wirksamAbIso.split('-').map(Number);
+  const fensterBeginn = format(new Date(j - 3, m - 1, t), 'yyyy-MM-dd');
+  const imFenster = erhoehungen
+    .filter((e) => (e.status ?? 'wirksam') === 'wirksam' && e.wirksam_ab && e.wirksam_ab.slice(0, 10) > fensterBeginn && e.alte_kaltmiete !== null)
+    .sort((a, b) => (a.wirksam_ab as string).localeCompare(b.wirksam_ab as string));
+  if (imFenster.length > 0) return { betrag: Number(imFenster[0].alte_kaltmiete), sicher: true };
+  if (letzteErhoehungAm && letzteErhoehungAm.slice(0, 10) > fensterBeginn) return { betrag: aktuelleKaltmiete, sicher: false };
+  return { betrag: aktuelleKaltmiete, sicher: true };
+}

@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
-import { kappungsgrenzeProzent, maximaleKaltmiete, neueMieteAusEingabe, wirksamAb, wirksamAbTag } from '@/utils/mieterhoehungRegeln';
+import { kappungsBasis, kappungsgrenzeProzent, maximaleKaltmiete, neueMieteAusEingabe, wirksamAb, wirksamAbTag } from '@/utils/mieterhoehungRegeln';
 import { format } from 'date-fns';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 
@@ -64,6 +64,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const [mieterPlzOrt, setMieterPlzOrt] = useState("");
   const [einheitBezeichnung, setEinheitBezeichnung] = useState("WE");
   const [istAngespannt, setIstAngespannt] = useState(false);
+  const [angespanntUnbekannt, setAngespanntUnbekannt] = useState(false);
+  const [fruehereErhoehungen, setFruehereErhoehungen] = useState<Array<{ wirksam_ab: string | null; alte_kaltmiete: number | null; status: string | null }>>([]);
   // § 558a Abs. 2 BGB: ohne Begründungsmittel ist das Verlangen unwirksam.
   const [begruendungsart, setBegruendungsart] = useState<BegruendungsArt>("mietspiegel");
   const [begruendungText, setBegruendungText] = useState("");
@@ -71,13 +73,17 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // sofort geändert werden (§ 558b Abs. 1 BGB).
   const [mieterHatZugestimmt, setMieterHatZugestimmt] = useState(false);
 
-  // § 558 Abs. 3 BGB: 15 % bei angespanntem Markt, sonst 20 % in drei Jahren.
+  // § 558 Abs. 3 BGB: 15 % bei angespanntem Markt, sonst 20 % in drei Jahren — gerechnet von der
+  // Miete drei Jahre vor dem Wirksamwerden (kappungsBasis), nicht von der heutigen.
   const kappungsgrenze = kappungsgrenzeProzent(istAngespannt);
-  const maxKaltmiete = contractData ? maximaleKaltmiete(contractData.current_kaltmiete, istAngespannt) : 0;
-  const erhoehungProzent = contractData && contractData.current_kaltmiete > 0
-    ? ((parseFloat(neueKaltmiete) - contractData.current_kaltmiete) / contractData.current_kaltmiete * 100)
+  const basis = contractData
+    ? kappungsBasis(contractData.current_kaltmiete, wirksamAbTag(new Date()), contractData.letzte_mieterhoehung_am, fruehereErhoehungen)
+    : { betrag: 0, sicher: true };
+  const maxKaltmiete = maximaleKaltmiete(basis.betrag, istAngespannt);
+  const erhoehungProzent = basis.betrag > 0
+    ? ((parseFloat(neueKaltmiete) - basis.betrag) / basis.betrag * 100)
     : 0;
-  const ueberKappung = erhoehungProzent > kappungsgrenze;
+  const ueberKappung = erhoehungProzent > kappungsgrenze + 1e-9;
   // § 558b Abs. 1 BGB: geschuldet ab Beginn des dritten Kalendermonats nach
   // Zugang. Wer heute erfasst, setzt die Miete also in der Regel zu früh.
   const wirksamAbDatum = wirksamAb(new Date());
@@ -87,15 +93,30 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   useEffect(() => {
     if (!isOpen || !contractData?.immobilie_id) return;
     const fetchAngespannt = async () => {
-      const { data } = await (supabase as any)
+      const { data, error } = await (supabase as any)
         .from('immobilien')
         .select('ist_angespannt')
         .eq('id', contractData.immobilie_id)
         .single();
-      setIstAngespannt(data?.ist_angespannt ?? false);
+      // Ein Lesefehler ergab bis zum 27.10.2026 still 20 %; jetzt die strengere Grenze und ein Hinweis
+      setAngespanntUnbekannt(!!error);
+      setIstAngespannt(error ? true : data?.ist_angespannt ?? false);
     };
     fetchAngespannt();
   }, [isOpen, contractData?.immobilie_id]);
+
+  // Frühere wirksame Erhöhungen für die Ausgangsmiete der Kappungsgrenze
+  useEffect(() => {
+    if (!isOpen || !contractData?.mietvertrag_id) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from('mieterhoehungen')
+        .select('wirksam_ab, alte_kaltmiete, status')
+        .eq('mietvertrag_id', contractData.mietvertrag_id);
+      setFruehereErhoehungen(error ? [] : (data ?? []) as typeof fruehereErhoehungen);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, contractData?.mietvertrag_id]);
 
   // Reset when modal opens — nur beim Öffnen oder Vertragswechsel. Bis zum 27.10.2026 hing er am
   // Objekt contractData, das die Liste bei jedem Neuladen neu baut: Eingaben fielen still zurück,
@@ -291,7 +312,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         const { error: mieteError } = await supabase.from('mietvertrag').update({
           kaltmiete: neueMiete.kaltmiete,
           betriebskosten: neueMiete.betriebskosten,
-          letzte_mieterhoehung_am: heuteIso,
+          // Die Sperrfrist (§ 558 Abs. 1) zählt ab dem Wirksamwerden, nicht ab dem Tag der Zustimmung
+          letzte_mieterhoehung_am: wirksamIso,
           aktualisiert_am: new Date().toISOString(),
         }).eq('id', contractData.mietvertrag_id);
 
@@ -535,6 +557,14 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                     <p>
                       Max. Kaltmiete: {maxKaltmiete.toFixed(2)} € | Erhöhung: {erhoehungProzent.toFixed(1)}%
                       {ueberKappung && ' — Überschreitung!'}
+                      {!basis.sicher && (
+                        <span className="block mt-1">
+                          Die Miete wurde in den letzten drei Jahren schon erhöht; die Kappungsgrenze gilt für die Miete von vor drei Jahren. Bitte die damalige Miete prüfen.
+                        </span>
+                      )}
+                      {angespanntUnbekannt && (
+                        <span className="block mt-1">Ob ein angespannter Markt vorliegt, ließ sich nicht prüfen — gerechnet wird mit der strengeren Grenze von 15 %.</span>
+                      )}
                     </p>
                   </div>
                 </div>
