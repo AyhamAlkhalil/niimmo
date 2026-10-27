@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const ALLOWED_ORIGINS = [
   'https://immobilien-blick-dashboard.lovable.app',
@@ -17,6 +17,14 @@ function getCorsHeaders(req: Request) {
 
 // BG-Zahlung IBAN (Jobcenter/Sozialamt - immer gleiche IBAN vom Staat)
 const BG_ZAHLUNG_IBAN = "DE94760000000076001601";
+
+// IBANs werden nur in dieser Form verglichen. Bankkonten am Vertrag sind von Hand erfasst und
+// tragen mitunter Gruppen-Leerzeichen, die Bank liefert die IBAN ohne. Bis zum 27.10.2026 landete
+// deshalb die Stellplatzmiete eines Mieters jeden Monat bei seiner Wohnung, weil nur deren Vertrag
+// die IBAN zeichengenau trug.
+function normalisiereIban(iban: string | null | undefined): string {
+  return (iban ?? "").replace(/\s+/g, "").toUpperCase();
+}
 
 // ============= ROBUSTER BETRAGSPARSER =============
 
@@ -380,8 +388,10 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
       mieterNamen: Array.from(mieterNamesSet),
       gesamtmiete,
       kaution: c.kaution_betrag,
-      iban: c.bankkonto_mieter,
-      weitere_iban: c.weitere_bankkonten,
+      iban: normalisiereIban(c.bankkonto_mieter) || null,
+      weitere_iban: c.weitere_bankkonten
+        ? c.weitere_bankkonten.split(",").map(normalisiereIban).filter(Boolean).join(",") || null
+        : null,
       verwendungszweck: c.verwendungszweck,
       immobilie: immobilie ? `${immobilie.name}, ${immobilie.adresse}` : "Unbekannt",
       etage: c.einheiten?.etage,
@@ -402,7 +412,7 @@ function categorizePaymentType(
   const empfaenger = payment.empfaengername || "";
   
   // 1. BG-Zahlung (Jobcenter) - IBAN-Match hat höchste Priorität
-  if (payment.iban === BG_ZAHLUNG_IBAN) {
+  if (normalisiereIban(payment.iban) === BG_ZAHLUNG_IBAN) {
     return "bg_zahlung";
   }
   
@@ -431,7 +441,7 @@ function categorizePaymentType(
         }
         break;
       case "iban_equals":
-        if (payment.iban === regel.wert) {
+        if (normalisiereIban(payment.iban) && normalisiereIban(payment.iban) === normalisiereIban(regel.wert)) {
           return "nichtmiete";
         }
         break;
@@ -463,7 +473,7 @@ function checkSonderfallRegeln(
         matched = verwendungszweck.includes(wertLower);
         break;
       case "iban_equals":
-        matched = (payment.iban || "").trim() === regel.match_wert.trim();
+        matched = !!normalisiereIban(payment.iban) && normalisiereIban(payment.iban) === normalisiereIban(regel.match_wert);
         break;
       case "verwendungszweck_contains":
         matched = verwendungszweck.includes(wertLower);
@@ -710,17 +720,18 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
   // Collect ALL matching contracts first, then select best one by date
   // WICHTIG: BG-IBAN ausschließen — Verträge mit der staatlichen BG-IBAN dürfen nicht per IBAN gematcht werden
   const ibanMatchedContracts: { contract: ContractInfo; matchType: 'primary' | 'weitere' }[] = [];
-  
+  const zahlungsIban = normalisiereIban(payment.iban);
+
   for (const contract of contracts) {
     // Primary IBAN — skip if it's the BG-IBAN (staatliche Zahlung, nicht mieter-spezifisch)
-    if (contract.iban && payment.iban === contract.iban && contract.iban !== BG_ZAHLUNG_IBAN) {
+    if (contract.iban && zahlungsIban === contract.iban && contract.iban !== BG_ZAHLUNG_IBAN) {
       ibanMatchedContracts.push({ contract, matchType: 'primary' });
     }
     
     // Weitere Bankkonten (comma-separated) — also skip BG-IBAN entries
     if (contract.weitere_iban) {
       const weitereIbans = contract.weitere_iban.split(',').map(i => i.trim()).filter(i => i !== BG_ZAHLUNG_IBAN);
-      if (weitereIbans.includes(payment.iban)) {
+      if (zahlungsIban && weitereIbans.includes(zahlungsIban)) {
         ibanMatchedContracts.push({ contract, matchType: 'weitere' });
       }
     }
