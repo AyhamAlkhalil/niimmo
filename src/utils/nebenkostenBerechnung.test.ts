@@ -81,19 +81,19 @@ describe('ueberlappung', () => {
 // ---------------------------------------------------------------------------
 describe('vertragsNutzungsende', () => {
   it('nimmt ende_datum wenn nur dieses gesetzt ist', () => {
-    expect(vertragsNutzungsende('2025-06-30', null, ABR_BIS)).toEqual(new Date('2025-06-30'));
+    expect(vertragsNutzungsende('2025-06-30', null, ABR_BIS)).toEqual(new Date(2025, 5, 30));
   });
 
   it('nimmt kuendigungsdatum wenn ende_datum fehlt', () => {
-    expect(vertragsNutzungsende(null, '2025-06-30', ABR_BIS)).toEqual(new Date('2025-06-30'));
+    expect(vertragsNutzungsende(null, '2025-06-30', ABR_BIS)).toEqual(new Date(2025, 5, 30));
   });
 
   it('nimmt das frühere der beiden Daten', () => {
     expect(vertragsNutzungsende('2025-12-31', '2025-06-30', ABR_BIS)).toEqual(
-      new Date('2025-06-30')
+      new Date(2025, 5, 30)
     );
     expect(vertragsNutzungsende('2025-06-30', '2025-12-31', ABR_BIS)).toEqual(
-      new Date('2025-06-30')
+      new Date(2025, 5, 30)
     );
   });
 

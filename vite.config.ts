@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
@@ -45,5 +46,12 @@ export default defineConfig(({ mode }) => ({
   },
   optimizeDeps: {
     exclude: ['pdfjs-dist'], // Exclude PDF.js from pre-bundling
+  },
+  test: {
+    // Die Nutzer arbeiten in Europe/Berlin, Server und Tests liefen in UTC. Datumsfehler wie
+    // toISOString() auf lokaler Mitternacht (ergibt den Vortag) waren so in keinem Test zu
+    // sehen -- der Zeitraumfilter der Betriebskosten lag deshalb unbemerkt einen Tag daneben
+    // (27.10.2026). src/zeitzone.test.ts wacht darüber, dass diese Einstellung greift.
+    env: { TZ: "Europe/Berlin" },
   },
 }));
