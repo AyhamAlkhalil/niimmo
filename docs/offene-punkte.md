@@ -75,8 +75,7 @@ läuft das Anlegen der Zielkostenart beim Aufteilen vor dem eigentlichen Umbuche
 Transaktion: Scheitert das Umbuchen, bleibt eine leere Kostenart stehen. Sie ist unsichtbar, blockiert
 nichts und wird beim nächsten Versuch wiederverwendet.
 
-**Als Nächstes:** C3 (Abfragen ohne Paginierung), C5 (Mahnungsrückstand ignoriert bezahlte
-Betriebskostennachzahlungen), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
+**Als Nächstes:** C3 (Abfragen ohne Paginierung), C6 (Heizkostenvorauszahlung fehlt in der Sollstellung), C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).
 
 **Nur mit dem Kunden zu klären:** D1 (Betriebskosten), D2 (Übergabe), D3 (Gewerbeverträge) und die
@@ -169,7 +168,7 @@ verarbeitet. Der Rückstand des Mieters ist zu hoch, ohne auffindbare Ursache.
 `isLoading` und `error`, benutzt beide im Render nicht und zeigt bei jedem Fehler „0 Verträge" und den grünen
 Kasten „Alle Mietverträge sind ausgeglichen".
 
-**C5 · Der Rückstand für die Mahnung ignoriert bezahlte Betriebskostennachzahlungen.**
+**C5 ✅ (07.10.2026, seit 27.10.2026 nur fällige Forderungen) · Der Rückstand für die Mahnung ignoriert bezahlte Betriebskostennachzahlungen.**
 `MietvertragDetailsModal.tsx:230-236` rechnet mit einer eigenen Inline-Formel. Ein Mieter, der seine Nachzahlung
 beglichen hat, wird über genau diesen Betrag erneut gemahnt — während die Finanzübersicht im selben Fenster ihn
 als ausgeglichen führt.

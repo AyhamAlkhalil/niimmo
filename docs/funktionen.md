@@ -78,7 +78,7 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Monatsweise Zahlungs- und Forderungs-Timeline zum Vertrag** | Stellt je Monat Sollstellungen und Zahlungen gegenueber und erlaubt Umbuchen per Drag-and-drop,… | `src/components/dashboard/mietvertrag-details/MietvertragTimel…` | fertig |
 | **Verbundene Vertraege derselben Mieter** | Findet ueber gemeinsame Mieter-IDs alle weiteren aktiven oder gekuendigten Vertraege derselben Personen… | `src/hooks/useLinkedContracts.ts:34-128 (Anzeige: mietvertrag-…` | fertig |
 | **Haupt- und Nebenobjekte eines Vertrags** | Zusaetzlich mitvermietete Einheiten mit Rolle und Teilmiete; im Frontend werden sie ausschliesslich… | `src/hooks/useMietvertragPdfDaten.ts:110-114 / Tabelle mietver…` | prototyp |
-| **Monatliche Sollstellung je laufendem Vertrag** | Cron-Function, die fuer jeden aktiven oder gekuendigten Vertrag mit laufendem Zeitraum eine… | `supabase/functions/generate-mietforderungen/index.ts:73-178` | teilweise |
+| **Monatliche Sollstellung je laufendem Vertrag** | Cron-Function, die fuer jeden aktiven oder gekuendigten Vertrag mit laufendem Zeitraum eine… | SQL `generate_monthly_mietforderungen` (Cron 05:00 UTC); die Edge Function `generate-mietforderungen` läuft live nicht | teilweise |
 | **Faelligkeitsmarkierung offener Forderungen** | Cron-Function, die per DB-Funktion update_faellige_forderungen offene Forderungen als faellig markiert… | `supabase/functions/check-faelligkeiten/index.ts:59-113` | fertig |
 | **Mahnstufen-Lebenszyklus am Vertrag** | Die Mahnstufe steigt ausschliesslich beim erfolgreichen Mahnungsversand (gedeckelt auf 3); im UI ist… | `supabase/functions/send-mahnung/index.ts:225-231 und src/hook…` | fertig |
 | **Dokumentation einer Mieterhoehung am Vertrag** | Jede Kaltmieten-Aenderung fragt nach, ob es eine offizielle Mieterhoehung ist, und setzt dann… | `src/hooks/useMietvertragMutations.ts:200-225 und src/componen…` | fertig |
@@ -152,7 +152,7 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 
 | Funktion | Was sie leistet | Einstieg | Reife |
 |---|---|---|---|
-| **Monatliche Sollstellung erzeugen** | Legt fuer jeden aktiven oder gekuendigten Vertrag eine Zeile in mietforderungen fuer den aktuellen… | `supabase/functions/generate-mietforderungen/index.ts:95-178` | teilweise |
+| **Monatliche Sollstellung erzeugen** | Legt fuer jeden aktiven oder gekuendigten Vertrag eine Zeile in mietforderungen fuer den aktuellen… | SQL `generate_monthly_mietforderungen` (Cron 05:00 UTC); die Edge Function `generate-mietforderungen` läuft live nicht | teilweise |
 | **Faelligkeit von Forderungen markieren** | Setzt taeglich ist_faellig=true und faellig_seit fuer alle Forderungen, deren faelligkeitsdatum… | `supabase/functions/check-faelligkeiten/index.ts:60-113 ruft D…` | fertig |
 | **Forderung manuell anlegen** | Buchhaltung traegt fuer einen Vertrag eine Forderung vom Typ Miete oder BKA mit Sollmonat und Betrag… | `src/components/dashboard/CreateForderungModal.tsx:35-97` | fertig |
 | **BKA-Saldo als Forderung uebernehmen** | Uebertraegt Nachzahlungen und Guthaben aus der Betriebskostenabrechnung gesammelt oder einzeln als… | `src/components/dashboard/nebenkosten/NebenkostenStep3Abrechnu…` | teilweise |

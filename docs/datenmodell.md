@@ -75,7 +75,7 @@ Es gibt **keinen** Statuswert an der Einheit. „Leer" wird an zehn Stellen unte
 | Feld | Werte | Wer setzt |
 |---|---|---|
 | `ist_faellig` / `faellig_seit` | bool / Datum | `check-faelligkeiten` (Cron) |
-| `typ` | `null` oder `Miete`, sonst Sonderforderung | Cron überschreibt `sollbetrag` nur bei `null`/`Miete` |
+| `typ` | `Miete` oder `BKA` (Check-Constraint); auch Rücklastschrift-Gebühren tragen `Miete` | `generate_monthly_mietforderungen` (SQL, Cron 05:00 UTC) passt nur die älteste Mietforderung des Monats an, nie eine Gebühr oder BKA-Forderung (seit 27.10.2026) |
 
 `sollbetrag` ist zugleich abgeleiteter Wert und Buchungsbeleg: Der Cron zieht jede Abweichung über einen Cent auf
 `kaltmiete + betriebskosten` zurück. `heizkosten_vorauszahlung` geht **nicht** ein — bei Verträgen mit gesonderter
