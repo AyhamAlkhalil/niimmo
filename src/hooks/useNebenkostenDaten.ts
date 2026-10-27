@@ -1,10 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { kostenAnteilImZeitraum } from "@/utils/nebenkostenBerechnung";
+import { kostenAnteilImZeitraum, positionenImZeitraum } from "@/utils/nebenkostenBerechnung";
 import {
   findeKategorieNachId,
   findeKategorieNachName,
 } from "@/components/dashboard/nebenkosten/nebenkostenKategorien";
+
+// Lebt seit 27.10.2026 in utils (testbar); die Schritte importieren es weiter von hier.
+export { positionenImZeitraum };
 
 /**
  * Gemeinsame Datenzugriffe der Betriebskostenabrechnung.
@@ -155,17 +158,6 @@ export async function findeOderErstelleNebenkostenart(
   return neueArt.id;
 }
 
-/** Alle Positionen, die den Zeitraum berühren — inkl. jahresübergreifender Rechnungen. */
-export function positionenImZeitraum<T extends { zeitraum_von: string; zeitraum_bis: string }>(
-  positionen: T[] | undefined,
-  von: Date,
-  bis: Date
-): T[] {
-  if (!positionen) return [];
-  const vonIso = von.toISOString().slice(0, 10);
-  const bisIso = bis.toISOString().slice(0, 10);
-  return positionen.filter((p) => p.zeitraum_von <= bisIso && p.zeitraum_bis >= vonIso);
-}
 
 /**
  * Summiert je Zahlung, wie viel davon bereits auf Kostenpositionen verteilt ist —

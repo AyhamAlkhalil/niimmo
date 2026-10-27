@@ -15,7 +15,7 @@
  *    auf 100 % summieren und Leerstandskosten beim Eigentümer bleiben (BGH-Linie).
  */
 
-import { differenceInCalendarDays, parseISO } from "date-fns";
+import { differenceInCalendarDays, format, parseISO } from "date-fns";
 
 export type VerteilerSchluessel = "qm" | "personen" | "gleich";
 
@@ -28,6 +28,26 @@ export function parseDatum(value: string | null | undefined): Date | null {
   if (!value) return null;
   const parsed = parseISO(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Alle Positionen, die den Zeitraum berühren — inkl. jahresübergreifender Rechnungen.
+ *
+ * Kalendertag über format(), nicht toISOString(): parseISO('2026-01-01') ist lokale
+ * Mitternacht, toISOString() machte daraus in deutscher Zeit '2025-12-31'. Bis zum
+ * 27.10.2026 erschienen so alle Vorjahrespositionen mit Ende 31.12. im Folgejahr (mit
+ * vollem Betrag in den Kategoriesummen von Schritt 1, und „Aufteilen“ schrieb sie mit
+ * um), und eine Position, die am 31.12. beginnt, fiel aus der Abrechnung.
+ */
+export function positionenImZeitraum<T extends { zeitraum_von: string; zeitraum_bis: string }>(
+  positionen: T[] | undefined,
+  von: Date,
+  bis: Date
+): T[] {
+  if (!positionen) return [];
+  const vonTag = format(von, "yyyy-MM-dd");
+  const bisTag = format(bis, "yyyy-MM-dd");
+  return positionen.filter((p) => p.zeitraum_von <= bisTag && p.zeitraum_bis >= vonTag);
 }
 
 /** Schnittmenge zweier Zeiträume, oder null wenn sie sich nicht überlappen. */

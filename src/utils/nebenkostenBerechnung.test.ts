@@ -12,6 +12,7 @@ import {
   tageInZeitraum,
   ueberlappung,
   vertragsNutzungsende,
+  positionenImZeitraum,
   objektAdresseZeilen,
   nachsendeAdresseZeilen,
   type Nutzungsperiode,
@@ -79,6 +80,26 @@ describe('ueberlappung', () => {
 // ---------------------------------------------------------------------------
 // Vertragsende: kuendigungsdatum beendet den Vertrag genauso wie ende_datum
 // ---------------------------------------------------------------------------
+describe('positionenImZeitraum', () => {
+  const vorjahr = { id: 'vorjahr', zeitraum_von: '2024-01-01', zeitraum_bis: '2024-12-31' };
+  const jahr = { id: 'jahr', zeitraum_von: '2025-01-01', zeitraum_bis: '2025-12-31' };
+  const silvester = { id: 'silvester', zeitraum_von: '2025-12-31', zeitraum_bis: '2025-12-31' };
+  const neujahr = { id: 'neujahr', zeitraum_von: '2025-01-01', zeitraum_bis: '2025-01-01' };
+  const heizperiode = { id: 'heiz', zeitraum_von: '2024-10-01', zeitraum_bis: '2025-03-31' };
+  const folgejahr = { id: 'folge', zeitraum_von: '2026-01-01', zeitraum_bis: '2026-12-31' };
+
+  it('nimmt genau die Positionen, die das Abrechnungsjahr berühren', () => {
+    // 27.10.2026: In deutscher Zeit lag der Filter einen Tag zu früh — Vorjahr drin, Silvester draußen
+    const ids = positionenImZeitraum([vorjahr, jahr, silvester, neujahr, heizperiode, folgejahr], ABR_VON, ABR_BIS)
+      .map((p) => p.id);
+    expect(ids).toEqual(['jahr', 'silvester', 'neujahr', 'heiz']);
+  });
+
+  it('liefert für undefined eine leere Liste', () => {
+    expect(positionenImZeitraum(undefined, ABR_VON, ABR_BIS)).toEqual([]);
+  });
+});
+
 describe('vertragsNutzungsende', () => {
   it('nimmt ende_datum wenn nur dieses gesetzt ist', () => {
     expect(vertragsNutzungsende('2025-06-30', null, ABR_BIS)).toEqual(new Date(2025, 5, 30));
