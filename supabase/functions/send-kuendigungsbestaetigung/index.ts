@@ -43,6 +43,19 @@ interface Anfrage {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Nach dem Ordner des Vertrags nur ein einzelner Dateiname ohne "%" und "/", wie ihn der
+// Dialog baut (Kuendigungsbestaetigung_JJJJ-MM-TT_HHMMSS.pdf). Die Pruefung auf ".." allein
+// reichte nicht: Der URL-Parser der Storage-API loest auch "%2e%2e" auf, und
+// "kuendigungen/<id>/%2e%2e/%2e%2e/x.pdf" haengte jedes PDF des Buckets an (27.10.2026,
+// dieselbe Luecke wie am 17.10.2026 in send-mahnung).
+const PDF_DATEINAME = /^[A-Za-z0-9_.-]+\.pdf$/;
+
+function kuendigungsPdfErlaubt(pfad: string, mietvertragId: string): boolean {
+  const praefix = `kuendigungen/${mietvertragId}/`;
+  if (!pfad.startsWith(praefix)) return false;
+  const dateiname = pfad.slice(praefix.length);
+  return PDF_DATEINAME.test(dateiname) && !dateiname.includes('..');
+}
 
 function json(body: unknown, status: number, corsHeaders: Record<string, string>) {
   return new Response(JSON.stringify(body), {
@@ -249,7 +262,7 @@ serve(async (req: Request) => {
       return json({ error: 'mietvertragId fehlt oder ist ungültig.' }, 400, corsHeaders);
     }
     // Nur die Bestätigung dieses Vertrags darf angehängt werden.
-    if (!pdfPath.startsWith(`kuendigungen/${mietvertragId}/`) || pdfPath.includes('..') || !pdfPath.endsWith('.pdf')) {
+    if (!kuendigungsPdfErlaubt(pdfPath, mietvertragId)) {
       return json({ error: 'Der Anhang gehört nicht zu diesem Mietvertrag.' }, 403, corsHeaders);
     }
 
