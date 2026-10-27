@@ -123,16 +123,15 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const vermieteteEinheiten = aktiveMietvertraege.length + gekuendigteMietvertraege.length;
   const leerstände = gesamtEinheiten ? gesamtEinheiten - vermieteteEinheiten : 0;
 
-  // Berechne das nächste Kündigungs- oder Auslaufdatum
+  // Berechne das nächste Kündigungs- oder Auslaufdatum. Kalendertage als Text vergleichen: Mit
+  // `new Date(ende) > heute` fiel ein Vertrag, der heute endet, ab 1 bzw. 2 Uhr heraus (27.10.2026).
+  const heuteTag = alsIsoTag(new Date());
   const naechstesVertragInfo = mietvertraege
     ?.reduce((frueheste: { datum: string | null, vertrag: any | null }, mv) => {
-      const heute = new Date();
-      const ende = getVertragsende(mv);
-      const naechstesDatumFuerVertrag = ende && new Date(ende) > heute ? new Date(ende) : null;
-      if (!naechstesDatumFuerVertrag) return frueheste;
-      const datumString = naechstesDatumFuerVertrag.toISOString().split('T')[0];
-      if (!frueheste.datum) return { datum: datumString, vertrag: mv };
-      return new Date(datumString) < new Date(frueheste.datum) ? { datum: datumString, vertrag: mv } : frueheste;
+      const ende = getVertragsende(mv)?.slice(0, 10);
+      if (!ende || ende < heuteTag) return frueheste;
+      if (!frueheste.datum) return { datum: ende, vertrag: mv };
+      return ende < frueheste.datum ? { datum: ende, vertrag: mv } : frueheste;
     }, { datum: null, vertrag: null });
 
   const naechstesDatum = naechstesVertragInfo?.datum;
