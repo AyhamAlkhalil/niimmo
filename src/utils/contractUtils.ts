@@ -179,6 +179,22 @@ export const fristloseKuendigungFelder = (
   return { status: "gekuendigt", kuendigungsdatum: tag, ende_datum: tag };
 };
 
+/**
+ * Vertragsende einer Kuendigung durch den Vermieter (TerminationDialog). Bei der fristlosen Kuendigung
+ * endet das Mietverhaeltnis mit der Raeumungsfrist, nicht am Kuendigungstag: Bis zum 27.10.2026 bekamen
+ * beide Felder den Kuendigungstag, der Nachtlauf beendete den Vertrag am Folgetag, und die
+ * Nutzungsentschaedigung bis zur Raeumung (§ 546a BGB) fiel aus der Sollstellung -- wie bei Mahnstufe 3
+ * (fristloseKuendigungFelder). Ordentlich und mit Frist: das Datum, zu dem gekuendigt wird.
+ */
+export const vertragsendeDerKuendigung = (
+  typ: string | null | undefined,
+  kuendigungsdatum: string,
+  raeumungBis?: string | null
+): string =>
+  typ === "ausserordentlich_fristlos" && raeumungBis && raeumungBis.slice(0, 10) > kuendigungsdatum.slice(0, 10)
+    ? raeumungBis.slice(0, 10)
+    : kuendigungsdatum;
+
 /** True, wenn das Ende auf einer belegten Kuendigung beruht und nicht auf einer Befristung. */
 export const istGekuendigt = (
   vertrag: { kuendigungsdatum?: string | null } | null | undefined

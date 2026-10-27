@@ -4,6 +4,7 @@ import { loadLogo } from './pdf/briefLayout';
 import {
   anschriftZeile,
   briefanrede,
+  anredeFuerSchreiben,
   bestaetigungsAbsaetze,
   type BestaetigungsDaten,
 } from './kuendigungsbestaetigung';
@@ -15,6 +16,8 @@ export interface KuendigungPdfData {
   anrede: string;
   mieterName: string;
   mieterNachname: string;
+  /** Alle Mieter des Vertrags; ohne Angabe gilt nur mieterNachname. */
+  mieter?: Array<{ vorname: string; nachname: string }>;
   mieterAdresse: string;
   mieterPlzOrt: string;
 
@@ -220,9 +223,10 @@ async function briefBeginnen(kopf: Briefkopf): Promise<Brief> {
 
 export async function generateKuendigungPdf(data: KuendigungPdfData): Promise<Blob> {
   const typ = data.kuendigungstyp || 'ordentlich';
+  const anrede = anredeFuerSchreiben(data.anrede, data.mieter ?? [{ vorname: '', nachname: data.mieterNachname }]);
   const brief = await briefBeginnen({
     empfaenger: [
-      { text: data.anrede, fett: true },
+      ...(anrede.anschrift ? [{ text: anrede.anschrift, fett: true }] : []),
       { text: data.mieterName, fett: true },
       { text: data.mieterAdresse },
       { text: data.mieterPlzOrt },
@@ -241,7 +245,7 @@ export async function generateKuendigungPdf(data: KuendigungPdfData): Promise<Bl
 
   // ============ BODY TEXT ============
   let y = brief.startY;
-  doc.text(`Sehr geehrte/r ${data.anrede} ${data.mieterNachname},`, MARGIN_LEFT, y);
+  doc.text(anrede.gruss, MARGIN_LEFT, y);
   y += 8;
 
   if (data.freitext) {

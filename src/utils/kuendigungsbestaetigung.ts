@@ -209,3 +209,30 @@ export function mailadressenDerMieter(
   }
   return [...adressen];
 }
+
+/**
+ * Anschriftzeile und Briefanrede für Erhöhungs- und Kündigungsschreiben.
+ *
+ * Bis zum 27.10.2026 stand fest „Sehr geehrter ${anrede} …“ (Erhöhung) bzw. „Sehr geehrte/r ${anrede} …“
+ * (Kündigung), jeweils mit dem Nachnamen des ersten Mieters: Mit „Frau“ entstand „Sehr geehrter Frau …“, bei mehreren Mietern wurde nur der erste angesprochen, und über
+ * zwei Namen stand „Herr“. Jetzt: genau ein Mieter mit Herr/Frau wird gebeugt angesprochen
+ * („Herrn“ in der Anschrift), sonst alle Mieter neutral beim Namen (briefanrede).
+ */
+export function anredeFuerSchreiben(
+  anrede: string,
+  mieter: Array<{ vorname: string; nachname: string }>
+): { anschrift: string; gruss: string } {
+  const personen = mieter.filter((m) => `${m.vorname} ${m.nachname}`.trim());
+  const art = anrede.trim().toLowerCase();
+  if (personen.length === 1 && (art === 'herr' || art === 'frau')) {
+    const p = personen[0];
+    const name = p.nachname.trim() || `${p.vorname} ${p.nachname}`.replace(/\s+/g, ' ').trim();
+    return art === 'frau'
+      ? { anschrift: 'Frau', gruss: `Sehr geehrte Frau ${name},` }
+      : { anschrift: 'Herrn', gruss: `Sehr geehrter Herr ${name},` };
+  }
+  return {
+    anschrift: art === 'herr' || art === 'frau' ? '' : anrede.trim(),
+    gruss: briefanrede(personen.map((m) => ({ ...m, anrede: 'ohne' as const }))),
+  };
+}

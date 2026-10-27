@@ -6,6 +6,7 @@ import {
   mietendeFelder,
   fristloseKuendigungFelder,
   raeumungsfristInTagen,
+  vertragsendeDerKuendigung,
   istVergangenerTag,
   istLaufenderVertrag,
   getLaufenderVertrag,
@@ -231,5 +232,25 @@ describe("raeumungsfristInTagen", () => {
     const modal = readFileSync("src/components/dashboard/MahnungErstellungModal.tsx", "utf-8");
     expect(modal).toMatch(/const raeumungsfristStr = fristloseKuendigungFelder\(parseInt\(raeumungsfristTage\)\)\.ende_datum/);
     expect(modal).not.toMatch(/parseInt\(raeumungsfristTage\) \|\| 14/);
+  });
+});
+
+describe("vertragsendeDerKuendigung", () => {
+  it("lässt eine fristlose Kündigung mit der Räumungsfrist enden, nicht am Kündigungstag", () => {
+    // 27.10.2026: Der Nachtlauf beendete den Vertrag am Folgetag, die Nutzungsentschädigung fiel weg
+    expect(vertragsendeDerKuendigung("ausserordentlich_fristlos", "2026-10-27", "2026-11-10")).toBe("2026-11-10");
+    expect(vertragsendeDerKuendigung("ausserordentlich_fristlos", "2026-10-27", "")).toBe("2026-10-27");
+    expect(vertragsendeDerKuendigung("ausserordentlich_fristlos", "2026-10-27", "2026-10-01")).toBe("2026-10-27");
+  });
+
+  it("nimmt bei ordentlicher Kündigung das Zum-Datum", () => {
+    expect(vertragsendeDerKuendigung("ordentlich", "2027-01-31", "2027-02-15")).toBe("2027-01-31");
+    expect(vertragsendeDerKuendigung("ausserordentlich_mit_frist", "2026-12-31", null)).toBe("2026-12-31");
+  });
+
+  it("wird vom Kündigungsdialog für beide Felder verwendet", () => {
+    const dialog = readFileSync("src/components/dashboard/termination/TerminationDialog.tsx", "utf-8");
+    expect(dialog).toMatch(/const vertragsende = vertragsendeDerKuendigung\(kuendigungstyp, kuendigungsdatum, auszugsdatum\);/);
+    expect(dialog).toMatch(/kuendigungsdatum: vertragsende,[\s\S]{0,600}ende_datum: vertragsende,/);
   });
 });

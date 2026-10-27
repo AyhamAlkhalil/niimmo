@@ -210,7 +210,9 @@ describe('Kündigungsbestätigung als PDF', () => {
       auszugsdatum: '31.12.2026',
     })));
     expect(text).toContain('Kündigung des Mietvertrages');
-    expect(text).toContain('Sehr geehrte/r Herr Probe,');
+    // Seit 27.10.2026 gebeugt statt „Sehr geehrte/r Herr Probe,“, Anschrift „Herrn“ (anredeFuerSchreiben)
+    expect(text).toContain('Herrn Max Probe');
+    expect(text).toContain('Sehr geehrter Herr Probe,');
     expect(text).toContain('ordentlich zum 31.12.2026.');
     expect(text).toContain('Grund der Kündigung: Eigenbedarf');
     expect(text).toContain('Mit freundlichem Gruß');

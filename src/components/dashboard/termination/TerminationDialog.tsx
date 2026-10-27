@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateKuendigungPdf, type KuendigungPdfData, type KuendigungsTyp } from "@/utils/kuendigungPdfGenerator";
 import { terminationWebhookService } from "@/services/terminationWebhookService";
 import { schriftstueckPfad, dateiendung } from "@/utils/storagePfad";
+import { vertragsendeDerKuendigung } from "@/utils/contractUtils";
 import { DocumentDragDropZone } from "../DocumentDragDropZone";
 import { Progress } from "@/components/ui/progress";
 
@@ -101,19 +102,24 @@ export const TerminationDialog = ({
     const fetchData = async () => {
       try {
         // Fetch contract
-        const { data: vertrag } = await supabase
+        // Fehler werden ausgewertet: bis zum 27.10.2026 entstand sonst still ein Schreiben mit
+        // „Mietvertrag vom N/A“ und Platzhalter-Mieter
+        const { data: vertrag, error: vertragFehler } = await supabase
           .from('mietvertrag')
-          .select('start_datum')
+          .select('start_datum, vertrag_datum')
           .eq('id', vertragId)
           .single();
+        if (vertragFehler) throw vertragFehler;
 
-        setStartDatum(vertrag?.start_datum || null);
+        // „begründet durch den Mietvertrag vom …“ meint den Abschluss, nicht den Mietbeginn
+        setStartDatum(vertrag?.vertrag_datum || vertrag?.start_datum || null);
 
         // Fetch mieter
-        const { data: mieterLinks } = await supabase
+        const { data: mieterLinks, error: mieterFehler } = await supabase
           .from('mietvertrag_mieter')
           .select('mieter_id, mieter:mieter_id(vorname, nachname, hauptmail)')
           .eq('mietvertrag_id', vertragId);
+        if (mieterFehler) throw mieterFehler;
 
         const mieter: MieterInfo[] = (mieterLinks || []).map((link: any) => ({
           vorname: link.mieter?.vorname || '',
@@ -186,6 +192,7 @@ export const TerminationDialog = ({
       anrede,
       mieterName: fullName || 'Mieter',
       mieterNachname: nachname,
+      mieter: mieterList.map(m => ({ vorname: m.vorname, nachname: m.nachname })),
       mieterAdresse,
       mieterPlzOrt,
       einheitBezeichnung,
@@ -282,17 +289,18 @@ export const TerminationDialog = ({
 
       if (uploadError) throw new Error('Upload fehlgeschlagen: ' + uploadError.message);
 
+      const vertragsende = vertragsendeDerKuendigung(kuendigungstyp, kuendigungsdatum, auszugsdatum);
       const { error: updateError } = await supabase
         .from('mietvertrag')
         .update({
           status: 'gekuendigt',
-          kuendigungsdatum,
+          kuendigungsdatum: vertragsende,
           // ende_datum ist die fuehrende Quelle des Vertragsendes
           // (utils/contractUtils.ts getVertragsende). Der Upload-Weg unten
           // schrieb es immer mit, dieser Weg nicht -- damit standen Karte und
           // Vertragsdetails wieder auf verschiedenen Aussagen, und jede
           // Auswertung ueber ende_datum uebersah manuell gekuendigte Vertraege.
-          ende_datum: kuendigungsdatum,
+          ende_datum: vertragsende,
           aktualisiert_am: new Date().toISOString()
         })
         .eq('id', vertragId);
@@ -306,7 +314,7 @@ export const TerminationDialog = ({
       }
 
       const kuendigungsdatumFormatted = new Date(kuendigungsdatum + 'T12:00:00').toLocaleDateString('de-DE');
-      await supabase.from('dokumente').insert({
+      const { error: dokumentFehler } = await supabase.from('dokumente').insert({
         titel: `Kündigungsschreiben ${kuendigungsdatumFormatted}`,
         pfad: filePath,
         kategorie: 'Kündigung',
@@ -314,6 +322,8 @@ export const TerminationDialog = ({
         mietvertrag_id: vertragId,
         hochgeladen_am: new Date(kuendigungsdatum + 'T12:00:00').toISOString(),
       });
+      // Ohne Zeile in dokumente ist das Schreiben unsichtbar (bis 27.10.2026 ungeprüft)
+      if (dokumentFehler) await supabase.storage.from('dokumente').remove([filePath]);
 
       try {
         await terminationWebhookService.notifyTermination({
@@ -321,7 +331,13 @@ export const TerminationDialog = ({
         });
       } catch { /* silent */ }
 
-      toast({ title: "Erfolg", description: "Mietvertrag wurde gekündigt und das Kündigungsschreiben gespeichert." });
+      toast(dokumentFehler
+        ? {
+            title: "Gekündigt, Schreiben nicht abgelegt",
+            description: "Der Vertrag steht auf gekündigt, das Schreiben konnte aber nicht unter Dokumente abgelegt werden. Bitte herunterladen und dort hochladen.",
+            variant: "destructive",
+          }
+        : { title: "Erfolg", description: "Mietvertrag wurde gekündigt und das Kündigungsschreiben gespeichert." });
       onClose();
       onTerminationSuccess?.();
     } catch (error) {
