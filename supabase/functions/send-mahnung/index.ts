@@ -19,6 +19,9 @@ function getCorsHeaders(req: Request) {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PDF_DATEINAME = /^[A-Za-z0-9_.-]+\.pdf$/;
+// Eine Adresse ohne Leerraum, Komma, Semikolon, spitze Klammern oder Anfuehrungszeichen
+const MAILADRESSE = /^[^\s@,;<>"()]+@[^\s@,;<>"()]+\.[^\s@,;<>"()]+$/;
+const MAX_KOPIEN = 5;
 
 /** Nur ein PDF direkt im Mahnungsordner dieses Vertrags (mietvertragId ist vorher als UUID geprueft). */
 function mahnungsPdfErlaubt(pfad: string, mietvertragId: string): boolean {
@@ -304,6 +307,17 @@ serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    // CC ist in der App bewusst ein freies Feld (Kopie ans eigene Postfach, an die Kanzlei).
+    // Bis zum 27.10.2026 ging sein Inhalt ungeprueft in den Mailkopf; jetzt nur wohlgeformte
+    // Adressen, hoechstens fuenf.
+    const kopie = Array.isArray(data.ccEmails)
+      ? data.ccEmails.map((adresse) => String(adresse ?? '').trim()).filter(Boolean)
+      : [];
+    if (kopie.length > MAX_KOPIEN || kopie.some((adresse) => !MAILADRESSE.test(adresse))) {
+      return new Response(JSON.stringify({ error: `Die CC-Adressen sind ungültig. Erlaubt sind höchstens ${MAX_KOPIEN} vollständige Mailadressen. Es wurde nichts versendet.` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     // Die Stufe in Schreiben und Mail rechnet die App aus dem Stand beim Oeffnen des Dialogs
     // (gespeicherte Stufe + 1). Hatte inzwischen jemand anders gemahnt, gingen Schreiben und
     // Mail mit der alten Stufe raus, waehrend der Vertrag eine Stufe weiter zaehlte; auf Stufe 3
@@ -375,8 +389,8 @@ serve(async (req) => {
       html: htmlBody,
     };
 
-    if (data.ccEmails && data.ccEmails.length > 0) {
-      mailOptions.cc = data.ccEmails.join(', ');
+    if (kopie.length > 0) {
+      mailOptions.cc = kopie.join(', ');
     }
 
     if (pdfBuffer) {
@@ -394,7 +408,7 @@ serve(async (req) => {
       text: htmlZuText(htmlBody),
       html: htmlBody,
       empfaenger: [data.recipientEmail],
-      kopie: data.ccEmails ?? [],
+      kopie,
       anhang_pfad: data.pdfPath || null,
       anhang_name: pdfBuffer ? pdfFilename : null,
       mietvertrag_id: data.mietvertragId,

@@ -337,7 +337,8 @@ export function MahnungErstellungModal({
     setIsSendingEmail(true);
     try {
       const recipientName = contractData.mieter?.map(m => `${m.vorname} ${m.nachname}`).join(' & ') || 'Mieter';
-      const ccEmails = emailCc ? emailCc.split(',').map(e => e.trim()).filter(Boolean) : [];
+      // Komma, Semikolon oder Leerzeichen trennen; send-mahnung prüft jede Adresse (27.10.2026)
+      const ccEmails = emailCc ? emailCc.split(/[,;\s]+/).map(e => e.trim()).filter(Boolean) : [];
 
       const { data: versand, error } = await supabase.functions.invoke('send-mahnung', {
         body: {
@@ -887,7 +888,7 @@ export function MahnungErstellungModal({
                     )}
                   </div>
                   <div>
-                    <Label>CC (optional, kommagetrennt)</Label>
+                    <Label>CC (optional, höchstens 5, kommagetrennt)</Label>
                     <Input
                       type="text"
                       value={emailCc}
