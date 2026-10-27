@@ -71,7 +71,9 @@ import {
   belegeFuer,
   unbelegterRueckbau,
   mitZeitlimit,
+  DB_ZEITLIMIT_MS,
   UPLOAD_ZEITLIMIT_MS,
+  uploadZeitlimitFuer,
   type BelegAblesung,
   type HistorieHerkunft,
   type Rueckbau,
@@ -819,13 +821,16 @@ export const UebergabeDialog = ({
       const batch = await Promise.all(
         paths.slice(i, i + BATCH).map(async (path) => {
           try {
-            const { data } = await supabase.storage
-              .from("dokumente")
-              .createSignedUrl(path, 300);
-            if (!data?.signedUrl) return null;
-            const resp = await fetch(data.signedUrl);
-            if (!resp.ok) return null;
-            return await blobToPdfImage(await resp.blob());
+            // Mit Grenze: ohne sie hing das Speichern im Funkloch an einem einzelnen Foto (27.10.2026)
+            return await mitZeitlimit((async () => {
+              const { data } = await supabase.storage
+                .from("dokumente")
+                .createSignedUrl(path, 300);
+              if (!data?.signedUrl) return null;
+              const resp = await fetch(data.signedUrl);
+              if (!resp.ok) return null;
+              return await blobToPdfImage(await resp.blob());
+            })(), UPLOAD_ZEITLIMIT_MS, "Foto laden");
           } catch {
             return null;
           }
@@ -963,6 +968,11 @@ export const UebergabeDialog = ({
    * nicht mehr neu erstellen, und bis zum 19.10.2026 meldete es trotzdem
    * „erfolgreich gespeichert“.
    */
+  // Jede Anfrage beim Speichern mit Grenze. Bis zum 27.10.2026 hatten nur Anmeldung und PDF-Upload
+  // eine; riss die Verbindung still ab, drehte „Wird gespeichert …“ ohne Ende, und der Dialog ließ
+  // sich nicht schließen. Ein Zeitlimit zählt als Netzfehler — dann greift „Ausgang unklar“.
+  const db = <T,>(arbeit: PromiseLike<T>, was: string): Promise<T> => mitZeitlimit(arbeit, DB_ZEITLIMIT_MS, was);
+
   const handleSubmit = async (ohneFehlendeFotos = false) => {
     if (!uebergabeDatum) {
       melden({ art: "fehler", titel: "Kein Datum", text: "Bitte wählen Sie ein Übergabedatum aus." });
@@ -1047,20 +1057,20 @@ export const UebergabeDialog = ({
         const staende = vertragsStaende(zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER, isEinzug);
         const spalten = Object.keys(staende);
         if (spalten.length === 0) continue;
-        const { data: vorherRoh, error: leseFehler } = await supabase
+        const { data: vorherRoh, error: leseFehler } = await db(supabase
           .from("mietvertrag")
           .select(spalten.join(","))
           .eq("id", contract.id)
-          .maybeSingle();
+          .maybeSingle(), "Vertragsstände lesen");
         if (leseFehler) throw leseFehler;
         // Vor dem Schreiben merken: Geht nur die Antwort verloren, kennt der Rückbau
         // den Schreibzugriff trotzdem; kam er nicht an, greift die Bedingung nicht
         rueckbau.zeilen.push({ tabelle: "mietvertrag", id: contract.id, neu: staende, vorher: (vorherRoh ?? {}) as unknown as Record<string, unknown> });
         rueckbauMerken(rueckbau);
-        const { error: vertragError } = await supabase
+        const { error: vertragError } = await db(supabase
           .from("mietvertrag")
           .update(staende)
-          .eq("id", contract.id);
+          .eq("id", contract.id), "Vertragsstände schreiben");
         if (vertragError) throw vertragError;
       }
 
@@ -1078,7 +1088,7 @@ export const UebergabeDialog = ({
           // oder neu geladene Fotos). Nichts verweist mehr darauf — der Dokument-
           // eintrag kommt erst ganz am Schluss, die Historie ist zurückgenommen.
           if (!(await protokollEingetragen(vorherigesPdf.pfad))) {
-            const { error: entfernFehler } = await supabase.storage.from("dokumente").remove([vorherigesPdf.pfad]);
+            const { error: entfernFehler } = await db(supabase.storage.from("dokumente").remove([vorherigesPdf.pfad]), "Altes Protokoll entfernen");
             if (entfernFehler) console.warn("Überholtes Protokoll-PDF blieb im Speicher liegen:", entfernFehler.message);
           }
         }
@@ -1087,10 +1097,14 @@ export const UebergabeDialog = ({
         // unsichtbar und ohne Verweis im Speicher.
         filePath = vorherigesPdf?.pdf === aktuellesPdf ? vorherigesPdf.pfad : uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
         hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath, bestaetigt: false };
-        // Mit Grenze wie die Fotos: ohne sie hing das Speichern im Funkloch für immer
+        // Schon vor dem Upload im Rückbau: Kommt er nach einem Zeitlimit doch noch an, räumt der
+        // Entwurf ihn beim nächsten Öffnen oder Verwerfen ab, auch in einer neuen Sitzung
+        rueckbau.pdfPfad = filePath;
+        rueckbauMerken(rueckbau);
+        // Mit Grenze wie die Fotos, bemessen nach Dateigröße: ohne sie hing das Speichern im Funkloch für immer
         const { error: pdfUploadError } = await mitZeitlimit(
           supabase.storage.from("dokumente").upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: true }),
-          UPLOAD_ZEITLIMIT_MS,
+          uploadZeitlimitFuer(aktuellesPdf.size),
           "Protokoll-PDF hochladen"
         );
         if (pdfUploadError) throw pdfUploadError;
@@ -1127,7 +1141,7 @@ export const UebergabeDialog = ({
       if (historie.length > 0) {
         // Mit den bisherigen Werten: Eine übernommene Zeile wird im Rückbau wiederhergestellt
         const HISTORIE_SPALTEN = ["stand", "mietvertrag_id", "zaehler_nummer", "protokoll_pfad", "foto_pfad", "erfassung", "erkannter_stand"] as const;
-        const vorhandeneAblesungen = await alleSeiten<Pick<Tables<"zaehlerstand_historie">, "id" | "einheit_id" | "zaehler_typ" | (typeof HISTORIE_SPALTEN)[number]>>((von, bis, mitZaehlung) =>
+        const vorhandeneAblesungen = await db(alleSeiten<Pick<Tables<"zaehlerstand_historie">, "id" | "einheit_id" | "zaehler_typ" | (typeof HISTORIE_SPALTEN)[number]>>((von, bis, mitZaehlung) =>
           supabase
             .from("zaehlerstand_historie")
             .select("id, einheit_id, zaehler_typ, stand, mietvertrag_id, zaehler_nummer, protokoll_pfad, foto_pfad, erfassung, erkannter_stand", {
@@ -1138,7 +1152,7 @@ export const UebergabeDialog = ({
             .eq("quelle", historieQuelle)
             .order("id")
             .range(von, bis)
-        );
+        ), "Ablesungen lesen");
         const { einfuegen, aktualisieren } = historieAufteilen(historie, vorhandeneAblesungen);
         for (const eintrag of aktualisieren) {
           for (const alt of vorhandeneAblesungen.filter((v) => v.einheit_id === eintrag.einheit_id && v.zaehler_typ === eintrag.zaehler_typ)) {
@@ -1150,7 +1164,7 @@ export const UebergabeDialog = ({
             });
           }
           rueckbauMerken(rueckbau);
-          const { error: aktualisierFehler } = await supabase
+          const { error: aktualisierFehler } = await db(supabase
             .from("zaehlerstand_historie")
             .update({
               stand: eintrag.stand,
@@ -1164,14 +1178,14 @@ export const UebergabeDialog = ({
             .eq("einheit_id", eintrag.einheit_id)
             .eq("zaehler_typ", eintrag.zaehler_typ)
             .eq("datum", eintrag.datum)
-            .eq("quelle", eintrag.quelle);
+            .eq("quelle", eintrag.quelle), "Ablesung aktualisieren");
           if (aktualisierFehler) throw aktualisierFehler;
         }
         if (einfuegen.length > 0) {
-          const { data: eingefuegt, error: historieError, status: historieStatus } = await supabase
+          const { data: eingefuegt, error: historieError, status: historieStatus } = await db(supabase
             .from("zaehlerstand_historie")
             .insert(einfuegen)
-            .select("id");
+            .select("id"), "Ablesungen speichern");
           if (historieError) throw Object.assign(historieError, { status: historieStatus });
           // Kam die Antwort nicht an, findet der Rückbau die Zeilen über den Protokollpfad
           rueckbau.historieIds.push(...(eingefuegt ?? []).map((z) => z.id));
@@ -1185,11 +1199,11 @@ export const UebergabeDialog = ({
       for (const contract of contracts) {
         const staende = aktuelleStaende(zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER);
         if (staende.length === 0) continue;
-        const { data: vorherRoh, error: leseFehler } = await supabase
+        const { data: vorherRoh, error: leseFehler } = await db(supabase
           .from("einheiten")
           .select(staende.flatMap((a) => [a.standSpalte, a.datumSpalte]).join(","))
           .eq("id", contract.einheit.id)
-          .maybeSingle();
+          .maybeSingle(), "Zählerstände der Einheit lesen");
         if (leseFehler) throw leseFehler;
         const vorher = (vorherRoh ?? {}) as unknown as Record<string, unknown>;
         for (const a of staende) {
@@ -1202,12 +1216,12 @@ export const UebergabeDialog = ({
           };
           rueckbau.zeilen.push(zeile);
           rueckbauMerken(rueckbau);
-          const { data: getroffen, error: standFehler } = await supabase
+          const { data: getroffen, error: standFehler } = await db(supabase
             .from("einheiten")
             .update(neu as TablesUpdate<"einheiten">)
             .eq("id", contract.einheit.id)
             .or(`${a.datumSpalte}.is.null,${a.datumSpalte}.lte.${historieDatum}`)
-            .select("id");
+            .select("id"), "Zählerstand der Einheit schreiben");
           if (standFehler) throw standFehler;
           // Ein späterer Stand stand schon da — nichts geschrieben, nichts zurückzunehmen
           if (!getroffen || getroffen.length === 0) {
@@ -1271,7 +1285,7 @@ export const UebergabeDialog = ({
         geloescht: false,
       }));
 
-      const vorhandeneDokumente = await alleSeiten<{ pfad: string; mietvertrag_id: string | null }>((von, bis, mitZaehlung) =>
+      const vorhandeneDokumente = await db(alleSeiten<{ pfad: string; mietvertrag_id: string | null }>((von, bis, mitZaehlung) =>
         supabase
           .from("dokumente")
           .select("pfad, mietvertrag_id", { count: mitZaehlung ? "exact" : undefined })
@@ -1279,10 +1293,10 @@ export const UebergabeDialog = ({
           .eq("kategorie", "Übergabeprotokoll")
           .order("id")
           .range(von, bis)
-      );
+      ), "Dokumente lesen");
       const neueDokumente = fehlendeDokumente([...dokumenteInserts, ...pdfDokInserts], vorhandeneDokumente);
       if (neueDokumente.length > 0) {
-        const { error: dokError, status: dokStatus } = await supabase.from("dokumente").insert(neueDokumente);
+        const { error: dokError, status: dokStatus } = await db(supabase.from("dokumente").insert(neueDokumente), "Dokumente eintragen");
         // Mit Status: Ein 504 vom Gateway heißt „vielleicht doch angekommen“ (istNetzfehler)
         if (dokError) throw Object.assign(dokError, { status: dokStatus });
       }
@@ -1331,12 +1345,14 @@ export const UebergabeDialog = ({
       }
       setOffenerRueckbau(rueckbauRef.current);
       if (!zurueckgenommen) setAusgangUnklar(true);
+      // Die eigene Meldung der Anmeldeprüfung erreichte bis zum 27.10.2026 nur die Konsole
+      const anmeldeMeldung = error instanceof Error && error.message.startsWith("Die Anmeldung ließ sich nicht prüfen") ? error.message : null;
       melden({
         art: "fehler",
         titel: "Nicht gespeichert",
-        text: zurueckgenommen
+        text: anmeldeMeldung ?? (zurueckgenommen
           ? "Die Übergabe konnte nicht gespeichert werden. Die Eingaben bleiben erhalten — bitte erneut auf „Protokoll speichern“ tippen."
-          : "Die Übergabe konnte nicht gespeichert werden, und ein Teil stand schon in der Datenbank. Bitte bei Verbindung auf „Erneut prüfen“ tippen; bis dahin ist das Formular gesperrt.",
+          : "Die Übergabe konnte nicht gespeichert werden, und ein Teil stand schon in der Datenbank. Bitte bei Verbindung auf „Erneut prüfen“ tippen; bis dahin ist das Formular gesperrt."),
       });
     } finally {
       speichertRef.current = false;
@@ -1364,7 +1380,7 @@ export const UebergabeDialog = ({
             : supabase.from("zaehlerstand_historie").update(z.vorher as TablesUpdate<"zaehlerstand_historie">).eq("id", z.id)
       ) as unknown as Filterbar;
       for (const [spalte, wert] of Object.entries(z.neu)) abfrage = abfrage.eq(spalte, wert);
-      const { error } = await abfrage;
+      const { error } = await db(abfrage as unknown as PromiseLike<{ error: unknown }>, "Stand zurücksetzen");
       if (error) throw error;
     };
     // 1. Übernommene Historienzeilen wiederherstellen — nur, wo noch das eigene Protokoll steht
@@ -1375,11 +1391,11 @@ export const UebergabeDialog = ({
     if (r.historieIds.length > 0) {
       let loeschen = supabase.from("zaehlerstand_historie").delete().in("id", r.historieIds);
       if (r.pdfPfad) loeschen = loeschen.eq("protokoll_pfad", r.pdfPfad);
-      const { error } = await loeschen;
+      const { error } = await db(loeschen, "Eigene Ablesungen löschen");
       if (error) throw error;
     }
     if (r.pdfPfad) {
-      const { error } = await supabase.from("zaehlerstand_historie").delete().eq("protokoll_pfad", r.pdfPfad);
+      const { error } = await db(supabase.from("zaehlerstand_historie").delete().eq("protokoll_pfad", r.pdfPfad), "Ablesungen zurücknehmen");
       if (error) throw error;
     }
     // 3. Vertrag und Einheit — außer, ein anderes Speichern belegt denselben Wert
@@ -1388,13 +1404,13 @@ export const UebergabeDialog = ({
       const belege = belegeFuer(z);
       let zeile: typeof z | null = z;
       if (belege.length > 0) {
-        const { data: ablesungen, error } = await supabase
+        const { data: ablesungen, error } = await db(supabase
           .from("zaehlerstand_historie")
           .select("einheit_id, mietvertrag_id, zaehler_typ, stand, datum, quelle, protokoll_pfad")
           .eq(z.tabelle === "einheiten" ? "einheit_id" : "mietvertrag_id", z.id)
           .in("zaehler_typ", [...new Set(belege.map((b) => b.zaehlerTyp))])
           .in("stand", [...new Set(belege.map((b) => b.stand))])
-          .limit(500);
+          .limit(500), "Belege prüfen");
         if (error) throw error;
         // Je Spalte: Eine belegte Spalte bleibt, die übrigen werden zurückgesetzt (27.10.2026)
         zeile = unbelegterRueckbau(z, (ablesungen ?? []) as BelegAblesung[], r.pdfPfad);
@@ -1403,7 +1419,7 @@ export const UebergabeDialog = ({
     }
     if (r.pdfPfad && r.pdfPfad !== pdfBehalten) {
       // Ohne Dokumenteintrag ist die Datei unsichtbar; bleibt sie liegen, stört sie nicht
-      const { error } = await supabase.storage.from("dokumente").remove([r.pdfPfad]);
+      const { error } = await db(supabase.storage.from("dokumente").remove([r.pdfPfad]), "Protokoll-PDF entfernen");
       if (error) console.warn("Protokoll-PDF des abgebrochenen Laufs blieb liegen:", error.message);
       if (hochgeladenesPdfRef.current?.pfad === r.pdfPfad) hochgeladenesPdfRef.current = null;
     }
@@ -1412,7 +1428,7 @@ export const UebergabeDialog = ({
 
   /** Verweist ein Dokument auf dieses PDF? Dann ist es Teil eines gespeicherten Protokolls. */
   const protokollEingetragen = async (pfad: string): Promise<boolean> => {
-    const { data, error } = await supabase.from("dokumente").select("id").eq("pfad", pfad).eq("geloescht", false).limit(1);
+    const { data, error } = await db(supabase.from("dokumente").select("id").eq("pfad", pfad).eq("geloescht", false).limit(1), "Dokument prüfen");
     if (error) throw error;
     return (data?.length ?? 0) > 0;
   };

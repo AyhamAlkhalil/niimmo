@@ -16,6 +16,7 @@ import {
   fehlendeDokumente,
   dateienHochladen,
   LEERE_ZAEHLER,
+  uploadZeitlimitFuer,
 } from "./uebergabeSpeicherung";
 
 const VERTRAG = "faa7c50f-dfe1-4900-b8cd-000000000001";
@@ -380,7 +381,23 @@ describe("Protokoll-PDF nach einem Zeitlimit", () => {
     // 27.10.2026: Der Neuversuch bekam einen neuen Pfad; kam der erste Upload doch an, lag er verwaist
     const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
     expect(dialog).toMatch(/filePath = vorherigesPdf\?\.pdf === aktuellesPdf \? vorherigesPdf\.pfad : uebergabePdfPfad\(/);
-    expect(dialog).toMatch(/hochgeladenesPdfRef\.current = \{ pdf: aktuellesPdf, pfad: filePath, bestaetigt: false \};\s*\/\/[^\n]*\n\s*const \{ error: pdfUploadError \}/);
+    expect(dialog).toMatch(/hochgeladenesPdfRef\.current = \{ pdf: aktuellesPdf, pfad: filePath, bestaetigt: false \};[\s\S]{0,700}const \{ error: pdfUploadError \}/);
     expect(dialog).toMatch(/upload\(filePath, aktuellesPdf, \{ contentType: "application\/pdf", upsert: true \}\)/);
+  });
+});
+
+describe("uploadZeitlimitFuer", () => {
+  it("bemisst das Zeitlimit nach Dateigröße, mindestens 120 s", () => {
+    // 27.10.2026: Ein 17-MiB-Protokoll lief bei festen 120 s zwangsläufig ins Limit
+    expect(uploadZeitlimitFuer(1_000_000)).toBe(120_000);
+    expect(uploadZeitlimitFuer(17.4 * 1024 * 1024)).toBeGreaterThan(360_000);
+    expect(uploadZeitlimitFuer(Number.NaN)).toBe(120_000);
+  });
+
+  it("begrenzt im Speicherablauf jede Datenbankanfrage", () => {
+    const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
+    const speichern = dialog.slice(dialog.indexOf("const handleSubmit = async"), dialog.indexOf("const protokollEingetragen"));
+    expect(speichern).not.toMatch(/= await supabase\b/);
+    expect(dialog).toMatch(/uploadZeitlimitFuer\(aktuellesPdf\.size\)/);
   });
 });

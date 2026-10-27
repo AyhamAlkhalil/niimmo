@@ -420,6 +420,20 @@ export async function mitZeitlimit<T>(arbeit: PromiseLike<T>, ms: number, was: s
 /** Höchstdauer eines Upload-Versuchs: ein 8-MB-Foto über langsames Mobilnetz braucht gut eine Minute. */
 export const UPLOAD_ZEITLIMIT_MS = 120_000;
 
+/** Höchstdauer einer einzelnen Datenbankanfrage beim Speichern der Übergabe. */
+export const DB_ZEITLIMIT_MS = 30_000;
+
+/**
+ * Zeitlimit für den Upload einer Datei nach ihrer Größe: mindestens UPLOAD_ZEITLIMIT_MS, sonst
+ * 50 KB/s als langsamstes Mobilnetz. Bis zum 27.10.2026 galten fest 120 s: Ein Protokoll mit 17 MiB
+ * (live vorhanden) lief bei schwachem Netz zwangsläufig ins Limit, und jeder Neuversuch lud es
+ * vollständig neu hoch — vor Ort ließ es sich nicht speichern.
+ */
+export function uploadZeitlimitFuer(bytes: number): number {
+  const nachGroesse = Number.isFinite(bytes) && bytes > 0 ? Math.ceil(bytes / 50_000) * 1000 : 0;
+  return Math.max(UPLOAD_ZEITLIMIT_MS, nachGroesse);
+}
+
 /**
  * Lädt Fotos einzeln hoch, jedes mit einem zweiten Versuch nach kurzer Pause.
  * Bis zum 17.10.2026 brach der erste Fehler die ganze Auswahl ab: Bei
