@@ -4,6 +4,7 @@ import {
   istGekuendigt,
   mietendeFelder,
   fristloseKuendigungFelder,
+  istVergangenerTag,
   istLaufenderVertrag,
   getLaufenderVertrag,
   summiereLaufendeMieten,
@@ -181,5 +182,19 @@ describe("fristloseKuendigungFelder", () => {
   it("nimmt 14 Tage, wenn die Frist fehlt oder ungültig ist", () => {
     expect(fristloseKuendigungFelder(Number.NaN, new Date(2026, 9, 27)).ende_datum).toBe("2026-11-10");
     expect(fristloseKuendigungFelder(0, new Date(2026, 9, 27)).ende_datum).toBe("2026-11-10");
+  });
+});
+
+describe("istVergangenerTag", () => {
+  it("wertet den letzten Vertragstag noch nicht als vergangen", () => {
+    // 27.10.2026: new Date('2026-10-31') < new Date() galt am 31.10. ab 01:00 Uhr
+    expect(istVergangenerTag("2026-10-31", new Date(2026, 9, 31, 1, 30))).toBe(false);
+    expect(istVergangenerTag("2026-10-31", new Date(2026, 9, 31, 23, 59))).toBe(false);
+    expect(istVergangenerTag("2026-10-31", new Date(2026, 10, 1, 0, 1))).toBe(true);
+  });
+
+  it("ist für fehlende Daten false", () => {
+    expect(istVergangenerTag(null)).toBe(false);
+    expect(istVergangenerTag("")).toBe(false);
   });
 });

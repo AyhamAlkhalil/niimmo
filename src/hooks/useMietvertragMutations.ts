@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { format } from "date-fns";
-import { getVertragsende, mietendeFelder } from "@/utils/contractUtils";
+import { getVertragsende, istVergangenerTag, mietendeFelder } from "@/utils/contractUtils";
 import {
   VERTRAG_ZAEHLER_FELDER,
   geaenderteZaehlernummern,
@@ -160,7 +160,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           const ende = getVertragsende({ ende_datum: newEndForDb, kuendigungsdatum: vertrag.kuendigungsdatum });
           if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, vertrag.start_datum, ende, vertragId))) return;
         }
-        const isPast = !!newEndForDb && new Date(newEndForDb) < new Date();
+        const isPast = istVergangenerTag(newEndForDb);
         const { error } = await supabase.from('mietvertrag').update({ ...felder, ...(isPast ? { status: 'beendet' } : {}) }).eq('id', vertragId);
         if (error) throw error;
         toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
@@ -480,7 +480,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           if (field === 'ende_datum') {
             // Unverändert nichts schreiben -- sonst bekäme ein Altvertrag ohne ende_datum still eins.
             if (endDatumChanged && !('fehler' in endeFelder)) Object.assign(mietvertragUpdates, endeFelder);
-            if (endForDb && new Date(endForDb) < new Date()) mietvertragUpdates.status = 'beendet';
+            if (istVergangenerTag(endForDb)) mietvertragUpdates.status = 'beendet';
             return;
           }
           mietvertragUpdates[field] = editedValues[field];

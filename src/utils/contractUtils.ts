@@ -176,6 +176,15 @@ export const istGekuendigt = (
 export const alsIsoTag = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+/**
+ * True, wenn der Kalendertag (JJJJ-MM-TT) vor heute liegt — der letzte Vertragstag selbst
+ * zaehlt noch als laufend, wie in istLaufenderVertrag() und im Nachtlauf (`< CURRENT_DATE`).
+ * `new Date('2026-10-31') < new Date()` galt am 31.10. ab 01:00 Uhr deutscher Zeit, und die
+ * Vertragsbearbeitung setzte den Vertrag so am letzten Tag auf 'beendet' (27.10.2026).
+ */
+export const istVergangenerTag = (tag: string | null | undefined, heute: Date = new Date()): boolean =>
+  !!tag && tag.slice(0, 10) < alsIsoTag(heute);
+
 export interface VertragZeitraum {
   status?: string | null;
   start_datum?: string | null;
