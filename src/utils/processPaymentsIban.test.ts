@@ -43,7 +43,7 @@ const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fn: any = new Function(
   'console',
-  `${js}\nreturn { normalisiereIban, getContractContext, categorizePaymentType, matchPaymentByRules };`,
+  `${js}\nreturn { normalisiereIban, getContractContext, categorizePaymentType, matchPaymentByRules, checkSonderfallRegeln };`,
 )({ log: () => {}, error: () => {} });
 
 function vertrag(id: string, kaltmiete: number, bankkonto: string | null, weitere: string | null = null) {
@@ -121,6 +121,31 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
     expect(gekuendigt).toMatchObject({ selected: false });
     const beendet = fn.matchPaymentByRules(zahlung(500), await fn.getContractContext(client(zeilen('beendet'))), []);
     expect(beendet).toMatchObject({ mietvertrag_id: 'a', selected: true });
+  });
+
+  it('wählt nicht vor, wenn die Buchung in keiner Vertragslaufzeit liegt', async () => {
+    // 27.10.2026: Der einzige aktive Vertrag galt dann als eindeutig und kam mit 95 % vorausgewählt
+    const vertraege = await fn.getContractContext(client([
+      { ...vertrag('alt', 500, KONTO), status: 'beendet', start_datum: '2023-01-01', ende_datum: '2024-12-31' },
+      { ...vertrag('neu', 600, KONTO), start_datum: '2027-01-01' },
+    ]));
+    expect(fn.matchPaymentByRules(zahlung(1000), vertraege, [])).toMatchObject({ mietvertrag_id: 'neu', selected: false });
+    // Passt der Betrag eindeutig, bleibt die Vorauswahl
+    expect(fn.matchPaymentByRules(zahlung(600), vertraege, [])).toMatchObject({ mietvertrag_id: 'neu', selected: true });
+  });
+
+  it('wählt über eine Sonderfall-Regel nur vor, wenn der Zielvertrag eindeutig ist', async () => {
+    const regel = {
+      id: 'r1', name: 'Mutter zahlt', beschreibung: null, match_typ: 'verwendungszweck_contains',
+      match_wert: 'miete', ziel_kategorie: 'Miete', ziel_mieter_name: 'Beispiel', confidence: 90, aktiv: true,
+    };
+    const zwei = await fn.getContractContext(client([vertrag('wohnung', 1408, null), vertrag('stellplatz', 50, null)]));
+    expect(fn.checkSonderfallRegeln(zahlung(1000, ''), [regel], zwei)).toMatchObject({ selected: false, confidence: 60 });
+    expect(fn.checkSonderfallRegeln(zahlung(50, ''), [regel], zwei)).toMatchObject({ mietvertrag_id: 'stellplatz', selected: true, confidence: 90 });
+    const keiner = fn.checkSonderfallRegeln(zahlung(50, ''), [{ ...regel, ziel_mieter_name: 'Niemand' }], zwei);
+    expect(keiner).toMatchObject({ mietvertrag_id: null, selected: false });
+    const ohneZiel = fn.checkSonderfallRegeln(zahlung(50, ''), [{ ...regel, ziel_mieter_name: null, ziel_kategorie: 'Nichtmiete' }], zwei);
+    expect(ohneZiel).toMatchObject({ mietvertrag_id: null, selected: true });
   });
 
   it('erkennt die Jobcenter-IBAN und IBAN-Regeln auch mit Leerzeichen', () => {

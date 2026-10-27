@@ -487,12 +487,17 @@ function checkSonderfallRegeln(
     
     // Finde passenden Vertrag wenn ziel_mieter_name gesetzt
     let targetContract: ContractInfo | null = null;
+    // Bis zum 27.10.2026 immer vorausgewaehlt, auch wenn der Name auf mehrere Vertraege
+    // (Wohnung und Stellplatz, alter und neuer Vertrag) oder auf keinen mehr passte.
+    let eindeutig = true;
     if (regel.ziel_mieter_name) {
       const nameLower = regel.ziel_mieter_name.toLowerCase();
       const matchingContracts = contracts.filter(c =>
         c.mieterNamen.some(n => n.includes(nameLower) || nameLower.includes(n))
       );
-      targetContract = selectBestContractByDate(payment, matchingContracts);
+      const wahl = waehleVertrag(payment, matchingContracts);
+      targetContract = wahl.vertrag;
+      eindeutig = wahl.eindeutig;
     }
     
     console.log(`Sonderfall-Regel "${regel.name}" greift für Zahlung: ${payment.verwendungszweck}`);
@@ -501,9 +506,9 @@ function checkSonderfallRegeln(
       ...payment,
       mietvertrag_id: targetContract?.id || null,
       kategorie: regel.ziel_kategorie,
-      zuordnungsgrund: `Sonderfall-Regel: ${regel.name}`,
-      confidence: regel.confidence,
-      selected: true
+      zuordnungsgrund: `Sonderfall-Regel: ${regel.name}${eindeutig ? '' : ' (Vertrag nicht eindeutig, bitte prüfen)'}`,
+      confidence: eindeutig ? regel.confidence : Math.min(regel.confidence, 60),
+      selected: eindeutig
     };
   }
   
@@ -602,7 +607,8 @@ function waehleVertrag(payment: Payment, treffer: ContractInfo[]): { vertrag: Co
   );
   // Begruendet nur, wenn genau ein Kandidat noch laeuft (aktiv oder gekuendigt gegen beendet).
   // Ein gekuendigter Vertrag laeuft bis zum Ende weiter und kann die Zahlung genauso tragen.
-  const eindeutig = sortiert.filter(c => c.status !== "beendet").length === 1;
+  // Liegt die Buchung in keiner Laufzeit, sagt der Status nichts ueber sie (27.10.2026).
+  const eindeutig = validByDate.length > 0 && sortiert.filter(c => c.status !== "beendet").length === 1;
   console.log(`Selected contract ${sortiert[0].id} (${sortiert[0].mieter}) - status: ${sortiert[0].status} (no unique amount match${eindeutig ? '' : ', unsicher'})`);
   return { vertrag: sortiert[0], eindeutig };
 }
