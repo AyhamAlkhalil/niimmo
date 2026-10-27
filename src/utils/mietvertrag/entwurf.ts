@@ -593,9 +593,13 @@ export function hatNamen(p: EntwurfPerson): boolean {
   return firma ? !!p.firmenname?.trim() : !!(p.vorname.trim() || p.nachname.trim());
 }
 
-/** Personenzahl: alle, die einziehen — Mitmieter und Mitbewohner. */
+/**
+ * Personenzahl: alle Menschen, die einziehen — Mitmieter und Mitbewohner. Eine Firma als Mieterin
+ * wohnt nicht selbst; bis zum 27.10.2026 zählte sie als Person (Firma plus Mitarbeiter = 2 im
+ * Vertrag und im Personenschlüssel der Betriebskosten, eine Firma allein = 1 statt einer Sperre).
+ */
 export function personenzahl(personen: EntwurfPerson[]): number {
-  return personen.filter(hatNamen).length;
+  return personen.filter(p => hatNamen(p) && !(p.istUnternehmen && p.rolle === 'mitmieter')).length;
 }
 
 /** Vertragsparteien in Generator-Form: nur Mitmieter, leere Karten nicht. */

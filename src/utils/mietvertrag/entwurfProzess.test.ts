@@ -462,6 +462,14 @@ describe('Befunde der QA vom 20.10.2026', () => {
     expect(mitMietbeginn(daten, '2026-12-01', true).kuendigungsverzichtBis).toBe('');
   });
 
+  it('zählt eine Firma als Mieterin nicht als Person, ihren Mitarbeiter als Mitbewohner schon', () => {
+    // 27.10.2026: Firma plus Mitarbeiter ergab 2 Personen im Vertrag und im Personenschlüssel
+    const firma = { ...leerePerson(), istUnternehmen: true, firmenname: 'Probe GmbH' };
+    const mitarbeiter = { ...leerePerson('mitbewohner'), vorname: 'Kai', nachname: 'Probe' };
+    expect(personenzahl([firma])).toBe(0);
+    expect(personenzahl([firma, mitarbeiter])).toBe(1);
+  });
+
   it('zählt einen Mitbewohner mit Namen, auch wenn „Unternehmen" stehen geblieben ist', () => {
     const p = { ...leerePerson('mitbewohner'), istUnternehmen: true, vorname: 'Kind', nachname: 'Probe' };
     expect(hatNamen(p)).toBe(true);

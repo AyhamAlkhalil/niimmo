@@ -320,7 +320,10 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     p4.push({ text: '', tabelle: betriebskostenTabelle(d, betriebskosten) });
 
     p4.push({
-      text: 'Positionen ohne Betrag sind benannt, aber derzeit nicht Gegenstand der Umlage. Für die Verteilung gilt:',
+      // Bis zum 27.10.2026: „Positionen ohne Betrag sind … nicht Gegenstand der Umlage“ — umgelegte
+      // Positionen ohne Einzelbetrag standen aber mit leerem Betrag in der Tabelle und galten damit
+      // in § 4 als nicht umgelegt, in Verteilerschlüssel und Anlage 2 als umgelegt (§ 305c BGB).
+      text: 'Mit „– – –“ gekennzeichnete Positionen sind benannt, aber derzeit nicht Gegenstand der Umlage. Für die Verteilung gilt:',
       linksbuendig: true,
     });
     for (const zeile of verteilerschluesselZeilen(d)) {
@@ -866,7 +869,8 @@ function betriebskostenTabelle(
   for (const pos of d.betriebskostenPositionen) {
     zeilen.push({
       links: `${pos.nummer}  ${pos.bezeichnung}`,
-      rechts: pos.umgelegt ? betragSpalte(pos.betrag) : '– – –',
+      // Umgelegt ohne Einzelbetrag: ausdrücklich „umgelegt“ statt eines leeren Feldes
+      rechts: pos.umgelegt ? (pos.betrag === null ? 'umgelegt' : betragSpalte(pos.betrag)) : '– – –',
     });
   }
 
