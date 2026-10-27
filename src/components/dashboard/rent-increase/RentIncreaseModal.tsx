@@ -14,7 +14,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
-import { kappungsgrenzeProzent, maximaleKaltmiete, wirksamAb } from '@/utils/mieterhoehungRegeln';
+import { kappungsgrenzeProzent, maximaleKaltmiete, wirksamAb, wirksamAbTag } from '@/utils/mieterhoehungRegeln';
+import { format } from 'date-fns';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 
 interface RentIncreaseModalProps {
@@ -230,9 +231,11 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       // erhöhte Miete erst ab dem dritten Kalendermonat nach Zugang geschuldet
       // (§ 558b Abs. 1 BGB). Wer sie zu früh setzt, erzeugt Mahnungen gegen
       // Mieter, die korrekt zahlen — genau das passierte bis zum 06.09.2026.
-      const heuteIso = new Date().toISOString().split('T')[0];
-      const wirksamDatum = wirksamAb(new Date());
-      const wirksamIso = wirksamDatum.toISOString().split('T')[0];
+      // Kalendertage lokal: toISOString() lag in deutscher Zeit einen Tag zu früh (27.10.2026)
+      const jetzt = new Date();
+      const heuteIso = format(jetzt, 'yyyy-MM-dd');
+      const wirksamDatum = wirksamAb(jetzt);
+      const wirksamIso = wirksamAbTag(jetzt);
 
       const { error: vorgangError } = await supabase.from('mieterhoehungen').insert({
         mietvertrag_id: contractData.mietvertrag_id,

@@ -12,6 +12,8 @@
  * die Deno-Kopie in agent-api ist bei Änderungen mitzuziehen.
  */
 
+import { format } from 'date-fns';
+
 /** § 558 Abs. 3 Satz 1 BGB — Regelfall: höchstens 20 % in drei Jahren. */
 export const KAPPUNGSGRENZE_REGEL_PROZENT = 20;
 
@@ -47,4 +49,14 @@ export function maximaleKaltmiete(aktuelleKaltmiete: number, istAngespannterMark
  */
 export function wirksamAb(zugang: Date): Date {
   return new Date(zugang.getFullYear(), zugang.getMonth() + UEBERLEGUNGSFRIST_MONATE + 1, 1);
+}
+
+/**
+ * wirksamAb als Kalendertag für die Datenbank (mieterhoehungen.wirksam_ab).
+ * Nicht über toISOString(): Die lokale Mitternacht des Monatsersten liegt in deutscher
+ * Zeit am Vortag in UTC — gespeichert wurde bis zum 27.10.2026 immer der Monatsletzte
+ * davor (Zugang 27.10.2026 → '2026-12-31' statt '2027-01-01').
+ */
+export function wirksamAbTag(zugang: Date): string {
+  return format(wirksamAb(zugang), 'yyyy-MM-dd');
 }

@@ -6,6 +6,7 @@ import {
   kappungsgrenzeProzent,
   maximaleKaltmiete,
   wirksamAb,
+  wirksamAbTag,
 } from './mieterhoehungRegeln';
 
 describe('Kappungsgrenze § 558 Abs. 3 BGB', () => {
@@ -49,6 +50,13 @@ describe('Wirksamkeit § 558b BGB', () => {
     const ab = wirksamAb(new Date(2026, 10, 20)); // November 2026
     expect(ab.getFullYear()).toBe(2027);
     expect(ab.getMonth()).toBe(1); // Februar
+  });
+
+  it('speichert den Monatsersten als Kalendertag, nicht den Vortag', () => {
+    // 27.10.2026: toISOString() ergab in deutscher Zeit '2026-12-31'
+    expect(wirksamAbTag(new Date(2026, 9, 27, 10))).toBe('2027-01-01');
+    expect(wirksamAbTag(new Date(2026, 2, 15, 0, 30))).toBe('2026-06-01');
+    expect(wirksamAbTag(new Date(2026, 6, 1, 23, 59))).toBe('2026-10-01');
   });
 
   it('liegt nie im Monat des Zugangs', () => {
