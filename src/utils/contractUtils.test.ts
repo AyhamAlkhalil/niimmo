@@ -5,6 +5,7 @@ import {
   istGekuendigt,
   mietendeFelder,
   fristloseKuendigungFelder,
+  raeumungsfristInTagen,
   istVergangenerTag,
   istLaufenderVertrag,
   getLaufenderVertrag,
@@ -213,5 +214,22 @@ describe("istVergangenerTag", () => {
     const hook = readFileSync("src/hooks/useAutoExpireContracts.ts", "utf-8");
     expect(hook).toMatch(/if \(!istVergangenerTag\(kuendigungsdatum\)\) return;/);
     expect(hook).not.toMatch(/new Date\(kuendigungsdatum\)/);
+  });
+});
+
+describe("raeumungsfristInTagen", () => {
+  it("normalisiert wie das Vertragsende: abrunden, 1 bis 365, sonst 14", () => {
+    expect(raeumungsfristInTagen(21)).toBe(21);
+    expect(raeumungsfristInTagen(10.9)).toBe(10);
+    expect(raeumungsfristInTagen(400)).toBe(14);
+    expect(raeumungsfristInTagen(-3)).toBe(14);
+    expect(raeumungsfristInTagen(Number.NaN)).toBe(14);
+  });
+
+  it("gibt dem Schreiben dasselbe Räumungsende wie dem Vertrag", () => {
+    // 27.10.2026: Das Schreiben rechnete mit parseInt(...) || 14 und nannte bei „400“ heute + 400
+    const modal = readFileSync("src/components/dashboard/MahnungErstellungModal.tsx", "utf-8");
+    expect(modal).toMatch(/const raeumungsfristStr = fristloseKuendigungFelder\(parseInt\(raeumungsfristTage\)\)\.ende_datum/);
+    expect(modal).not.toMatch(/parseInt\(raeumungsfristTage\) \|\| 14/);
   });
 });

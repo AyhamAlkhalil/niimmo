@@ -157,13 +157,22 @@ export const mietendeFelder = (
  * getVertragsende() weiter das spaetere Datum nannte. Bis zur Rueckgabe schuldet der
  * Mieter Nutzungsentschaedigung in Hoehe der Miete (§ 546a BGB).
  */
+/**
+ * Raeumungsfrist in ganzen Tagen, fuer Schreiben und Vertrag gleich: erst abrunden, dann pruefen
+ * (0,5 Tage waeren sonst „heute raeumen“), mehr als ein Jahr ist ein Tippfehler, sonst 14.
+ * Bis zum 27.10.2026 rechnete das Schreiben mit `parseInt(...) || 14` und nannte bei „400“ oder
+ * „-3“ ein anderes Raeumungsende, als der Vertrag bekam.
+ */
+export const raeumungsfristInTagen = (eingabe: number): number => {
+  const ganz = Math.floor(eingabe);
+  return Number.isFinite(ganz) && ganz > 0 && ganz <= 365 ? ganz : 14;
+};
+
 export const fristloseKuendigungFelder = (
   raeumungsfristTage: number,
   versandtag: Date = new Date()
 ): { status: "gekuendigt"; kuendigungsdatum: string; ende_datum: string } => {
-  // Erst abrunden, dann pruefen: 0,5 Tage waeren sonst „heute raeumen“. Mehr als ein Jahr ist ein Tippfehler.
-  const ganz = Math.floor(raeumungsfristTage);
-  const tage = Number.isFinite(ganz) && ganz > 0 && ganz <= 365 ? ganz : 14;
+  const tage = raeumungsfristInTagen(raeumungsfristTage);
   const basis = Number.isNaN(versandtag.getTime()) ? new Date() : versandtag;
   const ende = new Date(basis.getFullYear(), basis.getMonth(), basis.getDate() + tage);
   const tag = alsIsoTag(ende);

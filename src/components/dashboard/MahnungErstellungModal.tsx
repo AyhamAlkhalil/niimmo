@@ -20,7 +20,7 @@ import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, getVerzugszinssatz, t
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
-import { fristloseKuendigungFelder } from "@/utils/contractUtils";
+import { fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
 
 interface MahnungErstellungModalProps {
   isOpen: boolean;
@@ -174,9 +174,8 @@ export function MahnungErstellungModal({
     zahlungsfrist.setDate(zahlungsfrist.getDate() + (parseInt(zahlungsfristTage) || 7));
     const zahlungsfristStr = zahlungsfrist.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
     
-    const raeumungsfrist = new Date();
-    raeumungsfrist.setDate(raeumungsfrist.getDate() + (parseInt(raeumungsfristTage) || 14));
-    const raeumungsfristStr = raeumungsfrist.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    // Dasselbe Räumungsende, das der Vertrag beim Versand bekommt (fristloseKuendigungFelder)
+    const raeumungsfristStr = fristloseKuendigungFelder(parseInt(raeumungsfristTage)).ende_datum.split('-').reverse().join('.');
     
     const vertragStart = contractData.start_datum 
       ? new Date(contractData.start_datum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -974,7 +973,7 @@ export function MahnungErstellungModal({
                   Dieses Schreiben kündigt das Mietverhältnis <strong>außerordentlich fristlos</strong>
                   {' '}(§§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB). Mit dem Versand wird der Vertrag
                   auf „gekündigt" gesetzt und das Vertragsende auf das Ende der Räumungsfrist
-                  ({raeumungsfristTage} Tage) datiert. Der Versand an {emailRecipient} kann nicht
+                  ({raeumungsfristInTagen(parseInt(raeumungsfristTage))} Tage) datiert. Der Versand an {emailRecipient} kann nicht
                   rückgängig gemacht werden.
                 </>
               ) : (
