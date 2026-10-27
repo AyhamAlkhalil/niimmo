@@ -1152,8 +1152,9 @@ export const UebergabeDialog = ({
       if (historie.length > 0) {
         // Mit den bisherigen Werten: Eine übernommene Zeile wird im Rückbau wiederhergestellt
         const HISTORIE_SPALTEN = ["stand", "mietvertrag_id", "zaehler_nummer", "protokoll_pfad", "foto_pfad", "erfassung", "erkannter_stand"] as const;
-        const vorhandeneAblesungen = await db(alleSeiten<Pick<Tables<"zaehlerstand_historie">, "id" | "einheit_id" | "zaehler_typ" | (typeof HISTORIE_SPALTEN)[number]>>((von, bis, mitZaehlung) =>
-          supabase
+        // Zeitlimit je Seite (db), nicht über alle Seiten zusammen
+        const vorhandeneAblesungen = await alleSeiten<Pick<Tables<"zaehlerstand_historie">, "id" | "einheit_id" | "zaehler_typ" | (typeof HISTORIE_SPALTEN)[number]>>((von, bis, mitZaehlung) =>
+          db(supabase
             .from("zaehlerstand_historie")
             .select("id, einheit_id, zaehler_typ, stand, mietvertrag_id, zaehler_nummer, protokoll_pfad, foto_pfad, erfassung, erkannter_stand", {
               count: mitZaehlung ? "exact" : undefined,
@@ -1162,8 +1163,8 @@ export const UebergabeDialog = ({
             .eq("datum", historieDatum)
             .eq("quelle", historieQuelle)
             .order("id")
-            .range(von, bis)
-        ), "Ablesungen lesen");
+            .range(von, bis), "Ablesungen lesen")
+        );
         const { einfuegen, aktualisieren } = historieAufteilen(historie, vorhandeneAblesungen);
         for (const eintrag of aktualisieren) {
           for (const alt of vorhandeneAblesungen.filter((v) => v.einheit_id === eintrag.einheit_id && v.zaehler_typ === eintrag.zaehler_typ)) {
@@ -1296,15 +1297,15 @@ export const UebergabeDialog = ({
         geloescht: false,
       }));
 
-      const vorhandeneDokumente = await db(alleSeiten<{ pfad: string; mietvertrag_id: string | null }>((von, bis, mitZaehlung) =>
-        supabase
+      const vorhandeneDokumente = await alleSeiten<{ pfad: string; mietvertrag_id: string | null }>((von, bis, mitZaehlung) =>
+        db(supabase
           .from("dokumente")
           .select("pfad, mietvertrag_id", { count: mitZaehlung ? "exact" : undefined })
           .in("mietvertrag_id", vertragIdListe)
           .eq("kategorie", "Übergabeprotokoll")
           .order("id")
-          .range(von, bis)
-      ), "Dokumente lesen");
+          .range(von, bis), "Dokumente lesen")
+      );
       const neueDokumente = fehlendeDokumente([...dokumenteInserts, ...pdfDokInserts], vorhandeneDokumente);
       if (neueDokumente.length > 0) {
         const { error: dokError, status: dokStatus } = await db(supabase.from("dokumente").insert(neueDokumente), "Dokumente eintragen");
