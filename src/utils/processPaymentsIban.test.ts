@@ -34,6 +34,7 @@ const code = [
   ausschnitt('function checkSonderfallRegeln('),
   ausschnitt('function isPaymentInContractPeriod('),
   ausschnitt('function selectBestContractByDate('),
+  ausschnitt('function waehleVertrag('),
   ausschnitt('function isBetriebskostenabrechnung('),
   ausschnitt('function matchPaymentByRules('),
 ].join('\n');
@@ -91,6 +92,22 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
     expect(fn.matchPaymentByRules(zahlung(50), vertraege, []).mietvertrag_id).toBe('stellplatz');
     // Eine Zahlung ohne IBAN darf nicht über ein leeres Listenelement treffen
     expect(fn.matchPaymentByRules(zahlung(50, ''), vertraege, [])?.zuordnungsgrund ?? '').not.toMatch(/IBAN-Match/);
+  });
+
+  it('raet bei gemeinsamer IBAN ohne passenden Betrag nicht, sondern markiert die Zeile als unsicher', async () => {
+    // 27.10.2026: Eine Teilzahlung ging je nach DB-Reihenfolge an Wohnung oder Stellplatz, mit 95 % vorausgewählt
+    const vorwaerts = await fn.getContractContext(client([vertrag('wohnung', 1408, KONTO), vertrag('stellplatz', 50, KONTO)]));
+    const rueckwaerts = await fn.getContractContext(client([vertrag('stellplatz', 50, KONTO), vertrag('wohnung', 1408, KONTO)]));
+    for (const betrag of [1000, 1458]) {
+      const a = fn.matchPaymentByRules(zahlung(betrag), vorwaerts, []);
+      const b = fn.matchPaymentByRules(zahlung(betrag), rueckwaerts, []);
+      expect(a.mietvertrag_id).toBe(b.mietvertrag_id);
+      expect(a.selected).toBe(false);
+      expect(a.confidence).toBeLessThan(80);
+      expect(a.zuordnungsgrund).toMatch(/bitte prüfen/);
+    }
+    const passend = fn.matchPaymentByRules(zahlung(1408), rueckwaerts, []);
+    expect(passend).toMatchObject({ mietvertrag_id: 'wohnung', selected: true, confidence: 95 });
   });
 
   it('erkennt die Jobcenter-IBAN und IBAN-Regeln auch mit Leerzeichen', () => {
