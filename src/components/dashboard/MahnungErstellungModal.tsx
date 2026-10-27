@@ -19,6 +19,7 @@ import { generateMahnungPdf, type MahnungPdfData } from "@/utils/mahnungPdfGener
 import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, getVerzugszinssatz, toLocalIso } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
+import { edgeFehlertext } from "@/utils/edgeFehler";
 import { fristloseKuendigungFelder } from "@/utils/contractUtils";
 
 interface MahnungErstellungModalProps {
@@ -407,7 +408,7 @@ export function MahnungErstellungModal({
     } catch (err) {
       toast({
         title: "Fehler",
-        description: err instanceof Error ? err.message : 'E-Mail konnte nicht versendet werden',
+        description: await edgeFehlertext(err, 'E-Mail konnte nicht versendet werden'),
         variant: "destructive",
       });
     } finally {

@@ -304,6 +304,30 @@ serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    // Die Stufe in Schreiben und Mail rechnet die App aus dem Stand beim Oeffnen des Dialogs
+    // (gespeicherte Stufe + 1). Hatte inzwischen jemand anders gemahnt, gingen Schreiben und
+    // Mail mit der alten Stufe raus, waehrend der Vertrag eine Stufe weiter zaehlte; auf Stufe 3
+    // kam eine "4. Mahnung" heraus (27.10.2026). Die angefragte Stufe muss zur gespeicherten passen.
+    const { data: vertragVorher, error: vorherFehler } = await supabase
+      .from('mietvertrag')
+      .select('mahnstufe')
+      .eq('id', data.mietvertragId)
+      .maybeSingle();
+    if (vorherFehler || !vertragVorher) {
+      console.error('Mahnstufe nicht lesbar:', vorherFehler?.message ?? 'Vertrag nicht gefunden');
+      return new Response(JSON.stringify({ error: 'Die Mahnstufe des Vertrags konnte nicht gelesen werden. Es wurde nichts versendet.' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const bisherigeStufe = Number(vertragVorher.mahnstufe) || 0;
+    if (bisherigeStufe >= 3) {
+      return new Response(JSON.stringify({ error: 'Der Vertrag steht bereits auf Mahnstufe 3. Es wurde nichts versendet.' }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    if (data.mahnstufe !== bisherigeStufe + 1) {
+      return new Response(JSON.stringify({ error: `Der Vertrag steht inzwischen auf Mahnstufe ${bisherigeStufe}. Bitte den Dialog neu öffnen, damit Schreiben und Mail die richtige Stufe nennen. Es wurde nichts versendet.` }),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
     let pdfBuffer: Buffer | null = null;
     let pdfFilename = `Mahnung_Stufe${data.mahnstufe}_${new Date().toISOString().split('T')[0]}.pdf`;
     if (data.pdfPath) {
@@ -391,43 +415,36 @@ serve(async (req) => {
     }
     await mailAbschliessen(supabase, mailId, 'gesendet');
 
-    // Erst nach erfolgreichem Versand: Die neue Mahnstufe kam frueher aus dem
-    // Request -- damit konnte jeder Aufrufer jeden Vertrag unmittelbar auf
-    // Stufe 3 setzen und die Regel umgehen, dass die Stufe nur durch
-    // tatsaechlichen Versand steigt. Sie wird jetzt aus dem gespeicherten
-    // Stand abgeleitet.
+    // Erst nach erfolgreichem Versand: Die neue Mahnstufe kam frueher ungeprueft aus dem
+    // Request -- damit konnte jeder Aufrufer jeden Vertrag unmittelbar auf Stufe 3 setzen und
+    // die Regel umgehen, dass die Stufe nur durch tatsaechlichen Versand steigt. Jetzt ist sie
+    // vor dem Versand gegen den gespeicherten Stand geprueft (bisherigeStufe + 1).
     //
-    // Beide Schritte werden geprueft (27.10.2026): Scheiterte das Lesen, galt die alte
-    // Stufe als 0 und ein Vertrag auf Stufe 2 fiel still auf 1; scheiterte das Schreiben,
-    // meldete die Function trotzdem Erfolg und die naechste Mahnung trug dieselbe Stufe.
-    // Die Mail ist an dieser Stelle schon raus -- deshalb kein Fehler (ein Neuversuch
-    // verschickte sie doppelt), sondern eine Warnung, die der Dialog sichtbar anzeigt.
+    // Das Schreiben wird geprueft (27.10.2026): Scheiterte es, meldete die Function trotzdem
+    // Erfolg und die naechste Mahnung trug dieselbe Stufe. Hat zwischen Pruefung und Versand
+    // jemand anders gemahnt, trifft das Update keine Zeile. Die Mail ist an dieser Stelle schon
+    // raus -- deshalb kein Fehler (ein Neuversuch verschickte sie doppelt), sondern eine
+    // Warnung, die der Dialog sichtbar anzeigt.
     let warnung: string | null = null;
-    const { data: vertragStand, error: standFehler } = await supabase
-      .from('mietvertrag')
-      .select('mahnstufe')
-      .eq('id', data.mietvertragId)
-      .maybeSingle();
-    if (standFehler || !vertragStand) {
-      warnung = 'Die Mahnung ist versendet, die Mahnstufe konnte aber nicht gelesen und deshalb nicht erhöht werden. Bitte die Stufe am Vertrag prüfen.';
-      console.error('Mahnstufe nicht lesbar:', standFehler?.message ?? 'Vertrag nicht gefunden');
-    } else {
-      const neueMahnstufe = Math.min((Number(vertragStand.mahnstufe) || 0) + 1, 3);
+    const neueMahnstufe = data.mahnstufe;
 
-      console.log('Mahnung versendet:', { mietvertragId: data.mietvertragId, mahnstufe: neueMahnstufe });
-      await supabase.from('system_logs').insert({
-        message: `Mahnung Stufe ${neueMahnstufe} per E-Mail versendet (Mietvertrag ${data.mietvertragId}).`
-      });
+    console.log('Mahnung versendet:', { mietvertragId: data.mietvertragId, mahnstufe: neueMahnstufe });
+    await supabase.from('system_logs').insert({
+      message: `Mahnung Stufe ${neueMahnstufe} per E-Mail versendet (Mietvertrag ${data.mietvertragId}).`
+    });
 
-      const { error: stufeFehler } = await supabase.from('mietvertrag').update({
-        mahnstufe: neueMahnstufe,
-        letzte_mahnung_am: new Date().toISOString(),
-        naechste_mahnung_am: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-      }).eq('id', data.mietvertragId);
-      if (stufeFehler) {
-        warnung = `Die Mahnung ist versendet, die Mahnstufe wurde aber nicht auf ${neueMahnstufe} erhöht. Bitte die Stufe am Vertrag prüfen.`;
-        console.error('Mahnstufe nicht gespeichert:', stufeFehler.message);
-      }
+    let stufenUpdate = supabase.from('mietvertrag').update({
+      mahnstufe: neueMahnstufe,
+      letzte_mahnung_am: new Date().toISOString(),
+      naechste_mahnung_am: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+    }).eq('id', data.mietvertragId);
+    stufenUpdate = vertragVorher.mahnstufe === null
+      ? stufenUpdate.is('mahnstufe', null)
+      : stufenUpdate.eq('mahnstufe', vertragVorher.mahnstufe);
+    const { data: aktualisiert, error: stufeFehler } = await stufenUpdate.select('id');
+    if (stufeFehler || !aktualisiert || aktualisiert.length === 0) {
+      warnung = `Die Mahnung ist versendet, die Mahnstufe wurde aber nicht auf ${neueMahnstufe} erhöht. Bitte die Stufe am Vertrag prüfen.`;
+      console.error('Mahnstufe nicht gespeichert:', stufeFehler?.message ?? 'Stand hat sich zwischenzeitlich geaendert');
     }
 
     return new Response(
