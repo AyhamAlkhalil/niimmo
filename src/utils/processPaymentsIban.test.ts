@@ -110,6 +110,19 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
     expect(passend).toMatchObject({ mietvertrag_id: 'wohnung', selected: true, confidence: 95 });
   });
 
+  it('zählt einen Vertrag mit derselben IBAN als Haupt- und weiteres Konto nur einmal', async () => {
+    const vertraege = await fn.getContractContext(client([vertrag('wohnung', 1408, KONTO, KONTO_MIT_LEERZEICHEN)]));
+    expect(fn.matchPaymentByRules(zahlung(1000), vertraege, [])).toMatchObject({ mietvertrag_id: 'wohnung', selected: true, confidence: 95 });
+  });
+
+  it('wertet aktiv gegen gekündigt bei gleichem Betrag als unsicher, aktiv gegen beendet nicht', async () => {
+    const zeilen = (status2: string) => [vertrag('a', 500, KONTO), { ...vertrag('b', 500, KONTO), status: status2 }];
+    const gekuendigt = fn.matchPaymentByRules(zahlung(500), await fn.getContractContext(client(zeilen('gekuendigt'))), []);
+    expect(gekuendigt).toMatchObject({ selected: false });
+    const beendet = fn.matchPaymentByRules(zahlung(500), await fn.getContractContext(client(zeilen('beendet'))), []);
+    expect(beendet).toMatchObject({ mietvertrag_id: 'a', selected: true });
+  });
+
   it('erkennt die Jobcenter-IBAN und IBAN-Regeln auch mit Leerzeichen', () => {
     expect(fn.categorizePaymentType(zahlung(400, 'DE94 7600 0000 0076 0016 01'), [])).toBe('bg_zahlung');
     const regel = { regel_typ: 'iban_equals', wert: 'DE99 0000 0000 0000 0000 00' };
