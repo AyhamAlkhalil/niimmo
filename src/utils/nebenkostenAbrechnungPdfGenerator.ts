@@ -527,14 +527,17 @@ function seite3(
 
     doc.setTextColor(...DARK);
     doc.text(row.gesamtKosten > 0 ? formatEur(row.gesamtKosten) : '–', cx[2] + cW[2], y, { align: 'right' });
-    doc.text(einh > 0 ? `${einh.toFixed(0)}${einheitSuffix}` : '–', cx[3] + cW[3], y, { align: 'right' });
+    // Genauer als bisher (m² ganzzahlig, Preis/E auf 2 Stellen): Aus den gedruckten Faktoren
+    // ließ sich der Betrag nicht nachrechnen (27.10.2026; 1,99 × 114 m² gedruckt, 191,26 € berechnet)
+    const zahl = (w: number, max: number) => w.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: max });
+    doc.text(einh > 0 ? `${zahl(einh, 2)}${einheitSuffix}` : '–', cx[3] + cW[3], y, { align: 'right' });
     doc.text(
       preisProE > 0
-        ? preisProE.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        ? preisProE.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
         : '–',
       cx[4] + cW[4], y, { align: 'right' }
     );
-    doc.text(ihreE > 0 ? `${ihreE.toFixed(0)}${einheitSuffix}` : '–', cx[5] + cW[5], y, { align: 'right' });
+    doc.text(ihreE > 0 ? `${zahl(ihreE, 2)}${einheitSuffix}` : '–', cx[5] + cW[5], y, { align: 'right' });
     doc.setFont('helvetica', 'bold');
     doc.text(row.anteilBetrag > 0.01 ? formatEur(row.anteilBetrag) : '–', cx[6] + cW[6], y, { align: 'right' });
     doc.setFont('helvetica', 'normal');
@@ -557,6 +560,26 @@ function seite3(
   doc.text(formatEur(data.kostenAnteilGesamt), cx[6] + cW[6], y, { align: 'right' });
 
   y += 6;
+
+  // Zeitanteil drucken: Ihre Kosten = Preis/E × Ihre Einheiten × Zeitanteil. Bis zum 27.10.2026 wurde
+  // er berechnet, aber nie ausgewiesen; bei unterjähriger Nutzung passten die Zeilen scheinbar nicht.
+  const zeitanteile = [...new Set(data.kostenDetails
+    .map(r => r.nutzungsdauerProzent)
+    .filter((w): w is number => typeof w === 'number' && Number.isFinite(w))
+    .map(w => Math.round(w * 100) / 100))];
+  if (zeitanteile.length > 0) {
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...GRAY);
+    const anteilText = zeitanteile.length === 1
+      ? `${zeitanteile[0].toLocaleString('de-DE', { maximumFractionDigits: 2 })} %`
+      : 'je Kostenart verschieden';
+    doc.text(
+      `Ihr Zeitanteil am Abrechnungszeitraum: ${anteilText}. Ihre Kosten = Preis/E × Ihre Einheiten × Zeitanteil, auf ganze Cent verteilt.`,
+      ML + 2, y, { maxWidth: CW - 4 }
+    );
+    y += 6;
+  }
 
   // Vorauszahlung
   doc.setFont('helvetica', 'normal');

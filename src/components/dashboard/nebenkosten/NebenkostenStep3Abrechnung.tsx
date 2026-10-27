@@ -269,6 +269,10 @@ export function NebenkostenStep3Abrechnung({
 
     kostenpositionen.forEach((kp) => {
       const art = kp.nebenkostenart;
+      // Ohne Kostenart zeigen Schritt 1 und 2 die Position nicht; bis zum 27.10.2026 legte Schritt 3
+      // sie trotzdem still als „Sonstige Betriebskosten“ nach Fläche um (live 24 € in Celle 2026).
+      // Jetzt wie in den Schritten davor nicht umgelegt, aber unten benannt.
+      if (!art) return;
       const kategorie: NebenkostenKategorie | undefined = findeKategorieNachName(art?.name);
 
       const kategorieId = kategorie?.id ?? (art ? `custom_${art.id}` : "sonstige_betriebskosten");
@@ -297,6 +301,12 @@ export function NebenkostenStep3Abrechnung({
 
     return map;
   }, [kostenpositionen, abrStart, abrEnde]);
+
+  const ohneKostenart = useMemo(
+    () => kostenpositionen.filter((kp) => !kp.nebenkostenart && kostenAnteilImZeitraum(kp, abrStart, abrEnde) > 0),
+    [kostenpositionen, abrStart, abrEnde]
+  );
+  const ohneKostenartBetrag = ohneKostenart.reduce((s, kp) => s + kostenAnteilImZeitraum(kp, abrStart, abrEnde), 0);
 
   const gesamtkostenUmlagefaehig = useMemo(
     () => Array.from(kostenProKategorie.values()).reduce((s, k) => s + k.total, 0),
@@ -920,6 +930,17 @@ export function NebenkostenStep3Abrechnung({
       )}
 
       {/* Fehlende Bezugsgrößen sperren die Abrechnung */}
+      {ohneKostenart.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="py-4 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
+            <p className="text-sm text-amber-900">
+              {ohneKostenart.length} Kostenposition(en) ohne Kostenart über {ohneKostenartBetrag.toFixed(2).replace(".", ",")} € werden nicht umgelegt. Bitte in Schritt 1 einer Kostenart zuordnen, wenn sie abgerechnet werden sollen.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {abrechnungGesperrt && (
         <Card className="border-red-400 bg-red-50">
           <CardContent className="py-4 flex items-start gap-3">
