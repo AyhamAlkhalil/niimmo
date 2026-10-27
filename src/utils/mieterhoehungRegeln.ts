@@ -13,6 +13,7 @@
  */
 
 import { format } from 'date-fns';
+import { leseKautionsbetrag } from './vertragKaution';
 
 /** § 558 Abs. 3 Satz 1 BGB — Regelfall: höchstens 20 % in drei Jahren. */
 export const KAPPUNGSGRENZE_REGEL_PROZENT = 20;
@@ -59,4 +60,23 @@ export function wirksamAb(zugang: Date): Date {
  */
 export function wirksamAbTag(zugang: Date): string {
   return format(wirksamAb(zugang), 'yyyy-MM-dd');
+}
+
+/**
+ * Neue Kaltmiete und Betriebskosten aus den Eingabefeldern des Mieterhöhungsdialogs.
+ *
+ * Bis zum 27.10.2026 rechneten Schreiben und Speichern mit `parseFloat(...) || 0`: Ein
+ * geleertes BK-Feld kam als 0 € ins Schreiben und — mit Haken „zugestimmt“ — an den Vertrag;
+ * eine leere Kaltmiete wurde zu NaN. Die Kaltmiete muss ein positiver Betrag sein, die
+ * Betriebskosten dürfen 0, aber nicht leer sein.
+ */
+export function neueMieteAusEingabe(
+  kaltmiete: string,
+  betriebskosten: string
+): { kaltmiete: number; betriebskosten: number } | { fehler: string } {
+  const kalt = leseKautionsbetrag(kaltmiete);
+  if (kalt === null || kalt === undefined || kalt <= 0) return { fehler: 'Bitte eine neue Kaltmiete über 0 € eintragen.' };
+  const bk = leseKautionsbetrag(betriebskosten);
+  if (bk === null || bk === undefined) return { fehler: 'Bitte die neuen Betriebskosten eintragen (0 € ist möglich).' };
+  return { kaltmiete: kalt, betriebskosten: bk };
 }

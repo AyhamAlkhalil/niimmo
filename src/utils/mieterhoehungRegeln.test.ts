@@ -5,6 +5,7 @@ import {
   KAPPUNGSGRENZE_REGEL_PROZENT,
   kappungsgrenzeProzent,
   maximaleKaltmiete,
+  neueMieteAusEingabe,
   wirksamAb,
   wirksamAbTag,
 } from './mieterhoehungRegeln';
@@ -73,5 +74,28 @@ describe('Der Erhöhungsdialog nutzt die zentrale Regel', () => {
     expect(quelle).toContain('kappungsgrenzeProzent');
     expect(quelle).not.toContain('istAngespannt ? 20 : 30');
     expect(quelle).not.toContain('Kappung 30%');
+  });
+});
+
+describe('neueMieteAusEingabe', () => {
+  it('nimmt Beträge an, Betriebskosten auch mit 0', () => {
+    expect(neueMieteAusEingabe('812.50', '0')).toEqual({ kaltmiete: 812.5, betriebskosten: 0 });
+    expect(neueMieteAusEingabe('812,50', '120')).toEqual({ kaltmiete: 812.5, betriebskosten: 120 });
+  });
+
+  it('meldet leere Felder statt 0 € oder NaN ins Schreiben und an den Vertrag zu geben', () => {
+    // 27.10.2026: parseFloat('') || 0 — geleerte BK wurden mit Haken „zugestimmt“ zu 0 € am Vertrag
+    expect(neueMieteAusEingabe('812.50', '')).toHaveProperty('fehler');
+    expect(neueMieteAusEingabe('', '120')).toHaveProperty('fehler');
+    expect(neueMieteAusEingabe('0', '120')).toHaveProperty('fehler');
+    expect(neueMieteAusEingabe('-5', '120')).toHaveProperty('fehler');
+  });
+
+  it('wird vor Download und Speichern geprüft, der Dokumenteintrag ist nicht mehr ungeprüft', () => {
+    const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
+    expect(modal).toMatch(/if \(!pdfBlob \|\| !pruefeNeueMiete\(\)\) return;/);
+    expect(modal).toMatch(/const neueMiete = pruefeNeueMiete\(\);\s*if \(!neueMiete\) return;/);
+    expect(modal).not.toMatch(/parseFloat\(neueBetriebskosten\) \|\| 0,\s*\n\s*(letzte_mieterhoehung_am|begruendungsart)/);
+    expect(modal).toMatch(/if \(dokumentError\) throw dokumentError;/);
   });
 });

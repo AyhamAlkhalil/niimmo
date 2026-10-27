@@ -14,7 +14,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
-import { kappungsgrenzeProzent, maximaleKaltmiete, wirksamAb, wirksamAbTag } from '@/utils/mieterhoehungRegeln';
+import { kappungsgrenzeProzent, maximaleKaltmiete, neueMieteAusEingabe, wirksamAb, wirksamAbTag } from '@/utils/mieterhoehungRegeln';
 import { format } from 'date-fns';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 
@@ -189,8 +189,18 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     };
   }, [pdfBlobUrl]);
 
+  /** Meldet eine leere oder ungültige neue Miete, statt ein Schreiben mit 0 € zu liefern. */
+  const pruefeNeueMiete = () => {
+    const miete = neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten);
+    if ('fehler' in miete) {
+      toast({ title: "Neue Miete unvollständig", description: miete.fehler, variant: "destructive" });
+      return null;
+    }
+    return miete;
+  };
+
   const handleDownload = () => {
-    if (!pdfBlob) return;
+    if (!pdfBlob || !pruefeNeueMiete()) return;
     const url = URL.createObjectURL(pdfBlob);
     const a = document.createElement('a');
     a.href = url;
@@ -204,6 +214,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
 
   const handleSaveAndUpload = async () => {
     if (!contractData || !pdfBlob) return;
+    const neueMiete = pruefeNeueMiete();
+    if (!neueMiete) return;
     setIsSubmitting(true);
     try {
       // Pfad ohne Mieternamen: Supabase Storage lehnt Umlaute ab (InvalidKey),
@@ -218,13 +230,15 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         .upload(filePath, uint8, { contentType: 'application/pdf', upsert: false });
       if (uploadError) throw uploadError;
 
-      await supabase.from('dokumente').insert({
+      // Ohne Zeile in dokumente ist die Datei in der App unsichtbar (bis 27.10.2026 ungeprüft)
+      const { error: dokumentError } = await supabase.from('dokumente').insert({
         titel: `Mieterhöhung ${new Date().toLocaleDateString('de-DE')}`,
         pfad: filePath,
         kategorie: 'Schriftverkehr',
         dateityp: 'application/pdf',
         mietvertrag_id: contractData.mietvertrag_id,
       });
+      if (dokumentError) throw dokumentError;
 
       // Ohne Zustimmung bleibt die Vertragsmiete unverändert: Nach § 558 BGB
       // erhöht der Vermieter nicht einseitig, und selbst mit Zustimmung ist die
@@ -243,8 +257,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         wirksam_ab: wirksamIso,
         alte_kaltmiete: contractData.current_kaltmiete,
         alte_betriebskosten: contractData.current_betriebskosten,
-        neue_kaltmiete: parseFloat(neueKaltmiete),
-        neue_betriebskosten: parseFloat(neueBetriebskosten) || 0,
+        neue_kaltmiete: neueMiete.kaltmiete,
+        neue_betriebskosten: neueMiete.betriebskosten,
         begruendungsart,
         begruendung_text: begruendungText.trim(),
         dokument_pfad: filePath,
@@ -255,8 +269,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
 
       if (mieterHatZugestimmt) {
         const { error: mieteError } = await supabase.from('mietvertrag').update({
-          kaltmiete: parseFloat(neueKaltmiete),
-          betriebskosten: parseFloat(neueBetriebskosten) || 0,
+          kaltmiete: neueMiete.kaltmiete,
+          betriebskosten: neueMiete.betriebskosten,
           letzte_mieterhoehung_am: heuteIso,
           aktualisiert_am: new Date().toISOString(),
         }).eq('id', contractData.mietvertrag_id);
@@ -273,8 +287,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
           toast({
             title: "Miete erhöht",
             description: erhoehungGiltSpaeter
-              ? `Die Vertragsmiete steht jetzt auf ${parseFloat(neueKaltmiete).toFixed(2)} € kalt. Achtung: Geschuldet ist sie erst ab ${wirksamDatum.toLocaleDateString('de-DE')} — bis dahin kann das System zu viel Soll ausweisen.`
-              : `Die Vertragsmiete steht jetzt auf ${parseFloat(neueKaltmiete).toFixed(2)} € kalt.`,
+              ? `Die Vertragsmiete steht jetzt auf ${neueMiete.kaltmiete.toFixed(2)} € kalt. Achtung: Geschuldet ist sie erst ab ${wirksamDatum.toLocaleDateString('de-DE')} — bis dahin kann das System zu viel Soll ausweisen.`
+              : `Die Vertragsmiete steht jetzt auf ${neueMiete.kaltmiete.toFixed(2)} € kalt.`,
           });
         }
       } else {
