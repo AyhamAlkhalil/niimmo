@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  kategorieBeiVertragszuordnung,
   ImmobilieOption,
   KEINE_KORREKTUREN,
   Korrekturen,
@@ -306,5 +307,16 @@ describe('naechsterPruefFall', () => {
     expect(naechsterPruefFall(liste, KEINE_KORREKTUREN, [0, 2], null)).toBeNull();
     expect(naechsterPruefFall(liste, KEINE_KORREKTUREN, [], null)).toBeNull();
     expect(naechsterPruefFall(liste, { ...KEINE_KORREKTUREN, vertrag: { 1: 'mv2', 3: 'mv2' } }, [0, 1, 2, 3], null)).toBeNull();
+  });
+});
+
+describe('kategorieBeiVertragszuordnung', () => {
+  it('macht aus Nichtmiete, Nebenkosten und „ohne“ eine Miete, lässt Vertragskategorien stehen', () => {
+    // 27.10.2026: Eine als Nichtmiete stehende Mietzahlung zählte nach der Zuordnung nicht im Rückstand
+    expect(kategorieBeiVertragszuordnung('Nichtmiete')).toBe('Miete');
+    expect(kategorieBeiVertragszuordnung('Nebenkosten')).toBe('Miete');
+    expect(kategorieBeiVertragszuordnung(null)).toBe('Miete');
+    expect(kategorieBeiVertragszuordnung('Mietkaution')).toBe('Mietkaution');
+    expect(kategorieBeiVertragszuordnung('Rücklastschrift')).toBe('Rücklastschrift');
   });
 });

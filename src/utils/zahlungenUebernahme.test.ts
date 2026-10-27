@@ -5,6 +5,7 @@ import {
   abgleichSchluessel,
   bestehendeAusschliessen,
   bestehendeIndexieren,
+  ibanFuerNachtrag,
   buchungstageVon,
   nimmBestehende,
   normalisiereWert,
@@ -130,5 +131,21 @@ describe('Vertrag oder Objekt, nie beides', () => {
   it('räumt im Assistenten beim Zuordnen zu einem Vertrag den Objektbezug ab', () => {
     const agent = readFileSync('supabase/functions/agent-api/index.ts', 'utf-8');
     expect(agent).toMatch(/\.update\(\{ mietvertrag_id: args\.mietvertrag_id, kategorie: args\.kategorie, immobilie_id: null \}\)/);
+  });
+});
+
+describe('ibanFuerNachtrag', () => {
+  it('trägt nur die IBAN einer Mietzahlung nach, nie die des Jobcenters', () => {
+    // 27.10.2026: Sammelkonten, Rücklastschriften und Jobcenter wurden zum Mieterkonto
+    expect(ibanFuerNachtrag('Miete', 'de00 1111 2222 3333 4444 55')).toBe('DE00111122223333444455');
+    expect(ibanFuerNachtrag('Mietkaution', 'DE00111122223333444455')).toBeNull();
+    expect(ibanFuerNachtrag('Rücklastschrift', 'DE00111122223333444455')).toBeNull();
+    expect(ibanFuerNachtrag('Miete', 'DE94 7600 0000 0076 0016 01')).toBeNull();
+    expect(ibanFuerNachtrag('Miete', 'kein Konto')).toBeNull();
+  });
+
+  it('wird von der Übernahme mit Kategorie aufgerufen', () => {
+    const quelle = readFileSync('src/components/controlboard/PaymentManagement.tsx', 'utf-8');
+    expect(quelle.match(/ibanNachtragen\(result\.mietvertrag_id, result\.kategorie, result\.iban\)/g)).toHaveLength(2);
   });
 });

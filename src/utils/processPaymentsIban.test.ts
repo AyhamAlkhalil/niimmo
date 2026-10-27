@@ -32,6 +32,8 @@ const code = [
   ausschnitt('async function getContractContext('),
   ausschnitt('function categorizePaymentType('),
   ausschnitt('function checkSonderfallRegeln('),
+  ausschnitt('function namensVarianten('),
+  ausschnitt('function istKautionsbuchung('),
   ausschnitt('function teileNachBestand<T>('),
   ausschnitt('function isPaymentInContractPeriod('),
   ausschnitt('function selectBestContractByDate('),
@@ -149,6 +151,34 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
     expect(ohneZiel).toMatchObject({ mietvertrag_id: null, selected: true });
   });
 
+  it('erkennt Kautionsraten und Kautionsrückzahlungen, nicht nur die volle Kaution', async () => {
+    // 27.10.2026: −1.500 € „Rückzahlung Mietkaution“ wurde Miete und erhöhte den Rückstand um 1.500 €
+    const vertraege = await fn.getContractContext(client([{ ...vertrag('wohnung', 1000, KONTO), kaution_betrag: 1500 }]));
+    const rueck = fn.matchPaymentByRules({ ...zahlung(-1500), verwendungszweck: 'Rueckzahlung Mietkaution' }, vertraege, []);
+    expect(rueck).toMatchObject({ mietvertrag_id: 'wohnung', kategorie: 'Mietkaution' });
+    const rate = fn.matchPaymentByRules({ ...zahlung(500), verwendungszweck: 'Mietkaution 1. Rate' }, vertraege, []);
+    expect(rate).toMatchObject({ kategorie: 'Mietkaution' });
+    // Mehr als die Kaution ist keine Kaution
+    expect(fn.matchPaymentByRules({ ...zahlung(2000), verwendungszweck: 'Kaution und Miete' }, vertraege, []).kategorie).toBe('Miete');
+  });
+
+  it('bucht eine Abbuchung mit dem Straßennamen eines Objekts nicht als Miete', async () => {
+    // 27.10.2026: Handwerkerrechnung −2.000 € mit Straßennamen → Miete beim einzigen Mieter, 75 %
+    const haus = { ...vertrag('haus', 800, null), einheiten: { id: 'haus', etage: 'EG', immobilie_id: 'o2', immobilien: { id: 'o2', name: 'Lindenallee', adresse: 'Lindenallee 5, Celle' } } };
+    const vertraege = await fn.getContractContext(client([haus]));
+    const abbuchung = fn.matchPaymentByRules({ ...zahlung(-2000, ''), verwendungszweck: 'Rechnung Dachrinne Lindenallee 5', empfaengername: 'Dachdecker' }, vertraege, []);
+    expect(abbuchung?.kategorie === 'Miete' && abbuchung?.mietvertrag_id === 'haus').toBe(false);
+    const eingang = fn.matchPaymentByRules({ ...zahlung(800, ''), verwendungszweck: 'Lindenallee 5', empfaengername: 'X' }, vertraege, []);
+    expect(eingang).toMatchObject({ mietvertrag_id: 'haus', kategorie: 'Miete' });
+  });
+
+  it('findet Mieter mit Umlaut im Namen, auch wenn die Bank ue oder u schreibt', async () => {
+    const mueller = { ...vertrag('m', 700, null), mietvertrag_mieter: [{ mieter: { id: 'm1', vorname: 'Jörg', nachname: 'Müller' } }] };
+    const vertraege = await fn.getContractContext(client([mueller]));
+    expect(vertraege[0].mieterNamen).toEqual(expect.arrayContaining(['joerg', 'jorg', 'mueller', 'muller']));
+    expect(fn.matchPaymentByRules({ ...zahlung(650, ''), verwendungszweck: 'MIETE JOERG MUELLER', empfaengername: 'JOERG MUELLER' }, vertraege, []).mietvertrag_id).toBe('m');
+  });
+
   it('erkennt die Jobcenter-IBAN und IBAN-Regeln auch mit Leerzeichen', () => {
     expect(fn.categorizePaymentType(zahlung(400, 'DE94 7600 0000 0076 0016 01'), [])).toBe('bg_zahlung');
     const regel = { regel_typ: 'iban_equals', wert: 'DE99 0000 0000 0000 0000 00' };
@@ -159,6 +189,15 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
   it('vergleicht Zahlungs-IBANs nirgends mehr roh', () => {
     expect(quelle).not.toMatch(/payment\.iban\s*===/);
     expect(quelle).not.toMatch(/includes\(payment\.iban\)/);
+  });
+});
+
+describe('process-payments Jobcenter-Abgleich', () => {
+  it('wählt einen nur ähnlichen Namen nicht vor und lässt die Laufzeit nicht über die Namensgüte entscheiden', () => {
+    // 27.10.2026
+    expect(quelle).toMatch(/const nurUnscharf = bestMatch\.exactMatchCount === 0;/);
+    expect(quelle).toMatch(/selected: !nurUnscharf/);
+    expect(quelle).toMatch(/m\.exactMatchCount === besteExakt && isPaymentInContractPeriod/);
   });
 });
 

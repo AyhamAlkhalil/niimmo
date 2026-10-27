@@ -28,6 +28,7 @@ import {
   bestehendeIndexieren,
   bestehendeAusschliessen,
   buchungstageVon,
+  ibanFuerNachtrag,
   nimmBestehende,
   normalisiereWert,
   vertragsIdsMitIban,
@@ -534,12 +535,14 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     // Altbuchungen mit beiden Bezügen, die doppelt zählten.
     const objektBezug = (r: Zuordnungsvorschlag) => (r.mietvertrag_id ? null : r.immobilie_id || null);
 
-    // Auto-fill IBAN on contract if empty
-    const ibanNachtragen = async (mietvertragId: string, iban: string) => {
-      if (!bankkonten.has(mietvertragId) || bankkonten.get(mietvertragId)) return;
+    // Auto-fill IBAN on contract if empty — nur aus Mietzahlungen, nie die Jobcenter-IBAN, und als
+    // ungeprüft markiert (ibanFuerNachtrag)
+    const ibanNachtragen = async (mietvertragId: string, kategorie: string | null | undefined, roheIban: string) => {
+      const iban = ibanFuerNachtrag(kategorie, roheIban);
+      if (!iban || !bankkonten.has(mietvertragId) || bankkonten.get(mietvertragId)) return;
       const { error } = await supabase
         .from('mietvertrag')
-        .update({ bankkonto_mieter: iban })
+        .update({ bankkonto_mieter: iban, bankkonto_mieter_geprueft: false })
         .eq('id', mietvertragId);
       if (!error) bankkonten.set(mietvertragId, iban);
     };
@@ -584,7 +587,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         }
 
         if (result.mietvertrag_id && result.iban) {
-          await ibanNachtragen(result.mietvertrag_id, result.iban);
+          await ibanNachtragen(result.mietvertrag_id, result.kategorie, result.iban);
         }
       } else {
         // Payment doesn't exist - insert it
@@ -611,7 +614,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         // zwei gleiche Ueberweisungen am selben Tag sind zwei Zahlungen (27.10.2026).
 
         if (result.mietvertrag_id && result.iban) {
-          await ibanNachtragen(result.mietvertrag_id, result.iban);
+          await ibanNachtragen(result.mietvertrag_id, result.kategorie, result.iban);
         }
       }
     }

@@ -377,8 +377,9 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
         // Add individual parts for fuzzy matching — deduped, damit z.B. zwei
         // Mitmieter mit demselben Nachnamen die matchedParts-Zählung beim
         // Namen-Match nicht künstlich aufblähen (ein Nachname zählt nur einmal).
-        if (vorname) mieterNamesSet.add(vorname.toLowerCase());
-        if (nachname) mieterNamesSet.add(nachname.toLowerCase());
+        // Bankumsätze tragen keine Umlaute (live 0 von 3.763): „Müller“ steht dort als MUELLER
+        // oder MULLER. Bis zum 27.10.2026 fand der Namensabgleich solche Mieter nie (27.10.2026).
+        for (const variante of [...namensVarianten(vorname), ...namensVarianten(nachname)]) mieterNamesSet.add(variante);
       }
     });
 
@@ -513,6 +514,28 @@ function checkSonderfallRegeln(
   }
   
   return null;
+}
+
+/** Kleingeschriebene Schreibweisen eines Namens ohne Umlaute: ä→ae und ä→a, ß→ss. */
+function namensVarianten(name: string): string[] {
+  const klein = (name || "").trim().toLowerCase();
+  if (!klein) return [];
+  const mitE = klein.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+  const ohneE = klein.replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss");
+  return [...new Set([mitE, ohneE])];
+}
+
+/**
+ * Kaution erkannt, wenn der Text sie nennt und der Betrag (Rate oder Rückzahlung, mit Vorzeichen)
+ * die vereinbarte Kaution nicht übersteigt. Bis zum 27.10.2026 musste der Betrag positiv und gleich
+ * der vollen Kaution sein: Raten (§ 551 Abs. 2 BGB) und Rückzahlungen wurden zu „Miete“ — eine
+ * Rückzahlung von −1.500 € erhöhte so den Mietrückstand um 1.500 €.
+ */
+function istKautionsbuchung(verwendungszweck: string, betrag: number, kaution: number | null | undefined): boolean {
+  if (!/kaution|depot|sicherheitsleistung/.test((verwendungszweck || "").toLowerCase())) return false;
+  if (!kaution || kaution <= 0) return false;
+  const b = Math.abs(betrag);
+  return b > 0 && b <= kaution + BETRAG_TOLERANZ;
 }
 
 /**
@@ -775,13 +798,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
     
     if (bestContract) {
       const matchInfo = ibanMatchedContracts.find(m => m.contract.id === bestContract.id);
-      const kautionImText = verwendungszweck.includes("kaution") ||
-                            verwendungszweck.includes("depot") ||
-                            verwendungszweck.includes("sicherheitsleistung") ||
-                            verwendungszweck.includes("mietkaution");
-      const isKaution = kautionImText &&
-                        bestContract.kaution &&
-                        Math.abs(payment.betrag - bestContract.kaution) <= BETRAG_TOLERANZ;
+      const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, bestContract.kaution);
       const matchType = matchInfo?.matchType === 'weitere' ? 'Weitere IBAN' : 'IBAN';
       const anzahlVertraege = new Set(matchingContracts.map(c => c.id)).size;
       const multiInfo = anzahlVertraege > 1
@@ -808,13 +825,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
     if (contract.verwendungszweck && Array.isArray(contract.verwendungszweck)) {
       for (const vzweck of contract.verwendungszweck) {
         if (vzweck && verwendungszweck.includes(vzweck.toLowerCase())) {
-          const kautionImText = verwendungszweck.includes("kaution") ||
-                                verwendungszweck.includes("depot") ||
-                                verwendungszweck.includes("sicherheitsleistung") ||
-                                verwendungszweck.includes("mietkaution");
-          const isKaution = kautionImText &&
-                            contract.kaution &&
-                            Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ;
+          const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution);
           const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
           return {
             ...payment,
@@ -890,12 +901,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
       }
 
       const { contract, matchedNames, matchedParts } = winner;
-      const kautionInText = verwendungszweck.includes("kaution") ||
-                            verwendungszweck.includes("depot") ||
-                            verwendungszweck.includes("sicherheitsleistung") ||
-                            verwendungszweck.includes("mietkaution");
-      const kautionBetragMatch = contract.kaution ? Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ : false;
-      const isKaution = kautionInText && contract.kaution && kautionBetragMatch;
+      const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution);
       const nameKategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
       // Auch ein Treffer mit vollem Namen (Vor- UND Nachname) kann mehrdeutig sein,
       // wenn er nur per Datum/Betrag/Status von einem gleichwertigen Kandidaten
@@ -942,7 +948,9 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
     }
   }
 
-  if (locationMatchedContracts.length === 1) {
+  // Nur Eingänge: Bis zum 27.10.2026 wurde eine Abbuchung mit dem Straßennamen eines Objekts
+  // (Handwerker, Versorger) als negative Miete beim einzigen Mieter vorausgewählt (75 %)
+  if (locationMatchedContracts.length === 1 && payment.betrag > 0) {
     const contract = locationMatchedContracts[0];
     console.log(`Location-Match found: "${matchedLocationKeyword}" for ${contract.mieter} at ${contract.immobilie}`);
     return {
@@ -983,13 +991,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
 
   if (amountMatches.length === 1) {
     const contract = amountMatches[0];
-    const kautionImText = verwendungszweck.includes("kaution") ||
-                          verwendungszweck.includes("depot") ||
-                          verwendungszweck.includes("sicherheitsleistung") ||
-                          verwendungszweck.includes("mietkaution");
-    const isKaution = kautionImText &&
-                      contract.kaution &&
-                      Math.abs(payment.betrag - contract.kaution) <= BETRAG_TOLERANZ;
+    const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution);
     // LOW confidence - user should verify!
     return {
       ...payment,
@@ -1116,8 +1118,12 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     console.log(`BG-Match: ${matches.length} Kandidaten, gewählt: ${bestMatch.contract.mieter} (exactCount=${bestMatch.exactMatchCount}, address=${bestMatch.hasAddressMatch})`);
   }
 
-  // Also filter by date if possible
-  const dateValidMatches = matches.filter(m => isPaymentInContractPeriod(payment.buchungsdatum, m.contract));
+  // Also filter by date if possible — nur unter den Treffern mit den meisten exakten Namensteilen.
+  // Bis zum 27.10.2026 schlug die Laufzeit die Namensgüte: Ein exakter Treffer auf einem seit über
+  // einem Monat beendeten Vertrag (Nachzahlung für den Ausgezogenen) verlor gegen einen unscharfen
+  // Treffer auf einem laufenden Vertrag („Meier“ → „Maier“), vorausgewählt.
+  const besteExakt = Math.max(...matches.map(m => m.exactMatchCount));
+  const dateValidMatches = matches.filter(m => m.exactMatchCount === besteExakt && isPaymentInContractPeriod(payment.buchungsdatum, m.contract));
   if (dateValidMatches.length === 1) {
     bestMatch = dateValidMatches[0];
   } else if (dateValidMatches.length > 1) {
@@ -1147,23 +1153,20 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     (bgStatusPriority[m.contract.status] ?? 99) === (bgStatusPriority[bestMatch.contract.status] ?? 99)
   );
 
-  if (bestMatch.exactMatchCount === 1 && tiedWithBest.length > 0) {
+  if (bestMatch.exactMatchCount <= 1 && tiedWithBest.length > 0) {
     console.log(`BG-Match: ${tiedWithBest.length + 1} Kandidaten teilen sich denselben schwachen Namensteil "${bestMatch.matchedName}" ohne Unterscheidungsmerkmal — zu unsicher für Auto-Zuordnung`);
     return null;
   }
 
   // Determine category: Kaution or Miete
   let kategorie = "Miete";
-  const kautionInText = verwendungszweck.includes("kaution") ||
-                        verwendungszweck.includes("depot") ||
-                        verwendungszweck.includes("sicherheitsleistung") ||
-                        verwendungszweck.includes("mietkaution");
-  if (kautionInText && bestMatch.contract.kaution &&
-      Math.abs(payment.betrag - bestMatch.contract.kaution) <= BETRAG_TOLERANZ) {
+  if (istKautionsbuchung(verwendungszweck, payment.betrag, bestMatch.contract.kaution)) {
     kategorie = "Mietkaution";
   }
   
-  const confidence = bestMatch.isExact ? 90 : 80;
+  // Nur ein ähnlicher Name, kein exakter Namensteil: Vorschlag, nicht vorausgewählt (27.10.2026)
+  const nurUnscharf = bestMatch.exactMatchCount === 0;
+  const confidence = nurUnscharf ? 60 : bestMatch.isExact ? 90 : 80;
   const matchDetail = bestMatch.isExact ? "Exakter Namens-Match" : "Fuzzy-Namens-Match";
   const addressDetail = bestMatch.hasAddressMatch ? " + Adress-Match" : "";
   
@@ -1173,9 +1176,9 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     ...payment,
     mietvertrag_id: bestMatch.contract.id,
     kategorie,
-    zuordnungsgrund: `BG-Zahlung ${matchDetail}${addressDetail}: "${bestMatch.matchedName}" → ${bestMatch.contract.mieter}`,
+    zuordnungsgrund: `BG-Zahlung ${matchDetail}${addressDetail}: "${bestMatch.matchedName}" → ${bestMatch.contract.mieter}${nurUnscharf ? " (nur ähnlicher Name, bitte prüfen)" : ""}`,
     confidence,
-    selected: true
+    selected: !nurUnscharf
   };
 }
 

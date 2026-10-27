@@ -108,3 +108,21 @@ export function buchungstageVon(zeilen: ReadonlyArray<{ buchungsdatum?: string |
 export function vertragsIdsMitIban(zeilen: ReadonlyArray<{ mietvertrag_id?: string | null; iban?: string | null }>): string[] {
   return [...new Set(zeilen.filter((z) => z.mietvertrag_id && z.iban).map((z) => z.mietvertrag_id as string))];
 }
+
+/** IBAN der Bundesagentur (Bürgergeld): zahlt für viele Mieter, ist nie das Konto eines Mieters. */
+export const JOBCENTER_IBAN = 'DE94760000000076001601';
+
+/**
+ * IBAN, die nach der Übernahme als Bankverbindung am Vertrag nachgetragen werden darf, sonst null.
+ *
+ * Bis zum 27.10.2026 wurde die Zahler-IBAN jeder zugeordneten Buchung eingetragen, auch von
+ * Rücklastschriften, Kautionsstellen, Sammelkonten und dem Jobcenter. Weil der IBAN-Abgleich vor dem
+ * Namensabgleich läuft, schlug das falsche Konto danach den richtigen Namen: live waren zwei
+ * Sammelkonten Hauptkonto von drei Verträgen, 16 Verträge trugen die Jobcenter-IBAN.
+ */
+export function ibanFuerNachtrag(kategorie: string | null | undefined, iban: string | null | undefined): string | null {
+  if (kategorie !== 'Miete') return null;
+  const normalisiert = (iban ?? '').replace(/\s+/g, '').toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(normalisiert) || normalisiert === JOBCENTER_IBAN) return null;
+  return normalisiert;
+}

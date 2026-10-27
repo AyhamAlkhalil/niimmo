@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { format, isValid, parseISO } from "date-fns";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { getVertragsende } from "@/utils/contractUtils";
+import { kategorieBeiVertragszuordnung } from "@/utils/zuordnungsvorschlaege";
 
 interface AssignPaymentDialogProps {
   open: boolean;
@@ -144,8 +145,9 @@ export function AssignPaymentDialog({ open, onOpenChange, payment }: AssignPayme
         .update({
           mietvertrag_id: contractId,
           immobilie_id: null,
-          // Bei Zuordnungswechsel von Nebenkosten zu Mietvertrag → Kategorie anpassen
-          ...(payment.kategorie === 'Nebenkosten' ? { kategorie: 'Miete' } : {})
+          // Am Vertrag zählt nur eine Vertragskategorie; Nebenkosten, Nichtmiete, Ignorieren und
+          // „ohne“ werden Miete (kategorieBeiVertragszuordnung)
+          kategorie: kategorieBeiVertragszuordnung(payment.kategorie) as never,
         })
         .eq('id', payment.id);
 
