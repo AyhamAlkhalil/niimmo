@@ -26,6 +26,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ZaehlerHistorie } from "@/components/dashboard/ZaehlerHistorie";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
+import { getLaufenderVertrag } from "@/utils/contractUtils";
 
 interface ZaehlerVerwaltungProps {
   onBack: () => void;
@@ -90,14 +91,21 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           const unitIds = units?.map(u => u.id) || [];
           let contracts: any[] = [];
           if (unitIds.length > 0) {
-            const { data: contractData } = await supabase
+            // Der heute laufende Vertrag je Einheit (Kanon), nicht nur 'aktiv': Bis zum 27.10.2026 fehlte
+            // bei gekündigten, noch laufenden Verträgen der Mieter, ein künftiger Nachmieter erschien
+            const { data: contractData, error: contractError } = await supabase
               .from('mietvertrag')
-              .select(`id, einheit_id, status, mietvertrag_mieter!inner(mieter:mieter_id(vorname, nachname))`)
+              .select(`id, einheit_id, status, start_datum, ende_datum, kuendigungsdatum, mietvertrag_mieter!inner(mieter:mieter_id(vorname, nachname))`)
               .in('einheit_id', unitIds)
-              .eq('status', 'aktiv');
+              .in('status', ['aktiv', 'gekuendigt']);
+            if (contractError) throw contractError;
             contracts = contractData || [];
           }
-          const contractMap = new Map(contracts.map(c => [c.einheit_id, c]));
+          const contractMap = new Map<string, any>();
+          for (const einheitId of new Set(contracts.map(c => c.einheit_id as string))) {
+            const laufend = getLaufenderVertrag(contracts.filter(c => c.einheit_id === einheitId));
+            if (laufend) contractMap.set(einheitId, laufend);
+          }
           return {
             ...prop,
             einheiten: units?.map(u => ({ ...u, vertrag: contractMap.get(u.id) })) || [],

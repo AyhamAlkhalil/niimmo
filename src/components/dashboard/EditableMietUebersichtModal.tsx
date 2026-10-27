@@ -84,7 +84,9 @@ const fmtDate = (s: string | null | undefined) => {
 
 // ── Bank-Report HTML-Generator ────────────────────────────────────────────────
 function buildBankHtml(
-  grouped: Array<{ objektId: string; objektName: string; objektAdresse: string; annuitaet: number | null; contracts: ContractRow[] }>
+  grouped: Array<{ objektId: string; objektName: string; objektAdresse: string; annuitaet: number | null; contracts: ContractRow[] }>,
+  /** Gefilterter Teilauszug: keine Objekt-Annuität gegen nur einen Teil der Einheiten rechnen */
+  teilauszug = false
 ): string {
   const today = format(new Date(), "dd.MM.yyyy");
   let nr = 0;
@@ -109,11 +111,15 @@ function buildBankHtml(
         ? `${fmtDate(r.mietbeginn)} – ${fmtDate(r.mietende)}`
         : `${fmtDate(r.mietbeginn)} – unbefristet`;
 
-      // Leerstandszeilen zeigen "—" und duerfen die Summen nicht fuellen.
+      // Leerstandszeilen zeigen "—" und duerfen IST nicht fuellen. Ihre SOLL-Miete zaehlt wie in
+      // der Bank-Aufstellung (MietaufstellungBank) mit -- sie steht ja auch in der Zeile. Bis zum
+      // 27.10.2026 fehlte sie in der Summe: 2.275 EUR/Monat weniger SOLL als die andere Aufstellung.
       if (!r.isLeerstand) {
         gKm += r.kaltmiete;
         gBkv += r.betriebskosten;
         gSoll += sollPm;
+      } else if (r.sollMiete != null) {
+        gSoll += r.sollMiete;
       }
       gQm += r.qm;
 
@@ -140,14 +146,17 @@ function buildBankHtml(
     });
 
     grandKm += gKm; grandBkv += gBkv; grandSoll += gSoll; grandQm += gQm;
-    if (g.annuitaet != null) annMap.set(g.objektId, g.annuitaet);
+    // Teilauszug (Filter oder Suche): Bis zum 27.10.2026 stand die volle Rate gegen die gefilterten
+    // Einheiten — ein Objekt mit einer gekündigten Einheit zeigte −40.867 € Überschuss im Jahr
+    const annuitaet = teilauszug ? null : g.annuitaet;
+    if (annuitaet != null) annMap.set(g.objektId, annuitaet);
 
     const gWarm = gKm + gBkv;
     // Der Annuitaetsvergleich laeuft ueber die Kaltmiete: Betriebskosten sind
     // durchlaufende Posten und kein Ertrag.
     const gIst = gKm;
-    const uIst = (gIst - (g.annuitaet ?? 0)) * 12;
-    const uSoll = (gSoll - (g.annuitaet ?? 0)) * 12;
+    const uIst = (gIst - (annuitaet ?? 0)) * 12;
+    const uSoll = (gSoll - (annuitaet ?? 0)) * 12;
 
     const headerRow = `<tr class="obj-row">
       <td colspan="2"><b>${g.objektName}</b></td>
@@ -158,7 +167,7 @@ function buildBankHtml(
       <td class="num"><b>${fmtEuro(gBkv)}</b></td>
       <td class="num"><b>${fmtEuro(gWarm)}</b></td>
       <td style="font-size:7pt">
-        Annuität: <b>${fmtEuro(g.annuitaet)}</b> p.m.
+        Annuität: <b>${teilauszug ? "— (Teilauszug)" : fmtEuro(g.annuitaet)}</b> p.m.
         &nbsp;|&nbsp; Überschuss IST: <b style="color:${uIst < 0 ? '#be2637' : '#387b54'}">${fmtEuro(uIst)}</b> p.a.
         &nbsp;/&nbsp; SOLL: <b style="color:${uSoll < 0 ? '#be2637' : '#387b54'}">${fmtEuro(uSoll)}</b> p.a.
       </td>
@@ -274,6 +283,8 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
       // ungekuerzte Jahresmiete. Sie kommt jetzt wie in der Bank-Aufstellung
       // aus den hinterlegten Darlehen.
       const annMap = new Map<string, number>();
+      // Ohne Darlehen wäre der Überschuss die volle Jahresmiete (bis 27.10.2026 ungeprüft)
+      if (darlehenRes.error) throw darlehenRes.error;
       for (const di of darlehenRes.data ?? []) {
         const rate = (di.darlehen as any)?.monatliche_rate ?? 0;
         if (di.immobilie_id && rate > 0)
@@ -433,18 +444,19 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
   );
 
   // ── Export ────────────────────────────────────────────────────────────────
+  const teilauszug = search.trim() !== "" || statusFilter !== "all";
   const exportToPDF = useCallback(() => {
-    const html = buildBankHtml(grouped);
+    const html = buildBankHtml(grouped, teilauszug);
     const win = window.open("", "_blank");
     if (win) {
       win.document.write(html);
       win.document.close();
       setTimeout(() => win.print(), 400);
     }
-  }, [grouped]);
+  }, [grouped, teilauszug]);
 
   const exportToExcel = useCallback(() => {
-    const html = buildBankHtml(grouped);
+    const html = buildBankHtml(grouped, teilauszug);
     const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -454,7 +466,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [grouped]);
+  }, [grouped, teilauszug]);
 
   // ── EditCell ──────────────────────────────────────────────────────────────
   const EditCell = ({ rowId, table, field, value, type = "text", className = "" }: any) => {

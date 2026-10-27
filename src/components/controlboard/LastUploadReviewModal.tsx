@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CheckCircle2, AlertTriangle, FileText, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { alleSeiten } from "@/utils/supabaseSeiten";
 import { format } from "date-fns";
 
 interface LastUploadReviewModalProps {
@@ -34,14 +35,17 @@ export function LastUploadReviewModal({ open, onOpenChange, upload }: LastUpload
       const fromTime = new Date(uploadTime.getTime() - 5 * 60 * 1000).toISOString();
       const toTime = new Date(uploadTime.getTime() + 60 * 1000).toISOString();
 
-      const { data, error } = await supabase
-        .from('zahlungen')
-        .select('*')
-        .gte('import_datum', fromTime)
-        .lte('import_datum', toTime)
-        .order('buchungsdatum', { ascending: false });
-
-      if (error) throw error;
+      // Seitenweise: Ein Kontoauszug mit mehr als 1000 Buchungen zeigte bis zum 27.10.2026 still nur 1000
+      const data = await alleSeiten<any>((von, bis, mitZaehlung) =>
+        supabase
+          .from('zahlungen')
+          .select('*', { count: mitZaehlung ? 'exact' : undefined })
+          .gte('import_datum', fromTime)
+          .lte('import_datum', toTime)
+          .order('buchungsdatum', { ascending: false })
+          .order('id')
+          .range(von, bis)
+      );
 
       // Enrich with contract/mieter info
       const contractIds = [...new Set((data || []).filter(z => z.mietvertrag_id).map(z => z.mietvertrag_id!))];

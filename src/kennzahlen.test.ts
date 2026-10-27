@@ -1,0 +1,28 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+
+/** Bankaufstellungen und Übersichten (Systemprüfung 27.10.2026) — Quelltextprüfung der Komponenten. */
+describe('Bankaufstellungen', () => {
+  const uebersicht = readFileSync('src/components/dashboard/EditableMietUebersichtModal.tsx', 'utf-8');
+  const bank = readFileSync('src/components/dashboard/MietaufstellungBank.tsx', 'utf-8');
+
+  it('zählen die SOLL-Miete freier Einheiten beide mit', () => {
+    // Die Stammdaten-Übersicht ließ sie aus der Summe weg (2.275 €/Monat Unterschied)
+    expect(uebersicht).toMatch(/\} else if \(r\.sollMiete != null\) \{\s*gSoll \+= r\.sollMiete;/);
+    expect(bank).toMatch(/soll \+= row\.sollMiete \?\? \(row\.isVacant \? 0 : \(row\.kaltmiete \?\? 0\)\);/);
+  });
+
+  it('werten einen Ladefehler der Darlehen aus und rechnen im Teilauszug keine Annuität', () => {
+    expect(uebersicht).toMatch(/if \(darlehenRes\.error\) throw darlehenRes\.error;/);
+    expect(bank).toMatch(/if \(darlehenRes\.error\) throw darlehenRes\.error;/);
+    expect(uebersicht).toMatch(/const annuitaet = teilauszug \? null : g\.annuitaet;/);
+  });
+});
+
+describe('Zählerverwaltung', () => {
+  it('zeigt den heute laufenden Vertrag je Einheit', () => {
+    const quelle = readFileSync('src/components/dashboard/ZaehlerVerwaltung.tsx', 'utf-8');
+    expect(quelle).not.toMatch(/\.eq\('status', 'aktiv'\);\s*contracts = contractData/);
+    expect(quelle).toMatch(/getLaufenderVertrag\(contracts\.filter/);
+  });
+});

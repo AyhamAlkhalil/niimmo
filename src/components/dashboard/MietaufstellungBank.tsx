@@ -76,6 +76,8 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         `),
       ]);
       if (einheitenRes.error) throw einheitenRes.error;
+      // Ohne Darlehen wäre der Überschuss im Bank-PDF die volle Jahresmiete (bis 27.10.2026 ungeprüft)
+      if (darlehenRes.error) throw darlehenRes.error;
 
       // Variante C: jede Immobilie trägt die volle Rate jedes verknüpften Darlehens
       const annMap = new Map<string, number>();
