@@ -298,8 +298,10 @@ serve(async (req: Request) => {
     for (const zeile of vertragsMieter ?? []) {
       const m = (zeile as Record<string, { hauptmail?: string | null; weitere_mails?: string | null }>).mieter;
       if (m?.hauptmail?.includes('@')) erlaubt.add(m.hauptmail.trim().toLowerCase());
-      for (const weitere of (m?.weitere_mails ?? '').split(/[,;\s]+/)) {
-        if (weitere.includes('@')) erlaubt.add(weitere.trim().toLowerCase());
+      // Haupt- und weitere Adressen zerlegt wie mailadressenDerMieter() in der App (27.10.2026):
+      // „a@x.de, b@y.de“ im Hauptfeld lehnte sonst jede einzelne Adresse ab
+      for (const teil of `${m?.hauptmail ?? ''} ${m?.weitere_mails ?? ''}`.split(/[,;\s<>]+/)) {
+        if (teil.includes('@')) erlaubt.add(teil.trim().toLowerCase());
       }
     }
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   anredeAusDatenbank,
+  anredeFuerSchreiben,
   anschriftZeile,
   briefanrede,
   bestaetigungsAbsaetze,
@@ -295,5 +296,23 @@ describe('mailadressenDerMieter mit zwei Adressen im Hauptfeld', () => {
     // 27.10.2026: „a@x.de, b@y.de“ im Hauptfeld ließ den Versand der BKA scheitern
     expect(mailadressenDerMieter([{ hauptmail: 'A@x.de, b@y.de', weitere_mails: 'kein, c@z.de' }])).toEqual(['a@x.de', 'b@y.de', 'c@z.de']);
     expect(mailadressenDerMieter([{ hauptmail: 'nur@', weitere_mails: null }])).toEqual([]);
+  });
+
+  it('nimmt die Adresse aus „Name <adresse>“ ohne Klammern und keine mit Punkt am Ende', () => {
+    expect(mailadressenDerMieter([{ hauptmail: 'Max <a@b.de>', weitere_mails: '<c@d.de>; e@f.de.' }])).toEqual(['a@b.de', 'c@d.de']);
+  });
+
+  it('zerlegt in send-mahnung und send-kuendigungsbestaetigung genauso, sonst lehnt die Function ab', () => {
+    for (const fn of ['send-mahnung', 'send-kuendigungsbestaetigung']) {
+      const quelle = readFileSync(`supabase/functions/${fn}/index.ts`, 'utf-8');
+      expect(quelle).toContain("`${m?.hauptmail ?? ''} ${m?.weitere_mails ?? ''}`.split(/[,;\\s<>]+/)");
+    }
+  });
+});
+
+describe('anredeFuerSchreiben mit leeren Feldern aus der Datenbank', () => {
+  it('stürzt bei null nicht ab', () => {
+    expect(anredeFuerSchreiben(null, [{ vorname: 'Max', nachname: null }]).gruss).toBe('Guten Tag Max,');
+    expect(anredeFuerSchreiben('Herr', [{ vorname: null, nachname: 'Probe' }]).gruss).toBe('Sehr geehrter Herr Probe,');
   });
 });

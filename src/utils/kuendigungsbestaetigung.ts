@@ -204,8 +204,10 @@ export function mailadressenDerMieter(
   // bis zum 27.10.2026 den Versand der Betriebskostenabrechnung scheitern (live zwei Verträge)
   const adressen = new Set<string>();
   for (const m of mieter) {
-    for (const adresse of `${m.hauptmail ?? ''} ${m.weitere_mails ?? ''}`.split(/[,;\s]+/)) {
-      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adresse)) adressen.add(adresse.toLowerCase());
+    // Spitze Klammern trennen mit („Max <a@b.de>“ ergibt a@b.de) — dieselbe Zerlegung in
+    // send-mahnung und send-kuendigungsbestaetigung, sonst lehnt die Function die Adresse ab
+    for (const adresse of `${m.hauptmail ?? ''} ${m.weitere_mails ?? ''}`.split(/[,;\s<>]+/)) {
+      if (/^[^\s@<>"()]+@[^\s@<>"()]+\.[^\s@<>"()]+$/.test(adresse) && !adresse.endsWith('.')) adressen.add(adresse.toLowerCase());
     }
   }
   return [...adressen];
@@ -220,10 +222,14 @@ export function mailadressenDerMieter(
  * („Herrn“ in der Anschrift), sonst alle Mieter neutral beim Namen (briefanrede).
  */
 export function anredeFuerSchreiben(
-  anrede: string,
-  mieter: Array<{ vorname: string; nachname: string }>
+  anrede: string | null | undefined,
+  mieter: Array<{ vorname: string | null; nachname: string | null }>
 ): { anschrift: string; gruss: string } {
-  const personen = mieter.filter((m) => `${m.vorname} ${m.nachname}`.trim());
+  // Leere Namensfelder kommen aus der Datenbank als null (QA 27.10.2026: TypeError beim Erzeugen)
+  const personen = mieter
+    .map((m) => ({ vorname: m.vorname ?? '', nachname: m.nachname ?? '' }))
+    .filter((m) => `${m.vorname} ${m.nachname}`.trim());
+  anrede = anrede ?? '';
   const art = anrede.trim().toLowerCase();
   if (personen.length === 1 && (art === 'herr' || art === 'frau')) {
     const p = personen[0];

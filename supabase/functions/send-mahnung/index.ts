@@ -311,8 +311,9 @@ serve(async (req) => {
     for (const zeile of vertragsMieter ?? []) {
       const m = (zeile as Record<string, { hauptmail?: string | null; weitere_mails?: string | null }>).mieter;
       if (m?.hauptmail) erlaubteAdressen.add(m.hauptmail.trim().toLowerCase());
-      for (const weitere of (m?.weitere_mails ?? '').split(/[,;\s]+/)) {
-        if (weitere.includes('@')) erlaubteAdressen.add(weitere.trim().toLowerCase());
+      // Haupt- und weitere Adressen zerlegt wie mailadressenDerMieter() in der App (27.10.2026)
+      for (const teil of `${m?.hauptmail ?? ''} ${m?.weitere_mails ?? ''}`.split(/[,;\s<>]+/)) {
+        if (teil.includes('@')) erlaubteAdressen.add(teil.trim().toLowerCase());
       }
     }
 
