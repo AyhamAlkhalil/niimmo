@@ -1,8 +1,5 @@
 project_id = "kmtgzrnpitlslivdvlyq"
 
-[functions.chat]
-verify_jwt = false
-
 [functions.process-contract-ocr]
 verify_jwt = false
 

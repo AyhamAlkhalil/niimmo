@@ -8,7 +8,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { useErledigtHinweise } from "@/hooks/useErledigtHinweise";
-import { ModernChatbotTrigger } from "@/components/chatbot/ModernChatbotTrigger";
+import { SchwebendeKnoepfe } from "@/components/dashboard/SchwebendeKnoepfe";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import PasswortNeu from "./pages/PasswortNeu";
@@ -42,7 +42,7 @@ const App = () => (
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-            <ModernChatbotTrigger />
+            <SchwebendeKnoepfe />
           </BrowserRouter>
         </RealtimeProvider>
       </AuthProvider>

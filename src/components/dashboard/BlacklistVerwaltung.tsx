@@ -108,7 +108,7 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
         <Seitenkopf
           bereich="System"
           titel="Bewerbungs-Blacklist"
-          beschreibung="Personen auf dieser Liste sollen bei Bewerbungen sofort geprüft werden. Chilla (KI-Chat) kennt diese Liste und kann gezielt danach suchen."
+          beschreibung="Personen auf dieser Liste sollen bei Bewerbungen sofort geprüft werden. Chilla (Telegram-Assistent) kennt diese Liste und kann gezielt danach suchen."
           onZurueck={onBack}
           aktionen={
             <>

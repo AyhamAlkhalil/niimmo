@@ -13,7 +13,7 @@ Browser (Vite/React)          Supabase
 pages/Index.tsx  ─┐           Postgres + RLS  ← einzige Sicherheitsgrenze
   alle Ansichten  │  React    Auth
 components/       │  Query    Storage (Bucket „dokumente")
-hooks/            ├─────────► Edge Functions (Deno, 18 Stück)
+hooks/            ├─────────► Edge Functions (Deno, 13 Stück)
 utils/  Fachlogik │             ├ Zahlungen/KI/OCR
                   │             ├ PDF/Mail
 integrations/     ┘             └ Cron (Sollstellung, Fälligkeit)
@@ -165,7 +165,7 @@ wurde verworfen, weil er sich zu wenig vom alten Stand abhob):
 **RLS ist die Sicherheitsgrenze, nicht das Frontend.** Eine Berechtigung, die im UI über `isAdmin` ausgeblendet
 wird, muss zusätzlich in RLS oder in der Edge Function durchgesetzt sein — sonst ist sie Kosmetik.
 
-- Alle 14 Edge Functions laufen mit `verify_jwt = false` und **müssen selbst prüfen**. Jede schreibende Function
+- Alle 13 Edge Functions laufen mit `verify_jwt = false` und **müssen selbst prüfen**. Jede schreibende Function
   wertet nach `auth.getUser()` zusätzlich `is_admin` aus und antwortet sonst mit 403.
 - **Der Service-Role-Client wird erst nach bestandener Prüfung erzeugt** — nie oberhalb davon.
 - **Nach `auth.getUser()` immer beides prüfen**: `authError` **und** `!userData?.user?.id`.

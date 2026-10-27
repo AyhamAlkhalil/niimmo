@@ -16,11 +16,8 @@ import {
 import { ProblemMeldenDialog } from "./ProblemMeldenDialog";
 
 /**
- * Schwebende Leiste über dem Chatbot: melden, Posteingang, Aufgaben-Board.
- *
- * Sie wird innerhalb des Chatbot-Auslösers gerendert und verschwindet deshalb
- * zusammen mit dessen Knopf, sobald der Chat geöffnet ist — sonst stünde sie
- * über dem abdunkelnden Hintergrund.
+ * Schwebende Leiste unten rechts: melden, Posteingang, Aufgaben-Board.
+ * Gerendert wird sie in `SchwebendeKnoepfe`.
  *
  * Der Hausmeister sieht die Leiste nicht. Die eigentliche Sperre liegt in der
  * Datenbank; hier wird nur nichts angeboten, was ohnehin nicht ginge.
