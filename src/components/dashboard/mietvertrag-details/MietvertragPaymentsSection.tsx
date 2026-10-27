@@ -207,7 +207,7 @@ export function MietvertragPaymentsSection({
       {hasLinkedContracts && (
         <Card className="border-border bg-neutral-50/60">
           <CardContent className="py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-primary/10 rounded-lg">
                   <Link2 className="h-5 w-5 text-primary" />
@@ -219,7 +219,7 @@ export function MietvertragPaymentsSection({
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {linkedContracts.map((contract) => (
                   <Button
                     key={contract.id}
@@ -269,9 +269,11 @@ export function MietvertragPaymentsSection({
       {/* Timeline Section */}
       <Card className="elegant-card">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          {/* Auf dem Handy passen Titel und beide Knöpfe nicht in eine Zeile; ohne Umbruch ließ sich
+              die Vertragsansicht um rund 170 px seitlich scrollen (Meldung 27.10.2026) */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="text-lg font-semibold">Zahlungen & Forderungen Timeline</CardTitle>
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
               {/* Lastschrift Status with Popover */}
               <Popover open={lastschriftPopoverOpen} onOpenChange={setLastschriftPopoverOpen}>
                 <PopoverTrigger asChild>
