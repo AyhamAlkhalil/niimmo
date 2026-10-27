@@ -11,6 +11,14 @@ describe('zerlegeCsv', () => {
       ['1', 'zwei\nZeilen', '3'],
     ]);
   });
+
+  it('behandelt ein Anführungszeichen mitten im Feld als Zeichen', () => {
+    // Sonst verschmölze alles bis zum nächsten Anführungszeichen der Datei zu einem Feld
+    expect(zerlegeCsv('a;Rohr 3" Anschluss;c\nd;e;f\n')).toEqual([
+      ['a', 'Rohr 3" Anschluss', 'c'],
+      ['d', 'e', 'f'],
+    ]);
+  });
 });
 
 describe('kontoauszugLesen', () => {
@@ -36,6 +44,11 @@ describe('kontoauszugLesen', () => {
     expect(r.zahlungen).toHaveLength(1);
     expect(r.zahlungen[0]).toMatchObject({ buchungsdatum: '2026-10-02', betrag: 10 });
   });
+
+  it('liest Datenzeilen, wenn nur die Kopfzeile ein Semikolon am Ende hat', () => {
+    const r = kontoauszugLesen(`${KOPF};\n02.10.2026;;Miete;DE00;10,00;X\n`);
+    expect(r).toMatchObject({ uebersprungen: 0, zahlungen: [{ buchungsdatum: '2026-10-02', betrag: 10 }] });
+  });
 });
 
 describe('betragAusText und datumAusText', () => {
@@ -53,11 +66,31 @@ describe('betragAusText und datumAusText', () => {
     expect(betragAusText('EUR')).toBeNull();
   });
 
+  it('liest Vorzeichen, Währung und typografisches Minus im Betragsfeld', () => {
+    expect(betragAusText('+1.234,56')).toBe(1234.56);
+    expect(betragAusText('1.234,56 €')).toBe(1234.56);
+    expect(betragAusText('1.234,56 EUR')).toBe(1234.56);
+    expect(betragAusText('EUR -50,00')).toBe(-50);
+    expect(betragAusText('\u22125,00')).toBe(-5);
+    expect(betragAusText('5,00+')).toBe(5);
+  });
+
+  it('liest „0,500“ als Dezimalzahl, nicht als Tausender', () => {
+    expect(betragAusText('0,500')).toBe(0.5);
+    expect(betragAusText('12.345')).toBe(12345);
+  });
+
   it('versteht zweistellige Jahre und lehnt unmögliche Tage ab', () => {
     expect(datumAusText('1.10.26')).toBe('2026-10-01');
     expect(datumAusText('2026-10-01')).toBe('2026-10-01');
     expect(datumAusText('30.02.2026')).toBeNull();
     expect(datumAusText('10/01/2026')).toBeNull();
+  });
+
+  it('nimmt den Kalendertag auch mit Uhrzeit dahinter', () => {
+    expect(datumAusText('27.10.2026 00:00:00')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27T00:00:00')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27 13:45:00.000+02:00')).toBe('2026-10-27');
   });
 });
 

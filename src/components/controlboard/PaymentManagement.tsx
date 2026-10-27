@@ -324,7 +324,11 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       const payments = await parseCsvToPayments(csvFile);
 
       if (payments.length === 0) {
-        throw new Error("Keine gültigen Zahlungen in der CSV gefunden");
+        throw new Error(
+          uebersprungenRef.current > 0
+            ? `Keine Zeile der CSV war lesbar (${uebersprungenRef.current} Zeile(n) übersprungen). Bitte Format und Spalten prüfen.`
+            : "Keine gültigen Zahlungen in der CSV gefunden"
+        );
       }
 
       toast({
@@ -350,10 +354,13 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       setAiStats(result.stats);
       setResultsModalOpen(true);
 
+      // Fehlende Zeilen sind fehlende Buchungen: als Warnung und lange sichtbar, nicht nach 4 s weg
+      const fehlen = uebersprungenRef.current;
       toast({
-        title: "CSV verarbeitet",
-        description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.${uebersprungenRef.current > 0 ? ` Achtung: ${uebersprungenRef.current} Zeile(n) der Datei waren nicht lesbar und fehlen.` : ''}`,
-        duration: 4000
+        title: fehlen > 0 ? `Achtung: ${fehlen} Zeile(n) der CSV fehlen` : "CSV verarbeitet",
+        description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.${fehlen > 0 ? ` ${fehlen} Zeile(n) der Datei waren nicht lesbar und sind nicht in der Prüfung — diese Buchungen bitte von Hand nachtragen.` : ''}`,
+        variant: fehlen > 0 ? "destructive" : undefined,
+        duration: fehlen > 0 ? 60000 : 4000
       });
 
     } catch (error: unknown) {

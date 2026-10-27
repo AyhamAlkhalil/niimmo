@@ -36,6 +36,9 @@ export function zerlegeCsv(text: string, trenner = ';'): string[][] {
   let feld = '';
   let zeile: string[] = [];
   let inAnfuehrung = false;
+  // Ein Anführungszeichen öffnet nur am Feldanfang (RFC 4180); mitten im Feld (Rohr 3" Anschluss)
+  // ist es ein Zeichen, sonst verschmölze der Rest der Datei zu einem Feld
+  let amFeldanfang = true;
   for (let i = 0; i < text.length; i++) {
     const z = text[i];
     if (inAnfuehrung) {
@@ -49,19 +52,23 @@ export function zerlegeCsv(text: string, trenner = ';'): string[][] {
       } else {
         feld += z;
       }
-    } else if (z === '"') {
+    } else if (z === '"' && amFeldanfang) {
       inAnfuehrung = true;
+      amFeldanfang = false;
     } else if (z === trenner) {
       zeile.push(feld);
       feld = '';
+      amFeldanfang = true;
     } else if (z === '\n' || z === '\r') {
       if (z === '\r' && text[i + 1] === '\n') i++;
       zeile.push(feld);
       zeilen.push(zeile);
       zeile = [];
       feld = '';
+      amFeldanfang = true;
     } else {
       feld += z;
+      amFeldanfang = false;
     }
   }
   if (feld !== '' || zeile.length > 0) {
@@ -73,18 +80,20 @@ export function zerlegeCsv(text: string, trenner = ';'): string[][] {
 
 /**
  * Betrag aus deutschem oder englischem Format, sonst null:
- * „1.250,00“, „1,250.00“, „1250,50“, „5000 00“, „-1.250,00“, „1.250,00-“, „1.250“ (Tausender).
+ * „1.250,00“, „1,250.00“, „1250,50“, „5000 00“, „-1.250,00“, „1.250,00-“, „1.250“ (Tausender),
+ * „+1.250,00“, „1.250,00 €“, „EUR 1.250,00“, „−5,00“ (typografisches Minus).
  */
 export function betragAusText(roh: string | number | null | undefined): number | null {
   if (typeof roh === 'number') return Number.isFinite(roh) ? roh : null;
   if (!roh) return null;
-  let s = roh.trim();
+  // Währung und Vorzeichenvarianten, wie manche Banken sie ins Betragsfeld schreiben
+  let s = roh.replace(/[\u2212\u2013]/g, '-').replace(/€|EUR/gi, '').trim();
   let negativ = false;
-  if (s.startsWith('-')) {
-    negativ = true;
+  if (s.startsWith('-') || s.startsWith('+')) {
+    negativ = s.startsWith('-');
     s = s.slice(1).trim();
-  } else if (s.endsWith('-')) {
-    negativ = true;
+  } else if (s.endsWith('-') || s.endsWith('+')) {
+    negativ = s.endsWith('-');
     s = s.slice(0, -1).trim();
   }
   const leerzeichenDezimal = s.match(/^(\d+)\s(\d{2})$/);
@@ -102,8 +111,10 @@ export function betragAusText(roh: string | number | null | undefined): number |
     const trenner = letztesKomma >= 0 ? ',' : letzterPunkt >= 0 ? '.' : '';
     const teile = trenner ? s.split(trenner) : [s];
     // Genau drei Ziffern nach einem einzelnen Trenner sind Tausender („1.250“) — Banken
-    // schreiben Beträge nie mit drei Nachkommastellen
-    if (trenner && (teile.length > 2 || teile[teile.length - 1].length === 3)) s = teile.join('');
+    // schreiben Beträge nie mit drei Nachkommastellen. Nicht bei „0,500“: davor stehen
+    // dann ein bis drei Ziffern ohne führende Null.
+    const tausender = teile.length > 2 || (teile[1]?.length === 3 && /^[1-9]\d{0,2}$/.test(teile[0]));
+    if (trenner && tausender) s = teile.join('');
     else s = s.replace(',', '.');
   }
   const wert = parseFloat(s);
@@ -111,11 +122,11 @@ export function betragAusText(roh: string | number | null | undefined): number |
   return negativ ? -wert : wert;
 }
 
-/** Kalendertag aus „TT.MM.JJJJ“, „TT.MM.JJ“ oder „JJJJ-MM-TT“, sonst null. */
+/** Kalendertag aus „TT.MM.JJJJ“, „TT.MM.JJ“ oder „JJJJ-MM-TT“ (auch mit Uhrzeit dahinter), sonst null. */
 export function datumAusText(roh: string | null | undefined): string | null {
   const s = (roh ?? '').trim();
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const de = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$/);
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/);
+  const de = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
   let j: number, m: number, t: number;
   if (iso) {
     [j, m, t] = [Number(iso[1]), Number(iso[2]), Number(iso[3])];
@@ -142,6 +153,8 @@ export function kontoauszugLesen(text: string): { zahlungen: CsvZahlung[]; ueber
   const zeilen = zerlegeCsv(text);
   if (zeilen.length < 2) return { zahlungen: [], uebersprungen: 0 };
   const kopf = zeilen[0].map((h) => h.trim());
+  // Ein Semikolon am Ende der Kopfzeile ergibt eine leere Spalte, die den Datenzeilen fehlt
+  while (kopf.length > 0 && kopf[kopf.length - 1] === '') kopf.pop();
   const zahlungen: CsvZahlung[] = [];
   let uebersprungen = 0;
 
