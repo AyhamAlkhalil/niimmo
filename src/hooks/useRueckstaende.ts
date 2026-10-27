@@ -120,7 +120,6 @@ export const useRueckstaende = () => {
         { data: einheiten, error: einheitenError },
         { data: immobilien, error: immobilienError },
         { data: mietvertragMieter, error: mmError },
-        { data: dokumente, error: dokumenteError },
       ] = await Promise.all([
         supabase.from('mietvertrag').select('*'),
         supabase.from('einheiten').select('*'),
@@ -136,14 +135,12 @@ export const useRueckstaende = () => {
             telnr
           )
         `),
-        supabase.from('dokumente').select('*'),
       ]);
 
       if (mietvertrageError) throw mietvertrageError;
       if (einheitenError) throw einheitenError;
       if (immobilienError) throw immobilienError;
       if (mmError) throw mmError;
-      if (dokumenteError) throw dokumenteError;
 
       // Große Tabellen mit Pagination laden (umgeht serverseitiges 1000-Zeilen-Limit)
       const [alleForderungen, alleZahlungen] = await Promise.all([
@@ -172,8 +169,8 @@ export const useRueckstaende = () => {
         // Alle Verträge berücksichtigen, die potenziell Rückstände haben könnten
         // (aktiv, gekündigt, beendet)
 
-        // Skip wenn keine Miete definiert ist
-        if ((mietvertrag.kaltmiete || 0) === 0 && (mietvertrag.betriebskosten || 0) === 0) continue;
+        // Kein Ausschluss nach Miete: Ein Vertrag mit Miete 0 und offenem Saldo fehlte bis zum
+        // 27.10.2026 in der Liste, während das Vertragsdetail ihn zeigte. Gefiltert wird unten nach Saldo.
 
         // Filter vorgeladene Daten für diesen Mietvertrag
         const mietvertragForderungen = alleForderungen?.filter(f => f.mietvertrag_id === mietvertrag.id) || [];
@@ -198,7 +195,6 @@ export const useRueckstaende = () => {
           const immobilie = immobilien?.find(i => i.id === einheit?.immobilie_id);
           const alleMieter = mietvertragMieter?.filter(mm => mm.mietvertrag_id === mietvertrag.id) || [];
           const ersteMieter = alleMieter[0];
-          const mietvertragDokumente = dokumente?.filter(dok => dok.mietvertrag_id === mietvertrag.id) || [];
 
           // Berechne Miete-Zahlungen separat
           const mieteZahlungenSumme = calculateMieteZahlungen(mietvertragZahlungen);
@@ -231,7 +227,9 @@ export const useRueckstaende = () => {
             mieter_email: ersteMieter?.mieter?.hauptmail || 'Unbekannt',
             alle_mieter: alleMieter,
             mietvertrag: mietvertrag,
-            dokumente: mietvertragDokumente,
+            // Nicht mehr geladen (27.10.2026): Kein Leser; die ungeblätterte Abfrage lieferte 1000
+            // zufällige von 1605 Zeilen, und ihr Scheitern ließ die ganze Liste ausfallen
+            dokumente: [],
             kaltmiete: mietvertrag.kaltmiete || 0,
             betriebskosten: mietvertrag.betriebskosten || 0,
             mietvertrag_status: mietvertrag.status === 'aktiv' ? 'Aktiv' : 

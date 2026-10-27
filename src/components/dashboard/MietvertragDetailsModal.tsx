@@ -12,6 +12,7 @@ import { KuendigungsbestaetigungDialog } from "./termination/Kuendigungsbestaeti
 import { MahnungErstellungModal } from "./MahnungErstellungModal";
 import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
+import { useToast } from "@/hooks/use-toast";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
 import { calculateMietvertragRueckstand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
 import { getVertragsende } from "@/utils/contractUtils";
@@ -36,8 +37,9 @@ export default function MietvertragDetailsModal({
     vertrag, vertragLoading, fetchedEinheit,
     mieter, zahlungen, allMietvertraege, forderungen, dokumente,
     dokumenteLoading, dokumenteFehler, dokumenteLaedtNeu, refetchDokumente,
-    queryClient,
+    finanzFehler, queryClient,
   } = useMietvertragData(vertragId, isOpen);
+  const { toast } = useToast();
 
   const einheitData = fetchedEinheit || einheit;
   const [showVertragPdfModal, setShowVertragPdfModal] = useState(false);
@@ -165,7 +167,15 @@ export default function MietvertragDetailsModal({
                 onContractUpdate={() => {
                   queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
                 }}
-                onShowMahnung={() => mutations.setShowMahnungModal(true)}
+                onShowMahnung={() => {
+                  // Ohne geladene Zahlungen und Forderungen wäre der vorbelegte Mahnbetrag falsch
+                  if (finanzFehler) {
+                    toast({ title: "Mahnung nicht möglich", description: "Zahlungen oder Forderungen konnten nicht geladen werden. Bitte das Fenster neu öffnen.", variant: "destructive" });
+                    return;
+                  }
+                  mutations.setShowMahnungModal(true);
+                }}
+                finanzFehler={finanzFehler}
                 onShowKuendigung={() => mutations.setShowTerminationDialog(true)}
                 onShowKuendigungsbestaetigung={() => { setBestaetigungVorbelegung(null); setShowBestaetigung(true); }}
                 onShowVertragPdf={() => setShowVertragPdfModal(true)}

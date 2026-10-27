@@ -388,3 +388,15 @@ describe('leseForderungsbetrag (Forderung bearbeiten)', () => {
     expect(quelle).toMatch(/leseForderungsbetrag\(newValue\)/);
   });
 });
+
+describe('Vertragsdetail und Rückstandsliste', () => {
+  it('rechnen beide nur mit fälligen Forderungen und blenden Verträge mit Saldo nicht nach Miete aus', () => {
+    // 27.10.2026: Das Detail zeigte vom 1. bis 7. die nicht fällige Miete als Rückstand
+    const detail = readFileSync('src/components/dashboard/mietvertrag-details/MietvertragPaymentsSection.tsx', 'utf-8');
+    expect(detail).toMatch(/nurFaelligeForderungen\(forderungen \|\| \[\]\)/);
+    expect(detail).toMatch(/finanzFehler \?/);
+    const liste = readFileSync('src/hooks/useRueckstaende.ts', 'utf-8');
+    expect(liste).not.toMatch(/=== 0 && \(mietvertrag\.betriebskosten \|\| 0\) === 0\) continue;/);
+    expect(liste).not.toMatch(/from\('dokumente'\)/);
+  });
+});
