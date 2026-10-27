@@ -7,6 +7,8 @@ import { formatEuroKompakt } from "@/utils/betragAnzeige";
 import { useState, type ReactNode } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
 import { alsIsoTag, getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
+import { alleSeiten } from "@/utils/supabaseSeiten";
+import { monatsSaldo, type MonatsForderung, type MonatsZahlung } from "@/utils/monatsSaldo";
 
 interface DashboardStatsProps {
   immobilien: any[] | undefined;
@@ -18,7 +20,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const { isAdmin } = useUserRole();
   const [editingTyp, setEditingTyp] = useState<'basiszinssatz' | 'vpi' | null>(null);
   const [editWert, setEditWert] = useState("");
-  const { data: gesamtEinheiten } = useQuery({
+  const { data: gesamtEinheiten, isError: einheitenFehler } = useQuery({
     queryKey: ['gesamt-einheiten'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -29,7 +31,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     }
   });
 
-  const { data: mietvertraege } = useQuery({
+  const { data: mietvertraege, isError: vertraegeFehler } = useQuery({
     queryKey: ['alle-mietvertrag'],
     queryFn: async () => {
       const heute = alsIsoTag(new Date());
@@ -61,23 +63,34 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     }
   });
 
-  const { data: erfassedMiete } = useQuery({
+  // Forderungen und Zahlungen des laufenden Monats; die Rechnung je Vertrag steht in
+  // utils/monatsSaldo.ts. Ein Ladefehler lieferte bis zum 27.10.2026 still 0 € Eingang
+  // („Noch keine Zahlungen erfasst“) — jetzt wird er angezeigt.
+  const { data: monatsDaten, isError: monatsFehler } = useQuery({
     queryKey: ['erfasste-miete'],
     queryFn: async () => {
-      const heute = new Date();
-      const aktuellerMonat = alsIsoTag(heute).slice(0, 7);
-      const { data: zahlungen, error } = await supabase
-        .from('zahlungen')
-        .select('betrag')
-        .in('kategorie', ['Miete', 'Rücklastschrift', 'Betriebskostenabrechnung'])
-        .eq('zugeordneter_monat', aktuellerMonat)
-        .not('mietvertrag_id', 'is', null);
-      if (error) {
-        return 0;
-      }
-      // Rücklastschriften haben negativen betrag → reduzieren automatisch
-      // BKA-Zahlungseingänge (Nachzahlungen) werden als Einnahme gezählt
-      return zahlungen?.reduce((sum, zahlung) => sum + (zahlung.betrag || 0), 0) || 0;
+      const aktuellerMonat = alsIsoTag(new Date()).slice(0, 7);
+      const [zahlungen, forderungen] = await Promise.all([
+        alleSeiten<MonatsZahlung>((von, bis, mitZaehlung) =>
+          supabase
+            .from('zahlungen')
+            .select('mietvertrag_id, betrag, kategorie', { count: mitZaehlung ? 'exact' : undefined })
+            .in('kategorie', ['Miete', 'Rücklastschrift'])
+            .eq('zugeordneter_monat', aktuellerMonat)
+            .not('mietvertrag_id', 'is', null)
+            .order('id')
+            .range(von, bis)
+        ),
+        alleSeiten<MonatsForderung>((von, bis, mitZaehlung) =>
+          supabase
+            .from('mietforderungen')
+            .select('mietvertrag_id, sollbetrag, typ', { count: mitZaehlung ? 'exact' : undefined })
+            .eq('sollmonat', `${aktuellerMonat}-01`)
+            .order('id')
+            .range(von, bis)
+        ),
+      ]);
+      return { zahlungen, forderungen };
     }
   });
 
@@ -117,10 +130,12 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
 
   const gesamtKaltmiete = relevanteVertraege.reduce((sum, v) => sum + (v.kaltmiete || 0), 0);
   const gesamtBetriebskosten = relevanteVertraege.reduce((sum, v) => sum + (v.betriebskosten || 0), 0);
-  const erwartedMiete = gesamtKaltmiete + gesamtBetriebskosten;
-  const differenz = erwartedMiete - (erfassedMiete || 0);
+  const saldo = monatsSaldo(relevanteVertraege, monatsDaten?.forderungen ?? [], monatsDaten?.zahlungen ?? []);
+  const ladeFehler = einheitenFehler || vertraegeFehler || monatsFehler;
+  const monatGeladen = !!monatsDaten && !!mietvertraege;
 
-  const vermieteteEinheiten = aktiveMietvertraege.length + gekuendigteMietvertraege.length;
+  // Einheiten statt Verträge zählen: zwei laufende Verträge auf einer Einheit sind eine vermietete Einheit
+  const vermieteteEinheiten = new Set(relevanteVertraege.map((mv) => mv.einheit_id ?? mv.id)).size;
   const leerstände = gesamtEinheiten ? gesamtEinheiten - vermieteteEinheiten : 0;
 
   // Berechne das nächste Kündigungs- oder Auslaufdatum. Kalendertage als Text vergleichen: Mit
@@ -152,7 +167,6 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   // Beträge wie in Schriftstücken: „48.250 €“ statt „€48,250“, Cent nur wenn vorhanden
   const euro = formatEuroKompakt;
   const anzahlObjekte = immobilien?.length || 0;
-  const offen = differenz;
 
   // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin); Eingabe wie bisher
   const marktwert = (typ: 'basiszinssatz' | 'vpi', anzeige: ReactNode, aktuell: number | undefined, schritt: string, bezeichnung: string) =>
@@ -203,17 +217,22 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
             {anzahlObjekte} {anzahlObjekte === 1 ? 'Objekt' : 'Objekte'} mit {gesamtEinheiten || 0} Einheiten, davon {vermieteteEinheiten} vermietet
             {leerstände > 0 ? ` und ${leerstände} frei` : ''}.
           </p>
+          {ladeFehler && (
+            <p role="alert" className="mt-3 text-sm text-destructive">
+              Ein Teil der Kennzahlen konnte nicht geladen werden. Fehlende Werte stehen als „—“, bitte die Seite neu laden.
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 border-t border-foreground sm:grid-cols-3">
           <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:py-0 sm:pr-5 sm:pt-4">
             <p className="eyebrow">Soll-Miete</p>
-            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{euro(erwartedMiete)}</p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{monatGeladen ? euro(saldo.soll) : '—'}</p>
           </div>
           <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:border-l sm:px-5 sm:py-0 sm:pt-4">
             <p className="eyebrow flex items-center gap-1.5">
               Eingang
-              {(erfassedMiete === 0 || erfassedMiete === null || erfassedMiete === undefined) && (
+              {monatGeladen && saldo.eingang === 0 && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -226,13 +245,20 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                 </TooltipProvider>
               )}
             </p>
-            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{euro(erfassedMiete || 0)}</p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{monatGeladen ? euro(saldo.eingang) : '—'}</p>
           </div>
           <div className="flex min-w-0 items-baseline justify-between gap-4 py-3.5 sm:block sm:border-l sm:border-border sm:py-0 sm:pl-5 sm:pt-4">
-            <p className="eyebrow">{offen < 0 ? 'Mehr eingegangen' : 'Noch offen'}</p>
-            <p className={`whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums sm:text-[1.75rem] xl:text-[2rem] ${offen > 0 ? 'text-brand' : offen < 0 ? 'text-success' : 'text-foreground'}`}>
-              {offen < 0 ? '+' : ''}{euro(Math.abs(offen))}
+            <p className="eyebrow">Noch offen</p>
+            <p className={`whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums sm:text-[1.75rem] xl:text-[2rem] ${monatGeladen && saldo.offen > 0 ? 'text-brand' : 'text-foreground'}`}>
+              {monatGeladen ? euro(saldo.offen) : '—'}
             </p>
+            {monatGeladen && (saldo.vertraegeMitRueckstand > 0 || saldo.mehr > 0) && (
+              <p className="mt-1 text-xs text-muted-foreground sm:mt-2">
+                {saldo.vertraegeMitRueckstand > 0 && `${saldo.vertraegeMitRueckstand} ${saldo.vertraegeMitRueckstand === 1 ? 'Vertrag' : 'Verträge'}`}
+                {saldo.vertraegeMitRueckstand > 0 && saldo.mehr > 0 && ' · '}
+                {saldo.mehr > 0 && `${euro(saldo.mehr)} mehr eingegangen`}
+              </p>
+            )}
           </div>
         </div>
       </div>
