@@ -286,7 +286,7 @@ export function InteressentenAbschnitt({
                     variant="link"
                     size="sm"
                     className="h-auto p-0 text-xs"
-                    onClick={() => aendere(p.schluessel, { mieterId: null, quelle: undefined })}
+                    onClick={() => aendere(p.schluessel, { mieterId: null, quelle: undefined, bestandStand: undefined })}
                   >
                     Doch als neuen Mieter anlegen
                   </Button>

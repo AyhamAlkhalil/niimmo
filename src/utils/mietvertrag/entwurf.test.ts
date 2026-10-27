@@ -574,12 +574,11 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
       mitVorlage: true,
       personen: [bestehend, neu],
     });
+    // Nur Ergänztes und Geändertes — Anrede und Vertretung stehen wie im Bestand
     expect(z.verknuepfungen[0].stammdaten).toEqual({
-      anrede: 'Herr',
       hauptmail: 'neu@example.de',
       telnr: '0511 2',
       geburtsdatum: '1980-05-06',
-      vertreten_durch: null,
       strasse: 'Teststr.',
       hausnummer: '3',
       plz: '30159',
@@ -588,6 +587,36 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
     // Name und Firma gehen nie mit — die bleiben im Bestand, wie sie sind
     expect(Object.keys(z.verknuepfungen[0].stammdaten ?? {})).not.toContain('vorname');
     expect(z.verknuepfungen[1]).not.toHaveProperty('stammdaten');
+  });
+
+  it('schreibt beim Aktivieren keinen alten Stand über neuere Stammdaten', () => {
+    // 27.10.2026: Entwurf an Tag 1, neue Mail im Bestand an Tag 5, Aktivieren an Tag 10
+    // schrieb die alte Mail zurück. Unveränderte Kartenfelder gehen jetzt nicht mit.
+    const karte = mitBestandsmieter(leerePerson(), { ...bestandsMieter, telnr: '0511 111' });
+    const z = aktivierungsDaten({
+      id: 'v1',
+      einheitId: 'e1',
+      daten: baueEntwurf(grundlagen()).daten,
+      herkunft: {},
+      vorvertragId: null,
+      mitVorlage: true,
+      personen: [karte],
+    });
+    expect(z.verknuepfungen[0].stammdaten).toEqual({});
+  });
+
+  it('gibt einer Karte ohne gemerkten Bestand weiter alle Felder mit', () => {
+    const { bestandStand: _weg, ...alt } = mitBestandsmieter(leerePerson(), bestandsMieter);
+    const z = aktivierungsDaten({
+      id: 'v1',
+      einheitId: 'e1',
+      daten: baueEntwurf(grundlagen()).daten,
+      herkunft: {},
+      vorvertragId: null,
+      mitVorlage: true,
+      personen: [alt],
+    });
+    expect(z.verknuepfungen[0].stammdaten).toMatchObject({ hauptmail: 'jm@example.de', anrede: 'Herr' });
   });
 
   describe('wo der Mieter wohnt oder wohnte', () => {

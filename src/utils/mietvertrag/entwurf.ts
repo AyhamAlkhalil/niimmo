@@ -67,6 +67,12 @@ export interface EntwurfPerson {
   vertretenDurch?: string | null;
   /** Woher die Angaben stammen; ohne Angabe von Hand erfasst. */
   quelle?: 'selbstauskunft' | 'bestand';
+  /**
+   * Stammdaten des Bestandsmieters, als er auf die Karte kam (Spaltenform). Beim Aktivieren
+   * gehen nur Felder mit, die davon abweichen — sonst schrieb ein alter Entwurf eine
+   * inzwischen geänderte Mail oder Rufnummer zurück (27.10.2026).
+   */
+  bestandStand?: BestandsStammdaten | null;
 }
 
 /** Datei am Entwurf: Entwurfs-PDF oder Selbstauskunft. */
@@ -713,6 +719,17 @@ export function mitBestandsmieter(p: EntwurfPerson, m: BestandsMieter): EntwurfP
     hausnummer: p.hausnummer ?? angabe(m.hausnummer),
     plz: p.plz ?? angabe(m.plz),
     ort: p.ort ?? angabe(m.ort),
+    bestandStand: {
+      anrede: m.anrede ?? null,
+      hauptmail: m.hauptmail?.trim() || null,
+      telnr: m.telnr?.trim() || null,
+      geburtsdatum: m.geburtsdatum ?? null,
+      vertreten_durch: m.vertreten_durch?.trim() || null,
+      strasse: m.strasse?.trim() || null,
+      hausnummer: m.hausnummer?.trim() || null,
+      plz: m.plz?.trim() || null,
+      ort: m.ort?.trim() || null,
+    },
   };
 }
 
@@ -1015,10 +1032,23 @@ export interface AktivierungsDaten {
   }[];
 }
 
-/** Kartenangaben eines Bestandsmieters in Spaltenform — wie bei einem neuen Mieter. */
+/**
+ * Kartenangaben eines Bestandsmieters in Spaltenform — wie bei einem neuen Mieter.
+ *
+ * Nur, was auf der Karte ergänzt oder geändert wurde: Ein Feld, das noch so steht, wie es
+ * bei der Übernahme aus dem Bestand kam, geht nicht mit. Bis zum 27.10.2026 gingen alle
+ * Felder mit, und ein Entwurf, der Tage lag, schrieb eine inzwischen im Bestand geänderte
+ * Mail oder Rufnummer still auf den alten Stand zurück — Mahnungen gingen dann an die alte
+ * Adresse. Karten ohne `bestandStand` (vor diesem Tag gespeichert) geben weiter alles mit.
+ */
 function bestandsStammdaten(p: EntwurfPerson): BestandsStammdaten {
   const { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort } = mieterZeile(p);
-  return { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort };
+  const karte: BestandsStammdaten = { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort };
+  const stand = p.bestandStand;
+  if (!stand) return karte;
+  return Object.fromEntries(
+    Object.entries(karte).filter(([feld, wert]) => (wert ?? null) !== (stand[feld as keyof BestandsStammdaten] ?? null))
+  ) as BestandsStammdaten;
 }
 
 /**
