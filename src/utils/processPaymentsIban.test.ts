@@ -135,3 +135,22 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
     expect(quelle).not.toMatch(/includes\(payment\.iban\)/);
   });
 });
+
+describe('process-payments Zugriff', () => {
+  const handler = quelle.slice(quelle.indexOf('serve(async (req)'));
+
+  it('prüft Login und Admin-Rolle vor dem ersten Datenzugriff', () => {
+    // 27.10.2026: Jedes Login genügte, der Hausmeister bekam Verträge, Mieternamen und existingId
+    const rolle = handler.indexOf("rpc('is_admin'");
+    expect(handler.indexOf('auth.getUser()')).toBeGreaterThan(0);
+    expect(rolle).toBeGreaterThan(handler.indexOf('auth.getUser()'));
+    expect(rolle).toBeLessThan(handler.indexOf('getContractContext(supabase)'));
+    expect(handler).toMatch(/istAdmin !== true[\s\S]{0,200}status: 403/);
+  });
+
+  it('schreibt nie selbst in zahlungen', () => {
+    // Der frühere Schreibpfad (dryRun: false) hängte jede Buchung mit gleichem Tag, Betrag und IBAN um
+    expect(handler).toMatch(/if \(dryRun !== true\)[\s\S]{0,200}status: 400/);
+    expect(quelle).not.toMatch(/from\("zahlungen"\)\s*\.update/);
+  });
+});

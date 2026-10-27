@@ -1364,9 +1364,19 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
   const authClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
-  const { error: authError } = await authClient.auth.getUser();
-  if (authError) {
+  const { data: userData, error: authError } = await authClient.auth.getUser();
+  if (authError || !userData?.user?.id) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
+  // Die Function liest mit Service-Role alle Vertraege samt Mieternamen, schickt sie an das
+  // KI-Gateway und meldet existingId von Zahlungen zurueck. Bis zum 27.10.2026 genuegte jedes
+  // Login -- der Hausmeister bekam so Daten, die ihm die Admin-RLS auf zahlungen verwehrt.
+  // Wie in classify-nebenkosten.
+  const rollenClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data: istAdmin, error: rolleError } = await rollenClient.rpc('is_admin', { _user_id: userData.user.id });
+  if (rolleError || istAdmin !== true) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {
@@ -1379,6 +1389,17 @@ serve(async (req) => {
     if (!payments || !Array.isArray(payments)) {
       return new Response(
         JSON.stringify({ error: "payments Array erforderlich" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Gespeichert wird nur in der App (PaymentManagement, nach der Pruefmaske), die immer
+    // dryRun: true schickt. Der fruehere Schreibpfad legte keine neue Buchung an, sondern
+    // haengte jede vorhandene Buchung mit gleichem Tag, Betrag und IBAN um -- auch eine
+    // andere als die gemeinte -- und verschluckte Fehler. Abgeschaltet am 27.10.2026.
+    if (dryRun !== true) {
+      return new Response(
+        JSON.stringify({ error: "Speichern über process-payments wird nicht unterstützt; Zahlungen werden in der App übernommen." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -1663,27 +1684,6 @@ serve(async (req) => {
         confidence: 0,
         selected: false
       });
-    }
-
-    // Optional: Save to DB if not dryRun
-    if (!dryRun) {
-      for (const result of results) {
-        if (result.mietvertrag_id && result.selected !== false) {
-          const { error } = await supabase
-            .from("zahlungen")
-            .update({
-              mietvertrag_id: result.mietvertrag_id,
-              kategorie: result.kategorie
-            })
-            .eq("buchungsdatum", result.buchungsdatum)
-            .eq("betrag", result.betrag)
-            .eq("iban", result.iban);
-
-          if (error) {
-            console.error("DB Update Error:", error);
-          }
-        }
-      }
     }
 
     // Statistics
