@@ -975,7 +975,11 @@ export const UebergabeDialog = ({
     // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
     const stand = pdfStand;
     try {
-      const { data: { user } } = await mitZeitlimit(supabase.auth.getUser(), 30_000, "Anmeldung prüfen");
+      // Noch vor dem ersten Schreibzugriff: Ein Zeitlimit ist hier ein klarer Fehler, kein offener
+      // Ausgang (die Meldung enthält bewusst kein „Zeitlimit“, das istNetzfehler als offen wertet)
+      const { data: { user } } = await mitZeitlimit(supabase.auth.getUser(), 30_000, "Anmeldung prüfen").catch(() => {
+        throw new Error("Die Anmeldung ließ sich nicht prüfen, der Server hat nicht geantwortet. Es wurde nichts gespeichert — bitte die Verbindung prüfen und erneut speichern.");
+      });
 
       // 1. Zuerst das PDF: Fotos laden und aufbereiten ist der aufwendigste und
       // anfälligste Schritt. Scheitert er, ist noch nichts geschrieben.
