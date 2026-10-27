@@ -17,7 +17,7 @@
  *    Dokument steht, aus der KI-Auslese
  */
 import type { Tables, TablesInsert } from '@/integrations/supabase/types';
-import { getVertragsende } from '@/utils/contractUtils';
+import { alsIsoTag, getVertragsende, istLaufenderVertrag } from '@/utils/contractUtils';
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from '@/constants/config';
 import { istPlausiblesDatum } from '../pdf/briefLayout';
 import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, ersteIban, objektDaten, vermieterDaten } from './datenAusDb';
@@ -571,7 +571,7 @@ export function personenAusSelbstauskunft(auslese: SelbstauskunftAuslese): Entwu
   });
 }
 
-/** Eine angelegte, aber nie ausgefüllte Personenkarte („Weitere Person"). */
+/** Eine angelegte, aber nie ausgefüllte Personenkarte („Neue Person"). */
 export function istLeerePerson(p: EntwurfPerson): boolean {
   return !p.vorname.trim() && !p.nachname.trim() && !p.firmenname?.trim();
 }
@@ -659,6 +659,155 @@ export function findeVorhandeneMieter<M extends Pick<Tables<'mieter'>, 'id' | 'v
     if (!gleicherName(m.vorname, person.vorname) || !gleicherName(m.nachname, person.nachname)) return false;
     return !(person.geburtsdatum && m.geburtsdatum && person.geburtsdatum !== m.geburtsdatum);
   });
+}
+
+/** Was eine Personenkarte von einem vorhandenen Mieter übernimmt. */
+export type BestandsMieter = Pick<
+  Tables<'mieter'>,
+  | 'id'
+  | 'vorname'
+  | 'nachname'
+  | 'geburtsdatum'
+  | 'hauptmail'
+  | 'telnr'
+  | 'anrede'
+  | 'strasse'
+  | 'hausnummer'
+  | 'plz'
+  | 'ort'
+  | 'ist_unternehmen'
+  | 'firmenname'
+  | 'vertreten_durch'
+>;
+
+/** Leerer Text im Bestand zählt wie keine Angabe. */
+function angabe(s: string | null | undefined): string | null {
+  return s?.trim() ? s : null;
+}
+
+/**
+ * Vorhandenen Mieter in eine Personenkarte übernehmen: seine Stammdaten zählen,
+ * leere Felder füllt die Karte. Die Anschrift vor Einzug kommt zuerst aus der
+ * Karte (Selbstauskunft), denn im Bestand steht meist keine.
+ */
+export function mitBestandsmieter(p: EntwurfPerson, m: BestandsMieter): EntwurfPerson {
+  // Ein Firmenmieter ohne firmenname fiele beim Aktivieren still heraus (hatNamen) —
+  // sein Name steht dann wie bei jedem Firmenmieter in Vor- und Nachname
+  const firmaAusNamen = m.ist_unternehmen
+    ? angabe([m.vorname, m.nachname].filter(n => angabe(n) && n !== '(Firma)').join(' '))
+    : null;
+  return {
+    ...p,
+    mieterId: m.id,
+    quelle: 'bestand',
+    vorname: angabe(m.vorname) ?? p.vorname,
+    nachname: angabe(m.nachname) ?? p.nachname,
+    istUnternehmen: m.ist_unternehmen ?? false,
+    firmenname: angabe(m.firmenname) ?? firmaAusNamen ?? p.firmenname,
+    vertretenDurch: angabe(m.vertreten_durch) ?? p.vertretenDurch ?? null,
+    anrede: (m.anrede as Anrede | null) ?? p.anrede,
+    geburtsdatum: m.geburtsdatum ?? p.geburtsdatum,
+    email: angabe(m.hauptmail) ?? p.email,
+    telefon: angabe(m.telnr) ?? p.telefon,
+    strasse: p.strasse ?? angabe(m.strasse),
+    hausnummer: p.hausnummer ?? angabe(m.hausnummer),
+    plz: p.plz ?? angabe(m.plz),
+    ort: p.ort ?? angabe(m.ort),
+  };
+}
+
+/**
+ * Suchwörter. Rufnummern stehen meist mit Leerzeichen da („+49 511 49 12 345") —
+ * aufeinanderfolgende Ziffernwörter zählen als eines, sonst passt „+49" allein auf
+ * nichts. Wörter ohne Buchstaben und Ziffern („Hans - Weiß") fallen weg.
+ */
+function suchwoerter(suchbegriff: string): string[] {
+  const woerter: string[] = [];
+  for (const w of suchbegriff.trim().split(/\s+/)) {
+    if (!/[\p{L}\d@]/u.test(w)) continue;
+    const vorher = woerter[woerter.length - 1];
+    const ziffernwort = /^[\d+()/-]+$/.test(w);
+    if (ziffernwort && vorher !== undefined && /^[\d+()/ -]+$/.test(vorher)) {
+      woerter[woerter.length - 1] = `${vorher} ${w}`;
+    } else {
+      woerter.push(w);
+    }
+  }
+  return woerter;
+}
+
+/**
+ * Suche für „Bestehenden Mieter wählen" (27.10.2026: neue und bestehende Mieter
+ * sollen in einem Vertrag zusammen stehen können). Jedes Suchwort muss in Name,
+ * Firma, Mail oder Telefon vorkommen; Umlaute wie bei der Dublettenprüfung.
+ * Ohne Suchwort kommt der ganze Bestand, nach Nachnamen sortiert.
+ */
+export function sucheMieter<M extends Pick<Tables<'mieter'>, 'id' | 'vorname' | 'nachname' | 'firmenname' | 'hauptmail' | 'telnr'>>(
+  mieter: M[],
+  suchbegriff: string,
+  ohne: ReadonlySet<string> = new Set()
+): M[] {
+  const woerter = suchwoerter(suchbegriff);
+  return mieter
+    .filter(m => !ohne.has(m.id))
+    .filter(m => {
+      const namen = [m.vorname, m.nachname, m.firmenname].flatMap(namensformen).filter(Boolean);
+      const mail = m.hauptmail?.trim().toLowerCase() ?? '';
+      const tel = ziffern(m.telnr);
+      return woerter.every(w => {
+        if (namensformen(w).some(f => f !== '' && namen.some(n => n.includes(f)))) return true;
+        if (mail.includes(w.toLowerCase())) return true;
+        // Nur mit Vorwahlzeichen umschreiben — sonst würde aus „4912" mitten in der Nummer „012"
+        const z = /^(\+|00)/.test(w) ? ziffern(w) : w.replace(/\D/g, '');
+        return z.length >= 3 && tel.includes(z);
+      });
+    })
+    .sort(
+      (a, b) =>
+        (a.nachname ?? '').localeCompare(b.nachname ?? '', 'de') || (a.vorname ?? '').localeCompare(b.vorname ?? '', 'de')
+    );
+}
+
+/** Verträge eines Mieters, soweit die Auswahl sie zum Unterscheiden zeigt. */
+export interface MieterVertragsbezug {
+  mietvertrag:
+    | (Pick<Tables<'mietvertrag'>, 'status' | 'start_datum' | 'ende_datum' | 'kuendigungsdatum'> & {
+        einheiten: (Pick<Tables<'einheiten'>, 'einheitentyp'> & { immobilien: Pick<Tables<'immobilien'>, 'name'> | null }) | null;
+      })
+    | null;
+}
+
+function tagDe(iso: string): string {
+  const [j, m, t] = iso.slice(0, 10).split('-');
+  return `${t}.${m}.${j}`;
+}
+
+/**
+ * Wo wohnt oder wohnte der Mieter? Im Bestand stehen weder Anschrift noch meist
+ * ein Geburtsdatum (27.10.2026: 0 bzw. 39 von 145 Mietern) — zwei gleiche Namen
+ * unterscheidet erst das Objekt.
+ */
+export function mieterBezug(bezuege: MieterVertragsbezug[] | null | undefined, stichtag: Date = new Date()): string | null {
+  const vertraege = (bezuege ?? []).map(b => b.mietvertrag).filter((v): v is NonNullable<typeof v> => !!v);
+  const mietsache = (v: (typeof vertraege)[number]) =>
+    [v.einheiten?.immobilien?.name, v.einheiten?.einheitentyp].filter(Boolean).join(', ') || 'Einheit ohne Angabe';
+
+  const laufend = vertraege.filter(v => istLaufenderVertrag(v, stichtag));
+  if (laufend.length > 0) return `aktuell: ${[...new Set(laufend.map(mietsache))].join('; ')}`;
+
+  const tag = alsIsoTag(stichtag);
+  const kuenftig = vertraege
+    .filter(v => (v.status === 'aktiv' || v.status === 'gekuendigt') && !!v.start_datum && v.start_datum > tag)
+    .sort((a, b) => a.start_datum!.localeCompare(b.start_datum!));
+  if (kuenftig.length > 0) return `ab ${tagDe(kuenftig[0].start_datum!)}: ${mietsache(kuenftig[0])}`;
+
+  const frueher = vertraege
+    .map(v => ({ v, ende: getVertragsende(v) }))
+    .filter((x): x is { v: (typeof vertraege)[number]; ende: string } => !!x.ende)
+    .sort((a, b) => b.ende.localeCompare(a.ende));
+  if (frueher.length > 0) return `bis ${tagDe(frueher[0].ende)}: ${mietsache(frueher[0].v)}`;
+  // Beendet, aber ohne Datum (Altbestand)
+  return vertraege.length > 0 ? `früher: ${mietsache(vertraege[0])}` : null;
 }
 
 export interface BlacklistTreffer {

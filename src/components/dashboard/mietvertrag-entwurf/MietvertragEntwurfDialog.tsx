@@ -764,7 +764,8 @@ export function MietvertragEntwurfDialog({
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  {bestand.error && 'Der Abgleich mit dem Mieterbestand ist gerade nicht möglich — Dubletten werden nicht erkannt. '}
+                  {bestand.error &&
+                    'Der Mieterbestand ist gerade nicht erreichbar — bestehende Mieter lassen sich nicht wählen, Dubletten werden nicht erkannt. '}
                   {blacklist.error && 'Die Bewerber-Blacklist konnte nicht geprüft werden. '}
                   Bitte den Ablauf später neu öffnen oder von Hand prüfen.
                 </AlertDescription>
@@ -774,6 +775,8 @@ export function MietvertragEntwurfDialog({
               personen={personen}
               setPersonen={setPersonenVonHand}
               bestand={bestand.data ?? []}
+              bestandLaedt={bestand.isLoading}
+              bestandFehler={!!bestand.error}
               blacklistTreffer={blacklistTreffer}
               onSelbstauskunft={datei => void liesSelbstauskunft(datei)}
               liestSelbstauskunft={liestSelbstauskunft}

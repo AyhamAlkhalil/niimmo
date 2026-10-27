@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
 import { leseEntwurfZeile, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
+import type { BestandsMieter, MieterVertragsbezug } from '@/utils/mietvertrag/entwurf';
 import { alleSeiten } from '@/utils/supabaseSeiten';
 
 export interface VorvertragDokument {
@@ -180,25 +181,10 @@ export function useMietvertragEntwurf(entwurfId: string | null, aktiv: boolean) 
   });
 }
 
-export type MieterAbgleich = Pick<
-  Tables<'mieter'>,
-  | 'id'
-  | 'vorname'
-  | 'nachname'
-  | 'geburtsdatum'
-  | 'hauptmail'
-  | 'telnr'
-  | 'anrede'
-  | 'strasse'
-  | 'hausnummer'
-  | 'plz'
-  | 'ort'
-  | 'ist_unternehmen'
-  | 'firmenname'
-  | 'vertreten_durch'
->;
+/** Bestandsmieter mit seinen Verträgen — die Auswahl zeigt, wo er wohnt oder wohnte. */
+export type MieterAbgleich = BestandsMieter & { mietvertrag_mieter: MieterVertragsbezug[] };
 
-/** Mieterbestand für die Dublettenprüfung und die Blacklist — beide nur für Admins lesbar bzw. nötig. */
+/** Mieterbestand für Dublettenprüfung und Auswahl, dazu die Blacklist — beide nur für Admins lesbar bzw. nötig. */
 export function useMieterAbgleich(aktiv: boolean) {
   const mieter = useQuery({
     queryKey: ['mietvertrag-entwurf-mieterbestand'],
@@ -207,9 +193,11 @@ export function useMieterAbgleich(aktiv: boolean) {
       alleSeiten<MieterAbgleich>((von, bis, mitZaehlung) =>
         supabase
           .from('mieter')
-          .select('id, vorname, nachname, geburtsdatum, hauptmail, telnr, anrede, strasse, hausnummer, plz, ort, ist_unternehmen, firmenname, vertreten_durch', {
-            count: mitZaehlung ? 'exact' : undefined,
-          })
+          .select(
+            `id, vorname, nachname, geburtsdatum, hauptmail, telnr, anrede, strasse, hausnummer, plz, ort, ist_unternehmen, firmenname, vertreten_durch,
+             mietvertrag_mieter(mietvertrag(status, start_datum, ende_datum, kuendigungsdatum, einheiten(einheitentyp, immobilien(name))))`,
+            { count: mitZaehlung ? 'exact' : undefined }
+          )
           .order('id')
           .range(von, bis)
       ),

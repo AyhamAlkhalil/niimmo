@@ -16,17 +16,22 @@ import {
   monateNachzuholen,
   kautionFuer,
   leerePerson,
+  mieterBezug,
   mieterRolle,
   mieterZeile,
+  mitBestandsmieter,
   mitPersonen,
   ohneHerkunft,
   personenAusSelbstauskunft,
   positionenSumme,
   pruefeBlacklist,
   standardMietbeginn,
+  sucheMieter,
   vertragsZeile,
   wendeVorvertragAuslese,
+  type BestandsMieter,
   type EntwurfGrundlagen,
+  type MieterVertragsbezug,
   type VorvertragAuslese,
 } from './entwurf';
 import { pruefeVertragsdaten } from './pflichtpruefung';
@@ -428,5 +433,178 @@ describe('Datensätze beim Aktivieren', () => {
   it('entfernt die Kennzeichnung eines von Hand geänderten Feldes', () => {
     const h = ohneHerkunft({ kaltmiete: 'vorvertrag', mietbeginn: 'berechnet' }, 'kaltmiete');
     expect(h).toEqual({ mietbeginn: 'berechnet' });
+  });
+});
+
+describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
+  const bestand = [
+    { id: 'b1', vorname: 'Jürgen', nachname: 'Müller', firmenname: null, hauptmail: 'jm@example.de', telnr: '+49 511 4912345' },
+    { id: 'b2', vorname: 'Erika', nachname: 'Beispiel', firmenname: null, hauptmail: null, telnr: null },
+    { id: 'b3', vorname: 'Muster', nachname: 'GmbH', firmenname: 'Muster Bau GmbH', hauptmail: null, telnr: '0511 777888' },
+    { id: 'b4', vorname: 'Anna', nachname: 'Müller', firmenname: null, hauptmail: null, telnr: null },
+  ];
+
+  it('sucht über Teile von Vor- und Nachname, mit Umlaut und Umschrift', () => {
+    expect(sucheMieter(bestand, 'mül').map(m => m.id)).toEqual(['b4', 'b1']);
+    expect(sucheMieter(bestand, 'Mueller').map(m => m.id)).toEqual(['b4', 'b1']);
+    expect(sucheMieter(bestand, 'jürgen mül').map(m => m.id)).toEqual(['b1']);
+    expect(sucheMieter(bestand, 'erika xyz')).toEqual([]);
+  });
+
+  it('sucht über Firma, Mail und Telefon', () => {
+    expect(sucheMieter(bestand, 'bau').map(m => m.id)).toEqual(['b3']);
+    expect(sucheMieter(bestand, 'jm@').map(m => m.id)).toEqual(['b1']);
+    expect(sucheMieter(bestand, '0511 4912').map(m => m.id)).toEqual(['b1']);
+    expect(sucheMieter(bestand, '4912').map(m => m.id)).toEqual(['b1']);
+    expect(sucheMieter(bestand, '+49511777').map(m => m.id)).toEqual(['b3']);
+  });
+
+  it('findet Rufnummern auch mit Leerzeichen nach der Landesvorwahl (QA 27.10.2026)', () => {
+    expect(sucheMieter(bestand, '+49 511 4912345').map(m => m.id)).toEqual(['b1']);
+    expect(sucheMieter(bestand, '0049 511 777').map(m => m.id)).toEqual(['b3']);
+    expect(sucheMieter(bestand, '+49 (0) 511 777 888').map(m => m.id)).toEqual(['b3']);
+    // Name und Nummer lassen sich mischen
+    expect(sucheMieter(bestand, 'Müller +49 511').map(m => m.id)).toEqual(['b1']);
+  });
+
+  it('übergeht Wörter ohne Buchstaben und Ziffern', () => {
+    expect(sucheMieter(bestand, 'Jürgen - Müller').map(m => m.id)).toEqual(['b1']);
+  });
+
+  it('zeigt ohne Suchwort den ganzen Bestand nach Nachnamen, ohne die schon gewählten', () => {
+    expect(sucheMieter(bestand, '  ').map(m => m.id)).toEqual(['b2', 'b3', 'b4', 'b1']);
+    expect(sucheMieter(bestand, '', new Set(['b1', 'b3'])).map(m => m.id)).toEqual(['b2', 'b4']);
+  });
+
+  const bestandsMieter: BestandsMieter = {
+    id: 'b1',
+    vorname: 'Jürgen',
+    nachname: 'Müller',
+    geburtsdatum: null,
+    hauptmail: 'jm@example.de',
+    telnr: null,
+    anrede: 'Herr',
+    strasse: null,
+    hausnummer: null,
+    plz: null,
+    ort: null,
+    ist_unternehmen: false,
+    firmenname: null,
+    vertreten_durch: null,
+  };
+
+  it('übernimmt den Bestandsmieter in eine Karte, ohne Eingaben der Karte zu verlieren', () => {
+    const karte = { ...leerePerson(), strasse: 'Alte Str.', hausnummer: '1', plz: '30159', ort: 'Hannover', telefon: '0511 1' };
+    const p = mitBestandsmieter(karte, bestandsMieter);
+    expect(p).toMatchObject({
+      schluessel: karte.schluessel,
+      mieterId: 'b1',
+      quelle: 'bestand',
+      rolle: 'mitmieter',
+      vorname: 'Jürgen',
+      nachname: 'Müller',
+      anrede: 'Herr',
+      email: 'jm@example.de',
+      telefon: '0511 1',
+      strasse: 'Alte Str.',
+      ort: 'Hannover',
+    });
+  });
+
+  it('nimmt leere Texte im Bestand nicht als Angabe', () => {
+    const karte = { ...leerePerson(), vorname: 'Jürgen', email: 'karte@example.de' };
+    const p = mitBestandsmieter(karte, { ...bestandsMieter, vorname: '', hauptmail: ' ' });
+    expect(p.vorname).toBe('Jürgen');
+    expect(p.email).toBe('karte@example.de');
+  });
+
+  it('macht aus einem Firmenmieter ohne Firmennamen keine leere Karte', () => {
+    const firma = { ...bestandsMieter, ist_unternehmen: true, firmenname: null, vorname: 'Muster', nachname: '(Firma)' };
+    const p = mitBestandsmieter(leerePerson(), firma);
+    expect(p).toMatchObject({ istUnternehmen: true, firmenname: 'Muster' });
+    const z = aktivierungsDaten({
+      id: 'v1',
+      einheitId: 'e1',
+      daten: baueEntwurf(grundlagen()).daten,
+      herkunft: {},
+      vorvertragId: null,
+      mitVorlage: true,
+      personen: [p],
+    });
+    expect(z.verknuepfungen.map(v => v.mieter_id)).toEqual(['b1']);
+  });
+
+  it('legt beim Aktivieren nur die neuen Personen an und verknüpft beide Arten in der Reihenfolge der Karten', () => {
+    const bestehend = mitBestandsmieter(leerePerson(), bestandsMieter);
+    const neu = { ...leerePerson(), vorname: 'Erika', nachname: 'Neu' };
+    const z = aktivierungsDaten({
+      id: 'v1',
+      einheitId: 'e1',
+      daten: baueEntwurf(grundlagen()).daten,
+      herkunft: {},
+      vorvertragId: null,
+      mitVorlage: true,
+      personen: [bestehend, neu, leerePerson()],
+    });
+    expect(z.neueMieter.map(n => n.schluessel)).toEqual([neu.schluessel]);
+    expect(z.verknuepfungen.map(v => [v.mieter_id, v.schluessel, v.rolle])).toEqual([
+      ['b1', bestehend.schluessel, 'Hauptmieter'],
+      [null, neu.schluessel, 'Zweitmieter'],
+    ]);
+  });
+
+  describe('wo der Mieter wohnt oder wohnte', () => {
+    const stichtag = new Date('2026-10-27T12:00:00');
+    type Vertrag = NonNullable<MieterVertragsbezug['mietvertrag']>;
+    const vertrag = (
+      v: Partial<Vertrag>,
+      objekt = 'Liebigstr. 12',
+      typ: Tables<'einheiten'>['einheitentyp'] = 'Wohnung'
+    ): MieterVertragsbezug => ({
+      mietvertrag: {
+        status: 'aktiv',
+        start_datum: '2020-01-01',
+        ende_datum: null,
+        kuendigungsdatum: null,
+        einheiten: { einheitentyp: typ, immobilien: { name: objekt } },
+        ...v,
+      },
+    });
+
+    it('nennt laufende Verträge', () => {
+      expect(
+        mieterBezug([vertrag({}), vertrag({}, 'Liebigstr. 12', 'Stellplatz'), vertrag({ status: 'beendet', ende_datum: '2019-12-31' }, 'Altbau')], stichtag)
+      ).toBe('aktuell: Liebigstr. 12, Wohnung; Liebigstr. 12, Stellplatz');
+    });
+
+    it('nennt einen künftigen Vertrag mit Beginn', () => {
+      expect(mieterBezug([vertrag({ start_datum: '2026-12-01' })], stichtag)).toBe('ab 01.12.2026: Liebigstr. 12, Wohnung');
+    });
+
+    it('nennt sonst den zuletzt beendeten', () => {
+      expect(
+        mieterBezug(
+          [
+            vertrag({ status: 'beendet', ende_datum: '2021-03-31' }, 'Erstes Haus'),
+            vertrag({ status: 'gekuendigt', ende_datum: null, kuendigungsdatum: '2025-06-30' }, 'Zweites Haus'),
+          ],
+          stichtag
+        )
+      ).toBe('bis 30.06.2025: Zweites Haus, Wohnung');
+    });
+
+    it('nennt zwei gleiche laufende Verträge einmal', () => {
+      expect(mieterBezug([vertrag({}), vertrag({})], stichtag)).toBe('aktuell: Liebigstr. 12, Wohnung');
+    });
+
+    it('nennt einen beendeten Vertrag ohne Datum als früher', () => {
+      expect(mieterBezug([vertrag({ status: 'beendet', start_datum: '2015-01-01' }, 'Altbau')], stichtag)).toBe('früher: Altbau, Wohnung');
+    });
+
+    it('bleibt leer ohne Vertrag', () => {
+      expect(mieterBezug([], stichtag)).toBeNull();
+      expect(mieterBezug([{ mietvertrag: null }], stichtag)).toBeNull();
+      expect(mieterBezug(undefined, stichtag)).toBeNull();
+    });
   });
 });

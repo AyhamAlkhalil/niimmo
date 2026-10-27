@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.7.1",
+    datum: "2026-10-27",
+    aenderungen: [
+      { art: "neu", titel: "Neuer Mietvertrag mit neuen und bestehenden Mietern zugleich – bestehende Mieter per Suche wählen" },
+    ],
+  },
+  {
     version: "1.7.0",
     datum: "2026-10-26",
     schwerpunkt: "Neues Erscheinungsbild",

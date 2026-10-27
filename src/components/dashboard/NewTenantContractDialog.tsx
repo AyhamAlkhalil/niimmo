@@ -18,6 +18,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { OCRProcessingService } from "@/services/ocrProcessingService";
 import { dateiendung } from "@/utils/storagePfad";
 
+/** Eine nie ausgefüllte Karte im Reiter „Neue Mieter" — zählt nicht und sperrt nichts. */
+const istLeererNeuerMieter = (t: NewTenant) =>
+  !t.vorname.trim() && !t.nachname.trim() && !t.firmenname.trim() && !t.hauptmail.trim() && !t.telnr.trim() && !t.geburtsdatum;
+
+const hatPflichtnamen = (t: NewTenant) => (t.istUnternehmen ? !!t.firmenname.trim() : !!(t.vorname.trim() && t.nachname.trim()));
+
 interface NewTenantContractDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -221,19 +227,15 @@ export const NewTenantContractDialog = ({
     );
   };
 
+  // Neue und bestehende Mieter kommen zusammen in den Vertrag (27.10.2026). Bis dahin
+  // zählte nur der gerade offene Reiter — ein bestehender Mieter mit neuem Partner ging nicht.
+  const ausgefuellteNeueMieter = newTenants.filter(t => !istLeererNeuerMieter(t));
+  const mieterGesamt = ausgefuellteNeueMieter.length + selectedTenantIds.length;
+
   const validateTenantStep = () => {
-    if (activeTab === 'new-tenant') {
-      const hasValidTenants = newTenants.every(tenant => {
-        if (tenant.istUnternehmen) {
-          return tenant.firmenname.trim();
-        }
-        return tenant.vorname.trim() && tenant.nachname.trim();
-      });
-      const hasMainTenant = newTenants.some(tenant => tenant.rolle === 'hauptmieter');
-      return hasValidTenants && hasMainTenant;
-    } else {
-      return selectedTenantIds.length > 0;
-    }
+    if (mieterGesamt === 0 || !ausgefuellteNeueMieter.every(hatPflichtnamen)) return false;
+    // Ohne bestehenden Mieter muss einer der neuen Hauptmieter sein
+    return selectedTenantIds.length > 0 || ausgefuellteNeueMieter.some(t => t.rolle === 'hauptmieter');
   };
 
   const validateContractStep = () => {
@@ -425,18 +427,11 @@ export const NewTenantContractDialog = ({
     
     try {
       // Step 1: Validate input data before creating anything
-      if (activeTab === 'new-tenant') {
-        const hasValidTenants = newTenants.every(tenant => {
-          if (tenant.istUnternehmen) {
-            return tenant.firmenname.trim();
-          }
-          return tenant.vorname.trim() && tenant.nachname.trim();
-        });
-        if (!hasValidTenants) {
-          throw new Error('Bitte füllen Sie alle Pflichtfelder für die Mieter aus.');
-        }
-      } else if (selectedTenantIds.length === 0) {
-        throw new Error('Bitte wählen Sie mindestens einen Mieter aus.');
+      if (!ausgefuellteNeueMieter.every(hatPflichtnamen)) {
+        throw new Error('Bitte füllen Sie alle Pflichtfelder für die neuen Mieter aus.');
+      }
+      if (mieterGesamt === 0) {
+        throw new Error('Bitte erfassen Sie einen neuen Mieter oder wählen Sie einen bestehenden aus.');
       }
       
       if (!contractData.kaltmiete || !contractData.betriebskosten || !contractData.start_datum) {
@@ -444,55 +439,52 @@ export const NewTenantContractDialog = ({
       }
       
       
-      // Step 2: Create new tenants if needed
-      let tenantIds: string[] = [];
+      // Step 2: Create new tenants; bestehende kommen danach dazu
+      const tenantIds: string[] = [];
       
-      if (activeTab === 'new-tenant') {
-        for (const tenant of newTenants) {
-          // Bei Unternehmen: Firmenname zusaetzlich in Vorname und Nachname aufteilen,
-          // weil Listen, Suche und Schreiben den Mieter ueber diese beiden Felder anzeigen.
-          // Massgeblich fuer den Vertragsdruck sind ist_unternehmen und firmenname; beide
-          // wurden bis zum 07.10.2026 nicht gespeichert, ein Firmenmieter war danach
-          // nicht mehr als Firma erkennbar.
-          let vorname = tenant.vorname.trim();
-          let nachname = tenant.nachname.trim();
-          
-          if (tenant.istUnternehmen && tenant.firmenname.trim()) {
-            const firmenteile = tenant.firmenname.trim().split(' ');
-            if (firmenteile.length >= 2) {
-              vorname = firmenteile.slice(0, -1).join(' ');
-              nachname = firmenteile[firmenteile.length - 1];
-            } else {
-              vorname = tenant.firmenname.trim();
-              nachname = '(Firma)';
-            }
+      for (const tenant of ausgefuellteNeueMieter) {
+        // Bei Unternehmen: Firmenname zusaetzlich in Vorname und Nachname aufteilen,
+        // weil Listen, Suche und Schreiben den Mieter ueber diese beiden Felder anzeigen.
+        // Massgeblich fuer den Vertragsdruck sind ist_unternehmen und firmenname; beide
+        // wurden bis zum 07.10.2026 nicht gespeichert, ein Firmenmieter war danach
+        // nicht mehr als Firma erkennbar.
+        let vorname = tenant.vorname.trim();
+        let nachname = tenant.nachname.trim();
+        
+        if (tenant.istUnternehmen && tenant.firmenname.trim()) {
+          const firmenteile = tenant.firmenname.trim().split(' ');
+          if (firmenteile.length >= 2) {
+            vorname = firmenteile.slice(0, -1).join(' ');
+            nachname = firmenteile[firmenteile.length - 1];
+          } else {
+            vorname = tenant.firmenname.trim();
+            nachname = '(Firma)';
           }
-          
-          const { data, error } = await supabase
-            .from('mieter')
-            .insert({
-              vorname: vorname,
-              nachname: nachname,
-              hauptmail: tenant.hauptmail?.trim() || null,
-              telnr: tenant.telnr?.trim() || null,
-              geburtsdatum: tenant.istUnternehmen ? null : (tenant.geburtsdatum || null),
-              ist_unternehmen: tenant.istUnternehmen,
-              firmenname: tenant.istUnternehmen ? (tenant.firmenname.trim() || null) : null
-            })
-            .select('id')
-            .single();
-          
-          if (error) {
-            const displayName = tenant.istUnternehmen ? tenant.firmenname : `${tenant.vorname} ${tenant.nachname}`;
-            throw new Error(`Fehler beim Erstellen des Mieters ${displayName}: ${error.message}`);
-          }
-          
-          createdTenantIds.push(data.id);
-          tenantIds.push(data.id);
         }
-      } else {
-        tenantIds = selectedTenantIds;
+        
+        const { data, error } = await supabase
+          .from('mieter')
+          .insert({
+            vorname: vorname,
+            nachname: nachname,
+            hauptmail: tenant.hauptmail?.trim() || null,
+            telnr: tenant.telnr?.trim() || null,
+            geburtsdatum: tenant.istUnternehmen ? null : (tenant.geburtsdatum || null),
+            ist_unternehmen: tenant.istUnternehmen,
+            firmenname: tenant.istUnternehmen ? (tenant.firmenname.trim() || null) : null
+          })
+          .select('id')
+          .single();
+        
+        if (error) {
+          const displayName = tenant.istUnternehmen ? tenant.firmenname : `${tenant.vorname} ${tenant.nachname}`;
+          throw new Error(`Fehler beim Erstellen des Mieters ${displayName}: ${error.message}`);
+        }
+        
+        createdTenantIds.push(data.id);
+        tenantIds.push(data.id);
       }
+      tenantIds.push(...selectedTenantIds);
       
       if (tenantIds.length === 0) {
         throw new Error('Keine Mieter für die Verknüpfung vorhanden.');
@@ -663,13 +655,23 @@ export const NewTenantContractDialog = ({
       <TabsList className="grid w-full grid-cols-2">
         <TabsTrigger value="new-tenant" className="flex items-center gap-2">
           <User className="h-4 w-4" />
-          Neue Mieter
+          Neue Mieter{ausgefuellteNeueMieter.length > 0 && ` (${ausgefuellteNeueMieter.length})`}
         </TabsTrigger>
         <TabsTrigger value="existing-tenant" className="flex items-center gap-2">
           <Users className="h-4 w-4" />
-          Bestehende Mieter
+          Bestehende Mieter{selectedTenantIds.length > 0 && ` (${selectedTenantIds.length})`}
         </TabsTrigger>
       </TabsList>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Neue und bestehende Mieter lassen sich kombinieren — in den Vertrag kommen alle aus beiden Reitern
+        {mieterGesamt > 0 && ` (zusammen ${mieterGesamt})`}.
+      </p>
+      {/* Sonst sperrt eine halb ausgefüllte Karte „Weiter", auch wenn man gerade im anderen Reiter ist */}
+      {!ausgefuellteNeueMieter.every(hatPflichtnamen) && (
+        <p className="mt-1 text-xs text-destructive">
+          Bei einem neuen Mieter fehlt der Name — bitte ergänzen oder die Felder der Karte leeren.
+        </p>
+      )}
 
       <TabsContent value="new-tenant" className="space-y-4">
         <div className="space-y-4">
@@ -1364,9 +1366,11 @@ export const NewTenantContractDialog = ({
         <CardContent className="p-4">
           <h4 className="font-medium mb-2">Zusammenfassung</h4>
           <div className="space-y-1 text-sm">
-            <p>Mieter: {activeTab === 'new-tenant' ? newTenants.length : selectedTenantIds.length}</p>
-            {activeTab === 'new-tenant' && (
-              <p>Hauptmieter: {newTenants.filter(t => t.rolle === 'hauptmieter').length}</p>
+            <p>
+              Mieter: {mieterGesamt} ({ausgefuellteNeueMieter.length} neu, {selectedTenantIds.length} bestehend)
+            </p>
+            {ausgefuellteNeueMieter.length > 0 && (
+              <p>Hauptmieter: {ausgefuellteNeueMieter.filter(t => t.rolle === 'hauptmieter').length}</p>
             )}
             <p>Kaltmiete: {contractData.kaltmiete}€</p>
             <p>Betriebskosten: {contractData.betriebskosten}€</p>

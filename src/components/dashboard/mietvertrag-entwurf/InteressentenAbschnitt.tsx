@@ -1,11 +1,13 @@
 /**
- * Interessenten des Entwurfs: aus der Selbstauskunft gelesen oder von Hand
- * erfasst. Je Person wird gewählt, ob sie Mitmieter (Vertragspartei) oder nur
- * Mitbewohner ist. Gibt es die Person schon als Mieter, wird der vorhandene
- * Datensatz vorgeschlagen — am 15.10.2026 entstand sonst eine Dublette.
+ * Interessenten des Entwurfs: aus der Selbstauskunft gelesen, von Hand erfasst
+ * oder aus dem Mieterbestand gewählt — neue und bestehende Mieter stehen
+ * nebeneinander im selben Vertrag (Kundenwunsch 27.10.2026). Je Person wird
+ * gewählt, ob sie Mitmieter (Vertragspartei) oder nur Mitbewohner ist. Gibt es
+ * eine neu erfasste Person schon als Mieter, wird der vorhandene Datensatz
+ * vorgeschlagen — am 15.10.2026 entstand sonst eine Dublette.
  */
-import { useRef } from 'react';
-import { AlertTriangle, Building2, FileUp, Loader2, Plus, User, UserCheck, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { AlertTriangle, Building2, FileUp, Loader2, Plus, User, UserCheck, UserSearch, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +19,11 @@ import { Switch } from '@/components/ui/switch';
 import type { MieterAbgleich } from '@/hooks/useMietvertragEntwurf';
 import {
   findeVorhandeneMieter,
+  istLeerePerson,
   leerePerson,
+  mieterBezug,
+  mitBestandsmieter,
+  sucheMieter,
   type BlacklistTreffer,
   type EntwurfPerson,
   type PersonRolle,
@@ -28,6 +34,8 @@ interface Props {
   personen: EntwurfPerson[];
   setPersonen: (aenderung: (p: EntwurfPerson[]) => EntwurfPerson[]) => void;
   bestand: MieterAbgleich[];
+  bestandLaedt: boolean;
+  bestandFehler: boolean;
   blacklistTreffer: BlacklistTreffer[];
   onSelbstauskunft: (datei: File) => void;
   liestSelbstauskunft: boolean;
@@ -43,37 +51,41 @@ export function InteressentenAbschnitt({
   personen,
   setPersonen,
   bestand,
+  bestandLaedt,
+  bestandFehler,
   blacklistTreffer,
   onSelbstauskunft,
   liestSelbstauskunft,
   selbstauskuenfte,
 }: Props) {
   const dateiFeld = useRef<HTMLInputElement>(null);
+  const suchFeld = useRef<HTMLInputElement>(null);
+  /** Suchbegriff der Bestandsauswahl; null = Auswahl zu. */
+  const [suche, setSuche] = useState<string | null>(null);
 
   const aendere = (schluessel: string, teil: Partial<EntwurfPerson>) =>
     setPersonen(liste => liste.map(p => (p.schluessel === schluessel ? { ...p, ...teil } : p)));
 
   /** Vorhandenen Mieter übernehmen: seine Daten zählen, leere Felder füllt die Selbstauskunft. */
   const verwende = (p: EntwurfPerson, m: MieterAbgleich) =>
-    aendere(p.schluessel, {
-      mieterId: m.id,
-      quelle: 'bestand',
-      vorname: m.vorname ?? p.vorname,
-      nachname: m.nachname ?? p.nachname,
-      istUnternehmen: m.ist_unternehmen ?? false,
-      firmenname: m.firmenname ?? p.firmenname,
-      vertretenDurch: m.vertreten_durch ?? p.vertretenDurch ?? null,
-      anrede: (m.anrede as Anrede | null) ?? p.anrede,
-      geburtsdatum: m.geburtsdatum ?? p.geburtsdatum,
-      email: m.hauptmail ?? p.email,
-      telefon: m.telnr ?? p.telefon,
-      strasse: p.strasse ?? m.strasse,
-      hausnummer: p.hausnummer ?? m.hausnummer,
-      plz: p.plz ?? m.plz,
-      ort: p.ort ?? m.ort,
-    });
+    setPersonen(liste => liste.map(x => (x.schluessel === p.schluessel ? mitBestandsmieter(x, m) : x)));
+
+  /**
+   * Bestehenden Mieter als weitere Person dazunehmen. Nur eine ganz unberührte
+   * Karte ersetzt er — eine mit Mail oder Anschrift, aber noch ohne Namen, bleibt.
+   */
+  const waehleBestand = (m: MieterAbgleich) => {
+    const neu = mitBestandsmieter(leerePerson('mitmieter'), m);
+    const unberuehrt = (p: EntwurfPerson) =>
+      istLeerePerson(p) && !p.email && !p.telefon && !p.geburtsdatum && !p.strasse && !p.plz && !p.ort;
+    setPersonen(liste => (liste.every(unberuehrt) ? [neu] : [...liste, neu]));
+    setSuche(null);
+  };
 
   const mitmieter = personen.filter(p => p.rolle === 'mitmieter').length;
+  const gewaehlt = new Set(personen.map(p => p.mieterId).filter((id): id is string => !!id));
+  const treffer = suche === null ? [] : sucheMieter(bestand, suche, gewaehlt);
+  const bezugVon = (id: string | null) => (id ? mieterBezug(bestand.find(m => m.id === id)?.mietvertrag_mieter) : null);
 
   return (
     <div className="space-y-3">
@@ -138,16 +150,17 @@ export function InteressentenAbschnitt({
       )}
 
       {personen.map((p, index) => {
-        const kandidaten = p.mieterId ? [] : findeVorhandeneMieter(p, bestand);
+        // Wer schon auf einer anderen Karte steht, wird nicht noch einmal vorgeschlagen
+        const kandidaten = p.mieterId ? [] : findeVorhandeneMieter(p, bestand).filter(m => !gewaehlt.has(m.id));
         return (
           <div key={p.schluessel} className="space-y-3 rounded-lg border p-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 {p.istUnternehmen ? <Building2 className="h-4 w-4 text-primary" /> : <User className="h-4 w-4 text-primary" />}
-                <span className="text-sm font-medium">Person {index + 1}</span>
+                <span className="whitespace-nowrap text-sm font-medium">Person {index + 1}</span>
                 {p.verhaeltnis && <span className="text-xs text-muted-foreground">({p.verhaeltnis})</span>}
                 {p.mieterId && (
-                  <Badge variant="secondary" className="gap-1 text-xs">
+                  <Badge variant="secondary" className="gap-1 whitespace-nowrap text-xs">
                     <UserCheck className="h-3 w-3" />
                     vorhandener Mieter
                   </Badge>
@@ -177,6 +190,9 @@ export function InteressentenAbschnitt({
                 )}
               </div>
             </div>
+            {p.mieterId && bezugVon(p.mieterId) && (
+              <p className="-mt-1 text-xs text-muted-foreground">{bezugVon(p.mieterId)}</p>
+            )}
 
             {p.rolle === 'mitbewohner' ? (
               <div className="grid grid-cols-2 gap-2">
@@ -246,18 +262,22 @@ export function InteressentenAbschnitt({
                 {kandidaten.length > 0 && (
                   <div className="space-y-1 rounded-md border border-warning/40 bg-warning/10 p-2">
                     <p className="text-xs font-medium">Diese Person gibt es schon als Mieter:</p>
-                    {kandidaten.slice(0, 3).map(m => (
-                      <div key={m.id} className="flex items-center justify-between gap-2 text-xs">
-                        <span>
-                          {m.ist_unternehmen ? m.firmenname : `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()}
-                          {m.geburtsdatum ? `, geb. ${datumDe(m.geburtsdatum)}` : ''}
-                          {m.hauptmail ? ` · ${m.hauptmail}` : ''}
-                        </span>
-                        <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => verwende(p, m)}>
-                          Diesen Datensatz verwenden
-                        </Button>
-                      </div>
-                    ))}
+                    {kandidaten.slice(0, 3).map(m => {
+                      const bezug = mieterBezug(m.mietvertrag_mieter);
+                      return (
+                        <div key={m.id} className="flex items-center justify-between gap-2 text-xs">
+                          <span>
+                            {m.ist_unternehmen ? m.firmenname : `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()}
+                            {m.geburtsdatum ? `, geb. ${datumDe(m.geburtsdatum)}` : ''}
+                            {m.hauptmail ? ` · ${m.hauptmail}` : ''}
+                            {bezug ? ` · ${bezug}` : ''}
+                          </span>
+                          <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => verwende(p, m)}>
+                            Diesen Datensatz verwenden
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {p.mieterId && (
@@ -310,10 +330,91 @@ export function InteressentenAbschnitt({
         );
       })}
 
-      <Button type="button" variant="outline" className="w-full" onClick={() => setPersonen(l => [...l, leerePerson()])}>
-        <Plus className="h-4 w-4" />
-        Weitere Person
-      </Button>
+      {suche !== null && (
+        <div className="space-y-2 rounded-lg border border-primary/40 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="bestand-suche" className="text-sm font-medium">
+              Bestehenden Mieter wählen
+            </Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              aria-label="Auswahl schließen"
+              onClick={() => setSuche(null)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <Input
+            id="bestand-suche"
+            ref={suchFeld}
+            autoFocus
+            placeholder="Name, E-Mail oder Telefon"
+            value={suche}
+            onChange={e => setSuche(e.target.value)}
+          />
+          <div aria-live="polite">
+            {bestandLaedt ? (
+              <p className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Mieterbestand wird geladen …
+              </p>
+            ) : bestandFehler ? (
+              <p className="py-2 text-xs text-destructive">
+                Der Mieterbestand konnte nicht geladen werden. Bitte den Ablauf neu öffnen.
+              </p>
+            ) : treffer.length === 0 ? (
+              <p className="py-2 text-xs text-muted-foreground">
+                {suche.trim()
+                  ? 'Kein Mieter gefunden. Über „Neue Person" anlegen.'
+                  : 'Alle Mieter aus dem Bestand stehen schon im Vertrag.'}
+              </p>
+            ) : (
+              <ul className="max-h-64 divide-y overflow-y-auto rounded-md border">
+                {treffer.map(m => {
+                  const bezug = mieterBezug(m.mietvertrag_mieter);
+                  return (
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
+                        onClick={() => waehleBestand(m)}
+                      >
+                        <span className="font-medium">
+                          {m.ist_unternehmen && m.firmenname ? m.firmenname : `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()}
+                        </span>
+                        {m.geburtsdatum && <span className="text-muted-foreground">, geb. {datumDe(m.geburtsdatum)}</span>}
+                        <span className="block text-xs text-muted-foreground">
+                          {[bezug, m.hauptmail, m.telnr].filter(Boolean).join(' · ') || 'ohne Vertrag und Kontaktdaten'}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Button type="button" variant="outline" onClick={() => setPersonen(l => [...l, leerePerson()])}>
+          <Plus className="h-4 w-4" />
+          Neue Person
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          aria-expanded={suche !== null}
+          aria-controls="bestand-suche"
+          onClick={() => (suche === null ? setSuche('') : suchFeld.current?.focus())}
+        >
+          <UserSearch className="h-4 w-4" />
+          Bestehenden Mieter wählen
+        </Button>
+      </div>
     </div>
   );
 }
