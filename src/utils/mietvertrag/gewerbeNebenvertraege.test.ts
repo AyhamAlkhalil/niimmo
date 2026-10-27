@@ -172,6 +172,21 @@ describe('Gewerbemietvertrag', () => {
     expect(t).not.toMatch(/14 %/);
   });
 
+  it('nennt beim Index den Basismonat als Monat, nicht als Stichtag', () => {
+    // Wie in der Wohnraumvorlage: „Monat 01.08.2026" las sich wie ein Tag (22.10.2026)
+    const t = text(gewerbeParagraphen(gewerbe()));
+    expect(t).toContain('Monat August 2026 mit 119,4 Punkten');
+    expect(t).not.toMatch(/Monat 01\.08\.2026/);
+  });
+
+  it('lässt den Monatseinschub weg, wenn der Basismonat fehlt oder ungültig ist', () => {
+    for (const indexBasisMonat of [null, '', '2026-13-01', 'abc']) {
+      const t = text(gewerbeParagraphen(gewerbe({ indexBasisMonat })));
+      expect(t).toContain('gegenüber dem Stand bei Vertragsbeginn oder gegenüber dem Stand der letzten Anpassung');
+      expect(t).not.toMatch(/Monat\s+(mit|oder)/);
+    }
+  });
+
   it('nennt Optionsrechte, wenn vereinbart', () => {
     const t = text(gewerbeParagraphen(gewerbe()));
     expect(t).toMatch(/2-mal um jeweils 36 Monate/);

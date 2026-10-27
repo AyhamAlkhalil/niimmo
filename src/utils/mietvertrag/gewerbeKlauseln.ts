@@ -12,7 +12,7 @@
  * deutlich höhere Streitwerte als Wohnraumverträge — eine Prüfung vor dem
  * ersten Einsatz ist hier noch wichtiger als beim Wohnraumvertrag.
  */
-import { formatEur, formatDatum, formatIban, betragInWorten } from '../pdf/briefLayout';
+import { formatEur, formatDatum, formatIban, formatMonat, betragInWorten } from '../pdf/briefLayout';
 import type { Absatz, Paragraph } from './wohnraumKlauseln';
 import type { MietvertragDaten } from './typen';
 
@@ -577,13 +577,15 @@ export function gewerbeParagraphen(d: GewerbeDaten): Paragraph[] {
 
   // ─── § 25 Indexklausel ─────────────────────────────────────────────────
   if (d.indexklausel) {
+    // Leer bei fehlendem oder ungültigem Monat — dann entfällt der ganze Einschub statt „Monat  mit …"
+    const basisMonat = formatMonat(d.indexBasisMonat);
     p.push({
       nummer: '§ 25',
       titel: 'Wertsicherung',
       absaetze: [
         {
           nummer: '25.1',
-          text: `Ändert sich der vom Statistischen Bundesamt veröffentlichte Verbraucherpreisindex für Deutschland (Basis 2020 = 100) gegenüber dem Stand bei Vertragsbeginn${d.indexBasisMonat ? ` — Monat ${formatDatum(d.indexBasisMonat)}${d.indexBasisWert ? ` mit ${d.indexBasisWert.toLocaleString('de-DE')} Punkten` : ''}` : ''} oder gegenüber dem Stand der letzten Anpassung um mindestens ${d.indexSchwelleProzent.toLocaleString('de-DE')} %, kann jede Vertragspartei eine entsprechende prozentuale Anpassung der Nettokaltmiete in Textform verlangen.`,
+          text: `Ändert sich der vom Statistischen Bundesamt veröffentlichte Verbraucherpreisindex für Deutschland (Basis 2020 = 100) gegenüber dem Stand bei Vertragsbeginn${basisMonat ? ` — Monat ${basisMonat}${d.indexBasisWert ? ` mit ${d.indexBasisWert.toLocaleString('de-DE')} Punkten` : ''}` : ''} oder gegenüber dem Stand der letzten Anpassung um mindestens ${d.indexSchwelleProzent.toLocaleString('de-DE')} %, kann jede Vertragspartei eine entsprechende prozentuale Anpassung der Nettokaltmiete in Textform verlangen.`,
         },
         {
           nummer: '25.2',
