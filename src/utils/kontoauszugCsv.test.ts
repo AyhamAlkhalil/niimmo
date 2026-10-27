@@ -45,6 +45,15 @@ describe('kontoauszugLesen', () => {
     expect(r.zahlungen[0]).toMatchObject({ buchungsdatum: '2026-10-02', betrag: 10 });
   });
 
+  it('kennt die Spaltenköpfe von Volksbank, DKB und ING', () => {
+    const volksbank = kontoauszugLesen('Buchungstag;Valutadatum;Name Zahlungsbeteiligter;IBAN Zahlungsbeteiligter;Verwendungszweck;Betrag\n01.10.2026;01.10.2026;Anna Beispiel;DE00111122223333444455;Miete;500,00\n');
+    expect(volksbank.zahlungen[0]).toMatchObject({ iban: 'DE00111122223333444455', empfaengername: 'Anna Beispiel', betrag: 500 });
+    const dkb = kontoauszugLesen('Buchungsdatum;Wertstellung;Status;Zahlungspflichtige*r;Zahlungsempfänger*in;Verwendungszweck;Umsatztyp;IBAN;Betrag (€)\n01.10.26;01.10.26;Gebucht;Anna Beispiel;NiImmo;Miete;Eingang;DE00111122223333444455;500,00\n');
+    expect(dkb.zahlungen[0]).toMatchObject({ buchungsdatum: '2026-10-01', empfaengername: 'Anna Beispiel', betrag: 500 });
+    const ing = kontoauszugLesen('Buchung;Wertstellungsdatum;Auftraggeber/Empfänger;Buchungstext;Verwendungszweck;Betrag\n01.10.2026;01.10.2026;Anna Beispiel;Gutschrift;Miete;500,00\n');
+    expect(ing.zahlungen[0]).toMatchObject({ buchungsdatum: '2026-10-01', empfaengername: 'Anna Beispiel', betrag: 500 });
+  });
+
   it('liest Datenzeilen, wenn nur die Kopfzeile ein Semikolon am Ende hat', () => {
     const r = kontoauszugLesen(`${KOPF};\n02.10.2026;;Miete;DE00;10,00;X\n`);
     expect(r).toMatchObject({ uebersprungen: 0, zahlungen: [{ buchungsdatum: '2026-10-02', betrag: 10 }] });

@@ -142,11 +142,18 @@ export function datumAusText(roh: string | null | undefined): string | null {
   return `${j}-${String(m).padStart(2, '0')}-${String(t).padStart(2, '0')}`;
 }
 
+// Spaltenköpfe der gängigen Bankexporte (Sparkasse, Volksbank, DKB, ING); bei der DKB steht die
+// Gegenseite einer Gutschrift unter „Zahlungspflichtige*r“, deshalb vor „Zahlungsempfänger*in“
 const SPALTEN_NAME = [
   'Empfaenger', 'Beguenstigter/Zahlungspflichtiger', 'Name', 'Empfänger', 'Begünstigter/Zahlungspflichtiger',
   'Auftraggeber/Begünstigter', 'Beguenstigter', 'Begünstigter', 'AbweichenderEmpfaenger', 'Absender', 'Auftraggeber',
-  'Zahlungspflichtiger', 'Name des Absenders', 'Absender/Empfänger',
+  'Zahlungspflichtiger', 'Name des Absenders', 'Absender/Empfänger', 'Name Zahlungsbeteiligter',
+  'Zahlungspflichtige*r', 'Auftraggeber/Empfänger', 'Zahlungsempfänger*in',
 ];
+const SPALTEN_BUCHUNGSTAG = ['Buchungstag', 'Buchungsdatum', 'Datum', 'Buchung'];
+const SPALTEN_WERTSTELLUNG = ['Wertstellung', 'Wertstellungstag', 'Wertstellungsdatum', 'Valuta', 'Valutadatum'];
+const SPALTEN_BETRAG = ['Betrag', 'Umsatz', 'Betrag (€)', 'Betrag (EUR)', 'Betrag in EUR'];
+const SPALTEN_IBAN = ['Kontonummer/IBAN', 'IBAN des Absenders', 'IBAN', 'IBAN Zahlungsbeteiligter', 'Auftraggeber-Konto', 'Auftragskonto'];
 
 /** Liest die Buchungen eines Kontoauszugs; `uebersprungen` zählt nicht lesbare Zeilen. */
 export function kontoauszugLesen(text: string): { zahlungen: CsvZahlung[]; uebersprungen: number } {
@@ -171,9 +178,9 @@ export function kontoauszugLesen(text: string): { zahlungen: CsvZahlung[]; ueber
     });
     const erste = (...namen: string[]) => namen.map((n) => zeile[n]).find((w) => !!w) ?? '';
 
-    const buchungsdatum = datumAusText(erste('Buchungstag', 'Buchungsdatum', 'Datum'));
-    const wertRoh = erste('Wertstellung', 'Wertstellungstag', 'Valuta', 'Valutadatum');
-    const betrag = betragAusText(erste('Betrag', 'Umsatz'));
+    const buchungsdatum = datumAusText(erste(...SPALTEN_BUCHUNGSTAG));
+    const wertRoh = erste(...SPALTEN_WERTSTELLUNG);
+    const betrag = betragAusText(erste(...SPALTEN_BETRAG));
     if (!buchungsdatum || betrag === null) {
       uebersprungen++;
       continue;
@@ -182,7 +189,7 @@ export function kontoauszugLesen(text: string): { zahlungen: CsvZahlung[]; ueber
       buchungsdatum,
       wertstellungsdatum: wertRoh ? datumAusText(wertRoh) ?? undefined : undefined,
       betrag,
-      iban: erste('Kontonummer/IBAN', 'IBAN des Absenders', 'IBAN', 'Auftraggeber-Konto', 'Auftragskonto'),
+      iban: erste(...SPALTEN_IBAN),
       verwendungszweck: erste('Verwendungszweck', 'Buchungstext'),
       empfaengername: erste(...SPALTEN_NAME),
     });
