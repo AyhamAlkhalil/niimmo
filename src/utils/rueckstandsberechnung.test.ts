@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   calculateMietvertragRueckstand,
   calculateMieteZahlungen,
   calculateRuecklastschriftGebuehren,
+  leseForderungsbetrag,
   nurFaelligeForderungen,
 } from './rueckstandsberechnung';
 
@@ -355,5 +357,28 @@ describe('nurFaelligeForderungen', () => {
     const zahlungen = [{ id: 'z', betrag: 0, buchungsdatum: '2026-10-02', kategorie: 'Miete', zugeordneter_monat: '2026-10' }];
     const faellig = nurFaelligeForderungen([september, oktober], new Date(2026, 9, 3));
     expect(calculateMietvertragRueckstand(mockMietvertrag, faellig, zahlungen).rueckstand).toBe(800);
+  });
+});
+
+describe('leseForderungsbetrag (Forderung bearbeiten)', () => {
+  it('liest Beträge mit Punkt oder Komma, auch negativ und 0', () => {
+    expect(leseForderungsbetrag('600')).toBe(600);
+    expect(leseForderungsbetrag(' 612,5 ')).toBe(612.5);
+    expect(leseForderungsbetrag('-148.26')).toBe(-148.26);
+    expect(leseForderungsbetrag('0')).toBe(0);
+  });
+
+  it('macht aus einem leeren oder unlesbaren Feld keine Forderung über 0 €', () => {
+    // 27.10.2026: parseFloat('') || 0 speicherte still 0
+    expect(leseForderungsbetrag('')).toBeNull();
+    expect(leseForderungsbetrag('  ')).toBeNull();
+    expect(leseForderungsbetrag('abc')).toBeNull();
+    expect(leseForderungsbetrag('1.000,00')).toBeNull();
+  });
+
+  it('wird von der Vertragsansicht benutzt', () => {
+    const quelle = readFileSync('src/components/dashboard/mietvertrag-details/MietvertragTimelineView.tsx', 'utf-8');
+    expect(quelle).not.toMatch(/sollbetrag = parseFloat\(newValue\) \|\| 0/);
+    expect(quelle).toMatch(/leseForderungsbetrag\(newValue\)/);
   });
 });

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { leseForderungsbetrag } from "@/utils/rueckstandsberechnung";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   Edit2, 
@@ -164,7 +165,16 @@ export function MietvertragTimelineView({
     try {
       const updateData: any = {};
       if (editingForderung.field === 'betrag') {
-        updateData.sollbetrag = parseFloat(newValue) || 0;
+        const betrag = leseForderungsbetrag(newValue);
+        if (betrag === null) {
+          toast({
+            title: "Nicht gespeichert",
+            description: "Bitte einen Betrag eintragen – ein leeres Feld wird nicht als 0 € gespeichert.",
+            variant: "destructive",
+          });
+          return;
+        }
+        updateData.sollbetrag = betrag;
       }
 
       const { error } = await supabase

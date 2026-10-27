@@ -137,3 +137,14 @@ export const calculateRuecklastschriftGebuehren = (zahlungen: any[]): number => 
     .filter(z => z.kategorie === 'Rücklastschrift')
     .reduce((sum, z) => sum + (Number(z.ruecklastschrift_gebuehr) || 0), 0);
 };
+
+/**
+ * Betrag einer Forderung aus dem Bearbeitungsfeld der Vertragsansicht (MietvertragTimelineView).
+ * Negativ ist erlaubt (BKA-Guthaben), 0 auch (bewusst erlassen) — leer oder unlesbar nicht:
+ * Bis zum 27.10.2026 wurde daraus per `parseFloat(...) || 0` still eine Forderung über 0 €.
+ */
+export function leseForderungsbetrag(text: string): number | null {
+  const roh = text.trim().replace(/^(-?\d+),(\d*)$/, '$1.$2');
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(roh)) return null;
+  return Math.round(Number(roh) * 100) / 100;
+}
