@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { STORAGE_PFAD } from "./storagePfad";
 import {
   uebergabePdfPfad,
@@ -371,5 +372,15 @@ describe("mitZeitlimit", () => {
     expect(fehler).toBeInstanceOf(Error);
     expect(fehler.message).toMatch(/Zeitlimit überschritten: Protokoll-PDF hochladen/);
     expect(istNetzfehler(fehler)).toBe(true);
+  });
+});
+
+describe("Protokoll-PDF nach einem Zeitlimit", () => {
+  it("lädt beim Neuversuch auf denselben Pfad, statt eine Waise zu hinterlassen", () => {
+    // 27.10.2026: Der Neuversuch bekam einen neuen Pfad; kam der erste Upload doch an, lag er verwaist
+    const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
+    expect(dialog).toMatch(/filePath = vorherigesPdf\?\.pdf === aktuellesPdf \? vorherigesPdf\.pfad : uebergabePdfPfad\(/);
+    expect(dialog).toMatch(/hochgeladenesPdfRef\.current = \{ pdf: aktuellesPdf, pfad: filePath, bestaetigt: false \};\s*\/\/[^\n]*\n\s*const \{ error: pdfUploadError \}/);
+    expect(dialog).toMatch(/upload\(filePath, aktuellesPdf, \{ contentType: "application\/pdf", upsert: true \}\)/);
   });
 });

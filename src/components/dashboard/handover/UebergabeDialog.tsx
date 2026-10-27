@@ -329,7 +329,8 @@ export const UebergabeDialog = ({
   // Blob selbst, nicht der Eingabestand: Wird neu gebaut (etwa weil beim ersten
   // Mal ein Foto fehlte), muss auch die neue Fassung hoch — sonst verwiese das
   // Dokument auf das unvollständige PDF.
-  const hochgeladenesPdfRef = useRef<{ pdf: Blob; pfad: string } | null>(null);
+  // bestaetigt: false, solange der Upload nicht sicher angekommen ist (Zeitlimit, Funkloch)
+  const hochgeladenesPdfRef = useRef<{ pdf: Blob; pfad: string; bestaetigt: boolean } | null>(null);
   // Schreibzugriffe eines abgebrochenen Speicherlaufs (utils/uebergabeSpeicherung.ts, Rueckbau).
   // Ließ er sich nicht gleich zurücknehmen, steht er im Entwurf und wird beim
   // nächsten Öffnen nachgeholt — bis zum 23.10.2026 ging er mit dem Schließen verloren.
@@ -1068,27 +1069,32 @@ export const UebergabeDialog = ({
       // Supabase Storage lehnt Umlaute im Pfad ab (InvalidKey) — daran scheiterte
       // jedes Protokoll für Mieter mit Umlaut im Namen.
       let filePath: string;
-      if (hochgeladenesPdfRef.current?.pdf === aktuellesPdf) {
-        filePath = hochgeladenesPdfRef.current.pfad;
+      const vorherigesPdf = hochgeladenesPdfRef.current;
+      if (vorherigesPdf?.pdf === aktuellesPdf && vorherigesPdf.bestaetigt) {
+        filePath = vorherigesPdf.pfad;
       } else {
-        // Ein PDF aus einem abgebrochenen Lauf ist jetzt überholt (andere Eingaben
-        // oder neu geladene Fotos). Nichts verweist mehr darauf — der Dokument-
-        // eintrag kommt erst ganz am Schluss, die Historie ist zurückgenommen.
-        const ueberholt = hochgeladenesPdfRef.current?.pfad;
-        if (ueberholt && !(await protokollEingetragen(ueberholt))) {
-          const { error: entfernFehler } = await supabase.storage.from("dokumente").remove([ueberholt]);
-          if (entfernFehler) console.warn("Überholtes Protokoll-PDF blieb im Speicher liegen:", entfernFehler.message);
+        if (vorherigesPdf && vorherigesPdf.pdf !== aktuellesPdf) {
+          // Ein PDF aus einem abgebrochenen Lauf ist jetzt überholt (andere Eingaben
+          // oder neu geladene Fotos). Nichts verweist mehr darauf — der Dokument-
+          // eintrag kommt erst ganz am Schluss, die Historie ist zurückgenommen.
+          if (!(await protokollEingetragen(vorherigesPdf.pfad))) {
+            const { error: entfernFehler } = await supabase.storage.from("dokumente").remove([vorherigesPdf.pfad]);
+            if (entfernFehler) console.warn("Überholtes Protokoll-PDF blieb im Speicher liegen:", entfernFehler.message);
+          }
         }
-        hochgeladenesPdfRef.current = null;
-        filePath = uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
+        // Dieselbe Datei nach einem Zeitlimit: derselbe Pfad, überschreiben. Bis zum 27.10.2026
+        // bekam der Neuversuch einen neuen Pfad, und kam der erste Upload doch noch an, lag er
+        // unsichtbar und ohne Verweis im Speicher.
+        filePath = vorherigesPdf?.pdf === aktuellesPdf ? vorherigesPdf.pfad : uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
+        hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath, bestaetigt: false };
         // Mit Grenze wie die Fotos: ohne sie hing das Speichern im Funkloch für immer
         const { error: pdfUploadError } = await mitZeitlimit(
-          supabase.storage.from("dokumente").upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false }),
+          supabase.storage.from("dokumente").upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: true }),
           UPLOAD_ZEITLIMIT_MS,
           "Protokoll-PDF hochladen"
         );
         if (pdfUploadError) throw pdfUploadError;
-        hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath };
+        hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath, bestaetigt: true };
       }
       rueckbau.pdfPfad = filePath;
       rueckbauMerken(rueckbau);
