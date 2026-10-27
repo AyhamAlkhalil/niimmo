@@ -94,6 +94,8 @@ function isWerktag(datum: Date): boolean {
  * Z.B. Miete Dezember → Verzug ab 4. Werktag Januar
  */
 export function berechneVerzugsbeginn(faelligkeitsMonat: Date): Date {
+  // Ein ungültiges Datum ist nie ein Werktag — die Schleife lief endlos und fror den Tab ein (QA 27.10.2026)
+  if (Number.isNaN(faelligkeitsMonat.getTime())) return new Date(NaN);
   // Erster Tag des Folgemonats
   const folgeMonat = new Date(faelligkeitsMonat.getFullYear(), faelligkeitsMonat.getMonth() + 1, 1);
 

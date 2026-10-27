@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { berechneAlleVerzugszinsen, mitAelterenPerioden, verzugspostenAusRueckstand } from './verzugszinsen';
+import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, mitAelterenPerioden, verzugspostenAusRueckstand } from './verzugszinsen';
 import { monatsmietenText, rueckstandsUmfang } from './mahnungPdfGenerator';
 
 const PERIODEN = [
@@ -60,6 +60,12 @@ describe('Mahnung Stufe 3', () => {
     expect(monatsmietenText(1.17)).toBe('1,1 Monatsmieten');
     expect(monatsmietenText(1)).toBe('1 Monatsmiete');
     expect(monatsmietenText(2)).toBe('2 Monatsmieten');
+  });
+
+  it('hängt bei einem ungültigen Datum nicht', () => {
+    // QA 27.10.2026: Endlosschleife, weil „NaN-NaN-NaN“ als Feiertag galt
+    expect(Number.isNaN(berechneVerzugsbeginn(new Date(NaN)).getTime())).toBe(true);
+    expect(() => verzugspostenAusRueckstand(100, 50, new Date(NaN))).not.toThrow();
   });
 
   it('nennt keine „0 Monatsmieten“ im Kündigungsschreiben', () => {
