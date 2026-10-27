@@ -90,7 +90,7 @@ export default function MietvertragDetailsModal({
         <DialogHeader className="flex-shrink-0 border-b border-border/70 pb-4 md:pb-5">
           <div className="flex flex-wrap items-start gap-3 justify-between pr-9">
             <div className="flex min-w-0 items-start gap-3.5">
-              <div className="mt-0.5 hidden h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60 sm:flex">
+              <div className="mt-0.5 hidden h-11 w-11 shrink-0 items-center justify-center border border-border/80 bg-muted/60 sm:flex">
                 <Building2 className="h-5 w-5 text-foreground/70" />
               </div>
               <div className="min-w-0">
@@ -128,7 +128,7 @@ export default function MietvertragDetailsModal({
 
         <div className="flex-1 overflow-y-auto -mx-4 md:-mx-6 px-4 md:px-6">
           <Tabs defaultValue="uebersicht" className="space-y-2 md:space-y-4">
-            <TabsList className="sticky top-0 z-10 grid w-full grid-cols-2 bg-muted">
+            <TabsList className="sticky top-0 z-10 grid w-full grid-cols-2 bg-card">
               <TabsTrigger value="uebersicht" className="text-xs md:text-sm">Übersicht</TabsTrigger>
               <TabsTrigger value="dokumente" className="text-xs md:text-sm">Dokumente</TabsTrigger>
             </TabsList>

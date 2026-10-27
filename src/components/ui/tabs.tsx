@@ -5,6 +5,9 @@ import { cn } from "@/lib/utils"
 
 const Tabs = TabsPrimitive.Root
 
+// Reiter als Unterstreichung wie die Menüleiste (27.10.2026): Haarlinie unten, der aktive
+// Reiter trägt einen Karminstrich, der genau auf dieser Linie liegt
+
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
@@ -12,7 +15,7 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-10 items-center justify-center rounded-lg border border-border/60 bg-muted/80 p-1 text-muted-foreground",
+      "inline-flex h-11 items-stretch justify-start gap-x-6 border-b border-border bg-transparent p-0 text-muted-foreground [&.grid]:gap-x-2",
       className
     )}
     {...props}
@@ -27,7 +30,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-[background-color,color,box-shadow] duration-200 ease-sanft hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_2px_0_rgb(32_28_29/0.08),0_0_0_1px_rgb(32_28_29/0.04)]",
+      "relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap px-0.5 text-sm font-medium ring-offset-background transition-colors duration-200 ease-sanft after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-transparent after:transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:text-foreground data-[state=active]:after:bg-brand",
       className
     )}
     {...props}
@@ -42,7 +45,7 @@ const TabsContent = React.forwardRef<
   <TabsPrimitive.Content
     ref={ref}
     className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:duration-300",
+      "mt-4 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 data-[state=active]:animate-in data-[state=active]:fade-in-0 data-[state=active]:duration-300",
       className
     )}
     {...props}

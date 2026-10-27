@@ -192,7 +192,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
 
       {/* 3-Schritte-Tabs */}
       <Tabs value={activeStep} onValueChange={setActiveStep} className="space-y-4 sm:space-y-6">
-        <TabsList className="grid w-full grid-cols-3 h-auto p-1 bg-muted">
+        <TabsList className="grid w-full grid-cols-3 h-auto min-h-11">
           {/* Schritt 1 */}
           <TabsTrigger
             value="step1"

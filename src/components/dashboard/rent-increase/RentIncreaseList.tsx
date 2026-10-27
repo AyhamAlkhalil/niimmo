@@ -104,7 +104,8 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
   }, [data?.eligible_contracts]);
 
   return (
-    <div id="rentincrease-section" className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+    // Zeile unter „Handlungsbedarf“ auf der Startseite (27.10.2026): Haarlinie statt Karte
+    <div id="rentincrease-section" className="group/zeile relative border-b border-border">
       {/* HEADER ALS BUTTON */}
       <button
         type="button"
@@ -117,20 +118,22 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
         }}
         aria-expanded={isOpen}
         aria-controls="rent-increase-content"
-        className="relative z-10 flex w-full cursor-pointer select-none items-center justify-between px-4 py-4 pointer-events-auto transition-colors hover:bg-neutral-50/70 sm:px-6 sm:py-5"
+        className="relative z-10 flex w-full cursor-pointer select-none items-center justify-between gap-4 rounded-sm py-5 pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 sm:py-6"
       >
         <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60 sm:h-11 sm:w-11">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center bg-muted sm:h-11 sm:w-11">
             <TrendingUp className="h-4 w-4 text-foreground/70 sm:h-5 sm:w-5" />
           </div>
-          <span className="font-display text-2xl leading-none text-foreground sm:text-3xl">Mögliche Mieterhöhungen</span>
+          <span className="text-left text-xl font-normal leading-tight text-foreground transition-colors group-hover/zeile:text-brand sm:text-2xl">Mögliche Mieterhöhungen</span>
           {isOpen && eligible.length > 0 && (
-            <span className="ml-1 rounded-full border border-border/80 bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-foreground/80">
+            <span className="ml-1 bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-foreground/80">
               {eligible.length}
             </span>
           )}
         </div>
-        <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform duration-300 ${isOpen ? 'rotate-90' : ''}`} />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-border text-muted-foreground transition-colors group-hover/zeile:border-foreground group-hover/zeile:text-foreground" aria-hidden="true">
+          <ChevronRight className={`h-4 w-4 transition-transform duration-300 ${isOpen ? 'rotate-90' : ''}`} />
+        </span>
       </button>
 
       {/* INHALT mit einfacher Auf/Zu-Animation */}
@@ -139,7 +142,7 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
         className="relative z-0 overflow-hidden transition-all duration-300 ease-in-out"
         style={{ maxHeight: isOpen ? '500px' : '0', opacity: isOpen ? 1 : 0 }}
       >
-        <div className="p-4 sm:p-6 space-y-3 border-t max-h-[500px] overflow-y-auto">
+        <div className="pb-6 space-y-3 max-h-[500px] overflow-y-auto">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Wird geprüft…</p>
           ) : error ? (

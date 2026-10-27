@@ -14,7 +14,6 @@ import {
   Zap,
   ThermometerSun,
   Save,
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
   Gauge,
@@ -26,6 +25,7 @@ import { de } from "date-fns/locale";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ZaehlerHistorie } from "@/components/dashboard/ZaehlerHistorie";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 
 interface ZaehlerVerwaltungProps {
   onBack: () => void;
@@ -421,24 +421,14 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto px-3 py-3 sm:p-4 lg:p-6">
-        {/* Header */}
-        <div className="glass-card p-3 sm:p-4 rounded-xl mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <Gauge className="h-5 w-5 text-primary" />
-              <div>
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Zählerverwaltung</h1>
-                <p className="text-xs text-gray-500 hidden sm:block">
-                  {immobilien?.length || 0} Immobilien · {immobilien?.reduce((sum, i) => sum + (i.einheiten?.length || 0), 0) || 0} Einheiten
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 mt-3">
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+        <Seitenkopf
+          bereich="Verwaltung"
+          titel="Zählerverwaltung"
+          beschreibung={`${immobilien?.length || 0} Immobilien · ${immobilien?.reduce((sum, i) => sum + (i.einheiten?.length || 0), 0) || 0} Einheiten`}
+          onZurueck={onBack}
+        >
+          <div className="mt-6 flex items-center gap-2">
             <Input
               placeholder="Suche nach Objekt, Adresse oder Zähler-Nr..."
               value={searchTerm}
@@ -448,10 +438,10 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
             <Button variant="outline" size="sm" onClick={expandAll} className="h-8 text-xs whitespace-nowrap">Alle öffnen</Button>
             <Button variant="outline" size="sm" onClick={collapseAll} className="h-8 text-xs whitespace-nowrap">Alle schließen</Button>
           </div>
-        </div>
+        </Seitenkopf>
 
         {/* Properties List */}
-        <div className="space-y-3">
+        <div className="mt-8 space-y-3">
           {filteredImmobilien?.map((immobilie) => {
             const propTypes = getPropertyMeterTypes(immobilie);
             const isEditingProp = editingPropertyId === immobilie.id;

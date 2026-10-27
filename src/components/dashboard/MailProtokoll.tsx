@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, Copy, Inbox, Loader2, Paperclip, Search } from "lucide-react";
+import { AlertTriangle, Copy, Inbox, Loader2, Paperclip, Search } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 
 interface MailProtokollProps {
   onBack: () => void;
@@ -109,56 +110,64 @@ export const MailProtokoll = ({ onBack }: MailProtokollProps) => {
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
-        <Button variant="ghost" size="icon" onClick={onBack} aria-label="Zurück">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="mr-1 font-display text-2xl leading-none text-foreground">Mails</h1>
-        <span className="mr-2 text-sm tabular-nums text-muted-foreground">{zaehler.alle}</span>
+      <Seitenkopf
+        kompakt
+        className="shrink-0 px-4 sm:px-6"
+        bereich="System"
+        titel={
+          <>
+            Mails
+            <span className="ml-2 text-sm tabular-nums tracking-normal text-muted-foreground">{zaehler.alle}</span>
+          </>
+        }
+        onZurueck={onBack}
+        aktionen={
+          <>
+            <div className="relative w-64 max-w-full sm:w-72">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                value={suche}
+                onChange={(e) => setSuche(e.target.value)}
+                placeholder="Suchen: Betreff, Empfänger, Text"
+                aria-label="Mails durchsuchen"
+                className="h-9 bg-background pl-8"
+              />
+            </div>
 
-        <div className="relative min-w-[12rem] max-w-md flex-1">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            value={suche}
-            onChange={(e) => setSuche(e.target.value)}
-            placeholder="Suchen: Betreff, Empfänger, Text"
-            aria-label="Mails durchsuchen"
-            className="h-9 bg-background pl-8"
-          />
-        </div>
+            <Select value={typ} onValueChange={setTyp}>
+              <SelectTrigger className="h-9 w-[16rem]" aria-label="Art der Mail">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="alle">Alle Arten</SelectItem>
+                {Object.entries(TYP_BEZEICHNUNG).map(([wert, label]) => (
+                  <SelectItem key={wert} value={wert}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-        <Select value={typ} onValueChange={setTyp}>
-          <SelectTrigger className="h-9 w-[16rem]" aria-label="Art der Mail">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="alle">Alle Arten</SelectItem>
-            {Object.entries(TYP_BEZEICHNUNG).map(([wert, label]) => (
-              <SelectItem key={wert} value={wert}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="flex flex-wrap gap-1.5">
-          {SICHTEN.map(({ wert, label }) => (
-            <Button
-              key={wert}
-              size="sm"
-              variant={sicht === wert ? "default" : "outline"}
-              className="h-9"
-              onClick={() => setSicht(wert)}
-            >
-              {label}
-              <span className="ml-1.5 tabular-nums opacity-70">{zaehler[wert]}</span>
-            </Button>
-          ))}
-        </div>
-      </div>
+            <div className="flex flex-wrap gap-1.5">
+              {SICHTEN.map(({ wert, label }) => (
+                <Button
+                  key={wert}
+                  size="sm"
+                  variant={sicht === wert ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setSicht(wert)}
+                >
+                  {label}
+                  <span className="ml-1.5 tabular-nums opacity-70">{zaehler[wert]}</span>
+                </Button>
+              ))}
+            </div>
+          </>
+        }
+      />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="min-h-0 flex-1 overflow-auto">

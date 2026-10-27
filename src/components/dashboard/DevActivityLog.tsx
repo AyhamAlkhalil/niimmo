@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, RefreshCw, Search, Activity } from "lucide-react";
+import { RefreshCw, Search } from "lucide-react";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -223,37 +224,37 @@ export function DevActivityLog({ onBack }: DevActivityLogProps) {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Zurück
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+        <Seitenkopf
+          bereich="System"
+          titel="Aktivitätenlog"
+          beschreibung={
+            <>
+              {logs?.length ?? 0} Einträge total
+              {searchTerm && <> · {filtered?.length ?? 0} gefiltert</>}
+            </>
+          }
+          onZurueck={onBack}
+          aktionen={
+            <>
+              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
+                DEV ONLY
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="shrink-0"
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${isFetching ? "animate-spin" : ""}`} />
+                Aktualisieren
               </Button>
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-red-500" />
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Aktivitätenlog</h1>
-                <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
-                  DEV ONLY
-                </Badge>
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => refetch()}
-              disabled={isFetching}
-              className="shrink-0"
-            >
-              <RefreshCw className={`h-4 w-4 mr-1 ${isFetching ? "animate-spin" : ""}`} />
-              Aktualisieren
-            </Button>
-          </div>
-
+            </>
+          }
+        >
           {/* Search */}
-          <div className="mt-4 relative">
+          <div className="mt-6 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
               placeholder="Suche nach Aktion, User, Mieter, Betrag..."
@@ -262,16 +263,10 @@ export function DevActivityLog({ onBack }: DevActivityLogProps) {
               className="pl-9"
             />
           </div>
-
-          {/* Stats */}
-          <div className="mt-3 flex gap-4 text-sm text-gray-500">
-            <span>{logs?.length ?? 0} Einträge total</span>
-            {searchTerm && <span>· {filtered?.length ?? 0} gefiltert</span>}
-          </div>
-        </div>
+        </Seitenkopf>
 
         {/* Log Table */}
-        <div className="glass-card rounded-xl overflow-hidden">
+        <div className="glass-card mt-8 rounded-xl overflow-hidden">
           {isLoading ? (
             <div className="p-12 text-center text-gray-500">Lade Logs...</div>
           ) : !filtered?.length ? (

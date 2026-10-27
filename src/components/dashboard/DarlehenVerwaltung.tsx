@@ -13,9 +13,10 @@ import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
 import {
-  ArrowLeft, Plus, Pencil, Trash2, Building2, CreditCard,
-  X, Percent, ChevronDown, ChevronUp, AlertCircle, Euro,
+  Plus, Pencil, Trash2, Building2, CreditCard,
+  X, Percent, ChevronDown, ChevronUp, AlertCircle,
 } from "lucide-react";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { darlehenStand, summiereDarlehen, type DarlehenStand } from "@/utils/darlehenBerechnung";
 import { formatIsoDatum } from "@/utils/zahlungenAnsicht";
 
@@ -377,28 +378,14 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto px-3 py-3 sm:p-4 lg:p-6">
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
 
-        {/* Header */}
-        <div className="glass-card p-3 sm:p-4 rounded-xl mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onBack}
-                className="h-8 w-8 p-0"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <CreditCard className="h-5 w-5 text-primary" />
-              <div>
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Darlehenskonten</h1>
-                <p className="text-xs text-gray-500 hidden sm:block">
-                  {darlehen.length} Konten · {formatEuro(gesamtschuld)} Gesamtschuld
-                </p>
-              </div>
-            </div>
+        <Seitenkopf
+          bereich="Finanzen"
+          titel="Darlehenskonten"
+          beschreibung={`${darlehen.length} Konten · ${formatEuro(gesamtschuld)} Gesamtschuld`}
+          onZurueck={onBack}
+          aktionen={
             <Button
               size="sm"
               onClick={openCreate}
@@ -407,46 +394,36 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
               <Plus className="h-3.5 w-3.5 mr-1" />
               Neues Konto
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Summary KPIs */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <div className="metric-card relative overflow-hidden rounded-2xl p-4 sm:p-5">
-            <div className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden="true" />
-            <div className="mb-2 flex items-center gap-1.5">
-              <Euro className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Gesamtschuld</span>
-            </div>
-            <div className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl">
+        <div className="mt-8 grid grid-cols-1 border-t border-foreground sm:grid-cols-3">
+          <div className="min-w-0 border-b border-border py-4 sm:border-b-0 sm:pb-0 sm:pr-4">
+            <p className="eyebrow">Gesamtschuld</p>
+            <p className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">
               {formatEuro(gesamtschuld)}
-            </div>
-            <div className="mt-1.5 text-xs text-muted-foreground">{darlehen.length} Konten</div>
+            </p>
+            <p className="mt-1.5 text-xs text-muted-foreground">{darlehen.length} Konten</p>
           </div>
-          <div className="metric-card rounded-2xl p-4 sm:p-5">
-            <div className="mb-2 flex items-center gap-1.5">
-              <Euro className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Rate / Monat</span>
-            </div>
-            <div className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl">
+          <div className="min-w-0 border-b border-border py-4 last:border-b-0 sm:border-b-0 sm:border-l sm:px-4 sm:pb-0">
+            <p className="eyebrow">Rate / Monat</p>
+            <p className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">
               {formatEuro(gesamtrate)}
-            </div>
-            <div className="mt-1.5 text-xs text-muted-foreground">Annuität gesamt</div>
+            </p>
+            <p className="mt-1.5 text-xs text-muted-foreground">Annuität gesamt</p>
           </div>
-          <div className="metric-card rounded-2xl p-4 sm:p-5">
-            <div className="mb-2 flex items-center gap-1.5">
-              <Percent className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Zinsen / Monat</span>
-            </div>
-            <div className="font-display text-2xl leading-none tabular-nums text-warning sm:text-3xl">
+          <div className="min-w-0 border-b border-border py-4 last:border-b-0 sm:border-b-0 sm:border-l sm:px-4 sm:pb-0">
+            <p className="eyebrow">Zinsen / Monat</p>
+            <p className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-warning sm:text-3xl">
               {formatEuro(gesamtzins)}
-            </div>
-            <div className="mt-1.5 text-xs text-muted-foreground">aktuell</div>
+            </p>
+            <p className="mt-1.5 text-xs text-muted-foreground">aktuell</p>
           </div>
         </div>
 
         {/* Main content */}
-        <div className={`flex flex-col md:flex-row gap-4 ${selectedId ? "md:items-start" : ""}`}>
+        <div className={`mt-8 flex flex-col md:flex-row gap-4 ${selectedId ? "md:items-start" : ""}`}>
 
           {/* Account list */}
           <div className={`${selectedId ? "w-full md:w-80 md:shrink-0" : "w-full"} space-y-2`}>
@@ -621,7 +598,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                   className="w-full"
                 >
                   <div className="px-4 pt-3">
-                    <TabsList className="bg-gray-100 h-8">
+                    <TabsList className="h-9">
                       <TabsTrigger value="tilgungsplan" className="text-xs h-7">
                         Tilgungsplan
                       </TabsTrigger>

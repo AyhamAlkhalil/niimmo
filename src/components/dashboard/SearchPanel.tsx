@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Search, User, Building, ArrowRight, Home, FileText, Shield, Landmark, Hash } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -227,31 +226,26 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
   };
 
   return (
-    <Card className="mb-6 rounded-2xl">
-      <CardHeader className="pb-4 sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
-          <div>
-            <p className="eyebrow">Schnellzugriff</p>
-            <CardTitle className="mt-1.5 font-display text-2xl font-normal leading-none sm:text-3xl">
-              Suche
-            </CardTitle>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-xs font-medium text-foreground/80 shadow-sm">Enter</kbd> öffnet das erste Ergebnis
-          </p>
-        </div>
-      </CardHeader>
-      <CardContent className="sm:px-6">
-        <div className="relative">
+    // Suche als große Zeile auf einer Linie, wie das Suchfeld eines Maklerhauses (27.10.2026)
+    <section aria-labelledby="suche-titel" className="mb-16">
+      <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
+        <h2 id="suche-titel" className="eyebrow">Suche</h2>
+        <p className="hidden text-xs text-muted-foreground sm:block">
+          <kbd className="rounded-sm border border-border bg-muted px-1.5 py-0.5 font-sans text-xs font-medium text-foreground/80">Enter</kbd> öffnet das erste Ergebnis
+        </p>
+      </div>
+      <div>
+        <div className="relative mt-2">
           <Input
             type="text"
             placeholder="Mieter, Immobilie, Zähler, Versicherung, Police, Darlehen, Dokumente …"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyPress={handleKeyPress}
-            className="h-12 rounded-xl pl-11 text-base md:text-base"
+            aria-labelledby="suche-titel"
+            className="h-14 rounded-none border-0 border-b border-foreground bg-transparent pl-9 pr-0 text-lg font-light hover:border-foreground focus-visible:border-brand focus-visible:ring-0 md:text-xl"
           />
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-0 top-1/2 h-5 w-5 -translate-y-1/2 text-foreground/70" />
         </div>
 
         {searchResults && searchTerm.length >= 2 && (
@@ -518,7 +512,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 };

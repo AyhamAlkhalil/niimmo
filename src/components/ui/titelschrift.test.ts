@@ -12,11 +12,11 @@ describe("titelKlassen", () => {
     expect(titelKlassen("text-2xl leading-none")).toContain("font-display");
   });
 
-  it("lässt kleine Titel in Inter, damit sie nicht zu zart werden", () => {
+  it("setzt kleine Titel mittelkräftig statt im zarten Titelschnitt", () => {
     for (const k of ["text-xs", "text-sm", "text-base", "text-lg", "flex text-lg gap-2", "md:text-lg"]) {
       const klassen = titelKlassen(k);
       expect(klassen).not.toContain("font-display");
-      expect(klassen).toContain("font-semibold");
+      expect(klassen).toContain("font-medium");
     }
   });
 

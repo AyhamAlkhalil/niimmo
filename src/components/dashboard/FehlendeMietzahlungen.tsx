@@ -174,17 +174,17 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div id="rueckstaende-section" className="glass-card relative overflow-hidden rounded-2xl p-4 sm:p-6">
-        <div className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden="true" />
-        <CollapsibleTrigger className="w-full">
+      {/* Zeile unter „Handlungsbedarf“ auf der Startseite (27.10.2026): Haarlinie statt Karte */}
+      <div id="rueckstaende-section" className="group/zeile relative border-b border-border">
+        <CollapsibleTrigger className="w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
           {/* Header */}
-          <div className="flex cursor-pointer items-center justify-between" onClick={() => setIsOpen(!isOpen)}>
+          <div className="flex cursor-pointer items-center justify-between gap-4 py-5 sm:py-6" onClick={() => setIsOpen(!isOpen)}>
             <div className="flex items-center gap-3 sm:gap-4">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-soft ring-1 ring-brand/10 sm:h-11 sm:w-11">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center bg-brand-soft sm:h-11 sm:w-11">
                 <AlertTriangle className="h-4 w-4 text-brand sm:h-5 sm:w-5" />
               </div>
               <div className="text-left min-w-0">
-                <h2 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Rückstände & Guthaben</h2>
+                <h2 className="text-xl font-normal leading-tight text-foreground transition-colors group-hover/zeile:text-brand sm:text-2xl">Rückstände & Guthaben</h2>
                 <div className="flex items-center gap-1">
                   <p className="mt-1 truncate text-xs text-muted-foreground sm:text-sm">
                     {error
@@ -212,35 +212,33 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                 <div className="mr-2 hidden gap-4 text-right xs:flex sm:mr-5 sm:gap-7">
                   {gesamtRueckstandBetrag > 0 && (
                     <div>
-                      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Rückstände</p>
-                      <p className="mt-1 font-display text-xl leading-none tabular-nums text-brand sm:text-3xl">
+                      <p className="eyebrow">Rückstände</p>
+                      <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-brand sm:text-3xl">
                         {formatBetrag(gesamtRueckstandBetrag)}
                       </p>
                     </div>
                   )}
                   {gesamtGuthabenBetrag > 0 && (
                     <div>
-                      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Guthaben</p>
-                      <p className="mt-1 font-display text-xl leading-none tabular-nums text-success sm:text-3xl">
+                      <p className="eyebrow">Guthaben</p>
+                      <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-success sm:text-3xl">
                         {formatBetrag(gesamtGuthabenBetrag)}
                       </p>
                     </div>
                   )}
                 </div>
               )}
-              {isOpen ? (
-                <ChevronUp className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-              )}
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-border text-muted-foreground transition-colors group-hover/zeile:border-foreground group-hover/zeile:text-foreground" aria-hidden="true">
+                {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </span>
             </div>
           </div>
         </CollapsibleTrigger>
 
-        <CollapsibleContent className="pt-4 sm:pt-5">
+        <CollapsibleContent className="pb-6">
           {/* Mobile Summary - Shows on small screens */}
           {(gesamtRueckstandBetrag > 0 || gesamtGuthabenBetrag > 0) && (
-            <div className="mb-3 flex gap-3 rounded-lg border border-border/80 bg-neutral-50/60 p-2 xs:hidden">
+            <div className="mb-3 flex gap-3 border border-border bg-muted/60 p-2 xs:hidden">
               {gesamtRueckstandBetrag > 0 && (
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-600">Rückstände</p>

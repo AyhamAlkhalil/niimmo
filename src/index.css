@@ -2,7 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Inter 4 (OFL, Lizenz in public/fonts) mit allen Varianten; siehe index.html */
+/*
+ * Hausschrift Jost (OFL, Lizenz in public/fonts), variabel von 100 bis 900, mit Tabellenziffern.
+ * Zwei Teilmengen wie bei Google Fonts: Latein (alle deutschen Zeichen, €) und Latein erweitert
+ * (z. B. ł, ş, ğ in Mieternamen). Inter steht dahinter nur für Zeichen, die Jost fehlen (→).
+ */
+@font-face {
+  font-family: 'Jost';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Jost-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Jost';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Jost-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Kursivschnitt, damit „italic“ echte Kursive setzt statt schräg gestellter Geradschrift */
+@font-face {
+  font-family: 'Jost';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Jost-latin-ext-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Jost';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Jost-latin-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 @font-face {
   font-family: 'InterVariable';
   font-style: normal;
@@ -21,17 +58,17 @@
 }
 
 /*
- * Designsystem (26.10.2026). Elfenbein-Grund, weiße Flächen, Anthrazit als Hauptfarbe und
- * Karmin aus dem Logo als Akzent. Die Werte sind aus der Palette in tailwind.config.ts
- * abgeleitet; alle Textrollen erreichen auf Weiß und auf dem Elfenbein-Grund mindestens
- * 4,5:1 (WCAG AA), Erfolg und Warnung auch auf ihrer eigenen 10-%-Tönung.
- * Bis dahin: SaaS-Blau als Hauptfarbe, ein blau-grauer Verlauf als Grund und rote
- * Verlaufs-Effekte -- keines davon stammte aus dem Logo.
+ * Designsystem „Exposé“ (27.10.2026). Weißer Grund wie das Exposé eines Maklerhauses,
+ * Anthrazit aus dem Logo für Schrift und Hauptknöpfe, Karmin aus dem Logo als einziges
+ * Markenzeichen. Flächen sind kaum getönt und nur durch Haarlinien getrennt, Schatten nur
+ * für schwebende Ebenen. Alle Textrollen erreichen auf Weiß und auf ihrer Fläche mindestens
+ * 4,5:1 (WCAG AA). Vorgänger vom 26.10.2026: Elfenbein-Grund mit Serifentitel; abgelehnt,
+ * weil er sich zu wenig vom alten Stand abhob.
  */
 @layer base {
   :root {
-    --canvas: 34 24% 94.3%;
-    --background: 34 24% 94.3%;
+    --canvas: 0 0% 100%;
+    --background: 0 0% 100%;
     --foreground: 345 7% 11.8%;
 
     --card: 0 0% 100%;
@@ -42,15 +79,15 @@
 
     /* Anthrazit aus dem Logo („Immo“) */
     --primary: 345 7% 11.8%;
-    --primary-foreground: 36 33% 97.1%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 34 23% 93.9%;
+    --secondary: 30 8.3% 95.3%;
     --secondary-foreground: 345 7% 11.8%;
 
-    --muted: 34 21% 93.5%;
-    --muted-foreground: 20 4% 40.6%;
+    --muted: 30 10% 96.1%;
+    --muted-foreground: 12 2.5% 39.8%;
 
-    --accent: 33 23% 92.4%;
+    --accent: 20 8.6% 93.1%;
     --accent-foreground: 345 7% 11.8%;
 
     --destructive: 353 67% 44.7%;
@@ -65,25 +102,36 @@
     --warning: 37 94% 26.9%;
     --warning-foreground: 0 0% 100%;
 
-    /* Karmin aus dem Logo (Ross, „Ni“): sparsam -- Markenzeichen, Auswahl, Hervorhebung */
+    /* Karmin aus dem Logo (Ross, „Ni“): Markenzeichen, Auswahl, Hervorhebung */
     --brand: 353 67% 44.7%;
     --brand-foreground: 0 0% 100%;
-    --brand-soft: 0 62% 95.9%;
+    --brand-soft: 355 57.9% 96.3%;
+    /* Dunkles Karmin für Text auf brand-soft (7,9:1) */
+    --brand-strong: 353 66.3% 33.7%;
 
-    --border: 30 17% 88.2%;
-    --input: 33 13% 83.7%;
-    --ring: 13 5% 33.9%;
+    --border: 20 5.9% 90%;
+    --input: 24 4.6% 78.6%;
+    --ring: 345 7% 11.8%;
 
-    --radius: 0.75rem;
+    --radius: 0.1875rem;
 
-    --sidebar-background: 36 33% 97.1%;
+    /* Höhe der Menüleiste; der App-Rahmen zieht sie von Vollhöhen-Ansichten ab */
+    --app-kopf: 3.75rem;
+
+    --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 345 7% 11.8%;
     --sidebar-primary: 345 7% 11.8%;
-    --sidebar-primary-foreground: 36 33% 97.1%;
-    --sidebar-accent: 33 23% 92.4%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 20 8.6% 93.1%;
     --sidebar-accent-foreground: 345 7% 11.8%;
-    --sidebar-border: 30 17% 88.2%;
-    --sidebar-ring: 13 5% 33.9%;
+    --sidebar-border: 20 5.9% 90%;
+    --sidebar-ring: 345 7% 11.8%;
+  }
+
+  @media (min-width: 1024px) {
+    :root {
+      --app-kopf: 4.5rem;
+    }
   }
 
   /* Wird derzeit nirgends eingeschaltet; als stimmige Gegenstuecke vorgehalten */
@@ -121,6 +169,7 @@
     --brand: 355 71% 57.6%;
     --brand-foreground: 0 0% 100%;
     --brand-soft: 355 30% 16%;
+    --brand-strong: 355 80% 72%;
 
     --border: 0 7% 16.9%;
     --input: 0 7% 19%;
@@ -150,22 +199,18 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'InterVariable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-    font-optical-sizing: auto;
+    font-family: 'Jost', 'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
     min-height: 100vh;
-    letter-spacing: -0.006em;
-    /* cv08: großes I mit Serifen -- sonst gleichen sich I und l, und aus „NiImmo“ wird „Nilmmo“ */
-    font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv08' 1;
+    /* Jost läuft eng; ein Hauch Sperrung hält kleine Grade lesbar */
+    letter-spacing: 0.004em;
+    font-feature-settings: 'kern' 1;
   }
 
-  /* Titelschrift hat nur einen Schnitt: font-bold an Überschriften soll sie nicht
-     künstlich verdicken, sondern einfach in ihrer eigenen Stärke stehen lassen */
+  /* Titel: dieselbe Schrift, leichter und enger gesetzt -- groß und ruhig wie im Exposé */
   .font-display,
   .font-serif {
-    font-synthesis: none;
     font-weight: 400;
-    letter-spacing: -0.005em;
-    font-feature-settings: 'kern' 1, 'liga' 1, 'lnum' 1;
+    letter-spacing: -0.012em;
   }
 
   ::selection {
@@ -173,10 +218,10 @@
     color: hsl(var(--foreground));
   }
 
-  /* Dezente, warme Bildlaufleisten statt der grauen Systembalken */
+  /* Dezente Bildlaufleisten statt der Systembalken */
   * {
     scrollbar-width: thin;
-    scrollbar-color: hsl(30 8% 76%) transparent;
+    scrollbar-color: hsl(20 4% 78%) transparent;
   }
 
   /* Beträge und Datumsangaben in Tabellen stehen untereinander */
@@ -186,44 +231,25 @@
 }
 
 @layer components {
-  /* Seitengrund: Elfenbein mit einem kaum sichtbaren Schimmer in Karmin und Ocker */
+  /* Seitengrund: reines Weiß, Gliederung nur über Haarlinien und Luft */
   .modern-dashboard-bg {
     position: relative;
     min-height: 100vh;
     background-color: hsl(var(--canvas));
-    background-image:
-      radial-gradient(1100px 520px at 0% -8%, rgb(190 38 55 / 0.045), transparent 62%),
-      radial-gradient(900px 480px at 100% -6%, rgb(156 98 5 / 0.04), transparent 60%);
-    background-repeat: no-repeat;
   }
 
-  /* Die drei alten Kartensprachen münden in dieselbe Fläche wie die shadcn-Card */
+  /* Die drei alten Kartensprachen münden in dieselbe flache Fläche wie die shadcn-Card */
   .glass-card,
   .elegant-card,
   .metric-card {
     background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
-    box-shadow:
-      0 0 0 1px rgb(32 28 29 / 0.02),
-      0 1px 2px 0 rgb(32 28 29 / 0.04),
-      0 4px 14px -6px rgb(32 28 29 / 0.08);
-    transition:
-      box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-      border-color 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: border-color 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .elegant-card:hover,
   .metric-card:hover {
-    border-color: hsl(30 14% 82%);
-    box-shadow:
-      0 0 0 1px rgb(32 28 29 / 0.03),
-      0 2px 4px -1px rgb(32 28 29 / 0.05),
-      0 18px 36px -12px rgb(32 28 29 / 0.16);
-  }
-
-  .elegant-card:hover {
-    transform: translateY(-1px);
+    border-color: hsl(var(--input));
   }
 
   .accent-red {
@@ -238,20 +264,19 @@
   .modern-input {
     background: hsl(var(--card));
     border: 1px solid hsl(var(--input));
-    box-shadow: inset 0 1px 1px 0 rgb(32 28 29 / 0.035);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .modern-input:focus {
     border-color: hsl(var(--ring));
-    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.25);
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
     outline: none;
   }
 
   .modern-button-ghost {
     background: hsl(var(--card));
     border: 1px solid hsl(var(--border));
-    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
   }
 
   .modern-button-ghost:hover {
@@ -264,20 +289,16 @@
     color: hsl(var(--primary-foreground));
     border: none;
     font-weight: 500;
-    box-shadow:
-      inset 0 1px 0 0 rgb(255 255 255 / 0.1),
-      0 1px 2px 0 rgb(32 28 29 / 0.24),
-      0 2px 6px -2px rgb(32 28 29 / 0.22);
-    transition: background-color 0.2s ease, transform 0.2s ease;
+    letter-spacing: 0.02em;
+    transition: background-color 0.2s ease;
   }
 
   .modern-button:hover {
-    background: hsl(var(--primary) / 0.9);
+    background: hsl(var(--primary) / 0.88);
   }
 
   .progress-bar {
     background: hsl(var(--brand));
-    border-radius: 999px;
     overflow: hidden;
     position: relative;
   }
@@ -292,14 +313,30 @@
   }
 
   .modern-shadow {
-    box-shadow:
-      0 1px 2px 0 rgb(32 28 29 / 0.04),
-      0 2px 6px -1px rgb(32 28 29 / 0.06);
+    box-shadow: 0 1px 2px 0 rgb(32 28 29 / 0.04);
   }
 
-  /* Kleine Überzeile über Seitentiteln, in Karmin */
+  /* Kleine Überzeile über Titeln und Kennzahlen: gesperrte Versalien wie im Exposé */
   .eyebrow {
-    @apply text-xs font-semibold uppercase tracking-[0.16em] text-brand;
+    @apply text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground;
+  }
+
+  /*
+   * Ansichten im App-Rahmen (27.10.2026). Die Unterseiten stammen aus der Zeit ohne
+   * Menüleiste und füllen mit h-screen, h-dvh oder min-h-screen den ganzen Bildschirm.
+   * Unter der Leiste würde das eine Bildlaufleiste von genau ihrer Höhe erzeugen; hier
+   * wird die Leiste einmal zentral abgezogen, statt jede Ansicht anzufassen.
+   */
+  .app-inhalt .min-h-screen,
+  .app-inhalt .min-h-\[100dvh\],
+  .app-inhalt .modern-dashboard-bg {
+    min-height: calc(100dvh - var(--app-kopf));
+  }
+
+  .app-inhalt .h-screen,
+  .app-inhalt .h-dvh,
+  .app-inhalt .h-\[100dvh\] {
+    height: calc(100dvh - var(--app-kopf));
   }
 }
 

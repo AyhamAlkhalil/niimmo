@@ -4,8 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { UserMenu } from "./UserMenu";
-import { VersionBadge } from "./ChangelogDialog";
+import { Seitenkopf } from "./Seitenkopf";
 import { toast } from "sonner";
 import { 
   Loader2, 
@@ -15,7 +14,6 @@ import {
   Zap, 
   ThermometerSun,
   Save,
-  Wrench,
   ChevronDown,
   ChevronRight
 } from "lucide-react";
@@ -378,32 +376,9 @@ export const HausmeisterDashboard = () => {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      {/* Markenlinie wie im Verwaltungs-Dashboard */}
-      <div className="h-[3px] bg-brand" aria-hidden="true" />
-      <div className="container mx-auto px-3 py-3 sm:p-4 lg:p-6">
-        {/* Compact Header */}
-        <div className="mb-4 rounded-2xl border border-border bg-card p-3 shadow-card sm:p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="Logo" className="h-9 w-auto mix-blend-multiply sm:h-11" />
-              <div className="hidden h-9 w-px bg-border sm:block" aria-hidden="true" />
-              <div>
-                <p className="eyebrow">Zähler & Einheiten</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <h1 className="font-display text-2xl leading-none text-foreground">NiImmo <span className="italic text-muted-foreground">Gruppe</span></h1>
-                  <Badge variant="warning" className="py-0">
-                    <Wrench className="h-3 w-3" />
-                    Hausmeister
-                  </Badge>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <VersionBadge className="hidden sm:flex" />
-              <UserMenu />
-            </div>
-          </div>
-        </div>
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+        {/* Logo, Version und Benutzer stehen seit 27.10.2026 in der Menüleiste */}
+        <Seitenkopf bereich="Zähler & Einheiten" titel="Ihre Objekte" beschreibung="Zählerstände erfassen und Einheiten ansehen" className="mb-6" />
 
         {/* Properties List */}
         <div className="space-y-3">

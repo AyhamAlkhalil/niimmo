@@ -99,7 +99,7 @@ const PasswortNeu = () => {
         <Card className="mx-auto w-full max-w-md rounded-2xl shadow-lg">
           <CardHeader className="text-center">
             <div className="mb-3 flex justify-center">
-              <div className={zustand === "fertig" ? "flex h-12 w-12 items-center justify-center rounded-full bg-success/10" : "flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft"}>
+              <div className={zustand === "fertig" ? "flex h-12 w-12 items-center justify-center bg-success/10" : "flex h-12 w-12 items-center justify-center rounded-full bg-brand-soft"}>
                 {zustand === "fertig" ? (
                   <CheckCircle2 className="h-5 w-5 text-success" />
                 ) : (

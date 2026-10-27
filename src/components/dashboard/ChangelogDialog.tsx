@@ -250,7 +250,7 @@ export function VersionBadge({ className }: { className?: string }) {
         onClick={oeffnen}
         title={`Version ${APP_VERSION} — Updates ansehen`}
         className={cn(
-          "relative flex items-center gap-1 rounded-full border border-border/80 bg-card px-2.5 py-0.5 text-xs font-medium tabular-nums tracking-[0.02em] text-muted-foreground shadow-sm transition-colors hover:border-input hover:text-foreground",
+          "relative flex items-center gap-1 rounded-sm border border-border bg-card px-2 py-0.5 text-xs font-medium tabular-nums tracking-[0.04em] text-muted-foreground transition-colors hover:border-foreground hover:text-foreground",
           className
         )}
       >

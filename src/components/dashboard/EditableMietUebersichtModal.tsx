@@ -4,8 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import {
-  Loader2, Search, ChevronDown, ChevronRight, Save, X, ArrowLeft,
-  TableProperties, Building2, Users, Banknote, Check, Pencil,
+  Loader2, Search, ChevronDown, ChevronRight, Save, X,
+  Building2, Users, Banknote, Check, Pencil,
   FileDown, Printer, ChevronDown as ChevronDownIcon, AlertTriangle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 
 interface EditableMietUebersichtProps {
   onBack: () => void;
@@ -602,23 +603,17 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
-      {/* Fixed Header */}
-      <div className="shrink-0 z-30 bg-background border-b shadow-sm">
-        <div className="px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 shrink-0">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <TableProperties className="h-5 w-5 text-primary shrink-0" />
-              <div className="min-w-0">
-                <h1 className="truncate py-0.5 font-display text-xl leading-tight text-foreground sm:text-2xl">Stammdaten</h1>
-                <p className="text-xs text-muted-foreground hidden sm:block">Einheiten, Mieter & Verträge bearbeiten</p>
-              </div>
-            </div>
-
+      <Seitenkopf
+        kompakt
+        className="shrink-0 z-30 bg-background px-4 sm:px-6"
+        bereich="Verwaltung"
+        titel="Stammdaten"
+        beschreibung="Einheiten, Mieter & Verträge bearbeiten"
+        onZurueck={onBack}
+        aktionen={
+          <>
             {/* Stats */}
-            <div className="hidden md:flex items-center gap-4 text-xs">
+            <div className="hidden md:flex items-center gap-4 text-xs md:mr-4">
               <div className="flex items-center gap-1.5">
                 <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="font-semibold">{stats.properties}</span>
@@ -643,7 +638,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
             </div>
 
             {/* Controls */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
                 <Input placeholder="Suchen..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 text-xs pl-8 w-[140px] sm:w-[200px]" />
@@ -686,9 +681,9 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Stammdaten-Lücken für die Betriebskostenabrechnung */}
       {luecken.gesamt > 0 && (

@@ -1,10 +1,10 @@
 
-import { Building2, Euro, Home, TrendingDown, TrendingUp, Percent, Pencil, Check, X, AlertTriangle } from "lucide-react";
+import { Pencil, Check, X, AlertTriangle } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatEuroKompakt } from "@/utils/betragAnzeige";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
 import { getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
 
@@ -147,200 +147,78 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     });
   };
 
-  const getCurrentMonthYear = () => {
-    const heute = new Date();
-    return heute.toLocaleDateString('de-DE', {
-      month: 'long',
-      year: 'numeric'
-    });
-  };
+  const heute = new Date();
+  const monat = heute.toLocaleDateString('de-DE', { month: 'long' });
 
   // Beträge wie in Schriftstücken: „48.250 €“ statt „€48,250“, Cent nur wenn vorhanden
   const euro = formatEuroKompakt;
+  const anzahlObjekte = immobilien?.length || 0;
+  const offen = differenz;
 
-  return (
-    <div className="space-y-3 sm:space-y-4">
-      {/* Row 1: Verschmolzene kompakte Leiste */}
-      <div className="metric-card flex items-center gap-4 overflow-x-auto rounded-2xl px-4 py-3 scrollbar-hide sm:gap-7 sm:px-6 sm:py-4">
-        {/* Immobilien */}
-        <div className="flex shrink-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
-            <Building2 className="h-4 w-4 text-foreground/70" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-display text-3xl leading-none tabular-nums text-foreground">{immobilien?.length || 0}</span>
-            <span className="hidden text-xs text-muted-foreground sm:inline">Immobilien</span>
-          </div>
-        </div>
-
-        <div className="h-8 w-px shrink-0 bg-border" />
-
-        {/* Einheiten */}
-        <div className="flex shrink-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
-            <Home className="h-4 w-4 text-foreground/70" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="font-display text-3xl leading-none tabular-nums text-foreground">{gesamtEinheiten || 0}</span>
-            <span className="hidden text-xs text-muted-foreground sm:inline">Einheiten</span>
-          </div>
-        </div>
-
-        <div className="h-8 w-px shrink-0 bg-border" />
-
-        {/* Status */}
-        <div className="flex shrink-0 items-center gap-4 sm:gap-5">
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-brand ring-4 ring-brand/10" />
-            <span className="text-xs text-muted-foreground">Leer</span>
-            <span className="text-sm font-semibold tabular-nums text-foreground sm:text-base">{leerstände}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-ochre-500 ring-4 ring-ochre-500/15" />
-            <span className="text-xs text-muted-foreground">Gekündigt</span>
-            <span className="text-sm font-semibold tabular-nums text-brand sm:text-base">{gekuendigteMietvertraege.length}</span>
-          </div>
-          <div
-            className="-mx-2 hidden cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-accent sm:flex"
-            onClick={() => {
-              if (naechsterVertrag && onNavigateToContract) {
-                onNavigateToContract(
-                  naechsterVertrag.einheiten?.immobilie_id,
-                  naechsterVertrag.einheit_id,
-                  naechsterVertrag.id
-                );
-              }
-            }}
+  // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin); Eingabe wie bisher
+  const marktwert = (typ: 'basiszinssatz' | 'vpi', anzeige: ReactNode, aktuell: number | undefined, schritt: string, bezeichnung: string) =>
+    editingTyp === typ ? (
+      <span className="flex items-center gap-1">
+        <input
+          type="number"
+          step={schritt}
+          value={editWert}
+          onChange={e => setEditWert(e.target.value)}
+          className="h-7 w-20 rounded-md border border-input bg-card px-2 text-xs focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/10"
+          aria-label={bezeichnung}
+          autoFocus
+        />
+        <button onClick={() => saveMarktdaten(typ, parseFloat(editWert))} className="rounded-md p-1 text-success hover:bg-success/10" aria-label={`${bezeichnung} speichern`}>
+          <Check className="h-3.5 w-3.5" />
+        </button>
+        <button onClick={() => setEditingTyp(null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    ) : (
+      <span className="flex items-center gap-1.5">
+        {anzeige}
+        {isAdmin && (
+          <button
+            onClick={() => { setEditingTyp(typ); setEditWert(String(aktuell ?? '')); }}
+            className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100"
+            aria-label={`${bezeichnung} bearbeiten`}
           >
-            <TrendingDown className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">Nächstes Ende</span>
-            <span className="text-xs font-semibold tabular-nums text-foreground">{formatDatum(naechstesDatum)}</span>
-          </div>
+            <Pencil className="h-3 w-3 text-muted-foreground" />
+          </button>
+        )}
+      </span>
+    );
+
+  // Exposé-Kopf der Startseite (27.10.2026): große leichte Überschrift, drei Leitzahlen auf
+  // einer Anthrazitlinie, darunter eine Faktenzeile. Rechenwege unverändert.
+  return (
+    <section aria-labelledby="portfolio-titel" className="pb-10 pt-8 sm:pt-12 lg:pb-14 lg:pt-16">
+      <div className="grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end lg:gap-12">
+        <div className="min-w-0">
+          <p className="eyebrow">Portfolio · {heute.getFullYear()}</p>
+          <h1 id="portfolio-titel" className="mt-3 text-[2.5rem] font-light leading-[1.04] tracking-[-0.025em] text-foreground sm:text-5xl lg:text-[3.5rem]">
+            Ihr Portfolio im <span className="font-normal text-brand">{monat}</span>
+          </h1>
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+            {anzahlObjekte} {anzahlObjekte === 1 ? 'Objekt' : 'Objekte'} mit {gesamtEinheiten || 0} Einheiten, davon {vermieteteEinheiten} vermietet
+            {leerstände > 0 ? ` und ${leerstände} frei` : ''}.
+          </p>
         </div>
 
-        <div className="hidden h-8 w-px shrink-0 bg-border lg:block" />
-
-        {/* Basiszinssatz */}
-        <div className="group hidden shrink-0 items-center gap-3 lg:flex">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
-            <Percent className="h-4 w-4 text-foreground/70" />
+        <div className="grid grid-cols-1 border-t border-foreground sm:grid-cols-3">
+          <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:py-0 sm:pr-5 sm:pt-4">
+            <p className="eyebrow">Soll-Miete</p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{euro(erwartedMiete)}</p>
           </div>
-          {editingTyp === 'basiszinssatz' ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                step="0.01"
-                value={editWert}
-                onChange={e => setEditWert(e.target.value)}
-                className="h-7 w-20 rounded-md border border-input bg-card px-2 text-xs shadow-feld focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/25"
-                autoFocus
-              />
-              <button onClick={() => saveMarktdaten('basiszinssatz', parseFloat(editWert))} className="rounded-md p-1 text-success hover:bg-success/10" aria-label="Basiszinssatz speichern">
-                <Check className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={() => setEditingTyp(null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-baseline gap-1">
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-semibold tabular-nums text-foreground">
-                    {marktdaten?.basiszins ? `${marktdaten.basiszins.wert}%` : '–'}
-                  </span>
-                  <span className="text-xs tabular-nums text-muted-foreground">→ {marktdaten?.basiszins ? `${(marktdaten.basiszins.wert + 5).toFixed(2)}%` : '–'}</span>
-                  {isAdmin && (
-                    <button
-                      onClick={() => { setEditingTyp('basiszinssatz'); setEditWert(String(marktdaten?.basiszins?.wert ?? '')); }}
-                      className="ml-0.5 rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100"
-                      aria-label="Basiszinssatz bearbeiten"
-                    >
-                      <Pencil className="h-3 w-3 text-muted-foreground" />
-                    </button>
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground">Basis / Verzug</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="hidden h-8 w-px shrink-0 bg-border lg:block" />
-
-        {/* VPI */}
-        <div className="group hidden shrink-0 items-center gap-3 lg:flex">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
-            <TrendingUp className="h-4 w-4 text-foreground/70" />
-          </div>
-          {editingTyp === 'vpi' ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                step="0.1"
-                value={editWert}
-                onChange={e => setEditWert(e.target.value)}
-                className="h-7 w-20 rounded-md border border-input bg-card px-2 text-xs shadow-feld focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/25"
-                autoFocus
-              />
-              <button onClick={() => saveMarktdaten('vpi', parseFloat(editWert))} className="rounded-md p-1 text-success hover:bg-success/10" aria-label="Verbraucherpreisindex speichern">
-                <Check className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={() => setEditingTyp(null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold tabular-nums text-foreground">
-                  {marktdaten?.vpi ? marktdaten.vpi.wert.toFixed(1) : '–'}
-                </span>
-                {isAdmin && (
-                  <button
-                    onClick={() => { setEditingTyp('vpi'); setEditWert(String(marktdaten?.vpi?.wert ?? '')); }}
-                    className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100"
-                    aria-label="Verbraucherpreisindex bearbeiten"
-                  >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                )}
-              </div>
-              <span className="text-xs text-muted-foreground">VPI 2020=100</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Row 2: Monatliche Miete – volle Breite */}
-      <div className="metric-card relative overflow-hidden rounded-2xl p-5 sm:p-6 lg:p-7">
-        {/* Feine Karminlinie links als Markenzeichen der Leitkennzahl */}
-        <div className="absolute inset-y-0 left-0 w-[3px] bg-brand" aria-hidden="true" />
-        <div className="mb-4 flex items-end justify-between gap-3 sm:mb-5">
-          <div>
-            <p className="eyebrow">Monatliche Miete</p>
-            <p className="mt-1 text-sm capitalize text-muted-foreground">{getCurrentMonthYear()}</p>
-          </div>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
-            <Euro className="h-4 w-4 text-foreground/70" />
-          </div>
-        </div>
-
-        {/* Hauptmetriken */}
-        <div className="mb-4 grid grid-cols-3 divide-x divide-border sm:mb-5">
-          <div className="pr-3 sm:pr-6">
-            <p className="mb-1.5 text-xs text-muted-foreground">Erwartete Miete</p>
-            <p className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl lg:text-4xl">{euro(erwartedMiete)}</p>
-          </div>
-          <div className="px-3 sm:px-6">
-            <p className="mb-1.5 text-xs text-muted-foreground">Erfasste Miete</p>
-            <div className="flex items-center gap-2">
-              <p className="font-display text-2xl leading-none tabular-nums text-foreground sm:text-3xl lg:text-4xl">{euro(erfassedMiete || 0)}</p>
+          <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:border-l sm:px-5 sm:py-0 sm:pt-4">
+            <p className="eyebrow flex items-center gap-1.5">
+              Eingang
               {(erfassedMiete === 0 || erfassedMiete === null || erfassedMiete === undefined) && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <AlertTriangle className="h-4 w-4 flex-shrink-0 cursor-help text-warning" />
+                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 cursor-help text-warning" aria-label="Noch keine Zahlungen erfasst" />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-xs">
                       <p className="text-xs">Noch keine Zahlungen für diesen Monat erfasst. Bitte laden Sie einen Kontoauszug (CSV) im Controlboard hoch.</p>
@@ -348,25 +226,79 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                   </Tooltip>
                 </TooltipProvider>
               )}
-            </div>
+            </p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{euro(erfassedMiete || 0)}</p>
           </div>
-          <div className="pl-3 sm:pl-6">
-            <p className="mb-1.5 text-xs text-muted-foreground">Differenz</p>
-            <p className={`font-display text-2xl leading-none tabular-nums sm:text-3xl lg:text-4xl ${differenz > 0 ? 'text-brand' : differenz < 0 ? 'text-success' : 'text-foreground'}`}>
-              {differenz > 0 ? '−' : differenz < 0 ? '+' : ''}{euro(Math.abs(differenz))}
+          <div className="flex min-w-0 items-baseline justify-between gap-4 py-3.5 sm:block sm:border-l sm:border-border sm:py-0 sm:pl-5 sm:pt-4">
+            <p className="eyebrow">{offen < 0 ? 'Mehr eingegangen' : 'Noch offen'}</p>
+            <p className={`whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums sm:text-[1.75rem] xl:text-[2rem] ${offen > 0 ? 'text-brand' : offen < 0 ? 'text-success' : 'text-foreground'}`}>
+              {offen < 0 ? '+' : ''}{euro(Math.abs(offen))}
             </p>
           </div>
         </div>
-
-        {/* Detailzeile */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-border/80 pt-3.5 text-xs text-muted-foreground">
-          <span>Kaltmiete <strong className="ml-1 font-semibold tabular-nums text-foreground">{euro(gesamtKaltmiete)}</strong></span>
-          <span>Betriebskosten <strong className="ml-1 font-semibold tabular-nums text-foreground">{euro(gesamtBetriebskosten)}</strong></span>
-          <span className="hidden h-3 w-px bg-border sm:inline-block" aria-hidden="true" />
-          <span>Einheiten <strong className="ml-1 font-semibold tabular-nums text-foreground">{gesamtEinheiten || 0}</strong></span>
-          <span>Leerstand <strong className={`ml-1 font-semibold tabular-nums ${leerstände > 0 ? 'text-brand' : 'text-success'}`}>{leerstände}</strong></span>
-        </div>
       </div>
-    </div>
+
+      {/* Faktenzeile */}
+      <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-border py-4 text-sm sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-10">
+        <div>
+          <dt className="eyebrow">Kaltmiete</dt>
+          <dd className="mt-1 tabular-nums text-foreground">{euro(gesamtKaltmiete)}</dd>
+        </div>
+        <div>
+          <dt className="eyebrow">Betriebskosten</dt>
+          <dd className="mt-1 tabular-nums text-foreground">{euro(gesamtBetriebskosten)}</dd>
+        </div>
+        <div>
+          <dt className="eyebrow">Leerstand</dt>
+          <dd className={`mt-1 tabular-nums ${leerstände > 0 ? 'text-brand' : 'text-success'}`}>{leerstände}</dd>
+        </div>
+        <div>
+          <dt className="eyebrow">Gekündigt</dt>
+          <dd className="mt-1 tabular-nums text-foreground">{gekuendigteMietvertraege.length}</dd>
+        </div>
+        <div>
+          <dt className="eyebrow">Nächstes Vertragsende</dt>
+          <dd className="mt-1">
+            <button
+              type="button"
+              disabled={!naechsterVertrag || !onNavigateToContract}
+              className="inline-flex items-center gap-1 tabular-nums text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-brand disabled:no-underline"
+              onClick={() => {
+                if (naechsterVertrag && onNavigateToContract) {
+                  onNavigateToContract(
+                    naechsterVertrag.einheiten?.immobilie_id,
+                    naechsterVertrag.einheit_id,
+                    naechsterVertrag.id
+                  );
+                }
+              }}
+            >
+              {formatDatum(naechstesDatum)}
+            </button>
+          </dd>
+        </div>
+        <div className="group">
+          <dt className="eyebrow">Basiszins / Verzug</dt>
+          <dd className="mt-1 tabular-nums text-foreground">
+            {marktwert(
+              'basiszinssatz',
+              <>
+                {marktdaten?.basiszins ? `${marktdaten.basiszins.wert}%` : '–'}
+                <span className="text-muted-foreground">→ {marktdaten?.basiszins ? `${(marktdaten.basiszins.wert + 5).toFixed(2)}%` : '–'}</span>
+              </>,
+              marktdaten?.basiszins?.wert,
+              '0.01',
+              'Basiszinssatz',
+            )}
+          </dd>
+        </div>
+        <div className="group">
+          <dt className="eyebrow">VPI 2020 = 100</dt>
+          <dd className="mt-1 tabular-nums text-foreground">
+            {marktwert('vpi', <>{marktdaten?.vpi ? marktdaten.vpi.wert.toFixed(1) : '–'}</>, marktdaten?.vpi?.wert, '0.1', 'Verbraucherpreisindex')}
+          </dd>
+        </div>
+      </dl>
+    </section>
   );
 };

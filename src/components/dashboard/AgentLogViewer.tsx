@@ -15,12 +15,13 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts";
 import {
-  ArrowLeft, RefreshCw, Search, MessageSquare, Bot,
+  RefreshCw, Search, MessageSquare,
   AlertTriangle, Users, DollarSign, ChevronDown, ChevronUp
 } from "lucide-react";
 import { format, parseISO, subDays, startOfDay } from "date-fns";
 import { de } from "date-fns/locale";
 import type { Database } from "@/integrations/supabase/types";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 
 type AgentLog = Database["public"]["Tables"]["agent_logs"]["Row"];
 
@@ -295,38 +296,28 @@ export function AgentLogViewer({ onBack }: AgentLogViewerProps) {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
 
-        {/* Header */}
-        <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={onBack} className="text-gray-600 hover:text-gray-900">
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Zurück
-              </Button>
-              <div className="h-5 w-px bg-gray-200" />
-              <div className="flex items-center gap-2">
-                <Bot className="h-5 w-5 text-indigo-600" />
-                <div>
-                  <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Chilla Agent-Logs</h1>
-                  <p className="text-xs text-gray-500">Telegram-Bot Interaktionen · Live-Monitoring</p>
-                </div>
-              </div>
-            </div>
+        <Seitenkopf
+          bereich="System"
+          titel="Chilla Agent-Logs"
+          beschreibung="Telegram-Bot Interaktionen · Live-Monitoring"
+          onZurueck={onBack}
+          aktionen={
             <Button
               variant="ghost" size="sm"
               onClick={() => refetch()}
               disabled={isFetching}
+              aria-label="Aktualisieren"
               className="text-gray-500 hover:text-gray-800"
             >
               <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* KPI-Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
           <KpiCard
             title="Nachrichten heute"
             value={kpis?.nachrichten ?? "—"}

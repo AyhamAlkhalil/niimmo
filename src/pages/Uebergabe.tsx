@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, ArrowLeft, ChevronRight, History, LogIn, LogOut, Loader2, RotateCcw, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, History, LogIn, LogOut, Loader2, RotateCcw, Search, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { UebergabeDialog } from "@/components/dashboard/handover/UebergabeDialog";
 import { UebergabeContractList } from "@/components/dashboard/handover/UebergabeContractList";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { cn } from "@/lib/utils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
 import { browserAblage, entwuerfeAuflisten, entwurfLoeschen, type EntwurfEintrag } from "@/utils/uebergabeEntwurf";
@@ -258,20 +259,15 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
     const offene = entwuerfe.map((e) => ({ eintrag: e, titel: vertragsTitel(e.vertragIds) }));
     return (
       <div className="min-h-screen modern-dashboard-bg">
-        <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-          <div className="glass-card mb-6 rounded-xl p-4 sm:rounded-2xl sm:p-6">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={onBack}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Zurück
-              </Button>
-              <div>
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl lg:text-4xl">Übergabe</h1>
-                <p className="font-sans text-xs text-muted-foreground sm:text-sm">Einzug oder Auszug wählen</p>
-              </div>
-            </div>
-          </div>
+        <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+          <Seitenkopf
+            bereich="Verwaltung"
+            titel="Übergabe"
+            beschreibung="Einzug oder Auszug wählen"
+            onZurueck={onBack}
+          />
 
-          <div className="mx-auto max-w-4xl space-y-6">
+          <div className="mx-auto mt-8 max-w-4xl space-y-6">
             <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
               {([
                 ["einzug", LogIn, "Einzug", "Schlüssel, Zählerstände und Zustand der Wohnung beim Einzug festhalten.", "bg-success/10 text-success"],
@@ -383,24 +379,15 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-        <div className="glass-card mb-6 rounded-xl p-4 sm:rounded-2xl sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="flex flex-1 items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => { setUebergabeType(null); setSearchQuery(""); }}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Zurück
-              </Button>
-              <div className={cn("rounded-lg p-2", uebergabeType === "einzug" ? "bg-success/10 text-success" : "bg-warning/10 text-warning")}>
-                {uebergabeType === "einzug" ? <LogIn className="h-5 w-5" /> : <LogOut className="h-5 w-5" />}
-              </div>
-              <div>
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl lg:text-4xl">
-                  {uebergabeType === "einzug" ? "Einzug" : "Auszug"}
-                </h1>
-                <p className="font-sans text-xs text-muted-foreground sm:text-sm">Mietvertrag auswählen</p>
-              </div>
-            </div>
-            <div className="relative w-full sm:w-80">
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+        <Seitenkopf
+          bereich="Verwaltung"
+          titel={uebergabeType === "einzug" ? "Einzug" : "Auszug"}
+          beschreibung="Mietvertrag auswählen"
+          onZurueck={() => { setUebergabeType(null); setSearchQuery(""); }}
+          zurueckLabel="Übergabe"
+          aktionen={
+            <div className="relative w-72 max-w-full sm:w-80">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Mieter, Objekt oder Adresse suchen..."
@@ -409,18 +396,18 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
                 className="h-11 pl-9"
               />
             </div>
-          </div>
-        </div>
+          }
+        />
 
         {isLoading && (
-          <div className="flex items-center justify-center py-12">
+          <div className="mt-8 flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         )}
 
         {/* Scheitert nur eine Aktualisierung, bleibt die geladene Liste stehen */}
         {!isLoading && isError && !contracts && (
-          <div className="glass-card flex flex-col items-center gap-3 rounded-xl p-6 text-center sm:rounded-2xl">
+          <div className="glass-card mt-8 flex flex-col items-center gap-3 rounded-xl p-6 text-center sm:rounded-2xl">
             <AlertTriangle className="h-6 w-6 text-destructive" />
             <p className="text-sm font-medium">Die Mietverträge konnten nicht geladen werden.</p>
             <Button variant="outline" onClick={() => refetch()}>
@@ -431,7 +418,7 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
         )}
 
         {!isLoading && contracts && (
-          <div className="glass-card rounded-xl p-4 sm:rounded-2xl sm:p-6">
+          <div className="glass-card mt-8 rounded-xl p-4 sm:rounded-2xl sm:p-6">
             <UebergabeContractList
               contracts={contracts}
               uebergabeType={uebergabeType}

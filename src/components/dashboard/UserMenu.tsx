@@ -28,11 +28,11 @@ export const UserMenu = () => {
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-10 gap-2.5 rounded-full border border-transparent pl-1 pr-1 hover:border-border/80 hover:bg-card hover:shadow-sm sm:pr-3.5" aria-label={`Benutzer-Menü: ${user.email}`}>
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground ring-2 ring-card" aria-hidden="true">
+        <Button variant="ghost" size="sm" className="h-10 gap-2.5 px-1.5 2xl:pr-3" aria-label={`Benutzer-Menü: ${user.email}`}>
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground" aria-hidden="true">
             {initiale}
           </span>
-          <span className="hidden max-w-[14rem] truncate text-sm text-foreground/80 sm:block">{user.email}</span>
+          <span className="hidden max-w-[14rem] truncate text-sm text-foreground/80 2xl:block">{user.email}</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -46,11 +46,11 @@ export const UserMenu = () => {
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3 mt-4">
-          <div className="rounded-xl border border-border/70 bg-muted/50 p-3.5">
+          <div className="border-b border-border pb-3">
             <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">E-Mail</div>
             <div className="mt-1 font-medium">{user.email}</div>
           </div>
-          <div className="rounded-xl border border-border/70 bg-muted/50 p-3.5">
+          <div className="border-b border-border pb-3">
             <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Benutzer-ID</div>
             <div className="mt-1 break-all font-mono text-xs text-foreground/80">{user.id}</div>
           </div>

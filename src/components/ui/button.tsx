@@ -4,28 +4,29 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-// Anthrazit als Hauptknopf mit feinem Lichtrand, Karmin nur für „brand“ und Löschen.
-// Kleiner Druckeffekt (active:translate-y-px) statt Farbsprung (26.10.2026).
+// Flache, fast eckige Knöpfe wie im Exposé (27.10.2026): Anthrazit als Hauptknopf, Karmin nur
+// für „brand“ (der eine Hauptaufruf je Seite) und Löschen. Umrandete Knöpfe schärfen beim
+// Überfahren ihre Linie, statt die Fläche zu tönen.
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium tracking-[-0.005em] ring-offset-background transition-[background-color,border-color,color,box-shadow,transform] duration-200 ease-sanft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium tracking-[0.01em] ring-offset-background transition-[background-color,border-color,color,box-shadow,transform] duration-200 ease-sanft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 active:translate-y-px disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow-knopf hover:bg-primary/90",
+        default: "bg-primary text-primary-foreground hover:bg-primary/85",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-knopf hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         outline:
-          "border border-input bg-card text-foreground shadow-sm hover:border-neutral-300 hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-card text-foreground hover:border-foreground hover:bg-card hover:text-foreground",
         secondary:
-          "border border-border/70 bg-secondary text-secondary-foreground hover:border-input hover:bg-accent",
+          "bg-secondary text-secondary-foreground hover:bg-accent",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-brand underline-offset-4 hover:underline",
-        brand: "bg-brand text-brand-foreground shadow-knopf hover:bg-brand/90",
+        brand: "bg-brand text-brand-foreground hover:bg-brand/90",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-lg px-8",
+        default: "h-10 px-5 py-2",
+        sm: "h-9 rounded-md px-3.5",
+        lg: "h-12 rounded-md px-8 text-[0.9375rem]",
         icon: "h-10 w-10",
       },
     },

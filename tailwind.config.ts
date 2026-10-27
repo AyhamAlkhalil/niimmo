@@ -12,10 +12,13 @@ import plugin from "tailwindcss/plugin";
  * Statt jede Datei anzufassen, lenkt ZUORDNUNG die Standardfamilien auf diese Palette um: Aus
  * `text-green-600` wird Waldgrün, aus `bg-blue-50` ein warmes Marineblau-Weiß, aus Grau warmer
  * Stein. Die Bedeutung (grün = erledigt, rot = Fehler, gelb = offen) bleibt erhalten.
+ * Seit 27.10.2026 (Richtung „Exposé“) kommen Rundungen und Schatten dazu: Auch die rund 600
+ * rounded-xl/-2xl im Code werden über borderRadius unten zu fast scharfen Kanten.
  * Neuer Code nutzt trotzdem die Rollen-Tokens.
  */
 const PALETTE = {
-	neutral: { 50: '#fcfaf8', 100: '#f6f4f1', 200: '#eae6e3', 300: '#d8d4d0', 400: '#a7a19d', 500: '#726c69', 600: '#5b5452', 700: '#463f3f', 800: '#2e2828', 900: '#201c1d', 950: '#0d0a0a' },
+	// Seit 27.10.2026 fast unbunt (Weiß-Grund des Exposé-Designs); 900 ist das Logo-Anthrazit, 500 hält 5,3:1 auf Weiß
+	neutral: { 50: '#fafaf9', 100: '#f4f3f2', 200: '#e7e5e4', 300: '#d6d3d1', 400: '#a29e9c', 500: '#6e6a68', 600: '#575352', 700: '#423e3d', 800: '#2b2828', 900: '#201c1d', 950: '#0d0b0b' },
 	crimson: { 50: '#fff2f2', 100: '#fee4e2', 200: '#ffccc9', 300: '#fea6a5', 400: '#f37276', 500: '#e04653', 600: '#be2637', 700: '#a2042b', 800: '#810322', 900: '#68021c', 950: '#40010e' },
 	rosewood: { 50: '#fcf3f6', 100: '#f6e7ec', 200: '#edd2db', 300: '#e2b2c3', 400: '#cd89a3', 500: '#b76988', 600: '#9b4e6e', 700: '#803b59', 800: '#672d46', 900: '#522337', 950: '#331020' },
 	plum: { 50: '#f9f4f9', 100: '#f0e8f1', 200: '#e4d4e4', 300: '#d3b7d4', 400: '#b891ba', 500: '#a073a2', 600: '#855888', 700: '#6d456f', 800: '#573558', 900: '#452a47', 950: '#2a152b' },
@@ -92,11 +95,17 @@ export default {
 			'2xl': '1536px',
 		},
 			extend: {
+				// Eine Schrift für alles (27.10.2026); font-display setzt nur Gewicht und Laufweite (index.css)
 				fontFamily: {
-					'sans': ['InterVariable', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
-					// Titel und große Beträge; nur ein Schnitt (400) -- fett wird nicht künstlich erzeugt (index.css)
-					'serif': ['"Instrument Serif"', 'Georgia', 'serif'],
-					'display': ['"Instrument Serif"', 'Georgia', 'serif'],
+					'sans': ['Jost', 'InterVariable', 'system-ui', '-apple-system', 'sans-serif'],
+					'serif': ['Jost', 'InterVariable', 'system-ui', 'sans-serif'],
+					'display': ['Jost', 'InterVariable', 'system-ui', 'sans-serif'],
+				},
+				// Jost hat eine kleinere x-Höhe als Inter; die beiden kleinsten Grade wachsen deshalb um
+				// einen halben Pixel, damit Tabellen und Etiketten gleich gut lesbar bleiben
+				fontSize: {
+					xs: ['0.78125rem', { lineHeight: '1.125rem' }],
+					sm: ['0.90625rem', { lineHeight: '1.3125rem' }],
 				},
 				colors: {
 					...PALETTE,
@@ -107,6 +116,7 @@ export default {
 						soft: 'hsl(var(--brand-soft))',
 					},
 					canvas: 'hsl(var(--canvas))',
+					'brand-strong': 'hsl(var(--brand-strong))',
 					border: 'hsl(var(--border))',
 					input: 'hsl(var(--input))',
 					ring: 'hsl(var(--ring))',
@@ -159,26 +169,32 @@ export default {
 						ring: 'hsl(var(--sidebar-ring))'
 					}
 				},
+				// Fast scharfe Kanten wie gedruckte Exposé-Seiten; rounded-full bleibt für Punkte und Schalter
 				borderRadius: {
-					lg: 'var(--radius)',
-					md: 'calc(var(--radius) - 2px)',
-					sm: 'calc(var(--radius) - 4px)'
+					sm: '1px',
+					DEFAULT: '2px',
+					md: '2px',
+					lg: '3px',
+					xl: '4px',
+					'2xl': '4px',
+					'3xl': '6px',
 				},
-				// Weiche, mehrlagige Schatten mit warmem Anthrazit statt reinem Schwarz
+				// Flächen liegen flach auf dem Weiß; Tiefe haben nur Ebenen, die wirklich schweben
+				// (Menüs, Dialoge). Die kleinen Stufen bleiben als Hauch, damit alte Aufrufer nicht kippen.
 				boxShadow: {
-					sm: '0 1px 2px 0 rgb(32 28 29 / 0.05)',
-					DEFAULT: '0 1px 2px 0 rgb(32 28 29 / 0.04), 0 2px 6px -1px rgb(32 28 29 / 0.06)',
-					md: '0 1px 2px 0 rgb(32 28 29 / 0.04), 0 6px 16px -4px rgb(32 28 29 / 0.09)',
+					sm: '0 1px 1px 0 rgb(32 28 29 / 0.03)',
+					DEFAULT: '0 1px 2px 0 rgb(32 28 29 / 0.04)',
+					md: '0 1px 2px 0 rgb(32 28 29 / 0.04), 0 4px 12px -6px rgb(32 28 29 / 0.08)',
 					lg: '0 2px 4px -1px rgb(32 28 29 / 0.04), 0 14px 32px -8px rgb(32 28 29 / 0.13)',
 					xl: '0 4px 8px -2px rgb(32 28 29 / 0.05), 0 24px 48px -12px rgb(32 28 29 / 0.18)',
 					'2xl': '0 8px 16px -4px rgb(32 28 29 / 0.06), 0 36px 72px -18px rgb(32 28 29 / 0.24)',
-					inner: 'inset 0 1px 2px 0 rgb(32 28 29 / 0.06)',
-					card: '0 0 0 1px rgb(32 28 29 / 0.02), 0 1px 2px 0 rgb(32 28 29 / 0.04), 0 4px 14px -6px rgb(32 28 29 / 0.08)',
-					'card-hover': '0 0 0 1px rgb(32 28 29 / 0.03), 0 2px 4px -1px rgb(32 28 29 / 0.05), 0 18px 36px -12px rgb(32 28 29 / 0.16)',
-					popover: '0 0 0 1px rgb(32 28 29 / 0.04), 0 4px 10px -2px rgb(32 28 29 / 0.08), 0 18px 40px -10px rgb(32 28 29 / 0.18)',
-					dialog: '0 0 0 1px rgb(32 28 29 / 0.05), 0 8px 20px -6px rgb(32 28 29 / 0.12), 0 40px 90px -24px rgb(32 28 29 / 0.38)',
-					knopf: 'inset 0 1px 0 0 rgb(255 255 255 / 0.10), 0 1px 2px 0 rgb(32 28 29 / 0.24), 0 2px 6px -2px rgb(32 28 29 / 0.22)',
-					feld: 'inset 0 1px 1px 0 rgb(32 28 29 / 0.035)',
+					inner: 'inset 0 1px 2px 0 rgb(32 28 29 / 0.05)',
+					card: 'none',
+					'card-hover': '0 1px 2px 0 rgb(32 28 29 / 0.04), 0 16px 32px -16px rgb(32 28 29 / 0.14)',
+					popover: '0 0 0 1px rgb(32 28 29 / 0.05), 0 4px 10px -2px rgb(32 28 29 / 0.06), 0 18px 40px -12px rgb(32 28 29 / 0.16)',
+					dialog: '0 0 0 1px rgb(32 28 29 / 0.06), 0 8px 20px -6px rgb(32 28 29 / 0.10), 0 40px 90px -24px rgb(32 28 29 / 0.32)',
+					knopf: 'none',
+					feld: 'none',
 				},
 				transitionTimingFunction: {
 					sanft: 'cubic-bezier(0.22, 1, 0.36, 1)',

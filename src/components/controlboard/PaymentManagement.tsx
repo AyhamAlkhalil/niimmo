@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { AlertTriangle, ArrowLeft, Bot, Building2, Euro, FileText, Search, Upload } from "lucide-react";
+import { AlertTriangle, Bot, Building2, Euro, FileText, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import { AssignPaymentDialog } from "./AssignPaymentDialog";
 import { PaymentAssignmentResultsModal } from "./PaymentAssignmentResultsModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { cn } from "@/lib/utils";
 import { NebenkostenArbeitsplatz } from "./NebenkostenArbeitsplatz";
 import { LastUploadReviewModal } from "./LastUploadReviewModal";
@@ -701,18 +701,15 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-dvh flex-col bg-background">
-      <header className="shrink-0 border-b bg-card">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4">
-          <Button variant="ghost" size="sm" onClick={onBack} className="-ml-2 h-9">
-            <ArrowLeft className="h-4 w-4" />
-            Dashboard
-          </Button>
-          <Separator orientation="vertical" className="hidden h-6 sm:block" />
-          <div className="min-w-0">
-            <h1 className="font-display text-xl leading-none text-foreground sm:text-2xl">Zahlungsverwaltung</h1>
-            <p className="hidden text-xs text-muted-foreground md:block">CSV-Import, Zuordnung und Übersicht aller Buchungen</p>
-          </div>
-          <TabsList className="ml-auto h-9 w-full justify-start overflow-x-auto sm:w-auto">
+      <Seitenkopf
+        kompakt
+        className="shrink-0 px-4 sm:px-6"
+        bereich="Finanzen"
+        titel="Zahlungsverwaltung"
+        beschreibung="CSV-Import, Zuordnung und Übersicht aller Buchungen"
+        onZurueck={onBack}
+        aktionen={
+          <TabsList className="h-9 max-w-full justify-start overflow-x-auto">
             <TabsTrigger value="upload" className={tabKlasse}>
               <Upload className="h-4 w-4" />
               <span className="hidden sm:inline">CSV-Import</span>
@@ -738,8 +735,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
               <span className="sm:hidden">NK</span>
             </TabsTrigger>
           </TabsList>
-        </div>
-      </header>
+        }
+      />
 
       <div className="shrink-0 px-3 pt-3 empty:hidden sm:px-4">
         <ZahlungsAnomalienBanner onNavigateToZahlung={handleNavigateToZahlung} />

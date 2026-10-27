@@ -104,7 +104,7 @@ export function MietvertragMeterReadings({
           <CollapsibleTrigger asChild>
             <Button variant="ghost" className="w-full justify-between p-0 h-auto hover:bg-transparent group">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/80 bg-muted/60 transition-colors group-hover:bg-muted">
+                <div className="flex h-10 w-10 items-center justify-center border border-border/80 bg-muted/60 transition-colors group-hover:bg-muted">
                   <Gauge className="h-4 w-4 text-foreground/70" />
                 </div>
                 <CardTitle className="text-lg">Zählerstände & Verbrauch</CardTitle>

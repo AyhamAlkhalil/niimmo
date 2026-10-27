@@ -7,7 +7,7 @@ import { FehlendeMietzahlungen } from "@/components/dashboard/FehlendeMietzahlun
 import { Analytics } from "@/components/dashboard/Analytics";
 
 import { SearchPanel } from "@/components/dashboard/SearchPanel";
-import { UserMenu } from "@/components/dashboard/UserMenu";
+import { Hauptnavigation, type Bereich, type Ziel } from "@/components/dashboard/Hauptnavigation";
 import { EditableMietUebersicht } from "@/components/dashboard/EditableMietUebersichtModal";
 import { RentIncreaseList } from "@/components/dashboard/rent-increase/RentIncreaseList";
 import { PaymentManagement } from "@/components/controlboard/PaymentManagement";
@@ -17,7 +17,6 @@ import { HausmeisterDashboard } from "@/components/dashboard/HausmeisterDashboar
 
 import { ZaehlerVerwaltung } from "@/components/dashboard/ZaehlerVerwaltung";
 import { MietaufstellungBank } from "@/components/dashboard/MietaufstellungBank";
-import { VersionBadge } from "@/components/dashboard/ChangelogDialog";
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
 import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
@@ -27,11 +26,9 @@ import { NeuerMietvertragDialog } from "@/components/dashboard/NeuerMietvertragD
 import VermieterStammdatenDialog from "@/components/dashboard/VermieterStammdatenDialog";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
-import { Badge } from "@/components/ui/badge";
 
-import { useState, useMemo, useCallback, lazy, Suspense } from "react";
-import { Loader2, Building2, BarChart3, Settings, KeyRound, Wrench, TableProperties, Gauge, Landmark, FileSpreadsheet, Activity, Bot, ShieldAlert, FilePlus2, ListChecks, Mail, Building, Box, LayoutGrid } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useState, useMemo, useCallback, lazy, Suspense, type ReactNode } from "react";
+import { Loader2, Building2, Box, LayoutGrid } from "lucide-react";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
 import { DEV_EMAIL } from "@/constants/config";
@@ -289,85 +286,105 @@ const Index = () => {
   if (isLoading || roleLoading) {
     return <div className="min-h-screen modern-dashboard-bg flex items-center justify-center">
         <div className="flex flex-col items-center gap-5">
-          <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="" className="h-16 w-auto mix-blend-multiply" />
+          <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="" className="h-16 w-auto" />
           <Loader2 className="h-5 w-5 animate-spin text-brand" aria-hidden="true" />
           <p className="text-sm font-medium text-muted-foreground">Dashboard wird geladen …</p>
         </div>
       </div>;
   }
 
-  // Hausmeister bekommt eigenes Dashboard
+  // Menüleiste (27.10.2026): schließt jede offene Ansicht und öffnet das Ziel. Bis dahin
+  // ging es von einer Unterseite in die nächste nur über deren Zurück-Knopf.
+  const oeffne = (ziel: Ziel) => {
+    if (ziel === 'neuer-mietvertrag') { setShowNeuerMietvertrag(true); return; }
+    if (ziel === 'vermieter') { setShowVermieter(true); return; }
+    setShowStammdaten(ziel === 'stammdaten');
+    setShowZaehlerVerwaltung(ziel === 'zaehler');
+    setShowMietaufstellung(ziel === 'mietaufstellung');
+    setShowDevLog(ziel === 'devlog');
+    setShowAgentLogs(ziel === 'agentlogs');
+    setShowBlacklist(ziel === 'blacklist');
+    setShowMails(ziel === 'mails');
+    setListSource(null);
+    setScrollToContractId(null);
+    updateNav({
+      showAnalytics: false,
+      showControlboard: ziel === 'zahlungen',
+      showUebergabe: ziel === 'uebergabe',
+      showDarlehen: ziel === 'darlehen',
+      showAufgabenBoard: ziel === 'aufgaben',
+      selectedAufgabe: null,
+      selectedImmobilie: null,
+      selectedEinheit: null,
+      selectedMietvertrag: null,
+      selectedTab: null,
+      show3D: false,
+      fokus3D: null,
+      navigationSource: 'dashboard',
+    });
+    window.scrollTo({ top: 0 });
+  };
+
+  const zurSuche = () => {
+    oeffne('portfolio');
+    // Das Suchfeld gibt es erst, wenn die Startseite wieder steht
+    window.setTimeout(() => {
+      const feld = document.querySelector<HTMLInputElement>('#search-panel input');
+      feld?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      feld?.focus({ preventScroll: true });
+    }, 60);
+  };
+
+  // Dieselbe Reihenfolge wie vorher: Die erste zutreffende Ansicht gewinnt
+  let bereich: Bereich = 'portfolio';
+  let inhalt: ReactNode;
+
   if (isHausmeister) {
-    return <HausmeisterDashboard />;
-  }
-
-  // Analytics-Ansicht anzeigen
-  if (showAnalytics) {
-    return <Analytics onBack={() => setShowAnalytics(false)} />;
-  }
-
-
-
-  // Controlboard-Ansicht anzeigen
-  if (showControlboard) {
-    return <PaymentManagement onBack={() => setShowControlboard(false)} />;
-  }
-
-  // Übergabe-Ansicht anzeigen
-  if (showUebergabe) {
-    return <Uebergabe onBack={() => setShowUebergabe(false)} />;
-  }
-
-  // Darlehen-Ansicht anzeigen
-  if (showDarlehen) {
-    return <DarlehenVerwaltung onBack={() => setShowDarlehen(false)} />;
-  }
-
-  // Zählerverwaltung anzeigen
-  if (showZaehlerVerwaltung) {
-    return <ZaehlerVerwaltung onBack={() => setShowZaehlerVerwaltung(false)} />;
-  }
-
-  // Mietaufstellung für Bank anzeigen
-  if (showMietaufstellung) {
-    return <MietaufstellungBank onBack={() => setShowMietaufstellung(false)} />;
-  }
-
-  // Dev Activity Log anzeigen (nur für info@kitdienstleistungen.de)
-  if (showDevLog && isDev) {
-    return <DevActivityLog onBack={() => setShowDevLog(false)} />;
-  }
-
-  // Chilla Agent-Logs anzeigen (nur für Admins)
-  if (showAgentLogs && isAdmin) {
-    return <AgentLogViewer onBack={() => setShowAgentLogs(false)} />;
-  }
-
-  // Mails ansehen (nur für Admins)
-  if (showMails && isAdmin) {
-    return <MailProtokoll onBack={() => setShowMails(false)} />;
-  }
-
-  // Aufgaben-Board anzeigen (nur für Admins)
-  if (showAufgabenBoard && isAdmin) {
-    return <AufgabenBoard
+    // Hausmeister bekommt eigenes Dashboard
+    inhalt = <HausmeisterDashboard />;
+  } else if (showAnalytics) {
+    bereich = 'finanzen';
+    inhalt = <Analytics onBack={() => setShowAnalytics(false)} />;
+  } else if (showControlboard) {
+    bereich = 'finanzen';
+    inhalt = <PaymentManagement onBack={() => setShowControlboard(false)} />;
+  } else if (showUebergabe) {
+    bereich = 'verwaltung';
+    inhalt = <Uebergabe onBack={() => setShowUebergabe(false)} />;
+  } else if (showDarlehen) {
+    bereich = 'finanzen';
+    inhalt = <DarlehenVerwaltung onBack={() => setShowDarlehen(false)} />;
+  } else if (showZaehlerVerwaltung) {
+    bereich = 'verwaltung';
+    inhalt = <ZaehlerVerwaltung onBack={() => setShowZaehlerVerwaltung(false)} />;
+  } else if (showMietaufstellung) {
+    bereich = 'finanzen';
+    inhalt = <MietaufstellungBank onBack={() => setShowMietaufstellung(false)} />;
+  } else if (showDevLog && isDev) {
+    // Dev Activity Log (nur für info@kitdienstleistungen.de)
+    bereich = 'system';
+    inhalt = <DevActivityLog onBack={() => setShowDevLog(false)} />;
+  } else if (showAgentLogs && isAdmin) {
+    bereich = 'system';
+    inhalt = <AgentLogViewer onBack={() => setShowAgentLogs(false)} />;
+  } else if (showMails && isAdmin) {
+    bereich = 'system';
+    inhalt = <MailProtokoll onBack={() => setShowMails(false)} />;
+  } else if (showAufgabenBoard && isAdmin) {
+    bereich = 'system';
+    inhalt = <AufgabenBoard
       onBack={() => setShowAufgabenBoard(false)}
       aufgabeOeffnen={selectedAufgabe}
       onAufgabeGeoeffnet={() => updateNav({ selectedAufgabe: null })}
     />;
-  }
-
-  if (showBlacklist && isAdmin) {
-    return <BlacklistVerwaltung onBack={() => setShowBlacklist(false)} />;
-  }
-
-  // Stammdaten-Ansicht anzeigen
-  if (showStammdaten) {
-    return <EditableMietUebersicht onBack={() => setShowStammdaten(false)} />;
-  }
-
-  if (selectedImmobilie) {
-    return <ImmobilienDetail
+  } else if (showBlacklist && isAdmin) {
+    bereich = 'system';
+    inhalt = <BlacklistVerwaltung onBack={() => setShowBlacklist(false)} />;
+  } else if (showStammdaten) {
+    bereich = 'verwaltung';
+    inhalt = <EditableMietUebersicht onBack={() => setShowStammdaten(false)} />;
+  } else if (selectedImmobilie) {
+    inhalt = <ImmobilienDetail
       immobilieId={selectedImmobilie}
       onBack={handleBackClick}
       filters={{
@@ -388,12 +405,10 @@ const Index = () => {
       isHausmeister={isHausmeister}
       initialTab={navState.selectedTab ?? undefined}
     />;
-  }
-
-  // 3D-Ansicht: steht hinter der Objektseite, damit "Zurueck" dort wieder in 3D landet.
-  if (navState.show3D) {
+  } else if (navState.show3D) {
+    // 3D-Ansicht: steht hinter der Objektseite, damit "Zurueck" dort wieder in 3D landet.
     const schliessen3D = () => updateNav({ show3D: false, fokus3D: null });
-    return (
+    inhalt = (
       <Fehlergrenze3D onZurueck={schliessen3D}>
         <Suspense
           fallback={
@@ -421,204 +436,120 @@ const Index = () => {
         </Suspense>
       </Fehlergrenze3D>
     );
-  }
+  } else {
+    // Startseite im Exposé-Raster (27.10.2026): Kopf mit Leitzahlen, Handlungsbedarf als
+    // Zeilen auf einer Linie, Suche, dann die Objekte mit Fassadenzeichnung
+    inhalt = (
+      <div className="mx-auto max-w-[1400px] px-4 pb-20 sm:px-6 lg:px-10">
+        {isAdmin && (
+          <DashboardStats
+            immobilien={immobilien}
+            onNavigateToContract={handleNavigateToContract}
+          />
+        )}
 
-  // Bereiche als ruhige Navigationsleiste: drei Gruppen statt einer Knopfwand (26.10.2026)
-  const bereiche: { gruppe: string; knoepfe: { label: string; icon: typeof Building2; onClick: () => void; akzent?: string; nurDev?: boolean }[] }[] = [
-    {
-      gruppe: "Verwaltung",
-      knoepfe: [
-        { label: "Neuer Mietvertrag", icon: FilePlus2, onClick: () => setShowNeuerMietvertrag(true) },
-        { label: "Stammdaten", icon: Building, onClick: () => setShowVermieter(true) },
-        { label: "Übergabe", icon: KeyRound, onClick: () => setShowUebergabe(true) },
-        { label: "Stammdaten", icon: TableProperties, onClick: () => setShowStammdaten(true) },
-        { label: "Zählerverwaltung", icon: Gauge, onClick: () => setShowZaehlerVerwaltung(true) },
-      ],
-    },
-    {
-      gruppe: "Finanzen",
-      knoepfe: [
-        { label: "Zahlungen", icon: Settings, onClick: () => setShowControlboard(true) },
-        { label: "Darlehen", icon: Landmark, onClick: () => setShowDarlehen(true) },
-        { label: "Mietaufstellung", icon: FileSpreadsheet, onClick: () => setShowMietaufstellung(true) },
-      ],
-    },
-    {
-      gruppe: "System",
-      knoepfe: [
-        { label: "Blacklist", icon: ShieldAlert, onClick: () => setShowBlacklist(true), akzent: "text-terracotta-600" },
-        { label: "Aufgaben", icon: ListChecks, onClick: () => setShowAufgabenBoard(true) },
-        { label: "Mails", icon: Mail, onClick: () => setShowMails(true) },
-        { label: "Chilla Logs", icon: Bot, onClick: () => setShowAgentLogs(true), akzent: "text-iris-600" },
-        { label: "Activity Log", icon: Activity, onClick: () => setShowDevLog(true), akzent: "text-brand", nurDev: true },
-      ],
-    },
-  ];
-  const heute = new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-
-  return <div className="min-h-screen modern-dashboard-bg">
-      {/* Markenlinie in Karmin, wie der Schnitt einer Visitenkarte */}
-      <div className="h-[3px] bg-brand" aria-hidden="true" />
-      <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="mb-4 sm:mb-6">
-          <header className="mb-4 overflow-hidden rounded-2xl border border-border bg-card shadow-card sm:mb-6">
-            <div className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-5">
-              <div className="flex min-w-0 items-center gap-3 sm:gap-5">
-                <img src="/lovable-uploads/c3157d5e-324c-4af6-82c4-55456f4ea211.png" alt="NiImmo Gruppe" className="h-10 w-auto shrink-0 mix-blend-multiply sm:h-14" />
-                <div className="hidden h-12 w-px shrink-0 bg-border sm:block" aria-hidden="true" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="eyebrow">{isHausmeister ? "Zähler & Einheiten" : "Zentrale Verwaltung"}</p>
-                    {isHausmeister && (
-                      <Badge variant="warning">
-                        <Wrench className="h-3 w-3" />
-                        Hausmeister
-                      </Badge>
-                    )}
-                  </div>
-                  <h1 className="mt-0.5 truncate py-0.5 font-display text-2xl leading-tight text-foreground sm:text-3xl">
-                    NiImmo <span className="italic text-muted-foreground">Gruppe</span>
-                  </h1>
-                  <p className="mt-1.5 hidden text-xs capitalize text-muted-foreground sm:block">{heute}</p>
-                  <VersionBadge className="mt-1.5 sm:hidden" />
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <VersionBadge className="hidden sm:flex" />
-                <UserMenu />
-              </div>
+        {isAdmin && (
+          <section aria-labelledby="handlungsbedarf-titel" className="mb-14">
+            <h2 id="handlungsbedarf-titel" className="eyebrow mb-3">Handlungsbedarf</h2>
+            <div className="border-t border-foreground">
+              <FehlendeMietzahlungen
+                open={rueckstaendeOpen}
+                onOpenChange={setRueckstaendeOpen}
+                onMietvertragClick={(id) => { setListSource('rueckstaende'); setRueckstaendeOpen(true); handleMietvertragClick(id); }}
+              />
+              <RentIncreaseList
+                open={rentIncreaseOpen}
+                onOpenChange={setRentIncreaseOpen}
+                onContractClick={(id) => { setListSource('rentincrease'); setRentIncreaseOpen(true); handleRentIncreaseContractClick(id); }}
+              />
             </div>
-
-            {/* Bereiche - nur für Admin. Jede Gruppe trägt ihr Etikett und bricht nur als Ganzes um */}
-            {isAdmin && (
-              <nav aria-label="Bereiche" className="border-t border-border/70 bg-neutral-50/70 px-3 py-3 sm:px-5">
-                <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-7 lg:gap-y-2">
-                  {bereiche.map((bereich) => (
-                    <div key={bereich.gruppe} className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                      <span className="px-1 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground sm:w-auto">{bereich.gruppe}</span>
-                      <div className="grid grid-cols-2 gap-1 sm:flex sm:flex-wrap sm:gap-0.5">
-                        {bereich.knoepfe.filter((k) => !k.nurDev || isDev).map((knopf, knopfIndex) => {
-                          const Icon = knopf.icon;
-                          return (
-                            <Button
-                              key={`${bereich.gruppe}-${knopfIndex}`}
-                              onClick={knopf.onClick}
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto min-h-10 justify-start gap-2 whitespace-normal rounded-lg border border-transparent px-3 py-2 text-left leading-tight text-foreground/80 hover:border-border/80 hover:bg-card hover:text-foreground hover:shadow-sm sm:h-9 sm:min-h-0 sm:justify-center sm:whitespace-nowrap sm:px-2.5 sm:py-0"
-                            >
-                              <Icon className={knopf.akzent ?? "text-muted-foreground"} />
-                              <span>{knopf.label}</span>
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </nav>
-            )}
-          </header>
-          
-          {/* Dashboard Stats - Only for Admin */}
-          {isAdmin && (
-            <DashboardStats 
-              immobilien={immobilien} 
-              onNavigateToContract={handleNavigateToContract}
-            />
-          )}
-        </div>
-
-        {/* Fehlende Mietzahlungen Übersicht - Only for Admin */}
-        {isAdmin && (
-          <div className="mb-6">
-            <FehlendeMietzahlungen 
-              open={rueckstaendeOpen}
-              onOpenChange={setRueckstaendeOpen}
-              onMietvertragClick={(id) => { setListSource('rueckstaende'); setRueckstaendeOpen(true); handleMietvertragClick(id); }} 
-            />
-          </div>
+          </section>
         )}
 
-        {/* Mögliche Mieterhöhungen - Only for Admin */}
-        {isAdmin && (
-          <div className="mb-6">
-            <RentIncreaseList 
-              open={rentIncreaseOpen}
-              onOpenChange={setRentIncreaseOpen}
-              onContractClick={(id) => { setListSource('rentincrease'); setRentIncreaseOpen(true); handleRentIncreaseContractClick(id); }}
-            />
-          </div>
-        )}
-
-        {/* Suchfunktion */}
-        <div id="search-panel">
+        <div id="search-panel" className={isAdmin ? undefined : "pt-8 sm:pt-12"}>
           <SearchPanel
             onImmobilieSelect={handleSearchImmobilieClick}
             onMietvertragClick={handleSearchMietvertragClick}
-            onDarlehenSelect={() => setShowDarlehen(true)}
+            onDarlehenSelect={() => oeffne('darlehen')}
           />
         </div>
 
-        {/* Immobilien Grid */}
-        <div className="mb-4 sm:mb-6">
-          <div className="flex items-center justify-between gap-3 mb-4 sm:mb-6">
+        <section aria-labelledby="objekte-titel">
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4">
             <div>
-              <p className="eyebrow">Portfolio</p>
-              <h2 className="mt-1 font-display text-2xl leading-none text-foreground sm:text-3xl">
+              <p className="eyebrow">Bestand</p>
+              <h2 id="objekte-titel" className="mt-2 text-3xl font-light leading-none tracking-[-0.02em] text-foreground sm:text-4xl">
                 Ihre Immobilien
-                {sortedImmobilien.length > 0 && <span className="ml-2 align-middle font-sans text-sm font-medium tabular-nums text-muted-foreground">{sortedImmobilien.length}</span>}
+                {sortedImmobilien.length > 0 && <span className="ml-3 align-middle text-base font-normal tabular-nums text-muted-foreground">{sortedImmobilien.length}</span>}
               </h2>
             </div>
-            <div className="inline-flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5 shadow-sm" role="group" aria-label="Darstellung der Immobilien">
-              <Button variant="ghost" size="sm" aria-pressed="true" className="h-8 gap-1.5 rounded-md bg-primary px-2.5 text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground sm:px-3">
+            <div className="flex items-center gap-6 text-sm" role="group" aria-label="Darstellung der Immobilien">
+              <button
+                type="button"
+                aria-pressed="true"
+                className="relative inline-flex items-center gap-1.5 pb-1.5 font-medium text-foreground after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:bg-brand"
+              >
                 <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only">Kacheln</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
+                Kacheln
+              </button>
+              <button
+                type="button"
                 aria-pressed="false"
-                className="h-8 gap-1.5 rounded-md px-2.5 text-muted-foreground hover:text-foreground sm:px-3"
+                className="inline-flex items-center gap-1.5 pb-1.5 text-muted-foreground transition-colors hover:text-foreground"
                 onMouseEnter={() => void ladeAnsicht3D()}
                 onFocus={() => void ladeAnsicht3D()}
                 onClick={() => updateNav({ show3D: true })}
               >
                 <Box className="h-4 w-4" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only">3D-Ansicht</span>
-              </Button>
+                3D-Ansicht
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
-            {sortedImmobilien?.map((immobilie, index) => (
-              <div 
-                key={immobilie.id} 
-                className="glass-card group cursor-pointer overflow-hidden rounded-2xl hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-card-hover" 
-                style={{ animationDelay: `${index * 0.1}s` }} 
+          <div className="grid grid-cols-1 gap-x-8 gap-y-12 md:grid-cols-2 xl:grid-cols-3">
+            {sortedImmobilien?.map((immobilie) => (
+              <div
+                key={immobilie.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`${immobilie.name} öffnen`}
+                className="group cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-4"
                 onClick={() => handleImmobilieClick(immobilie.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleImmobilieClick(immobilie.id);
+                  }
+                }}
               >
                 <ImmobilienCard immobilie={immobilie} onClick={() => handleImmobilieClick(immobilie.id)} />
               </div>
             ))}
           </div>
-        </div>
 
-        {sortedImmobilien?.length === 0 && <div className="text-center py-20">
-            <div className="glass-card p-12 max-w-md mx-auto rounded-2xl">
-              <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-full bg-brand-soft">
-                <Building2 className="h-6 w-6 text-brand" />
-              </div>
-              <h3 className="font-display text-3xl text-foreground mb-2">
-                Keine Immobilien gefunden
-              </h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Beginnen Sie mit der Verwaltung Ihres Portfolios
-              </p>
+          {sortedImmobilien?.length === 0 && (
+            <div className="border border-border px-6 py-16 text-center">
+              <Building2 className="mx-auto h-6 w-6 text-brand" aria-hidden="true" />
+              <h3 className="mt-4 text-2xl font-light text-foreground">Keine Immobilien gefunden</h3>
+              <p className="mt-2 text-sm text-muted-foreground">Beginnen Sie mit der Verwaltung Ihres Portfolios</p>
             </div>
-          </div>}
+          )}
+        </section>
       </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Hauptnavigation
+        aktiv={bereich}
+        onOeffnen={oeffne}
+        onSuche={zurSuche}
+        isAdmin={isAdmin}
+        isDev={isDev}
+        isHausmeister={isHausmeister}
+      />
+      <main className="app-inhalt">{inhalt}</main>
 
       <VermieterStammdatenDialog
         isOpen={showVermieter}
@@ -629,7 +560,7 @@ const Index = () => {
         isOpen={showNeuerMietvertrag}
         onClose={() => setShowNeuerMietvertrag(false)}
       />
-
-    </div>;
+    </div>
+  );
 };
 export default Index;

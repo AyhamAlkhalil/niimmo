@@ -45,11 +45,12 @@ export const RELEASES: Release[] = [
   },
   {
     version: "1.7.0",
-    datum: "2026-10-26",
+    datum: "2026-10-27",
     schwerpunkt: "Neues Erscheinungsbild",
     aenderungen: [
-      { art: "neu", titel: "Neues Erscheinungsbild in den Farben der NiImmo Gruppe – ruhiger, klarer und in allen Fenstern einheitlich" },
-      { art: "neu", titel: "Neue Anmeldeseite, Kopfbereich mit geordneten Bereichen und übersichtlichere Kennzahlen auf Dashboard, Objekt und Vertrag" },
+      { art: "neu", titel: "Neues Erscheinungsbild im Stil eines Exposés – hell, klar und in allen Fenstern einheitlich" },
+      { art: "neu", titel: "Menüleiste oben in jeder Ansicht: Portfolio, Verwaltung, Finanzen und System direkt erreichbar" },
+      { art: "neu", titel: "Objekte mit eigener Fassadenzeichnung, freie Einheiten sind darin rot markiert" },
     ],
   },
   {

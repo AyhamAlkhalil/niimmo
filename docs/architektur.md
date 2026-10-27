@@ -89,20 +89,32 @@ Anwendungscode stehen **2578 fest verdrahtete Palettenfarben gegen 1187 Token-Kl
 Kartensprachen, 31 Dialog-Geometrien, Buttonhöhen 81-mal überschrieben, 155 Textstellen unter 12px. Die Folge ist
 eine austauschbare „Modern-SaaS"-Optik, während die Eigenschaften eines Fachprogramms fehlen.
 
-**Designsystem seit 26.10.2026:**
+**Designsystem „Exposé“ seit 27.10.2026** (erster Anlauf vom 26.10.2026 mit Elfenbein und Serifentitel
+wurde verworfen, weil er sich zu wenig vom alten Stand abhob):
 
-- Grund Elfenbein (`bg-canvas`), Flächen weiß (`bg-card`). Die Hauptfarbe ist Anthrazit aus dem Logo
-  (`primary`). Karmin aus dem Ross (`brand`, `brand-soft`) ist nur Akzent: Markenlinie, Überzeile
-  (`.eyebrow`), Auswahl, Hervorhebung. Rote Knöpfe heißen „löschen“ (`destructive`).
-- `tailwind.config.ts` lenkt die Tailwind-Standardfamilien auf eine Markenpalette um: rot wird Karmin,
-  grün Waldgrün, blau Marine, gelb und amber Ocker oder Gold, grau warmer Stein. So erscheinen auch die
-  rund 1800 alten Palettenklassen in Markenfarben. Neuer Code nutzt trotzdem die Rollen.
-- Titelschrift `font-display` (Instrument Serif, nur ein Schnitt) erst ab `text-xl`: Seiten-, Dialog-
-  und Abschnittstitel sowie große Beträge. Darunter steht Inter. `DialogTitle` & Co. wählen das
-  selbst (`components/ui/titelschrift.ts`).
-- Keine Farbverläufe auf Flächen, kein Zoom beim Überfahren. Schatten kommen aus der Skala
-  (`shadow-card`, `shadow-popover`, `shadow-dialog`, `shadow-knopf`).
-- Das Logo-PNG hat einen weißen Grund. Auf Elfenbein bekommt es `mix-blend-multiply`.
+- Weißer Grund, Flächen nur durch Haarlinien (`border-border`) getrennt, Karten ohne Schatten. Schatten
+  haben nur schwebende Ebenen (`shadow-popover`, `shadow-dialog`). Hauptfarbe Anthrazit aus dem Logo
+  (`primary`), Karmin aus dem Ross (`brand`, `brand-soft`, `brand-strong` für Text auf `brand-soft`)
+  ist das einzige Markenzeichen: aktiver Menüpunkt und Reiter, der eine Hauptaufruf („Neuer
+  Mietvertrag“), Rückstand, freie Einheit. Rote Knöpfe sonst nur zum Löschen (`destructive`).
+- Eine Schrift: Jost, selbst gehostet in `public/fonts` (Latein, Latein erweitert, je gerade und
+  kursiv). Inter steht nur als Ersatz für fehlende Zeichen dahinter. `text-xs` und `text-sm` sind
+  einen halben Pixel größer als bei Tailwind, weil Jost eine kleinere x-Höhe hat.
+- Große Titel und Kennzahlen leicht (`font-light`), Überzeilen als gesperrte Versalien (`.eyebrow`).
+  Leitzahlen stehen auf einer Anthrazitlinie (`border-t border-foreground`), Spalten durch Haarlinien
+  getrennt; unter `sm` als Zeilen untereinander.
+- Fast scharfe Kanten: `tailwind.config.ts` setzt die Rundungsskala auf 1–6 px, auch für die alten
+  `rounded-xl`/`-2xl`. `rounded-full` bleibt für Punkte, Avatare und Schalter.
+- `tailwind.config.ts` lenkt die Tailwind-Standardfamilien auf eine Markenpalette um (rot → Karmin,
+  grün → Waldgrün, blau → Marine, grau → fast unbunter Stein). So erscheinen auch die rund 1800 alten
+  Palettenklassen in Markenfarben. Neuer Code nutzt trotzdem die Rollen.
+- App-Rahmen: `Hauptnavigation.tsx` über allen Ansichten (Index.tsx), Bereichsmenüs statt Knopfwand,
+  auf dem Handy ein Menü-Panel. Unterseiten beginnen mit `Seitenkopf.tsx`. Vollhöhen-Ansichten
+  (`h-screen`, `h-dvh`) behalten ihre Klassen; `.app-inhalt` in `index.css` zieht die Leistenhöhe
+  `--app-kopf` zentral ab.
+- Objekte haben keine Fotos; `Fassade.tsx` zeichnet je Objekt eine feste Ansicht aus Objektart und
+  Einheitenzahl (`utils/fassadenPlan.ts`). Information trägt nur der Leerstand (rote Fenster).
+- Keine Farbverläufe auf Flächen, kein Zoom beim Überfahren.
 
 **Regeln für neue Oberfläche:**
 
@@ -112,7 +124,8 @@ eine austauschbare „Modern-SaaS"-Optik, während die Eigenschaften eines Fachp
 - **Statusfarben aus einer Quelle.** Für `aktiv`/`gekuendigt`/`beendet` genau eine Zuordnung, zentral abgelegt.
   Heute gibt es fünf konkurrierende, und die dafür angelegten `.status-badge-*`-Klassen werden nirgends benutzt.
 - **Ein Kartentyp: die shadcn-`Card`.** `glass-card`, `metric-card`, `elegant-card` und handgebaute
-  `bg-white`-Container werden nicht neu verwendet.
+  `bg-white`-Container werden nicht neu verwendet. Oft braucht es gar keine Karte: Abschnitte auf
+  einer Haarlinie wirken im Exposé-Stil ruhiger.
 - **Dialoge nutzen feste Größenstufen** (S / M / L / Vollbild) — seit dem 07.09.2026 als `size`-Prop von
   `DialogContent` (`sm` / `md` / `lg` / `vollbild`). Keine neuen `max-w-[95vw] w-[1400px]`-Rezepte.
 - **Wo Masse anfällt, gehört eine Tabelle hin** — mit ausgerichteten Betragsspalten (`tabular-nums`), sortierbaren

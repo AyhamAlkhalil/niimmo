@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Camera, Inbox, Loader2, Plus, Search } from "lucide-react";
+import { Camera, Inbox, Loader2, Plus, Search } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { useAppBenutzer } from "@/hooks/useAppBenutzer";
 import { useAufgaben, type Aufgabe } from "@/hooks/useAufgaben";
 import { AufgabeDetail } from "./AufgabeDetail";
 import { BenutzerAbzeichen } from "./BenutzerAuswahl";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import {
   PRIORITAET_DARSTELLUNG,
   STATUS_DARSTELLUNG,
@@ -85,22 +86,21 @@ export const AufgabenBoard = ({ onBack, aufgabeOeffnen, onAufgabeGeoeffnet }: Au
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto max-w-5xl px-4 py-4 sm:p-6 lg:p-8">
-        <div className="glass-card mb-4 rounded-xl p-4 sm:mb-6 sm:rounded-2xl sm:p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={onBack}>
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Aufgaben</h1>
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+        <Seitenkopf
+          bereich="System"
+          titel="Aufgaben"
+          onZurueck={onBack}
+          aktionen={
+            <>
               <Badge variant="secondary">{offeneAnzahl} offen</Badge>
-            </div>
-            <Button size="sm" onClick={() => setDialog({ art: "neu" })}>
-              <Plus className="mr-1 h-4 w-4" /> Neu
-            </Button>
-          </div>
-
-          <div className="mb-3 flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => setDialog({ art: "neu" })}>
+                <Plus className="mr-1 h-4 w-4" /> Neu
+              </Button>
+            </>
+          }
+        >
+          <div className="mb-3 mt-6 flex flex-wrap gap-2">
             <Button
               variant={sicht === "meine" ? "default" : "outline"}
               size="sm"
@@ -161,14 +161,14 @@ export const AufgabenBoard = ({ onBack, aufgabeOeffnen, onAufgabeGeoeffnet }: Au
               </SelectContent>
             </Select>
           </div>
-        </div>
+        </Seitenkopf>
 
         {isLoading ? (
-          <div className="glass-card flex items-center justify-center gap-2 rounded-xl p-12 text-muted-foreground">
+          <div className="glass-card mt-8 flex items-center justify-center gap-2 rounded-xl p-12 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" /> Aufgaben werden geladen...
           </div>
         ) : gefiltert.length === 0 ? (
-          <div className="glass-card rounded-xl p-12 text-center">
+          <div className="glass-card mt-8 rounded-xl p-12 text-center">
             <Inbox className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground">
               {aufgaben.length === 0
@@ -177,7 +177,7 @@ export const AufgabenBoard = ({ onBack, aufgabeOeffnen, onAufgabeGeoeffnet }: Au
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="mt-8 space-y-2">
             {gefiltert.map((aufgabe) => (
               <AufgabenZeile
                 key={aufgabe.id}

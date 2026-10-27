@@ -5,8 +5,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { EinheitCard } from "./EinheitCard";
 import { HausangabenFuerVertraege } from "./HausangabenFuerVertraege";
-import { ArrowLeft, Building, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame, Search } from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ArrowLeft, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets, Zap, Flame, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
@@ -19,6 +18,8 @@ import { ImmobilienDocumentsTab } from "./ImmobilienDocumentsTab";
 import { ImmobilienNebenkostenTabNew } from "./nebenkosten/ImmobilienNebenkostenTabNew";
 import { ImmobilienVersicherungenTab } from "./ImmobilienVersicherungenTab";
 import { ObjektFinanzierung } from "./ObjektFinanzierung";
+import { Fassade } from "./Fassade";
+import { freieEinheiten } from "@/utils/fassadenPlan";
 
 /** Mieterfelder, die der Vertrags-Query nachlaedt (siehe useQuery 'mietvertrag-detail'). */
 type MieterKurz = Pick<
@@ -240,44 +241,43 @@ export const ImmobilienDetail = ({
         <Loader2 className="h-8 w-8 animate-spin" />
       </div>;
   }
-  return <div className="min-h-screen px-3 py-4 sm:p-6 modern-dashboard-bg">
-      <div className="max-w-7xl mx-auto relative z-10">
-        <div className="mb-6">
-          <Button variant="ghost" size="sm" onClick={handleBackClick} className="-ml-2 mb-4 text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="h-4 w-4" />
-            Zurück zur Übersicht
-          </Button>
-          
-          {/* Immobilien Header */}
-          <Card className="relative mb-6 overflow-hidden rounded-2xl">
-            <div className="absolute inset-x-0 top-0 h-[3px] bg-brand" aria-hidden="true" />
-            <CardHeader className="pb-4 pt-7 sm:px-8">
-              <div className="flex flex-col sm:flex-row items-start gap-4 justify-between">
-                <div className="flex items-start gap-4">
-                  <div className="mt-1 hidden h-12 w-12 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60 sm:flex">
-                    <Building className="h-5 w-5 text-foreground/70" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="eyebrow">{[immobilie?.ort, immobilie?.objekttyp].filter(Boolean).join(" · ") || "Objekt"}</p>
-                    <h1 className="mt-2 font-display text-3xl leading-none text-foreground sm:text-4xl">
-                      {immobilie?.name}
-                    </h1>
-                    <div className="mt-2 flex items-center text-muted-foreground text-sm">
-                      <MapPin className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-                      <span>{immobilie?.adresse}</span>
-                    </div>
-                  </div>
-                </div>
+  const freiImObjekt = einheiten && alleMietvertraege ? freieEinheiten(einheiten.map((e) => e.id), alleMietvertraege) : 0;
+  const ueberzeile = [immobilie?.ort, immobilie?.objekttyp].filter(Boolean).join(" · ") || "Objekt";
 
-                <div className="text-left sm:text-right space-y-2 shrink-0">
-                  <Badge variant="outline" className="px-3 py-1 text-sm tabular-nums">
-                    {einheiten?.length || 0} von {immobilie?.einheiten_anzahl} Einheiten
-                  </Badge>
-                  {immobilie?.objekttyp && <div className="text-xs text-muted-foreground">
-                      {immobilie.objekttyp}
-                    </div>}
+  // Objektkopf wie die erste Seite eines Exposés (27.10.2026): Name groß und leicht, daneben
+  // die Fassadenzeichnung, darunter die vier Summen auf einer Anthrazitlinie
+  return <div className="min-h-screen modern-dashboard-bg">
+      <div className="mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 lg:px-10">
+        <div className="mb-10">
+          <div className="flex items-center gap-2.5 pt-6 sm:pt-8">
+            <button
+              type="button"
+              onClick={handleBackClick}
+              className="-ml-1 inline-flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              Zurück zur Übersicht
+            </button>
+            <span className="h-3 w-px bg-border" aria-hidden="true" />
+            <span className="eyebrow">Portfolio</span>
+          </div>
+
+          <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-end lg:gap-14">
+            <div className="min-w-0">
+              <p className="eyebrow">{ueberzeile}</p>
+              <h1 className="mt-3 text-[2.25rem] font-light leading-[1.04] tracking-[-0.025em] text-foreground sm:text-5xl lg:text-[3.25rem]">
+                {immobilie?.name}
+              </h1>
+              <p className="mt-3 flex items-start gap-1.5 text-base text-muted-foreground">
+                <MapPin className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{immobilie?.adresse}</span>
+              </p>
+              <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+                <Badge variant="outline" className="px-2.5 py-1 text-sm tabular-nums">
+                  {einheiten?.length || 0} von {immobilie?.einheiten_anzahl} Einheiten
+                </Badge>
                   <div
-                    className="flex items-center gap-2 justify-end cursor-pointer group"
+                    className="flex items-center gap-2 cursor-pointer group"
                     title="Kappungsgrenze: 15% in 36 Monaten (angespannt) vs. 20% (normal)"
                     onClick={async () => {
                       const neuerWert = !(immobilie as any)?.ist_angespannt;
@@ -292,31 +292,43 @@ export const ImmobilienDetail = ({
                       {(immobilie as any)?.ist_angespannt && <Check className="h-3 w-3 text-white" />}
                     </div>
                   </div>
-                </div>
               </div>
-            </CardHeader>
-            
-            <CardContent className="pt-0 space-y-4 sm:px-8 sm:pb-8">
-              {/* Compact financial metrics */}
-              <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border/80 bg-neutral-50/60 sm:grid-cols-4 [&>div]:border-border/80 [&>div:nth-child(odd)]:border-r sm:[&>div]:border-r sm:[&>div:last-child]:border-r-0 [&>div:nth-child(-n+2)]:border-b sm:[&>div:nth-child(-n+2)]:border-b-0">
-                <div className="px-4 py-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Fläche</p>
-                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{gesamtQm.toLocaleString('de-DE')} <span className="font-sans text-sm text-muted-foreground">m²</span></p>
-                </div>
-                <div className="px-4 py-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Kaltmiete</p>
-                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{formatBetragKompakt(gesamtKaltmiete)} <span className="font-sans text-sm text-muted-foreground">€</span></p>
-                </div>
-                <div className="px-4 py-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Betriebskosten</p>
-                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{formatBetragKompakt(gesamtBetriebskosten)} <span className="font-sans text-sm text-muted-foreground">€</span></p>
-                </div>
-                <div className="px-4 py-4">
-                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">Warmmiete</p>
-                  <p className="mt-2 font-display text-3xl leading-none tabular-nums text-foreground">{formatBetragKompakt(gesamtWarmmiete)} <span className="font-sans text-sm text-muted-foreground">€</span></p>
-                </div>
-              </div>
+            </div>
 
+            <div className="relative aspect-[16/10] overflow-hidden bg-muted">
+              {immobilie && (
+                <Fassade id={immobilie.id} objekttyp={immobilie.objekttyp} einheiten={immobilie.einheiten_anzahl} frei={freiImObjekt} />
+              )}
+              {einheiten && einheiten.length > 0 && alleMietvertraege && (
+                <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 bg-card/95 px-2.5 py-1 text-[0.6875rem] font-medium uppercase tracking-[0.12em] text-foreground">
+                  {freiImObjekt > 0 && <span className="h-1.5 w-1.5 rounded-full bg-brand" aria-hidden="true" />}
+                  {freiImObjekt === 0 ? "Voll vermietet" : `${freiImObjekt} ${freiImObjekt === 1 ? "Einheit" : "Einheiten"} frei`}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Summen */}
+          <dl className="mt-10 grid grid-cols-2 border-t border-foreground sm:grid-cols-4 [&>div]:min-w-0 [&>div]:pb-1 [&>div]:pr-4 [&>div]:pt-4 [&>div:nth-child(even)]:border-l [&>div:nth-child(even)]:border-border [&>div:nth-child(even)]:pl-4 sm:[&>div+div]:border-l sm:[&>div+div]:border-border sm:[&>div+div]:pl-5">
+            <div>
+              <dt className="eyebrow">Fläche</dt>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{gesamtQm.toLocaleString('de-DE')} <span className="text-sm font-normal text-muted-foreground">m²</span></dd>
+            </div>
+            <div>
+              <dt className="eyebrow">Kaltmiete</dt>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{formatBetragKompakt(gesamtKaltmiete)} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
+            </div>
+            <div className="mt-4 sm:mt-0">
+              <dt className="eyebrow">Betriebskosten</dt>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{formatBetragKompakt(gesamtBetriebskosten)} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
+            </div>
+            <div className="mt-4 sm:mt-0">
+              <dt className="eyebrow">Warmmiete</dt>
+              <dd className="mt-2 whitespace-nowrap text-2xl font-light leading-none tabular-nums text-foreground sm:text-3xl">{formatBetragKompakt(gesamtWarmmiete)} <span className="text-sm font-normal text-muted-foreground">€</span></dd>
+            </div>
+          </dl>
+
+            <div className="mt-8 space-y-4">
               {immobilie && <HausangabenFuerVertraege immobilie={immobilie} summeEinheitenQm={gesamtQm} />}
 
               <ObjektFinanzierung
@@ -468,8 +480,7 @@ export const ImmobilienDetail = ({
                   </div>
                 );
               })()}
-            </CardContent>
-          </Card>
+            </div>
         </div>
 
         {/* Tabs für Einheiten, Dokumente und Zahlungen */}

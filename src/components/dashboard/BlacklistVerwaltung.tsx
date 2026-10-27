@@ -7,8 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, ShieldAlert, Plus, Trash2, Search, User, Mail, Phone, AlertTriangle } from "lucide-react";
+import { ShieldAlert, Plus, Trash2, Search, User, Mail, Phone, AlertTriangle } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 
 interface BlacklistEintrag {
   id: string;
@@ -103,21 +104,14 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
 
   return (
     <div className="min-h-screen modern-dashboard-bg">
-      <div className="container mx-auto px-4 py-4 sm:p-6 lg:p-8">
-        {/* Header */}
-        <div className="glass-card p-4 sm:p-6 rounded-xl sm:rounded-2xl mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={onBack} className="shrink-0">
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Zurück
-              </Button>
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-6 w-6 text-orange-600" />
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Bewerbungs-Blacklist</h1>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
+        <Seitenkopf
+          bereich="System"
+          titel="Bewerbungs-Blacklist"
+          beschreibung="Personen auf dieser Liste sollen bei Bewerbungen sofort geprüft werden. Chilla (KI-Chat) kennt diese Liste und kann gezielt danach suchen."
+          onZurueck={onBack}
+          aktionen={
+            <>
               <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300 font-semibold">
                 <AlertTriangle className="h-3 w-3 mr-1" />
                 {eintraege.length} {eintraege.length === 1 ? "Person" : "Personen"}
@@ -129,16 +123,12 @@ export function BlacklistVerwaltung({ onBack }: BlacklistVerwaltungProps) {
                 <Plus className="h-4 w-4 mr-1.5" />
                 Eintrag hinzufügen
               </Button>
-            </div>
-          </div>
-
-          <p className="text-gray-500 text-sm mt-3 ml-1">
-            Personen auf dieser Liste sollen bei Bewerbungen sofort geprüft werden. Chilla (KI-Chat) kennt diese Liste und kann gezielt danach suchen.
-          </p>
-        </div>
+            </>
+          }
+        />
 
         {/* Suche */}
-        <div className="relative mb-4">
+        <div className="relative mt-8 mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder="Name, E-Mail oder Telefon suchen..."

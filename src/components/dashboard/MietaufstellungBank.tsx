@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Printer, Pencil, Check, Loader2 } from "lucide-react";
+import { Printer, Pencil, Check, Loader2 } from "lucide-react";
+import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { getCurrentContract, getLaufenderVertrag, getVertragsende } from "@/utils/contractUtils";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
@@ -231,29 +232,26 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         .print-summary { display: none; }
       `}</style>
 
-      <div className="px-4 py-6">
+      {/* Im Druck gelten die alten Abstände (px-4 py-6) ohne Breitenbegrenzung, damit das A3-Blatt wie vor dem Seitenkopf (27.10.2026) aussieht */}
+      <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10 print:max-w-none print:!px-4 print:!py-6">
 
-        {/* Header */}
-        <div className="glass-card p-4 sm:p-6 rounded-2xl mb-4 no-print">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-3">
-              <Button onClick={onBack} variant="ghost" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-1.5" />
-                Zurück
-              </Button>
-              <div>
-                <h1 className="font-display text-2xl leading-none text-foreground sm:text-3xl">Mietaufstellung</h1>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Stand: {format(new Date(), "dd.MM.yyyy")} · nur am Stichtag laufende Verträge · SOLL-Miete direkt editierbar · Annuität aus Darlehen
-                </p>
-              </div>
-            </div>
+        <Seitenkopf
+          className="no-print"
+          bereich="Finanzen"
+          titel="Mietaufstellung"
+          beschreibung={
+            <>
+              Stand: {format(new Date(), "dd.MM.yyyy")} · nur am Stichtag laufende Verträge · SOLL-Miete direkt editierbar · Annuität aus Darlehen
+            </>
+          }
+          onZurueck={onBack}
+          aktionen={
             <Button onClick={() => window.print()}>
               <Printer className="h-4 w-4 mr-2" />
               Als PDF drucken
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Print-only Titel + Kennzahlen */}
         <div className="print-title mb-3">
@@ -286,7 +284,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
         </div>
 
         {/* Kennzahlen-Karten */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4 no-print">
+        <div className="mt-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4 no-print">
           {/* p.m. — IST über SOLL */}
           <div className="glass-card rounded-xl p-3">
             <div className="text-xs text-gray-500 mb-1.5 text-center font-medium">p.m.</div>

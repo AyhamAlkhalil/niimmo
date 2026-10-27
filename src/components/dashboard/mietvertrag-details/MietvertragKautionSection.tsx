@@ -47,7 +47,7 @@ export function MietvertragKautionSection({
     <Card className="overflow-hidden rounded-2xl">
       <CardHeader className="border-b border-border/70 pb-4">
         <CardTitle className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/80 bg-muted/60">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-border/80 bg-muted/60">
             <Euro className="h-4 w-4 text-foreground/70" />
           </div>
           <div>
