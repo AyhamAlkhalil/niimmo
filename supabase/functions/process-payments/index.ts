@@ -515,6 +515,14 @@ function checkSonderfallRegeln(
   return null;
 }
 
+/**
+ * Von k gleichen Zeilen eines Uploads sind so viele schon im Bestand, wie es gleiche Buchungen
+ * gibt (je Bestandszeile eine Importzeile, in Reihenfolge); der Rest ist neu (27.10.2026).
+ */
+function teileNachBestand<T>(gruppe: T[], bestandsIds: string[]): { item: T; existingId: string | null }[] {
+  return gruppe.map((item, i) => ({ item, existingId: bestandsIds[i] ?? null }));
+}
+
 // Helper to check if a payment date falls within a contract's period
 function isPaymentInContractPeriod(paymentDate: string, contract: ContractInfo): boolean {
   const buchungsDatum = new Date(paymentDate);
@@ -1440,26 +1448,21 @@ serve(async (req) => {
       }))
     );
     
-    // Schritt 2: Intra-Batch Duplikate erkennen (gleicher Hash im selben Upload)
-    const seenHashes = new Set<string>();
-    const intraBatchDuplicates: typeof paymentHashes = [];
-    const uniqueInBatch: typeof paymentHashes = [];
-    
+    // Schritt 2: Gleiche Zeilen im selben Upload (gleicher Hash) zusammenfassen -- und zaehlen.
+    // Bis zum 27.10.2026 fiel die zweite von zwei gleichen Zeilen als "Intra-Batch-Duplikat" weg.
+    // Zwei gleiche Ueberweisungen am selben Tag (z. B. zwei Monatsmieten einzeln mit dem Text
+    // "Miete") ergaben so eine Zahlung, der Rueckstand des Mieters war zu hoch. Jetzt gilt: Von
+    // k gleichen Zeilen sind so viele schon vorhanden, wie der Bestand gleiche Buchungen hat.
+    const gruppen = new Map<string, typeof paymentHashes>();
     for (const item of paymentHashes) {
-      if (seenHashes.has(item.hash)) {
-        intraBatchDuplicates.push(item);
-      } else {
-        seenHashes.add(item.hash);
-        uniqueInBatch.push(item);
-      }
+      const gruppe = gruppen.get(item.hash);
+      if (gruppe) gruppe.push(item);
+      else gruppen.set(item.hash, [item]);
     }
+    const uniqueInBatch = [...gruppen.values()].map(gruppe => gruppe[0]);
     
-    if (intraBatchDuplicates.length > 0) {
-      console.log(`${intraBatchDuplicates.length} Intra-Batch-Duplikate entfernt`);
-    }
-    
-    // Schritt 3: DB-Duplikatsprüfung (bestehend + Hash-Vergleich)
-    const duplicateChecks = await Promise.all(
+    // Schritt 3: DB-Duplikatsprüfung (bestehend + Hash-Vergleich), je Gruppe alle Treffer
+    const bestandsTreffer = await Promise.all(
       uniqueInBatch.map(async ({ payment, hash }) => {
         const betrag = payment.betrag;
         const iban = payment.iban?.trim() || "";
@@ -1469,7 +1472,7 @@ serve(async (req) => {
           new Set([payment.buchungsdatum, payment.wertstellungsdatum].filter(Boolean) as string[])
         );
 
-        let match: { id: string } | undefined;
+        let treffer: string[] = [];
 
         // Primäre Prüfung: Exakter Match auf Datum + Betrag + IBAN + Verwendungszweck
         if (candidateDates.length > 0) {
@@ -1497,24 +1500,21 @@ serve(async (req) => {
               empfaengername: (row.empfaengername ?? "").toString().trim()
             };
             const dbHash = await computePaymentHash(dbPayment);
-            if (dbHash === hash) {
-              match = { id: row.id };
-              break;
-            }
+            if (dbHash === hash) treffer.push(row.id);
           }
           
           // Fallback: Klassischer Vergleich (IBAN + Verwendungszweck)
-          if (!match) {
-            match = rows.find((row) => {
+          if (treffer.length === 0) {
+            treffer = rows.filter((row) => {
               const dbIban = (row.iban ?? "").toString().trim();
               const dbVz = (row.verwendungszweck ?? "").toString().trim();
               return dbIban === iban && dbVz === verwendungszweck;
-            });
+            }).map((row) => row.id);
           }
         }
 
         // Fallback: date drift ±5 days
-        if (!match && payment.buchungsdatum) {
+        if (treffer.length === 0 && payment.buchungsdatum) {
           const base = new Date(`${payment.buchungsdatum}T00:00:00Z`);
           if (!Number.isNaN(base.getTime())) {
             const from = new Date(base);
@@ -1538,36 +1538,37 @@ serve(async (req) => {
             }
 
             const rows = (data as any[]) ?? [];
-            match = rows.find((row) => {
+            treffer = rows.filter((row) => {
               const dbIban = (row.iban ?? "").toString().trim();
               const dbVz = (row.verwendungszweck ?? "").toString().trim();
               return dbIban === iban && dbVz === verwendungszweck;
-            });
+            }).map((row) => row.id);
           }
         }
 
-        return {
-          payment,
-          isDuplicate: !!match,
-          existingId: match?.id || null,
-        };
+        return { hash, treffer: [...new Set(treffer)] };
       })
     );
 
-    const newPayments = duplicateChecks.filter(c => !c.isDuplicate).map(c => c.payment);
-    const duplicates = [
-      ...duplicateChecks.filter(c => c.isDuplicate).map(c => ({
-        ...c.payment,
-        existingId: c.existingId
-      })),
-      ...intraBatchDuplicates.map(({ payment }) => ({
-        ...payment,
-        existingId: null,
-        zuordnungsgrund: "Intra-Batch-Duplikat"
-      }))
-    ];
+    // Ergebnis in der Reihenfolge der CSV, nicht nach Gruppen
+    const bestandsId = new Map<(typeof paymentHashes)[number], string | null>();
+    for (const { hash, treffer } of bestandsTreffer) {
+      for (const { item, existingId } of teileNachBestand(gruppen.get(hash) ?? [], treffer)) {
+        bestandsId.set(item, existingId);
+      }
+    }
+    const duplicateChecks = paymentHashes.map((item) => {
+      const existingId = bestandsId.get(item) ?? null;
+      return { payment: item.payment, isDuplicate: existingId !== null, existingId };
+    });
 
-    console.log(`Duplikatsprüfung: ${newPayments.length} neue, ${duplicates.length} bereits vorhanden (davon ${intraBatchDuplicates.length} Intra-Batch)`);
+    const newPayments = duplicateChecks.filter(c => !c.isDuplicate).map(c => c.payment);
+    const duplicates = duplicateChecks.filter(c => c.isDuplicate).map(c => ({
+      ...c.payment,
+      existingId: c.existingId
+    }));
+
+    console.log(`Duplikatsprüfung: ${newPayments.length} neue, ${duplicates.length} bereits vorhanden`);
 
     if (newPayments.length === 0) {
       return new Response(

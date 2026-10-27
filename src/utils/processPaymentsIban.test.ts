@@ -32,6 +32,7 @@ const code = [
   ausschnitt('async function getContractContext('),
   ausschnitt('function categorizePaymentType('),
   ausschnitt('function checkSonderfallRegeln('),
+  ausschnitt('function teileNachBestand<T>('),
   ausschnitt('function isPaymentInContractPeriod('),
   ausschnitt('function selectBestContractByDate('),
   ausschnitt('function waehleVertrag('),
@@ -43,7 +44,7 @@ const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fn: any = new Function(
   'console',
-  `${js}\nreturn { normalisiereIban, getContractContext, categorizePaymentType, matchPaymentByRules, checkSonderfallRegeln };`,
+  `${js}\nreturn { normalisiereIban, getContractContext, categorizePaymentType, matchPaymentByRules, checkSonderfallRegeln, teileNachBestand };`,
 )({ log: () => {}, error: () => {} });
 
 function vertrag(id: string, kaltmiete: number, bankkonto: string | null, weitere: string | null = null) {
@@ -179,6 +180,15 @@ describe('process-payments Zugriff', () => {
     await expect(fn.getContractContext(kaputt)).rejects.toThrow(/nicht geladen/);
     expect(quelle).not.toMatch(/console\.error\("Error fetching[^"]*", error\);\s*return \[\];/);
     expect(handler.match(/const \{ data, error \} = await supabase\s*\.from\("zahlungen"\)/g)).toHaveLength(2);
+  });
+
+  it('zählt gleiche Zeilen eines Uploads gegen den Bestand, statt die zweite zu streichen', () => {
+    // 27.10.2026: Die zweite von zwei gleichen Überweisungen fiel als „Intra-Batch-Duplikat“ weg
+    expect(fn.teileNachBestand(['z1', 'z2'], [])).toEqual([{ item: 'z1', existingId: null }, { item: 'z2', existingId: null }]);
+    expect(fn.teileNachBestand(['z1', 'z2'], ['alt'])).toEqual([{ item: 'z1', existingId: 'alt' }, { item: 'z2', existingId: null }]);
+    expect(fn.teileNachBestand(['z1'], ['alt1', 'alt2'])).toEqual([{ item: 'z1', existingId: 'alt1' }]);
+    expect(quelle).not.toMatch(/zuordnungsgrund: "Intra-Batch-Duplikat"/);
+    expect(handler).toMatch(/teileNachBestand\(gruppen\.get\(hash\)/);
   });
 
   it('schreibt nie selbst in zahlungen', () => {

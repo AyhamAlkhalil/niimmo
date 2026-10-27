@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   BestehendeZahlung,
   abgleichSchluessel,
+  bestehendeAusschliessen,
   bestehendeIndexieren,
-  bestehendeVormerken,
   buchungstageVon,
-  findeBestehende,
+  nimmBestehende,
   normalisiereWert,
   vertragsIdsMitIban,
 } from './zahlungenUebernahme';
@@ -52,37 +52,47 @@ describe('abgleichSchluessel', () => {
   });
 });
 
-describe('findeBestehende', () => {
-  const index = bestehendeIndexieren([
-    zeile({ id: 'a' }),
-    zeile({ id: 'b', iban: null }),
-    zeile({ id: 'c', betrag: '850.00', verwendungszweck: null }),
-    zeile({ id: 'd' }),
-  ]);
+describe('nimmBestehende', () => {
+  const neuerIndex = () =>
+    bestehendeIndexieren([
+      zeile({ id: 'a' }),
+      zeile({ id: 'b', iban: null }),
+      zeile({ id: 'c', betrag: '850.00', verwendungszweck: null }),
+      zeile({ id: 'd' }),
+    ]);
+  const september = { buchungsdatum: '2026-09-01', betrag: 850, iban: 'DE00', verwendungszweck: 'Miete September' };
 
-  it('findet die erste passende Buchung wie das frühere limit(1)', () => {
-    expect(findeBestehende(index, { buchungsdatum: '2026-09-01', betrag: 850, iban: 'DE00', verwendungszweck: 'Miete September' })?.id).toBe('a');
+  it('findet die erste passende Buchung', () => {
+    expect(nimmBestehende(neuerIndex(), september)?.id).toBe('a');
   });
 
   it('trifft nur bei gleichen Null-Werten', () => {
-    expect(findeBestehende(index, { buchungsdatum: '2026-09-01', betrag: 850, iban: null, verwendungszweck: 'Miete September' })?.id).toBe('b');
-    expect(findeBestehende(index, { buchungsdatum: '2026-09-01', betrag: 850, iban: 'DE00', verwendungszweck: null })?.id).toBe('c');
-    expect(findeBestehende(index, { buchungsdatum: '2026-09-01', betrag: 850, iban: null, verwendungszweck: null })).toBeNull();
+    const index = neuerIndex();
+    expect(nimmBestehende(index, { ...september, iban: null })?.id).toBe('b');
+    expect(nimmBestehende(index, { ...september, verwendungszweck: null })?.id).toBe('c');
+    expect(nimmBestehende(index, { ...september, iban: null, verwendungszweck: null })).toBeNull();
   });
 
   it('liefert null für andere Beträge oder Tage', () => {
-    expect(findeBestehende(index, { buchungsdatum: '2026-09-01', betrag: 851, iban: 'DE00', verwendungszweck: 'Miete September' })).toBeNull();
-    expect(findeBestehende(index, { buchungsdatum: '2026-08-01', betrag: 850, iban: 'DE00', verwendungszweck: 'Miete September' })).toBeNull();
+    const index = neuerIndex();
+    expect(nimmBestehende(index, { ...september, betrag: 851 })).toBeNull();
+    expect(nimmBestehende(index, { ...september, buchungsdatum: '2026-08-01' })).toBeNull();
   });
 
-  it('erkennt eine im selben Import eben gespeicherte Buchung als bestehend', () => {
-    const leer = bestehendeIndexieren([]);
-    const merkmale = { buchungsdatum: '2026-09-03', betrag: 120, iban: null, verwendungszweck: 'Gebuehr' };
-    expect(findeBestehende(leer, merkmale)).toBeNull();
-    bestehendeVormerken(leer, { id: 'neu', kategorie: 'Nichtmiete', mietvertrag_id: null, ...merkmale });
-    expect(findeBestehende(leer, merkmale)?.id).toBe('neu');
-    // Spätere Entscheidungen sehen den Stand der gespeicherten Zeile
-    expect(findeBestehende(leer, merkmale)?.kategorie).toBe('Nichtmiete');
+  it('stellt jede Bestandsbuchung nur einer Importzeile gegenüber', () => {
+    // 27.10.2026: Zwei gleiche Überweisungen am selben Tag wurden zu einer
+    const index = neuerIndex();
+    expect(nimmBestehende(index, september)?.id).toBe('a');
+    expect(nimmBestehende(index, september)?.id).toBe('d');
+    expect(nimmBestehende(index, september)).toBeNull();
+  });
+
+  it('lässt Buchungen aus, die process-payments schon als Duplikat gezählt hat', () => {
+    const index = neuerIndex();
+    bestehendeAusschliessen(index, new Set(['a', 'c']));
+    expect(nimmBestehende(index, september)?.id).toBe('d');
+    expect(nimmBestehende(index, september)).toBeNull();
+    expect(nimmBestehende(index, { ...september, verwendungszweck: null })).toBeNull();
   });
 });
 

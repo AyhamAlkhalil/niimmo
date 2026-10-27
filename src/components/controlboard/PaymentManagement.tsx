@@ -26,9 +26,9 @@ import {
   BestehendeIndex,
   BestehendeZahlung,
   bestehendeIndexieren,
-  bestehendeVormerken,
+  bestehendeAusschliessen,
   buchungstageVon,
-  findeBestehende,
+  nimmBestehende,
   normalisiereWert,
   vertragsIdsMitIban,
 } from "@/utils/zahlungenUebernahme";
@@ -506,6 +506,8 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
                 .range(von, bis)
             );
       bestehende = bestehendeIndexieren(zeilen);
+      // Was process-payments schon als vorhanden gezählt hat, steht keiner neuen Zeile gegenüber
+      bestehendeAusschliessen(bestehende, new Set(aiDuplicates.map((d) => d.existingId).filter(Boolean)));
     } catch (e: unknown) {
       // Ohne belastbare Duplikatpruefung darf nicht geschrieben werden --
       // sonst entstehen Doppelbuchungen.
@@ -542,7 +544,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       // Use buchungsdatum + betrag + iban + verwendungszweck for reliable matching
       const ibanValue = normalisiereWert(result.iban);
       const vzValue = normalisiereWert(result.verwendungszweck);
-      const existing = findeBestehende(bestehende, {
+      const existing = nimmBestehende(bestehende, {
         buchungsdatum: result.buchungsdatum,
         betrag: result.betrag,
         iban: ibanValue,
@@ -576,17 +578,13 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           continue;
         }
 
-        // Der Index spiegelt den Stand der Datenbank fuer spaetere gleiche Zeilen.
-        existing.kategorie = result.kategorie ?? null;
-        existing.mietvertrag_id = result.mietvertrag_id;
-
         if (result.mietvertrag_id && result.iban) {
           await ibanNachtragen(result.mietvertrag_id, result.iban);
         }
       } else {
         // Payment doesn't exist - insert it
         // zugeordneter_monat is NOT set here - the DB trigger set_zugeordneter_monat_trigger handles it automatically
-        const { data: eingefuegt, error } = await supabase
+        const { error } = await supabase
           .from('zahlungen')
           .insert({
             buchungsdatum: result.buchungsdatum,
@@ -597,26 +595,15 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             mietvertrag_id: result.mietvertrag_id || null,
             immobilie_id: result.immobilie_id || null,
             kategorie: (result.kategorie as never) || null,
-          })
-          .select('id')
-          .single();
+          });
 
         if (error) {
           fehler.push({ zeile: bezeichne(result), grund: `Speichern fehlgeschlagen: ${error.message}` });
           continue;
         }
 
-        // Eine spaetere gleiche Zeile desselben Imports findet diese Buchung
-        // als bestehend -- wie frueher die Einzelabfrage die eben eingefuegte Zeile.
-        bestehendeVormerken(bestehende, {
-          id: eingefuegt.id,
-          kategorie: result.kategorie ?? null,
-          mietvertrag_id: result.mietvertrag_id || null,
-          buchungsdatum: result.buchungsdatum,
-          betrag: result.betrag,
-          iban: ibanValue,
-          verwendungszweck: vzValue,
-        });
+        // Eine eben eingefuegte Buchung ist kein Bestand fuer die naechste gleiche Zeile:
+        // zwei gleiche Ueberweisungen am selben Tag sind zwei Zahlungen (27.10.2026).
 
         if (result.mietvertrag_id && result.iban) {
           await ibanNachtragen(result.mietvertrag_id, result.iban);
