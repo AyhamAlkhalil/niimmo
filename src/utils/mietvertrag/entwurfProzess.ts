@@ -13,6 +13,7 @@ import { ungueltigeDaten, type Befund } from './pflichtpruefung';
 import {
   hatNamen,
   herkunftText,
+  istGleichePerson,
   mieterFuerVertrag,
   positionenSumme,
   rund2,
@@ -117,6 +118,16 @@ export function entwurfLuecken(daten: MietvertragDaten, personen: EntwurfPerson[
   const luecken: { feld: string; text: string }[] = [];
   const parteien = personen.filter(p => p.rolle === 'mitmieter' && hatNamen(p));
   if (parteien.length === 0) luecken.push({ feld: 'mieter', text: 'Mindestens ein Mitmieter mit Namen fehlt.' });
+  // Dieselbe Person auf zwei Karten (z. B. Bestandsmieter gewählt, dann seine Selbstauskunft geladen)
+  parteien.forEach((p, i) => {
+    const frueher = parteien.findIndex((q, j) => j < i && istGleichePerson(p, q));
+    if (frueher >= 0) {
+      luecken.push({
+        feld: `mieter[${i}]`,
+        text: `${`${p.vorname} ${p.nachname}`.trim() || 'Eine Person'} steht doppelt im Vertrag (Mitmieter ${frueher + 1} und ${i + 1}). Bitte eine der beiden Karten entfernen.`,
+      });
+    }
+  });
   // Ein halbes Geburtsdatum stünde im Rubrum und verhinderte den Dublettenabgleich
   const heute = heuteLokal();
   parteien.forEach((p, i) => {

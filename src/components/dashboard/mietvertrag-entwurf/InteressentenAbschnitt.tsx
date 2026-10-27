@@ -19,6 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import type { MieterAbgleich } from '@/hooks/useMietvertragEntwurf';
 import {
   findeVorhandeneMieter,
+  istGleichePerson,
   istLeerePerson,
   leerePerson,
   mieterBezug,
@@ -152,6 +153,10 @@ export function InteressentenAbschnitt({
       {personen.map((p, index) => {
         // Wer schon auf einer anderen Karte steht, wird nicht noch einmal vorgeschlagen
         const kandidaten = p.mieterId ? [] : findeVorhandeneMieter(p, bestand).filter(m => !gewaehlt.has(m.id));
+        // … aber als Dublette gemeldet: Bestandsmieter gewählt, danach seine Selbstauskunft geladen
+        const doppeltMit = p.rolle === 'mitmieter'
+          ? personen.findIndex((q, j) => j < index && q.rolle === 'mitmieter' && istGleichePerson(p, q))
+          : -1;
         return (
           <div key={p.schluessel} className="space-y-3 rounded-lg border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -192,6 +197,15 @@ export function InteressentenAbschnitt({
             </div>
             {p.mieterId && bezugVon(p.mieterId) && (
               <p className="-mt-1 text-xs text-muted-foreground">{bezugVon(p.mieterId)}</p>
+            )}
+            {doppeltMit >= 0 && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Dieselbe Person steht schon als Person {doppeltMit + 1} im Vertrag. Bitte eine der beiden Karten
+                  entfernen — sonst würde sie doppelt angelegt und doppelt gezählt.
+                </AlertDescription>
+              </Alert>
             )}
 
             {p.rolle === 'mitbewohner' ? (

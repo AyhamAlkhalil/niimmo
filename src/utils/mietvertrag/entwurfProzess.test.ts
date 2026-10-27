@@ -12,6 +12,7 @@ import {
   indexVorschlag,
   kuendigungsverzichtNachMonaten,
   leerePerson,
+  mitBestandsmieter,
   mieterFuerVertrag,
   mitMietbeginn,
   mitPersonen,
@@ -145,6 +146,23 @@ describe('Datum und Kündigungsverzicht', () => {
     daten.mietbeginn = '0202-11-01';
     expect(entwurfLuecken(daten, [{ ...leerePerson(), vorname: 'Testa', nachname: 'Probe' }]).map(l => l.feld)).toContain('mietbeginn');
     expect(pruefeVertragsdaten(daten).some(f => f.feld === 'mietbeginn' && f.schwere === 'blocker')).toBe(true);
+  });
+
+  it('sperrt das Aktivieren, wenn dieselbe Person als Bestandsmieter und als neue Karte im Vertrag steht', () => {
+    // 27.10.2026: Bestandsmieter gewählt, dann seine Selbstauskunft geladen — doppelt angelegt und gezählt
+    const { daten } = entwurf();
+    const bestand = mitBestandsmieter(leerePerson(), {
+      id: 'b1', vorname: 'Max', nachname: 'Muster', geburtsdatum: '1980-01-02', hauptmail: 'max@example.de',
+      telnr: null, anrede: 'Herr', strasse: null, hausnummer: null, plz: null, ort: null,
+      ist_unternehmen: false, firmenname: null, vertreten_durch: null,
+    });
+    const ausSelbstauskunft = { ...leerePerson(), vorname: 'Max', nachname: 'Muster', geburtsdatum: '1980-01-02', quelle: 'selbstauskunft' as const };
+    const partnerin = { ...leerePerson(), vorname: 'Eva', nachname: 'Muster' };
+    const luecken = entwurfLuecken(daten, [bestand, ausSelbstauskunft, partnerin]);
+    expect(luecken.filter(l => /doppelt/.test(l.text)).map(l => l.feld)).toEqual(['mieter[1]']);
+    // Gleicher Nachname allein ist keine Dublette, anderes Geburtsdatum auch nicht
+    const namensvetter = { ...ausSelbstauskunft, geburtsdatum: '1990-05-05' };
+    expect(entwurfLuecken(daten, [bestand, namensvetter, partnerin]).some(l => /doppelt/.test(l.text))).toBe(false);
   });
 
   it('sperrt eine Befristung ohne Enddatum und einen Vertrag ohne Personenzahl', () => {

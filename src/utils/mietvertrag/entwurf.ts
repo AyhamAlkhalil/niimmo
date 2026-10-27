@@ -667,6 +667,22 @@ export function findeVorhandeneMieter<M extends Pick<Tables<'mieter'>, 'id' | 'v
   });
 }
 
+/**
+ * Beschreiben zwei Personenkarten dieselbe Person? Gleiche Regeln wie die Dublettensuche im
+ * Bestand. Zwei Karten desselben Bestandsmieters entdoppelt aktivierungsDaten() selbst.
+ *
+ * Wer erst einen Bestandsmieter wählte und danach dessen Selbstauskunft hochlud, bekam eine
+ * zweite, neue Karte derselben Person ohne jeden Hinweis — die Suche schloss schon gewählte
+ * Mieter aus. Beim Aktivieren wurde die Person neu angelegt, zweimal verknüpft und doppelt
+ * in die Personenzahl gezählt (27.10.2026).
+ */
+export function istGleichePerson(a: EntwurfPerson, b: EntwurfPerson): boolean {
+  if (a.mieterId && b.mieterId) return false;
+  return findeVorhandeneMieter(a, [
+    { id: '', vorname: b.vorname, nachname: b.nachname, geburtsdatum: b.geburtsdatum, hauptmail: b.email },
+  ]).length > 0;
+}
+
 /** Was eine Personenkarte von einem vorhandenen Mieter übernimmt. */
 export type BestandsMieter = Pick<
   Tables<'mieter'>,
