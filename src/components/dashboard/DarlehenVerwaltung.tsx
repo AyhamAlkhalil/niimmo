@@ -160,7 +160,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
     },
   });
 
-  const { data: darlehenImmobilien = [], isError: zuordnungFehler } = useQuery<DarlehenImmobilie[]>({
+  const { data: darlehenImmobilien = [], isError: zuordnungFehler, refetch: zuordnungNeuLaden } = useQuery<DarlehenImmobilie[]>({
     queryKey: ["darlehen_immobilien"],
     queryFn: async () => {
       const { data, error } = await supabase.from("darlehen_immobilien").select("*");
@@ -183,7 +183,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
 
   const selectedDarlehen = darlehen.find((d) => d.id === selectedId) ?? null;
 
-  const { data: zahlungen = [], isError: buchungenFehler } = useQuery<Zahlung[]>({
+  const { data: zahlungen = [], isError: buchungenFehler, refetch: buchungenNeuLaden } = useQuery<Zahlung[]>({
     queryKey: ["darlehen_zahlungen_iban", selectedDarlehen?.kontonummer],
     queryFn: async () => {
       if (!selectedDarlehen?.kontonummer) return [];
@@ -435,7 +435,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
               // Bis zum 27.10.2026: „Noch keine Darlehenskonten“ und Gesamtschuld 0 € bei einem Ladefehler
               <div role="alert" className="glass-card rounded-xl p-8 text-center text-sm text-destructive space-y-2">
                 <div>Darlehen, Zuordnungen oder Buchungen konnten nicht geladen werden. Restschuld und Summen werden deshalb nicht angezeigt.</div>
-                <button type="button" onClick={() => darlehenNeuLaden()} className="font-medium text-primary underline-offset-4 hover:underline">Erneut versuchen</button>
+                <button type="button" onClick={() => { darlehenNeuLaden(); zuordnungNeuLaden(); buchungenNeuLaden(); }} className="font-medium text-primary underline-offset-4 hover:underline">Erneut versuchen</button>
               </div>
             ) : darlehen.length === 0 ? (
               <div className="glass-card rounded-xl p-10 flex flex-col items-center gap-3 text-gray-400">
