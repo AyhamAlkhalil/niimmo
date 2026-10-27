@@ -2168,6 +2168,35 @@ export type Database = {
         }
         Relationships: []
       }
+      sollstellung_monate: {
+        Row: {
+          created_at: string
+          mietvertrag_id: string
+          sollmonat: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          mietvertrag_id: string
+          sollmonat: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          mietvertrag_id?: string
+          sollmonat?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sollstellung_monate_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sonderfall_regeln: {
         Row: {
           aktiv: boolean
@@ -3147,6 +3176,14 @@ export type Database = {
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      staffelmieten_anwenden: { Args: never; Returns: number }
+      staffelstufen: {
+        Args: { p_plan: Json }
+        Returns: {
+          gueltig_ab: string
+          kaltmiete: number
+        }[]
+      }
       update_expired_terminated_contracts: { Args: never; Returns: number }
       update_faellige_forderungen: {
         Args: never
