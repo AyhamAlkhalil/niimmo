@@ -85,6 +85,12 @@ export const sortPropertiesByName = (properties: any[]): any[] => {
  */
 export const getCurrentContract = (contracts: any[]): any | null => {
   if (contracts.length === 0) return null;
+
+  // Zuerst der heute laufende Vertrag (Kanon). Bis zum 27.10.2026 gewann jeder 'aktiv': Bei einem
+  // Mieterwechsel zeigte die Einheitskarte den Nachmieter, der erst im Folgemonat einzieht, statt
+  // des gekuendigten Vormieters, der noch wohnt (live 2 Einheiten).
+  const laufend = getLaufenderVertrag(contracts);
+  if (laufend) return laufend;
   
   // Sort contracts by start date descending to ensure consistent ordering
   const sortedContracts = [...contracts].sort((a, b) => {

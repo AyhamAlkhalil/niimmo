@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   getVertragsende,
+  getCurrentContract,
   istGekuendigt,
   mietendeFelder,
   fristloseKuendigungFelder,
@@ -278,5 +279,22 @@ describe("statusNachMietende", () => {
     expect(statusNachMietende("aktiv", "2026-10-26", null, heute)).toBe("beendet");
     expect(statusNachMietende("aktiv", "2026-10-27", null, heute)).toBeUndefined();
     expect(statusNachMietende("gekuendigt", "2026-12-31", "2026-12-31", heute)).toBeUndefined();
+  });
+});
+
+describe("getCurrentContract", () => {
+  it("zeigt bei einem Mieterwechsel den noch laufenden Vertrag, nicht den künftigen", () => {
+    // 27.10.2026: Der Nachmieter (aktiv, Beginn im Folgemonat) verdrängte den gekündigten Vormieter
+    const vormieter = { id: "alt", status: "gekuendigt", start_datum: "2020-01-01", ende_datum: "2099-12-31", kuendigungsdatum: "2099-12-31" };
+    const nachmieter = { id: "neu", status: "aktiv", start_datum: "2100-01-01", ende_datum: null, kuendigungsdatum: null };
+    expect(getCurrentContract([nachmieter, vormieter]).id).toBe("alt");
+  });
+
+  it("nimmt ohne laufenden Vertrag weiter den aktiven bzw. jüngsten", () => {
+    const kuenftig = { id: "neu", status: "aktiv", start_datum: "2100-01-01", ende_datum: null, kuendigungsdatum: null };
+    const alt = { id: "alt", status: "beendet", start_datum: "2010-01-01", ende_datum: "2011-01-01", kuendigungsdatum: null };
+    expect(getCurrentContract([alt, kuenftig]).id).toBe("neu");
+    expect(getCurrentContract([alt]).id).toBe("alt");
+    expect(getCurrentContract([])).toBeNull();
   });
 });

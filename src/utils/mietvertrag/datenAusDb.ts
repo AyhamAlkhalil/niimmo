@@ -266,7 +266,10 @@ export function vertragsDaten(z: VertragsZeilen): MietvertragDaten {
     schliessanlageArt: vertrag.schliessanlage_art,
     mitbenutzungEinrichtungen: vertrag.mitbenutzung_einrichtungen,
 
-    uebergabezustand: vertrag.uebergabezustand ?? 'renoviert',
+    // Nicht erfasst bleibt nicht erfasst: Die Vorgabe 'renoviert' umging bis zum 27.10.2026 die
+    // Pflichtprüfung, behauptete im Nachdruck „renoviert übergeben“ (141 von 141 Verträgen ohne Angabe)
+    // und wurde in die Datenbank zurückgeschrieben.
+    uebergabezustand: vertrag.uebergabezustand ?? null,
     schoenheitsreparaturen: vertrag.schoenheitsreparaturen ?? false,
     kleinreparaturEinzelgrenze: Number(vertrag.kleinreparatur_einzelgrenze ?? 100),
     kleinreparaturJahresgrenzeProzent: Number(vertrag.kleinreparatur_jahresgrenze_prozent ?? 8),

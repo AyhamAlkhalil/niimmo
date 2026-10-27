@@ -247,6 +247,20 @@ describe('Pflichtprüfung', () => {
     expect(pruefeVertragsdaten(d).some(f => f.feld === 'staffelplan')).toBe(false);
   });
 
+  it('zählt den Staffelabstand in vollen Monaten, nicht in Kalendermonaten', () => {
+    // 27.10.2026: Beginn 15.11. und Stufe 01.11. des Folgejahres galten als 12 Monate (§ 557a Abs. 2 BGB)
+    const knapp = basisVertrag({ mietbeginn: '2026-11-15', mietanpassungArt: 'staffel', staffelplan: [{ gueltigAb: '2027-11-01', kaltmiete: 450 }] });
+    expect(pruefeVertragsdaten(knapp).some(f => f.feld === 'staffelplan' && f.schwere === 'blocker')).toBe(true);
+    const genau = basisVertrag({ mietbeginn: '2026-11-15', mietanpassungArt: 'staffel', staffelplan: [{ gueltigAb: '2027-11-15', kaltmiete: 450 }] });
+    expect(pruefeVertragsdaten(genau).some(f => f.feld === 'staffelplan')).toBe(false);
+  });
+
+  it('sperrt einen nicht erfassten Übergabezustand und erzeugt keinen „renoviert übergeben“-Vertrag', () => {
+    // 27.10.2026: datenAusDb belegte fehlenden Zustand mit 'renoviert' vor
+    const d = basisVertrag({ uebergabezustand: null as unknown as MietvertragDaten['uebergabezustand'] });
+    expect(pruefeVertragsdaten(d).some(f => f.feld === 'uebergabezustand' && f.schwere === 'blocker')).toBe(true);
+  });
+
   it('warnt bei ungeprüften Vermieterstammdaten, blockiert aber nicht', () => {
     const d = basisVertrag();
     d.vermieter.stammdatenGeprueft = false;

@@ -474,9 +474,15 @@ function heute(): string {
   return format(new Date(), 'yyyy-MM-dd');
 }
 
+/**
+ * Volle Monate zwischen zwei Tagen. Bis zum 27.10.2026 zählten nur Kalendermonate: Mietbeginn
+ * 15.11.2026 und Stufe 01.11.2027 galten als 12 Monate, obwohl die Miete nur 11,5 Monate unverändert
+ * blieb (§ 557a Abs. 2 BGB verlangt ein Jahr) — die Staffelvereinbarung wäre insoweit unwirksam.
+ */
 function monateZwischen(von: string, bis: string): number {
   if (!von || !bis) return 0;
   const a = new Date(`${von}T12:00:00`);
   const b = new Date(`${bis}T12:00:00`);
-  return (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  const monate = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  return b.getDate() < a.getDate() ? monate - 1 : monate;
 }
