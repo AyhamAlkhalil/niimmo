@@ -300,7 +300,7 @@ async function getNichtmieteRegeln(supabase: any): Promise<NichtmieteRegel[]> {
   
   if (error) {
     console.error("Error fetching nichtmiete_regeln:", error);
-    return [];
+    throw new Error("Nichtmiete-Regeln konnten nicht geladen werden");
   }
   
   return data || [];
@@ -314,7 +314,7 @@ async function getSonderfallRegeln(supabase: any): Promise<SonderfallRegel[]> {
   
   if (error) {
     console.error("Error fetching sonderfall_regeln:", error);
-    return [];
+    throw new Error("Sonderfall-Regeln konnten nicht geladen werden");
   }
   
   return data || [];
@@ -356,9 +356,12 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
     `)
     .in("status", ["aktiv", "gekuendigt", "beendet"]);
 
+  // Bis zum 27.10.2026 lieferten alle drei Ladefunktionen bei einem Fehler still [] -- dann
+  // kam jede Buchung als "nicht zugeordnet" bzw. ohne Regel in die Pruefmaske, als waere das
+  // ein normales Ergebnis. Jetzt bricht der Lauf ab und die App zeigt den Fehler.
   if (error) {
     console.error("Error fetching contracts:", error);
-    return [];
+    throw new Error("Verträge konnten nicht geladen werden");
   }
 
   return contracts.map((c: any) => {
@@ -1464,12 +1467,17 @@ serve(async (req) => {
 
         // Primäre Prüfung: Exakter Match auf Datum + Betrag + IBAN + Verwendungszweck
         if (candidateDates.length > 0) {
-          const { data } = await supabase
+          const { data, error } = await supabase
             .from("zahlungen")
             .select("id, iban, verwendungszweck, buchungsdatum, empfaengername")
             .eq("betrag", betrag)
             .in("buchungsdatum", candidateDates)
             .limit(50);
+          // Ohne Bestand gaelte jede Buchung als neu (27.10.2026: Fehler wurde ignoriert)
+          if (error) {
+            console.error("Duplikatpruefung fehlgeschlagen:", error);
+            throw new Error("Bestand für die Duplikatprüfung konnte nicht geladen werden");
+          }
 
           const rows = (data as any[]) ?? [];
           
@@ -1511,13 +1519,17 @@ serve(async (req) => {
             const fromIso = from.toISOString().slice(0, 10);
             const toIso = to.toISOString().slice(0, 10);
 
-            const { data } = await supabase
+            const { data, error } = await supabase
               .from("zahlungen")
               .select("id, iban, verwendungszweck, buchungsdatum")
               .eq("betrag", betrag)
               .gte("buchungsdatum", fromIso)
               .lte("buchungsdatum", toIso)
               .limit(200);
+            if (error) {
+              console.error("Duplikatpruefung fehlgeschlagen:", error);
+              throw new Error("Bestand für die Duplikatprüfung konnte nicht geladen werden");
+            }
 
             const rows = (data as any[]) ?? [];
             match = rows.find((row) => {

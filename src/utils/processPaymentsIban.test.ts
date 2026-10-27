@@ -148,6 +148,14 @@ describe('process-payments Zugriff', () => {
     expect(handler).toMatch(/istAdmin !== true[\s\S]{0,200}status: 403/);
   });
 
+  it('bricht ab, wenn Verträge, Regeln oder der Bestand nicht geladen werden', async () => {
+    // 27.10.2026: Ein Ladefehler ergab still [] und damit „alles nicht zugeordnet" bzw. „alles neu"
+    const kaputt = { from: () => ({ select: () => ({ in: async () => ({ data: null, error: { message: 'timeout' } }) }) }) };
+    await expect(fn.getContractContext(kaputt)).rejects.toThrow(/nicht geladen/);
+    expect(quelle).not.toMatch(/console\.error\("Error fetching[^"]*", error\);\s*return \[\];/);
+    expect(handler.match(/const \{ data, error \} = await supabase\s*\.from\("zahlungen"\)/g)).toHaveLength(2);
+  });
+
   it('schreibt nie selbst in zahlungen', () => {
     // Der frühere Schreibpfad (dryRun: false) hängte jede Buchung mit gleichem Tag, Betrag und IBAN um
     expect(handler).toMatch(/if \(dryRun !== true\)[\s\S]{0,200}status: 400/);
