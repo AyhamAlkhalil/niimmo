@@ -74,9 +74,12 @@ export function neueMieteAusEingabe(
   kaltmiete: string,
   betriebskosten: string
 ): { kaltmiete: number; betriebskosten: number } | { fehler: string } {
+  const unlesbar = (feld: string) => `${feld} ist nicht lesbar – bitte ohne Tausenderpunkt eingeben, z. B. 1000,50.`;
   const kalt = leseKautionsbetrag(kaltmiete);
-  if (kalt === null || kalt === undefined || kalt <= 0) return { fehler: 'Bitte eine neue Kaltmiete über 0 € eintragen.' };
+  if (kalt === undefined) return { fehler: unlesbar('Die neue Kaltmiete') };
+  if (kalt === null || kalt <= 0) return { fehler: 'Bitte eine neue Kaltmiete über 0 € eintragen.' };
   const bk = leseKautionsbetrag(betriebskosten);
-  if (bk === null || bk === undefined) return { fehler: 'Bitte die neuen Betriebskosten eintragen (0 € ist möglich).' };
+  if (bk === undefined) return { fehler: unlesbar('Die Angabe zu den Betriebskosten') };
+  if (bk === null) return { fehler: 'Bitte die neuen Betriebskosten eintragen (0 € ist möglich).' };
   return { kaltmiete: kalt, betriebskosten: bk };
 }

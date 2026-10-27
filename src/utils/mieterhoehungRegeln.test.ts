@@ -91,6 +91,12 @@ describe('neueMieteAusEingabe', () => {
     expect(neueMieteAusEingabe('-5', '120')).toHaveProperty('fehler');
   });
 
+  it('nennt bei einem Tausenderpunkt den Grund statt „bitte eintragen“', () => {
+    // Review 27.10.2026: „1.000,50“ ist gefüllt, aber nicht lesbar
+    expect(neueMieteAusEingabe('1.000,50', '120')).toEqual({ fehler: expect.stringMatching(/ohne Tausenderpunkt/) });
+    expect(neueMieteAusEingabe('1000,50', '1.200,00')).toEqual({ fehler: expect.stringMatching(/Betriebskosten.*ohne Tausenderpunkt/) });
+  });
+
   it('wird vor Download und Speichern geprüft, der Dokumenteintrag ist nicht mehr ungeprüft', () => {
     const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
     expect(modal).toMatch(/if \(!pdfBlob \|\| !pruefeNeueMiete\(\)\) return;/);
