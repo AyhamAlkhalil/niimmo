@@ -359,9 +359,11 @@ export function MahnungErstellungModal({
       });
 
       if (error) throw error;
-      if (versand?.warnung) {
-        toast({ title: "Mahnstufe nicht erhöht", description: versand.warnung, variant: "destructive" });
-      }
+      // Es gibt nur einen Toast zugleich (use-toast, TOAST_LIMIT = 1): Warnungen werden gesammelt
+      // und am Ende statt der Erfolgsmeldung gezeigt -- bis zum 27.10.2026 verdrängte die
+      // Erfolgsmeldung sie sofort, auch „Vertragsstatus nicht gesetzt“ bei Stufe 3.
+      const probleme: string[] = [];
+      if (versand?.warnung) probleme.push(versand.warnung);
 
       // Ab Stufe 3 enthaelt das Schreiben eine fristlose Kuendigung nach
       // §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB. Bis zum 06.09.2026 blieb der
@@ -380,23 +382,27 @@ export function MahnungErstellungModal({
           .eq('id', contractData.mietvertrag_id);
 
         if (statusError) {
-          toast({
-            title: "Mahnung versendet, Vertragsstatus nicht gesetzt",
-            description: `Das Kuendigungsschreiben ist raus, der Vertrag steht aber weiter auf aktiv: ${statusError.message}. Bitte den Status von Hand auf "gekuendigt" setzen.`,
-            variant: "destructive",
-          });
+          probleme.push(`Vertragsstatus nicht gesetzt: Das Kuendigungsschreiben ist raus, der Vertrag steht aber weiter auf aktiv (${statusError.message}). Bitte den Status von Hand auf "gekuendigt" setzen.`);
         } else {
           queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
           queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
         }
       }
 
-      toast({
-        title: "E-Mail versendet",
-        description: mahnstufe >= 3
-          ? `Mahnung Stufe ${mahnstufe} mit fristloser Kündigung wurde an ${emailRecipient} versendet. Der Vertrag steht jetzt auf "gekündigt".`
-          : `Mahnung Stufe ${mahnstufe} wurde an ${emailRecipient} versendet.`,
-      });
+      if (probleme.length > 0) {
+        toast({
+          title: "Mahnung versendet – bitte prüfen",
+          description: probleme.join(' '),
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "E-Mail versendet",
+          description: mahnstufe >= 3
+            ? `Mahnung Stufe ${mahnstufe} mit fristloser Kündigung wurde an ${emailRecipient} versendet. Der Vertrag steht jetzt auf "gekündigt".`
+            : `Mahnung Stufe ${mahnstufe} wurde an ${emailRecipient} versendet.`,
+        });
+      }
       onClose();
     } catch (err) {
       toast({

@@ -39,6 +39,9 @@ describe('Kündigungsmahnung setzt den Vertragsstatus', () => {
     // Ein stiller Fehler wäre hier besonders gefährlich: Das Schreiben ist
     // dann raus, der Vertrag läuft im System weiter.
     expect(modal).toContain('Vertragsstatus nicht gesetzt');
+    // Nur ein Toast zugleich (TOAST_LIMIT = 1): Die Erfolgsmeldung darf die Warnung nicht
+    // verdrängen (27.10.2026) — sie kommt nur, wenn nichts zu melden ist
+    expect(modal).toMatch(/if \(probleme\.length > 0\) \{[\s\S]*?\} else \{[\s\S]*?title: "E-Mail versendet"/);
   });
 
   it('warnt vor dem Versand, dass gekündigt wird', () => {
