@@ -33,7 +33,6 @@ declare
   v_days         int;
   v_remaining    int;
   v_exist_id     uuid;
-  v_exist_betrag numeric;
 begin
   v_month := date_trunc('month', current_date)::date;
 
@@ -69,8 +68,8 @@ begin
       continue;
     end if;
 
-    select mf.id, mf.sollbetrag
-    into   v_exist_id, v_exist_betrag
+    select mf.id
+    into   v_exist_id
     from   mietforderungen mf
     where  mf.mietvertrag_id = v_contract.id
       and  mf.sollmonat = v_month

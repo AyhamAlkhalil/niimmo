@@ -41,14 +41,14 @@ begin
   -- 1) Gebuehr der bisherigen Fassung abraeumen
   if TG_OP <> 'INSERT' then
     if OLD.kategorie = 'Rücklastschrift' and OLD.mietvertrag_id is not null then
-      v_monat := coalesce((OLD.zugeordneter_monat || '-01')::date, date_trunc('month', OLD.buchungsdatum)::date);
+      v_monat := coalesce((nullif(OLD.zugeordneter_monat, '') || '-01')::date, date_trunc('month', OLD.buchungsdatum)::date);
       if not exists (
         select 1 from zahlungen z
         where z.id <> OLD.id
           and z.kategorie = 'Rücklastschrift'
           and z.mietvertrag_id = OLD.mietvertrag_id
           and z.buchungsdatum = OLD.buchungsdatum
-          and coalesce((z.zugeordneter_monat || '-01')::date, date_trunc('month', z.buchungsdatum)::date) = v_monat
+          and coalesce((nullif(z.zugeordneter_monat, '') || '-01')::date, date_trunc('month', z.buchungsdatum)::date) = v_monat
       ) then
         delete from mietforderungen
         where id = (
@@ -76,7 +76,7 @@ begin
     select * into v_vertrag from mietvertrag where id = NEW.mietvertrag_id and lastschrift = true;
     if found then
       -- zugeordneter_monat ist 'YYYY-MM' (TEXT) -> DATE 'YYYY-MM-01'
-      v_monat := coalesce((NEW.zugeordneter_monat || '-01')::date, date_trunc('month', NEW.buchungsdatum)::date);
+      v_monat := coalesce((nullif(NEW.zugeordneter_monat, '') || '-01')::date, date_trunc('month', NEW.buchungsdatum)::date);
       v_ende := coalesce(v_vertrag.ende_datum, v_vertrag.kuendigungsdatum);
       if v_ende is null or v_monat <= date_trunc('month', v_ende)::date then
         v_gebuehr := coalesce(v_vertrag.ruecklastschrift_gebuehr, 7.50);
