@@ -237,7 +237,7 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
     let bodyText: string;
     
     if (data.mahnstufe >= 3) {
-      bodyText = `Sie haben seit Beginn des Mietverhältnisses am ${data.vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${monatsmietenText(data.anzahlMonatsmieten)} in Höhe von insgesamt ${formatEuro(data.gesamtRueckstand)} €. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
+      bodyText = `Sie haben seit Beginn des Mietverhältnisses am ${data.vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${rueckstandsUmfang(data.anzahlMonatsmieten, formatEuro(data.gesamtRueckstand))}. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
     } else if (data.mahnstufe === 2) {
       bodyText = `trotz unserer ersten Mahnung sind die folgenden Zahlungen weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.\nDer Mietrückstand beläuft sich auf insgesamt ${formatEuro(data.gesamtRueckstand)} €.`;
     } else {
@@ -437,4 +437,14 @@ function formatEuro(betrag: number): string {
 export function monatsmietenText(anzahl: number): string {
   const wert = Number.isFinite(anzahl) ? Math.floor(anzahl * 10) / 10 : 0;
   return `${wert.toLocaleString('de-DE', { maximumFractionDigits: 1 })} ${wert === 1 ? 'Monatsmiete' : 'Monatsmieten'}`;
+}
+
+/**
+ * „1,5 Monatsmieten in Höhe von insgesamt 1.200,00 €“ — ohne die Monatsmieten, wenn sie (abgerundet)
+ * 0 sind: Ohne Miete am Vertrag oder bei sehr kleinem Rückstand stand „auf 0 Monatsmieten“ im
+ * Kündigungsschreiben (27.10.2026).
+ */
+export function rueckstandsUmfang(anzahlMonatsmieten: number, betragText: string): string {
+  const wert = Number.isFinite(anzahlMonatsmieten) ? Math.floor(anzahlMonatsmieten * 10) / 10 : 0;
+  return wert > 0 ? `${monatsmietenText(wert)} in Höhe von insgesamt ${betragText} €` : `insgesamt ${betragText} €`;
 }

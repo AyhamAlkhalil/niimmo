@@ -123,7 +123,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     enabled: isOpen && !!vertragId,
   });
 
-  const { data: zahlungen, isError: zahlungenFehler } = useQuery({
+  const { data: zahlungen, isError: zahlungenFehler, isLoading: zahlungenLaedt } = useQuery({
     queryKey: ['zahlungen-detail', vertragId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -152,7 +152,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     enabled: isOpen,
   });
 
-  const { data: forderungen, isError: forderungenFehler } = useQuery({
+  const { data: forderungen, isError: forderungenFehler, isLoading: forderungenLaedt } = useQuery({
     queryKey: ['mietforderungen', vertragId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -193,6 +193,8 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
     // Ein Ladefehler wurde bis zum 27.10.2026 zu [] — die Finanzübersicht zeigte dann alle
     // Forderungen seit Beginn als Rückstand und belegte die Mahnung damit vor
     finanzFehler: zahlungenFehler || forderungenFehler,
+    // Solange eins von beiden lädt, steht dort [] — der Mahnbetrag wäre 0 oder zu hoch
+    finanzLaedt: zahlungenLaedt || forderungenLaedt,
     vertrag,
     vertragLoading,
     fetchedEinheit,

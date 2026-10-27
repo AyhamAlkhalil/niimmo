@@ -232,7 +232,7 @@ describe("raeumungsfristInTagen", () => {
   it("gibt dem Schreiben dasselbe Räumungsende wie dem Vertrag", () => {
     // 27.10.2026: Das Schreiben rechnete mit parseInt(...) || 14 und nannte bei „400“ heute + 400
     const modal = readFileSync("src/components/dashboard/MahnungErstellungModal.tsx", "utf-8");
-    expect(modal).toMatch(/const raeumungsfristStr = fristloseKuendigungFelder\(parseInt\(raeumungsfristTage\)\)\.ende_datum/);
+    expect(modal).toMatch(/const raeumungsfristStr = fristloseKuendigungFelder\(parseInt\(raeumungsfristTage\), new Date\(\), contractData\.vertragsende\)\.ende_datum/);
     expect(modal).not.toMatch(/parseInt\(raeumungsfristTage\) \|\| 14/);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { berechneAlleVerzugszinsen, mitAelterenPerioden, verzugspostenAusRueckstand } from './verzugszinsen';
-import { monatsmietenText } from './mahnungPdfGenerator';
+import { monatsmietenText, rueckstandsUmfang } from './mahnungPdfGenerator';
 
 const PERIODEN = [
   { ab: '2026-07-01', satz: 1.52 },
@@ -60,6 +60,20 @@ describe('Mahnung Stufe 3', () => {
     expect(monatsmietenText(1.17)).toBe('1,1 Monatsmieten');
     expect(monatsmietenText(1)).toBe('1 Monatsmiete');
     expect(monatsmietenText(2)).toBe('2 Monatsmieten');
+  });
+
+  it('nennt keine „0 Monatsmieten“ im Kündigungsschreiben', () => {
+    expect(rueckstandsUmfang(1.5, '1.200,00')).toBe('1,5 Monatsmieten in Höhe von insgesamt 1.200,00 €');
+    expect(rueckstandsUmfang(0, '1.200,00')).toBe('insgesamt 1.200,00 €');
+    expect(rueckstandsUmfang(0.05, '20,00')).toBe('insgesamt 20,00 €');
+    expect(rueckstandsUmfang(NaN, '20,00')).toBe('insgesamt 20,00 €');
+  });
+
+  it('nennt im Schreiben dasselbe Räumungsende, das der Vertrag beim Versand bekommt', () => {
+    const modal = readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8');
+    const aufrufe = modal.match(/fristloseKuendigungFelder\(parseInt.*$/gm) ?? [];
+    expect(aufrufe).toHaveLength(2);
+    for (const a of aufrufe) expect(a).toContain('contractData.vertragsende');
   });
 
   it('setzt den Dialog nur beim Öffnen zurück und verteilt die Zinsen über verzugspostenAusRueckstand', () => {

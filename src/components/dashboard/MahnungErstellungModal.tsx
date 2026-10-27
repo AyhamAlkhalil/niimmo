@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, AlertTriangle, Download, Mail, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { generateMahnungPdf, monatsmietenText, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
+import { generateMahnungPdf, rueckstandsUmfang, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
 import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
@@ -162,7 +162,7 @@ export function MahnungErstellungModal({
       : 'N/A';
 
     if (mahnstufe >= 3) {
-      return `Sie haben seit Beginn des Mietverhältnisses am ${vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${monatsmietenText(parseFloat(anzahlMonatsmieten))} in Höhe von insgesamt ${rueckstandFormatted} €. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
+      return `Sie haben seit Beginn des Mietverhältnisses am ${vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${rueckstandsUmfang(parseFloat(anzahlMonatsmieten), rueckstandFormatted)}. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
     } else if (mahnstufe === 2) {
       return `trotz unserer ersten Mahnung sind die folgenden Zahlungen weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.\nDer Mietrückstand beläuft sich auf insgesamt ${rueckstandFormatted} €.`;
     } else {
@@ -185,8 +185,9 @@ export function MahnungErstellungModal({
     zahlungsfrist.setDate(zahlungsfrist.getDate() + (parseInt(zahlungsfristTage) || 7));
     const zahlungsfristStr = zahlungsfrist.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
     
-    // Dasselbe Räumungsende, das der Vertrag beim Versand bekommt (fristloseKuendigungFelder)
-    const raeumungsfristStr = fristloseKuendigungFelder(parseInt(raeumungsfristTage)).ende_datum.split('-').reverse().join('.');
+    // Dasselbe Räumungsende, das der Vertrag beim Versand bekommt (fristloseKuendigungFelder) —
+    // mit dem bestehenden Vertragsende, sonst nannte das Schreiben einen späteren Tag als der Vertrag
+    const raeumungsfristStr = fristloseKuendigungFelder(parseInt(raeumungsfristTage), new Date(), contractData.vertragsende).ende_datum.split('-').reverse().join('.');
     
     const vertragStart = contractData.start_datum 
       ? new Date(contractData.start_datum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })

@@ -37,7 +37,7 @@ export default function MietvertragDetailsModal({
     vertrag, vertragLoading, fetchedEinheit,
     mieter, zahlungen, allMietvertraege, forderungen, dokumente,
     dokumenteLoading, dokumenteFehler, dokumenteLaedtNeu, refetchDokumente,
-    finanzFehler, queryClient,
+    finanzFehler, finanzLaedt, queryClient,
   } = useMietvertragData(vertragId, isOpen);
   const { toast } = useToast();
 
@@ -171,6 +171,11 @@ export default function MietvertragDetailsModal({
                   // Ohne geladene Zahlungen und Forderungen wäre der vorbelegte Mahnbetrag falsch
                   if (finanzFehler) {
                     toast({ title: "Mahnung nicht möglich", description: "Zahlungen oder Forderungen konnten nicht geladen werden. Bitte das Fenster neu öffnen.", variant: "destructive" });
+                    return;
+                  }
+                  // Der Mahnbetrag wird beim Öffnen übernommen; mit halb geladenen Daten wäre er falsch
+                  if (finanzLaedt) {
+                    toast({ title: "Daten werden noch geladen", description: "Zahlungen und Forderungen sind noch nicht vollständig geladen. Bitte gleich noch einmal versuchen." });
                     return;
                   }
                   mutations.setShowMahnungModal(true);
