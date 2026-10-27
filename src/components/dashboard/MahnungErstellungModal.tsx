@@ -19,6 +19,7 @@ import { generateMahnungPdf, type MahnungPdfData } from "@/utils/mahnungPdfGener
 import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, getVerzugszinssatz, toLocalIso } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
+import { fristloseKuendigungFelder } from "@/utils/contractUtils";
 
 interface MahnungErstellungModalProps {
   isOpen: boolean;
@@ -364,18 +365,12 @@ export function MahnungErstellungModal({
       // zaehlte die Einheit als vermietet, und keine Auswertung kannte den
       // Vorgang. Wer kuendigt, muss den Vertrag auch beenden.
       if (mahnstufe >= 3) {
-        const heuteIso = new Date().toISOString().split('T')[0];
-        const raeumungsfrist = new Date();
-        raeumungsfrist.setDate(raeumungsfrist.getDate() + (parseInt(raeumungsfristTage) || 14));
-        const raeumung = raeumungsfrist.toISOString().split('T')[0];
+        // Beide Felder auf das Raeumungsende -- mit kuendigungsdatum = heute beendete der
+        // Nachtlauf den Vertrag schon in der Folgenacht (fristloseKuendigungFelder).
         const { error: statusError } = await supabase
           .from('mietvertrag')
           .update({
-            status: 'gekuendigt',
-            kuendigungsdatum: heuteIso,
-            // ende_datum ist die fuehrende Quelle des Vertragsendes
-            // (utils/contractUtils.ts) und muss deshalb mitgeschrieben werden.
-            ende_datum: raeumung,
+            ...fristloseKuendigungFelder(parseInt(raeumungsfristTage)),
             aktualisiert_am: new Date().toISOString(),
           })
           .eq('id', contractData.mietvertrag_id);

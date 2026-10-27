@@ -3,6 +3,7 @@ import {
   getVertragsende,
   istGekuendigt,
   mietendeFelder,
+  fristloseKuendigungFelder,
   istLaufenderVertrag,
   getLaufenderVertrag,
   summiereLaufendeMieten,
@@ -159,5 +160,26 @@ describe("summiereLaufendeMieten", () => {
 
   it("liefert 0 ohne Vertraege", () => {
     expect(summiereLaufendeMieten(undefined)).toEqual({ kaltmiete: 0, betriebskosten: 0 });
+  });
+});
+
+describe("fristloseKuendigungFelder", () => {
+  it("setzt Kündigungsdatum und Mietende gleich auf das Ende der Räumungsfrist", () => {
+    // 27.10.2026: kuendigungsdatum stand auf dem Versandtag, der Nachtlauf beendete den Vertrag am Folgetag
+    expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27, 15))).toEqual({
+      status: "gekuendigt",
+      kuendigungsdatum: "2026-11-10",
+      ende_datum: "2026-11-10",
+    });
+  });
+
+  it("rechnet den Kalendertag lokal, auch kurz nach Mitternacht und über den Jahreswechsel", () => {
+    expect(fristloseKuendigungFelder(14, new Date(2026, 11, 20, 0, 30)).ende_datum).toBe("2027-01-03");
+    expect(fristloseKuendigungFelder(1, new Date(2026, 2, 28, 1, 0)).ende_datum).toBe("2026-03-29");
+  });
+
+  it("nimmt 14 Tage, wenn die Frist fehlt oder ungültig ist", () => {
+    expect(fristloseKuendigungFelder(Number.NaN, new Date(2026, 9, 27)).ende_datum).toBe("2026-11-10");
+    expect(fristloseKuendigungFelder(0, new Date(2026, 9, 27)).ende_datum).toBe("2026-11-10");
   });
 });

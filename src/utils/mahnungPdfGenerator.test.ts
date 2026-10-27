@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { fristloseKuendigungFelder } from './contractUtils';
 
 /**
  * Ab Stufe 3 enthält das Mahnschreiben eine echte Kündigungserklärung
@@ -20,16 +21,18 @@ describe('Kündigungsmahnung setzt den Vertragsstatus', () => {
 
   it('der Versand setzt den Vertrag auf gekündigt', () => {
     expect(modal).toMatch(/mahnstufe >= 3/);
-    expect(modal).toContain("status: 'gekuendigt'");
+    expect(modal).toContain('...fristloseKuendigungFelder(');
+    expect(fristloseKuendigungFelder(14).status).toBe('gekuendigt');
   });
 
-  it('schreibt ende_datum mit, nicht nur kuendigungsdatum', () => {
+  it('schreibt ende_datum und kuendigungsdatum gleich, auf das Räumungsende', () => {
     // ende_datum ist die führende Quelle des Vertragsendes (contractUtils.ts).
     // Wer nur kuendigungsdatum setzt, erzeugt den am 03.09.2026 bereinigten
-    // Zustand aus zwei widersprüchlichen Feldern neu.
-    const block = modal.slice(modal.indexOf("status: 'gekuendigt'"));
-    expect(block.slice(0, 400)).toContain('ende_datum');
-    expect(block.slice(0, 400)).toContain('kuendigungsdatum');
+    // Zustand aus zwei widersprüchlichen Feldern neu. Stand kuendigungsdatum auf
+    // dem Versandtag, beendete der Nachtlauf den Vertrag in der Folgenacht (27.10.2026).
+    const felder = fristloseKuendigungFelder(14, new Date(2026, 9, 27));
+    expect(felder.ende_datum).toBe('2026-11-10');
+    expect(felder.kuendigungsdatum).toBe(felder.ende_datum);
   });
 
   it('meldet es sichtbar, wenn der Statuswechsel scheitert', () => {
