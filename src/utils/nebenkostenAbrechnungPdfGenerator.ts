@@ -233,7 +233,7 @@ async function seite1(
 
   const isNachzahlung = data.saldo > 0.01;
   const isGuthaben = data.saldo < -0.01;
-  const deadline = `30. März ${data.abrechnungsjahr + 1}`;
+  const deadline = zahlungsfristAus(data.abrechnungsDatum);
 
   let p2Text =
     'Die Abrechnung wurde nach bestem Wissen und Gewissen sowie auf Grundlage der uns vorliegenden ' +
@@ -616,4 +616,16 @@ function seite3(
     CW
   );
   doc.text(fn, ML, y);
+}
+
+/**
+ * Zahlungsfrist der Nachzahlung: Briefdatum (TT.MM.JJJJ) plus 30 Tage, wie Mail und BKA-Forderung.
+ * Bis zum 27.10.2026 stand fest „30. März des Folgejahres“ — eine heute erstellte Abrechnung 2025
+ * verlangte Zahlung bis zu einem schon verstrichenen Tag, die Mail nannte 30 Tage.
+ */
+export function zahlungsfristAus(briefdatum: string): string {
+  const [t, m, j] = (briefdatum || '').split('.').map(Number);
+  const basis = t && m && j ? new Date(j, m - 1, t) : new Date();
+  const frist = new Date(basis.getFullYear(), basis.getMonth(), basis.getDate() + 30);
+  return frist.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
 }

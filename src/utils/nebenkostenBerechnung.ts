@@ -458,3 +458,24 @@ export function nachsendeAdresseZeilen(anschrift: string | null | undefined): st
     .map((z) => z.trim())
     .filter(Boolean);
 }
+
+/**
+ * Verteilt exakte Centbeträge auf ganze Cent, sodass die Summe genau der gerundeten Gesamtsumme
+ * entspricht: abrunden, Restcent an die größten Reste. Bis zum 27.10.2026 wurden die Anteile einer
+ * Kostenart einzeln gerundet und Anteile unter 1 Cent verworfen; die Summe wich um Cent ab
+ * (Heizkosten 243,00 € verteilt als 243,02 €).
+ */
+export function aufCentVerteilen(exakteCent: readonly number[]): number[] {
+  const werte = exakteCent.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
+  const unten = werte.map((w) => Math.floor(w + 1e-9));
+  let rest = Math.round(werte.reduce((a, b) => a + b, 0)) - unten.reduce((a, b) => a + b, 0);
+  const reihenfolge = werte
+    .map((w, i) => ({ i, bruch: w - unten[i] }))
+    .sort((a, b) => b.bruch - a.bruch || a.i - b.i);
+  for (const { i } of reihenfolge) {
+    if (rest <= 0) break;
+    unten[i] += 1;
+    rest -= 1;
+  }
+  return unten;
+}

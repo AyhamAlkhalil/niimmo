@@ -54,6 +54,7 @@ import {
 } from "./nebenkostenKategorien";
 import {
   berechneAnteil,
+  aufCentVerteilen,
   berechneBezugsgroessen,
   berechneVorauszahlungen,
   bezugsgroesseFuerSchluessel,
@@ -71,6 +72,8 @@ import {
   type VerteilerSchluessel,
 } from "@/utils/nebenkostenBerechnung";
 import { useKostenpositionen, positionenImZeitraum } from "@/hooks/useNebenkostenDaten";
+import { mailadressenDerMieter } from "@/utils/kuendigungsbestaetigung";
+import { edgeFehlertext } from "@/utils/edgeFehler";
 
 interface NebenkostenStep3AbrechnungProps {
   immobilieId: string;
@@ -174,7 +177,7 @@ export function NebenkostenStep3Abrechnung({
           neue_anschrift,
           status,
           mietvertrag_mieter(
-            mieter:mieter_id(id, vorname, nachname, hauptmail)
+            mieter:mieter_id(id, vorname, nachname, hauptmail, weitere_mails)
           )
         `)
         .in("einheit_id", einheitIds);
@@ -300,11 +303,24 @@ export function NebenkostenStep3Abrechnung({
     [kostenProKategorie]
   );
 
+  // Cent-genaue Anteile je Kostenart und Nutzungsperiode: Die Anteile ergeben zusammen genau die
+  // Gesamtkosten (aufCentVerteilen), statt einzeln gerundet um Cent abzuweichen
+  const anteilCent = useMemo(() => {
+    const ergebnis = new Map<string, number[]>();
+    kostenProKategorie.forEach((kategorie) => {
+      ergebnis.set(
+        kategorie.kategorieId,
+        aufCentVerteilen(perioden.map(({ periode }) => kategorie.total * berechneAnteil(periode, kategorie.schluessel, bezugsgroessen) * 100))
+      );
+    });
+    return ergebnis;
+  }, [kostenProKategorie, perioden, bezugsgroessen]);
+
   // ── Abrechnung je Nutzungsperiode ──────────────────────────────────────────
   const abrechnungen: MieterAbrechnung[] = useMemo(() => {
     if (!einheiten || !mietvertraege) return [];
 
-    return perioden.map(({ periode, mietvertragId, einheitId }) => {
+    return perioden.map(({ periode, mietvertragId, einheitId }, periodenIndex) => {
       const einheit = einheiten.find((e) => e.id === einheitId);
       const vertrag = mietvertragId
         ? mietvertraege.find((mv) => mv.id === mietvertragId)
@@ -315,8 +331,8 @@ export function NebenkostenStep3Abrechnung({
 
       kostenProKategorie.forEach((kategorie) => {
         const anteil = berechneAnteil(periode, kategorie.schluessel, bezugsgroessen);
-        const anteilBetrag = kategorie.total * anteil;
-        if (anteilBetrag <= 0.01) return;
+        const anteilBetrag = (anteilCent.get(kategorie.kategorieId)?.[periodenIndex] ?? 0) / 100;
+        if (anteilBetrag <= 0) return;
 
         kostenAnteilGesamt += anteilBetrag;
         const bezug = bezugsgroesseFuerSchluessel(kategorie.schluessel, periode, bezugsgroessen);
@@ -348,7 +364,7 @@ export function NebenkostenStep3Abrechnung({
       );
 
       const mieterListe = ((vertrag?.mietvertrag_mieter as
-        | { mieter: { vorname: string | null; nachname: string | null; hauptmail: string | null } | null }[]
+        | { mieter: { vorname: string | null; nachname: string | null; hauptmail: string | null; weitere_mails?: string | null } | null }[]
         | undefined) || [])
         .map((mm) => mm.mieter)
         .filter((m): m is NonNullable<typeof m> => !!m);
@@ -356,9 +372,7 @@ export function NebenkostenStep3Abrechnung({
       const mieterNamen = mieterListe
         .map((m) => `${m.vorname || ""} ${m.nachname || ""}`.trim())
         .filter(Boolean);
-      const mieterEmails = mieterListe
-        .map((m) => m.hauptmail)
-        .filter((mail): mail is string => !!mail && mail.includes("@"));
+      const mieterEmails = mailadressenDerMieter(mieterListe);
 
       // Nach Auszug geht die Abrechnung an die Nachsendeadresse, nicht an das Objekt.
       const nachsende = nachsendeAdresseZeilen(vertrag?.neue_anschrift);
@@ -394,6 +408,7 @@ export function NebenkostenStep3Abrechnung({
     kostenProKategorie,
     bezugsgroessen,
     objektAdressZeilen,
+    anteilCent,
   ]);
 
   const mieterAbrechnungen = abrechnungen.filter((a) => !a.isLeerstand);
@@ -438,6 +453,13 @@ export function NebenkostenStep3Abrechnung({
     sperrgruende.push(
       `Personenzahl fehlt bei ${ohnePersonenzahl.length} Vertrag/Verträgen: ` +
         ohnePersonenzahl.map((a) => mieterNamenText(a.mieterNamen)).join(", ")
+    );
+  }
+  // Überschneidende Verträge auf einer Einheit verteilen Kosten zu mehr als 100 % und rechnen die
+  // Vorauszahlung doppelt an (live Seelze: 101,09 % der Flächenkosten). Bis zum 27.10.2026 nur Warnung.
+  if (ueberschneidungen.length > 0) {
+    sperrgruende.push(
+      `${ueberschneidungen.length} Überschneidung(en) von Mietverträgen auf derselben Einheit — bitte Vertragsbeginn oder -ende korrigieren.`
     );
   }
   if (qmSchluesselAktiv && einheitenOhneFlaeche.length > 0) {
@@ -717,12 +739,14 @@ export function NebenkostenStep3Abrechnung({
         },
       });
 
-      if (error) throw new Error(error.message || "E-Mail konnte nicht gesendet werden");
+      if (error) throw new Error(await edgeFehlertext(error, "E-Mail konnte nicht gesendet werden"));
       if (data?.error) throw new Error(data.error);
+      // Gemeldet wird, wohin wirklich versendet wurde (die Function verwirft ungültige Adressen)
+      const empfangen: string[] = Array.isArray(data?.recipients) ? data.recipients : abrechnung.mieterEmails;
 
       toast({
         title: "E-Mail gesendet",
-        description: `Abrechnung wurde an ${abrechnung.mieterEmails.join(", ")} gesendet.`,
+        description: `Abrechnung wurde an ${empfangen.join(", ")} gesendet.`,
       });
 
       // Erst nach dem bestätigten Versand protokollieren — und Fehler dabei
@@ -757,12 +781,29 @@ export function NebenkostenStep3Abrechnung({
     };
   }
 
+  /** Verträge, die für das Abrechnungsjahr schon eine BKA-Forderung haben. */
+  async function vorhandeneBkaForderungen(vertragIds: string[]): Promise<Set<string>> {
+    if (vertragIds.length === 0) return new Set();
+    const { data, error } = await supabase
+      .from("mietforderungen")
+      .select("mietvertrag_id")
+      .eq("typ", "BKA")
+      .eq("sollmonat", `${selectedYear}-12-01`)
+      .in("mietvertrag_id", vertragIds);
+    if (error) throw error;
+    return new Set((data ?? []).map((z) => z.mietvertrag_id as string));
+  }
+
   const createForderungenMutation = useMutation({
     mutationFn: async () => {
-      const relevante = mieterAbrechnungen.filter(
+      const kandidaten = mieterAbrechnungen.filter(
         (a) => Math.abs(a.saldo) > 0.01 && a.mietvertragId
       );
-      if (relevante.length === 0) return { nachzahlungen: 0, guthaben: 0 };
+      // Schon eingetragene nicht noch einmal: Bis zum 27.10.2026 legten „Als Forderung anlegen“ und
+      // „Alle BKA-Salden eintragen“ dieselbe Nachzahlung zweimal an, der Rückstand verdoppelte sich
+      const vorhanden = await vorhandeneBkaForderungen(kandidaten.map((a) => a.mietvertragId!));
+      const relevante = kandidaten.filter((a) => !vorhanden.has(a.mietvertragId!));
+      if (relevante.length === 0) return { nachzahlungen: 0, guthaben: 0, uebersprungen: vorhanden.size };
 
       const { error } = await supabase
         .from("mietforderungen")
@@ -772,6 +813,7 @@ export function NebenkostenStep3Abrechnung({
       return {
         nachzahlungen: relevante.filter((a) => a.saldo > 0).length,
         guthaben: relevante.filter((a) => a.saldo < 0).length,
+        uebersprungen: vorhanden.size,
       };
     },
     onSuccess: (result) => {
@@ -779,9 +821,10 @@ export function NebenkostenStep3Abrechnung({
       const parts: string[] = [];
       if (result.nachzahlungen > 0) parts.push(`${result.nachzahlungen} Nachzahlung(en)`);
       if (result.guthaben > 0) parts.push(`${result.guthaben} Guthaben`);
+      const schon = result.uebersprungen > 0 ? ` ${result.uebersprungen} Vertrag/Verträge hatten für ${selectedYear} schon eine BKA-Forderung und wurden übersprungen.` : "";
       toast({
-        title: "BKA-Positionen eingetragen",
-        description: `${parts.join(" und ")} wurden in die Forderungsübersicht übernommen.`,
+        title: parts.length > 0 ? "BKA-Positionen eingetragen" : "Nichts Neues einzutragen",
+        description: parts.length > 0 ? `${parts.join(" und ")} wurden in die Forderungsübersicht übernommen.${schon}` : schon.trim(),
       });
       queryClient.invalidateQueries({ queryKey: ["mietforderungen"] });
       setForderungenDialogOpen(false);
@@ -793,6 +836,9 @@ export function NebenkostenStep3Abrechnung({
 
   const einzelForderungMutation = useMutation({
     mutationFn: async (abrechnung: MieterAbrechnung) => {
+      if (abrechnung.mietvertragId && (await vorhandeneBkaForderungen([abrechnung.mietvertragId])).size > 0) {
+        throw new Error(`Für ${selectedYear} ist bei diesem Vertrag schon eine BKA-Forderung eingetragen. Bitte in der Vertragsansicht anpassen statt eine zweite anzulegen.`);
+      }
       const { error } = await supabase.from("mietforderungen").insert(bkaForderung(abrechnung));
       if (error) throw error;
       return abrechnung;

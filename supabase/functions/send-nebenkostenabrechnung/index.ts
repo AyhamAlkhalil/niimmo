@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { Buffer } from "node:buffer";
 import nodemailer from "npm:nodemailer@6.9.10";
 
@@ -310,6 +310,7 @@ serve(async (req: Request) => {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unbekannter Fehler';
     console.error('[send-nebenkostenabrechnung]', message);
-    return json({ error: message }, 500, corsHeaders);
+    // Die Meldung des Mailservers bleibt im Protokoll und in der Tabelle mails (27.10.2026)
+    return json({ error: 'Die Abrechnung konnte nicht versendet werden. Einzelheiten stehen im Protokoll der Function.' }, 500, corsHeaders);
   }
 });

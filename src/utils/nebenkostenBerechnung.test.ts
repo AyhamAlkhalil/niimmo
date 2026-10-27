@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  aufCentVerteilen,
   berechneAnteil,
   berechneBezugsgroessen,
   berechneVorauszahlungen,
@@ -518,5 +519,23 @@ describe('nachsendeAdresseZeilen', () => {
   it('liefert für Leerwerte eine leere Liste', () => {
     expect(nachsendeAdresseZeilen(null)).toEqual([]);
     expect(nachsendeAdresseZeilen('   ')).toEqual([]);
+  });
+});
+
+describe('aufCentVerteilen', () => {
+  it('verteilt so, dass die Anteile genau die Gesamtkosten ergeben', () => {
+    // 27.10.2026: 243,00 € Heizkosten wurden einzeln gerundet als 243,02 € verteilt
+    const exakt = [24300 / 3, 24300 / 3, 24300 / 3].map((w) => w + 0); // je 8100
+    expect(aufCentVerteilen(exakt)).toEqual([8100, 8100, 8100]);
+    const krumm = [1000 / 3, 1000 / 3, 1000 / 3];
+    const verteilt = aufCentVerteilen(krumm);
+    expect(verteilt.reduce((a, b) => a + b, 0)).toBe(1000);
+    expect(verteilt).toEqual([334, 333, 333]);
+  });
+
+  it('gibt Restcent an die größten Reste und behält kleine Anteile', () => {
+    expect(aufCentVerteilen([0.6, 99.4])).toEqual([1, 99]);
+    expect(aufCentVerteilen([0, 50.5, 49.5])).toEqual([0, 51, 49]);
+    expect(aufCentVerteilen([Number.NaN, 10])).toEqual([0, 10]);
   });
 });

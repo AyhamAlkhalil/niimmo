@@ -200,11 +200,12 @@ export function bestaetigungsAbsaetze(d: BestaetigungsDaten): string[] {
 export function mailadressenDerMieter(
   mieter: { hauptmail?: string | null; weitere_mails?: string | null }[]
 ): string[] {
+  // Auch die Hauptadresse wird zerlegt und auf Form geprüft: „a@x.de, b@y.de“ in einem Feld ließ
+  // bis zum 27.10.2026 den Versand der Betriebskostenabrechnung scheitern (live zwei Verträge)
   const adressen = new Set<string>();
   for (const m of mieter) {
-    if (m.hauptmail?.includes('@')) adressen.add(m.hauptmail.trim().toLowerCase());
-    for (const weitere of (m.weitere_mails ?? '').split(/[,;\s]+/)) {
-      if (weitere.includes('@')) adressen.add(weitere.trim().toLowerCase());
+    for (const adresse of `${m.hauptmail ?? ''} ${m.weitere_mails ?? ''}`.split(/[,;\s]+/)) {
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adresse)) adressen.add(adresse.toLowerCase());
     }
   }
   return [...adressen];

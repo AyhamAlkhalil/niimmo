@@ -289,3 +289,11 @@ describe('Kündigungsdialog führt mit der Mieterkündigung zur Bestätigung', (
     expect(dialog).toContain('onUploadErfolg?.({ schreibenVom: schreibenVom || null, eingangAm: eingangAm || null })');
   });
 });
+
+describe('mailadressenDerMieter mit zwei Adressen im Hauptfeld', () => {
+  it('zerlegt auch die Hauptadresse und verwirft Unlesbares', () => {
+    // 27.10.2026: „a@x.de, b@y.de“ im Hauptfeld ließ den Versand der BKA scheitern
+    expect(mailadressenDerMieter([{ hauptmail: 'A@x.de, b@y.de', weitere_mails: 'kein, c@z.de' }])).toEqual(['a@x.de', 'b@y.de', 'c@z.de']);
+    expect(mailadressenDerMieter([{ hauptmail: 'nur@', weitere_mails: null }])).toEqual([]);
+  });
+});
