@@ -47,8 +47,13 @@ interface MahnungEmailRequest {
 }
 
 function generateMahnungHtml(data: MahnungEmailRequest): string {
+  // Bei leerem Fristfeld kam null an -- die Mail nannte dann den heutigen Tag als Frist,
+  // das PDF heute + 7 (27.10.2026). Gleiche Vorgabe wie im PDF.
+  const fristTage = Number.isFinite(Number(data.zahlungsfristTage)) && Number(data.zahlungsfristTage) > 0
+    ? Number(data.zahlungsfristTage)
+    : 7;
   const zahlungsfristDatum = new Date();
-  zahlungsfristDatum.setDate(zahlungsfristDatum.getDate() + data.zahlungsfristTage);
+  zahlungsfristDatum.setDate(zahlungsfristDatum.getDate() + fristTage);
   const fristFormatted = zahlungsfristDatum.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -391,29 +396,46 @@ serve(async (req) => {
     // Stufe 3 setzen und die Regel umgehen, dass die Stufe nur durch
     // tatsaechlichen Versand steigt. Sie wird jetzt aus dem gespeicherten
     // Stand abgeleitet.
-    const { data: vertragStand } = await supabase
+    //
+    // Beide Schritte werden geprueft (27.10.2026): Scheiterte das Lesen, galt die alte
+    // Stufe als 0 und ein Vertrag auf Stufe 2 fiel still auf 1; scheiterte das Schreiben,
+    // meldete die Function trotzdem Erfolg und die naechste Mahnung trug dieselbe Stufe.
+    // Die Mail ist an dieser Stelle schon raus -- deshalb kein Fehler (ein Neuversuch
+    // verschickte sie doppelt), sondern eine Warnung, die der Dialog sichtbar anzeigt.
+    let warnung: string | null = null;
+    const { data: vertragStand, error: standFehler } = await supabase
       .from('mietvertrag')
       .select('mahnstufe')
       .eq('id', data.mietvertragId)
       .maybeSingle();
-    const neueMahnstufe = Math.min((Number(vertragStand?.mahnstufe) || 0) + 1, 3);
+    if (standFehler || !vertragStand) {
+      warnung = 'Die Mahnung ist versendet, die Mahnstufe konnte aber nicht gelesen und deshalb nicht erhöht werden. Bitte die Stufe am Vertrag prüfen.';
+      console.error('Mahnstufe nicht lesbar:', standFehler?.message ?? 'Vertrag nicht gefunden');
+    } else {
+      const neueMahnstufe = Math.min((Number(vertragStand.mahnstufe) || 0) + 1, 3);
 
-    console.log('Mahnung versendet:', { mietvertragId: data.mietvertragId, mahnstufe: neueMahnstufe });
-    await supabase.from('system_logs').insert({
-      message: `Mahnung Stufe ${neueMahnstufe} per E-Mail versendet (Mietvertrag ${data.mietvertragId}).`
-    });
+      console.log('Mahnung versendet:', { mietvertragId: data.mietvertragId, mahnstufe: neueMahnstufe });
+      await supabase.from('system_logs').insert({
+        message: `Mahnung Stufe ${neueMahnstufe} per E-Mail versendet (Mietvertrag ${data.mietvertragId}).`
+      });
 
-    await supabase.from('mietvertrag').update({
-      mahnstufe: neueMahnstufe,
-      letzte_mahnung_am: new Date().toISOString(),
-      naechste_mahnung_am: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-    }).eq('id', data.mietvertragId);
+      const { error: stufeFehler } = await supabase.from('mietvertrag').update({
+        mahnstufe: neueMahnstufe,
+        letzte_mahnung_am: new Date().toISOString(),
+        naechste_mahnung_am: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      }).eq('id', data.mietvertragId);
+      if (stufeFehler) {
+        warnung = `Die Mahnung ist versendet, die Mahnstufe wurde aber nicht auf ${neueMahnstufe} erhöht. Bitte die Stufe am Vertrag prüfen.`;
+        console.error('Mahnstufe nicht gespeichert:', stufeFehler.message);
+      }
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
         message: `Mahnung Stufe ${data.mahnstufe} erfolgreich per E-Mail versendet`,
         recipient: data.recipientEmail,
+        warnung,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

@@ -338,7 +338,7 @@ export function MahnungErstellungModal({
       const recipientName = contractData.mieter?.map(m => `${m.vorname} ${m.nachname}`).join(' & ') || 'Mieter';
       const ccEmails = emailCc ? emailCc.split(',').map(e => e.trim()).filter(Boolean) : [];
 
-      const { error } = await supabase.functions.invoke('send-mahnung', {
+      const { data: versand, error } = await supabase.functions.invoke('send-mahnung', {
         body: {
           recipientEmail: emailRecipient,
           recipientName,
@@ -349,7 +349,8 @@ export function MahnungErstellungModal({
           mahngebuehren: parseFloat(mahnkostenGesamt) || 0,
           verzugszinsen: parseFloat(verzugszinsenGesamt) || 0,
           zusaetzlicheKosten: 0,
-          zahlungsfristTage: parseInt(zahlungsfristTage),
+          // Gleiche Vorgabe wie im PDF -- ohne sie nannte die Mail bei leerem Feld „heute“ als Frist
+          zahlungsfristTage: parseInt(zahlungsfristTage) || 7,
           immobilieName: contractData.immobilie_name || 'N/A',
           immobilieAdresse: contractData.immobilie_adresse || 'N/A',
           pdfPath: pdfPath || '',
@@ -358,6 +359,9 @@ export function MahnungErstellungModal({
       });
 
       if (error) throw error;
+      if (versand?.warnung) {
+        toast({ title: "Mahnstufe nicht erhöht", description: versand.warnung, variant: "destructive" });
+      }
 
       // Ab Stufe 3 enthaelt das Schreiben eine fristlose Kuendigung nach
       // §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB. Bis zum 06.09.2026 blieb der
