@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { calculateMietvertragRueckstand, calculateMieteZahlungen } from "@/utils/rueckstandsberechnung";
+import { calculateMietvertragRueckstand, calculateMieteZahlungen, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
 import { useEffect } from "react";
 
 // Lädt alle Seiten einer Supabase-Query (umgeht das serverseitige 1000-Zeilen-Limit)
@@ -180,14 +180,9 @@ export const useRueckstaende = () => {
         const mietvertragZahlungen = alleZahlungen?.filter(z => z.mietvertrag_id === mietvertrag.id) || [];
 
         // RÜCKSTANDSTABELLE: Nur Forderungen berücksichtigen, deren Fälligkeitsdatum (DB) bereits erreicht ist
-        // Dies unterscheidet sich von den Mietvertrag-Details, wo ALLE Forderungen sofort zählen
-        // Hinweis: 'T00:00:00' erzwingt lokale Zeitzone-Interpretation statt UTC (verhindert Off-by-one in CET/CEST)
-        const heute = new Date();
-        heute.setHours(0, 0, 0, 0);
-        const faelligeForderungen = mietvertragForderungen.filter(f => {
-          if (!f.faelligkeitsdatum) return false;
-          return new Date(f.faelligkeitsdatum + 'T00:00:00') <= heute;
-        });
+        // Dies unterscheidet sich von den Mietvertrag-Details, wo ALLE Forderungen sofort zählen.
+        // Dieselbe Regel gilt für den Mahnbetrag (MietvertragDetailsModal).
+        const faelligeForderungen = nurFaelligeForderungen(mietvertragForderungen);
 
         const { gesamtForderungen, gesamtZahlungen, rueckstand } = calculateMietvertragRueckstand(
           mietvertrag,

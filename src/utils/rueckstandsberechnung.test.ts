@@ -3,6 +3,7 @@ import {
   calculateMietvertragRueckstand,
   calculateMieteZahlungen,
   calculateRuecklastschriftGebuehren,
+  nurFaelligeForderungen,
 } from './rueckstandsberechnung';
 
 // ---------------------------------------------------------------------------
@@ -331,5 +332,28 @@ describe('calculateRuecklastschriftGebuehren', () => {
       { id: 'z3', kategorie: 'Miete', ruecklastschrift_gebuehr: 100 }, // should not count
     ];
     expect(calculateRuecklastschriftGebuehren(zahlungen)).toBe(35);
+  });
+});
+
+describe('nurFaelligeForderungen', () => {
+  const september = { id: 's', sollmonat: '2026-09-01', sollbetrag: 800, faelligkeitsdatum: '2026-09-08' };
+  const oktober = { id: 'o', sollmonat: '2026-10-01', sollbetrag: 800, faelligkeitsdatum: '2026-10-08' };
+  const ohneDatum = { id: 'x', sollmonat: '2026-08-01', sollbetrag: 50, faelligkeitsdatum: null };
+
+  it('zählt die laufende Monatsmiete erst ab ihrer Fälligkeit', () => {
+    // 27.10.2026: Die Mahnung zählte am 3.10. den Oktober schon mit — 1.600 statt 800 €
+    expect(nurFaelligeForderungen([september, oktober], new Date(2026, 9, 3)).map((f) => f.id)).toEqual(['s']);
+    expect(nurFaelligeForderungen([september, oktober], new Date(2026, 9, 7, 23, 59)).map((f) => f.id)).toEqual(['s']);
+    expect(nurFaelligeForderungen([september, oktober], new Date(2026, 9, 8, 0, 1)).map((f) => f.id)).toEqual(['s', 'o']);
+  });
+
+  it('lässt Forderungen ohne Fälligkeitsdatum weg', () => {
+    expect(nurFaelligeForderungen([ohneDatum], new Date(2026, 9, 27))).toEqual([]);
+  });
+
+  it('ergibt mit der Rückstandsberechnung den Mahnbetrag der Rückstandsliste', () => {
+    const zahlungen = [{ id: 'z', betrag: 0, buchungsdatum: '2026-10-02', kategorie: 'Miete', zugeordneter_monat: '2026-10' }];
+    const faellig = nurFaelligeForderungen([september, oktober], new Date(2026, 9, 3));
+    expect(calculateMietvertragRueckstand(mockMietvertrag, faellig, zahlungen).rueckstand).toBe(800);
   });
 });

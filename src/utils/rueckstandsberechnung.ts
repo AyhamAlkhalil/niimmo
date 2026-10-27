@@ -1,4 +1,23 @@
 // Shared calculation logic from MietvertragDetailsModal
+import { format } from 'date-fns';
+
+/**
+ * Forderungen, deren Fälligkeit (faelligkeitsdatum, DB) am Stichtag erreicht ist.
+ *
+ * Die Rückstandsliste rechnet nur mit diesen, die Mahnung bekam bis zum 27.10.2026 alle:
+ * Vom 1. bis 7. jedes Monats (Fälligkeit ist der 8.) war der Mahnbetrag um eine volle
+ * Monatsmiete zu hoch, und ab Stufe 3 begründete die aufgerundete Monatszahl im Schreiben
+ * die fristlose Kündigung. Ohne Fälligkeitsdatum zählt eine Forderung nicht (wie bisher
+ * in der Rückstandsliste).
+ */
+export function nurFaelligeForderungen<T extends { faelligkeitsdatum?: string | null }>(
+  forderungen: readonly T[],
+  stichtag: Date = new Date()
+): T[] {
+  const heute = format(stichtag, 'yyyy-MM-dd');
+  return forderungen.filter((f) => !!f.faelligkeitsdatum && f.faelligkeitsdatum.slice(0, 10) <= heute);
+}
+
 export interface RueckstandsBerechnung {
   gesamtForderungen: number;
   gesamtZahlungen: number;
