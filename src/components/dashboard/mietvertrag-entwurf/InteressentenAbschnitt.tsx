@@ -19,7 +19,7 @@ import { Switch } from '@/components/ui/switch';
 import type { MieterAbgleich } from '@/hooks/useMietvertragEntwurf';
 import {
   findeVorhandeneMieter,
-  istGleichePerson,
+  gleichePersonGrad,
   istLeerePerson,
   leerePerson,
   mieterBezug,
@@ -155,8 +155,9 @@ export function InteressentenAbschnitt({
         const kandidaten = p.mieterId ? [] : findeVorhandeneMieter(p, bestand).filter(m => !gewaehlt.has(m.id));
         // … aber als Dublette gemeldet: Bestandsmieter gewählt, danach seine Selbstauskunft geladen
         const doppeltMit = p.rolle === 'mitmieter'
-          ? personen.findIndex((q, j) => j < index && q.rolle === 'mitmieter' && istGleichePerson(p, q))
+          ? personen.findIndex((q, j) => j < index && q.rolle === 'mitmieter' && gleichePersonGrad(p, q) !== null)
           : -1;
+        const sicherDoppelt = doppeltMit >= 0 && gleichePersonGrad(p, personen[doppeltMit]) === 'sicher';
         return (
           <div key={p.schluessel} className="space-y-3 rounded-lg border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -202,8 +203,9 @@ export function InteressentenAbschnitt({
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  Dieselbe Person steht schon als Person {doppeltMit + 1} im Vertrag. Bitte eine der beiden Karten
-                  entfernen — sonst würde sie doppelt angelegt und doppelt gezählt.
+                  {sicherDoppelt
+                    ? `Dieselbe Person steht schon als Person ${doppeltMit + 1} im Vertrag. Bitte eine der beiden Karten entfernen — sonst würde sie doppelt angelegt und doppelt gezählt.`
+                    : `Gleicher Name wie Person ${doppeltMit + 1}. Ist es dieselbe Person, bitte eine Karte entfernen — sonst würde sie doppelt angelegt und doppelt gezählt.`}
                 </AlertDescription>
               </Alert>
             )}

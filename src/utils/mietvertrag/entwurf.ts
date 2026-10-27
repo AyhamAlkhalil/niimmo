@@ -668,19 +668,33 @@ export function findeVorhandeneMieter<M extends Pick<Tables<'mieter'>, 'id' | 'v
 }
 
 /**
- * Beschreiben zwei Personenkarten dieselbe Person? Gleiche Regeln wie die Dublettensuche im
- * Bestand. Zwei Karten desselben Bestandsmieters entdoppelt aktivierungsDaten() selbst.
+ * Beschreiben zwei Personenkarten dieselbe Person?
  *
  * Wer erst einen Bestandsmieter wählte und danach dessen Selbstauskunft hochlud, bekam eine
  * zweite, neue Karte derselben Person ohne jeden Hinweis — die Suche schloss schon gewählte
  * Mieter aus. Beim Aktivieren wurde die Person neu angelegt, zweimal verknüpft und doppelt
  * in die Personenzahl gezählt (27.10.2026).
+ *
+ * „sicher“ (sperrt das Aktivieren): gleicher Vor- und Nachname und dazu gleiches Geburtsdatum
+ * oder — wenn eines fehlt — gleiche Mail. „möglich“ (nur Hinweis): gleicher Name, sonst nichts,
+ * was widerspricht (Vater und Sohn ohne Geburtsdatum). Eine gemeinsame Mail allein zählt nicht:
+ * Paare tragen oft dieselbe Familienadresse ein. Zwei Karten desselben Bestandsmieters
+ * entdoppelt aktivierungsDaten() selbst.
  */
+export function gleichePersonGrad(a: EntwurfPerson, b: EntwurfPerson): 'sicher' | 'moeglich' | null {
+  if (a.mieterId && b.mieterId) return null;
+  if (!gleicherName(a.vorname, b.vorname) || !gleicherName(a.nachname, b.nachname)) return null;
+  const gebA = a.geburtsdatum?.trim() || null;
+  const gebB = b.geburtsdatum?.trim() || null;
+  if (gebA && gebB) return gebA === gebB ? 'sicher' : null;
+  const mailA = a.email?.trim().toLowerCase() || null;
+  const mailB = b.email?.trim().toLowerCase() || null;
+  if (mailA && mailB && mailA === mailB) return 'sicher';
+  return 'moeglich';
+}
+
 export function istGleichePerson(a: EntwurfPerson, b: EntwurfPerson): boolean {
-  if (a.mieterId && b.mieterId) return false;
-  return findeVorhandeneMieter(a, [
-    { id: '', vorname: b.vorname, nachname: b.nachname, geburtsdatum: b.geburtsdatum, hauptmail: b.email },
-  ]).length > 0;
+  return gleichePersonGrad(a, b) === 'sicher';
 }
 
 /** Was eine Personenkarte von einem vorhandenen Mieter übernimmt. */
@@ -735,12 +749,14 @@ export function mitBestandsmieter(p: EntwurfPerson, m: BestandsMieter): EntwurfP
     hausnummer: p.hausnummer ?? angabe(m.hausnummer),
     plz: p.plz ?? angabe(m.plz),
     ort: p.ort ?? angabe(m.ort),
+    // Genau wie mieterZeile() normalisiert — sonst gälten unveränderte Felder als geändert
+    // (bei Firmen ist die Anrede immer „Firma“, es gibt kein Geburtsdatum; Vertretung nur bei Firmen)
     bestandStand: {
-      anrede: m.anrede ?? null,
+      anrede: m.ist_unternehmen ? 'Firma' : (m.anrede ?? null),
       hauptmail: m.hauptmail?.trim() || null,
       telnr: m.telnr?.trim() || null,
-      geburtsdatum: m.geburtsdatum ?? null,
-      vertreten_durch: m.vertreten_durch?.trim() || null,
+      geburtsdatum: m.ist_unternehmen ? null : m.geburtsdatum?.trim() || null,
+      vertreten_durch: m.ist_unternehmen ? m.vertreten_durch?.trim() || null : null,
       strasse: m.strasse?.trim() || null,
       hausnummer: m.hausnummer?.trim() || null,
       plz: m.plz?.trim() || null,
@@ -898,7 +914,8 @@ export function mieterZeile(p: EntwurfPerson): TablesInsert<'mieter'> {
     anrede: p.istUnternehmen ? 'Firma' : p.anrede,
     hauptmail: p.email?.trim() || null,
     telnr: p.telefon?.trim() || null,
-    geburtsdatum: p.istUnternehmen ? null : p.geburtsdatum,
+    // '' in einer DATE-Spalte ließe Anlegen und Aktivieren scheitern
+    geburtsdatum: p.istUnternehmen ? null : p.geburtsdatum?.trim() || null,
     ist_unternehmen: p.istUnternehmen,
     firmenname: p.istUnternehmen ? p.firmenname?.trim() || null : null,
     vertreten_durch: p.istUnternehmen ? p.vertretenDurch?.trim() || null : null,

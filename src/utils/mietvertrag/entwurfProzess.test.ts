@@ -13,6 +13,7 @@ import {
   kuendigungsverzichtNachMonaten,
   leerePerson,
   mitBestandsmieter,
+  gleichePersonGrad,
   mieterFuerVertrag,
   mitMietbeginn,
   mitPersonen,
@@ -163,6 +164,19 @@ describe('Datum und Kündigungsverzicht', () => {
     // Gleicher Nachname allein ist keine Dublette, anderes Geburtsdatum auch nicht
     const namensvetter = { ...ausSelbstauskunft, geburtsdatum: '1990-05-05' };
     expect(entwurfLuecken(daten, [bestand, namensvetter, partnerin]).some(l => /doppelt/.test(l.text))).toBe(false);
+  });
+
+  it('sperrt kein Paar mit gemeinsamer Familienmail und keinen gleichen Namen ohne weiteren Beleg', () => {
+    const { daten } = entwurf();
+    const er = { ...leerePerson(), vorname: 'Max', nachname: 'Muster', email: 'familie@example.de' };
+    const sie = { ...leerePerson(), vorname: 'Eva', nachname: 'Muster', email: 'familie@example.de' };
+    expect(entwurfLuecken(daten, [er, sie]).some(l => /doppelt/.test(l.text))).toBe(false);
+    // Vater und Sohn, beide ohne Geburtsdatum und Mail: nur ein Hinweis an der Karte, keine Sperre
+    const sohn = { ...leerePerson(), vorname: 'Max', nachname: 'Muster' };
+    expect(entwurfLuecken(daten, [{ ...er, email: null }, sohn]).some(l => /doppelt/.test(l.text))).toBe(false);
+    expect(gleichePersonGrad({ ...er, email: null }, sohn)).toBe('moeglich');
+    // gleicher Name und gleiche Mail sperrt
+    expect(gleichePersonGrad(er, { ...sohn, email: ' Familie@example.de ' })).toBe('sicher');
   });
 
   it('sperrt eine Befristung ohne Enddatum und einen Vertrag ohne Personenzahl', () => {

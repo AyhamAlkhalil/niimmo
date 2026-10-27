@@ -605,6 +605,21 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
     expect(z.verknuepfungen[0].stammdaten).toEqual({});
   });
 
+  it('hält eine unveränderte Firmenkarte für unverändert', () => {
+    // QA 27.10.2026: Anrede „Firma“ und fehlendes Geburtsdatum galten sonst als Änderung
+    const firma = { ...bestandsMieter, ist_unternehmen: true, firmenname: 'Muster GmbH', anrede: null, geburtsdatum: '1970-01-01', vertreten_durch: ' Max Muster ' };
+    const z = aktivierungsDaten({
+      id: 'v1',
+      einheitId: 'e1',
+      daten: baueEntwurf(grundlagen()).daten,
+      herkunft: {},
+      vorvertragId: null,
+      mitVorlage: true,
+      personen: [mitBestandsmieter(leerePerson(), firma)],
+    });
+    expect(z.verknuepfungen[0].stammdaten).toEqual({});
+  });
+
   it('gibt einer Karte ohne gemerkten Bestand weiter alle Felder mit', () => {
     const { bestandStand: _weg, ...alt } = mitBestandsmieter(leerePerson(), bestandsMieter);
     const z = aktivierungsDaten({
