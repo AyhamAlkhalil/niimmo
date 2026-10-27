@@ -161,7 +161,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, vertrag.start_datum, ende, vertragId))) return;
         }
         const isPast = istVergangenerTag(newEndForDb);
-        const neuerStatus = statusNachMietende(vertrag.status, newEndForDb, 'kuendigungsdatum' in felder ? felder.kuendigungsdatum : vertrag.kuendigungsdatum);
+        const neuerStatus = statusNachMietende(vertrag.status, getVertragsende(vertrag), newEndForDb, 'kuendigungsdatum' in felder ? felder.kuendigungsdatum : vertrag.kuendigungsdatum);
         const { error } = await supabase.from('mietvertrag').update({ ...felder, ...(neuerStatus ? { status: neuerStatus } : {}) }).eq('id', vertragId);
         if (error) throw error;
         toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
@@ -483,6 +483,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
             if (endDatumChanged && !('fehler' in endeFelder)) Object.assign(mietvertragUpdates, endeFelder);
             const neuerStatus = statusNachMietende(
               vertrag?.status,
+              getVertragsende(vertrag),
               endForDb,
               !('fehler' in endeFelder) && 'kuendigungsdatum' in endeFelder ? endeFelder.kuendigungsdatum : vertrag?.kuendigungsdatum
             );

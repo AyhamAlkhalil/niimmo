@@ -158,13 +158,17 @@ export const mietendeFelder = (
  * Kuendigungsdatum, sonst aktiv); sonst bleibt der Status. Bis zum 27.10.2026 kam ein beendeter
  * Vertrag nie zurueck: Wer das Mietende versehentlich auf 2025 statt 2026 setzte, behielt nach der
  * Korrektur „beendet“ -- keine Sollstellung, Leerstand, fehlte in allen Summen.
+ * Nur wenn sich das Ende wirklich ändert: Sonst holte schon das Öffnen und Speichern des Felds einen
+ * beendeten Vertrag ohne Ende (Übergabe, manueller Abschluss) zurück in Summen und Sollstellung.
  */
 export const statusNachMietende = (
   bisherigerStatus: string | null | undefined,
+  bisherigesEnde: string | null | undefined,
   neuesEnde: string | null,
   kuendigungsdatum: string | null | undefined,
   heute: Date = new Date()
 ): "beendet" | "gekuendigt" | "aktiv" | undefined => {
+  if ((bisherigesEnde?.slice(0, 10) || null) === (neuesEnde?.slice(0, 10) || null)) return undefined;
   if (istVergangenerTag(neuesEnde, heute)) return "beendet";
   if (bisherigerStatus === "beendet") return kuendigungsdatum ? "gekuendigt" : "aktiv";
   return undefined;

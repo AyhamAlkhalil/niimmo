@@ -270,15 +270,22 @@ describe("statusNachMietende", () => {
   const heute = new Date(2026, 9, 27, 10, 0);
   it("lässt einen beendeten Vertrag nach Korrektur des Mietendes wieder laufen", () => {
     // 27.10.2026: Ende versehentlich 2025, korrigiert auf 2026 — der Vertrag blieb beendet
-    expect(statusNachMietende("beendet", "2026-12-31", "2026-12-31", heute)).toBe("gekuendigt");
-    expect(statusNachMietende("beendet", "2027-06-30", null, heute)).toBe("aktiv");
-    expect(statusNachMietende("beendet", null, null, heute)).toBe("aktiv");
+    expect(statusNachMietende("beendet", "2025-12-31", "2026-12-31", "2026-12-31", heute)).toBe("gekuendigt");
+    expect(statusNachMietende("beendet", "2025-06-30", "2027-06-30", null, heute)).toBe("aktiv");
+    expect(statusNachMietende("beendet", "2025-06-30", null, null, heute)).toBe("aktiv");
   });
 
   it("beendet bei vergangenem Ende und lässt laufende Verträge sonst unberührt", () => {
-    expect(statusNachMietende("aktiv", "2026-10-26", null, heute)).toBe("beendet");
-    expect(statusNachMietende("aktiv", "2026-10-27", null, heute)).toBeUndefined();
-    expect(statusNachMietende("gekuendigt", "2026-12-31", "2026-12-31", heute)).toBeUndefined();
+    expect(statusNachMietende("aktiv", null, "2026-10-26", null, heute)).toBe("beendet");
+    expect(statusNachMietende("aktiv", null, "2026-10-27", null, heute)).toBeUndefined();
+    expect(statusNachMietende("gekuendigt", null, "2026-12-31", "2026-12-31", heute)).toBeUndefined();
+  });
+
+  it("ändert nichts, wenn das Ende unverändert gespeichert wird", () => {
+    // 27.10.2026 (Review): Öffnen und Speichern des Felds holte einen beendeten Vertrag ohne Ende zurück
+    expect(statusNachMietende("beendet", null, null, null, heute)).toBeUndefined();
+    expect(statusNachMietende("beendet", "2027-06-30", "2027-06-30", null, heute)).toBeUndefined();
+    expect(statusNachMietende("beendet", "2027-06-30T00:00:00", "2027-06-30", null, heute)).toBeUndefined();
   });
 });
 
