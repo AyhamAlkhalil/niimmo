@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { geaenderteKaution, kautionFeldBezeichnung, leseKautionsbetrag } from "./vertragKaution";
 
 describe("leseKautionsbetrag", () => {
+  it("liefert für -0 eine 0 und für übergroße Ziffernfolgen keinen Betrag", () => {
+    // QA 27.10.2026
+    expect(Object.is(leseKautionsbetrag(-0), 0)).toBe(true);
+    expect(leseKautionsbetrag("9".repeat(400))).toBeUndefined();
+  });
+
   it("liest leer als null, nicht als 0", () => {
     expect(leseKautionsbetrag(null)).toBeNull();
     expect(leseKautionsbetrag(undefined)).toBeNull();

@@ -146,5 +146,7 @@ export const calculateRuecklastschriftGebuehren = (zahlungen: any[]): number => 
 export function leseForderungsbetrag(text: string): number | null {
   const roh = text.trim().replace(/^(-?\d+),(\d*)$/, '$1.$2');
   if (!/^-?(\d+\.?\d*|\.\d+)$/.test(roh)) return null;
-  return Math.round(Number(roh) * 100) / 100;
+  const betrag = Math.round(Number(roh) * 100) / 100;
+  if (!Number.isFinite(betrag)) return null;
+  return betrag === 0 ? 0 : betrag; // kein „-0,00“
 }

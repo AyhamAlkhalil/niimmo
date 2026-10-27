@@ -31,11 +31,14 @@ export const kautionFeldBezeichnung = (feld: KautionFeld): string =>
  */
 export function leseKautionsbetrag(wert: unknown): number | null | undefined {
   if (wert === null || wert === undefined) return null;
-  if (typeof wert === "number") return Number.isFinite(wert) && wert >= 0 ? wert : undefined;
+  // -0 wird 0; eine Ziffernfolge, die als Zahl unendlich wird, ist kein Betrag (QA 27.10.2026)
+  if (typeof wert === "number") return Number.isFinite(wert) && wert >= 0 ? wert + 0 : undefined;
   if (typeof wert === "string") {
     const text = wert.trim().replace(/^(\d+),(\d*)$/, "$1.$2");
     if (!text) return null;
-    return /^(\d+\.?\d*|\.\d+)$/.test(text) ? Number(text) : undefined;
+    if (!/^(\d+\.?\d*|\.\d+)$/.test(text)) return undefined;
+    const zahl = Number(text);
+    return Number.isFinite(zahl) ? zahl : undefined;
   }
   return undefined;
 }

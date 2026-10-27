@@ -376,6 +376,12 @@ describe('leseForderungsbetrag (Forderung bearbeiten)', () => {
     expect(leseForderungsbetrag('1.000,00')).toBeNull();
   });
 
+  it('liefert für -0 eine 0 und für übergroße Ziffernfolgen nichts', () => {
+    // QA 27.10.2026
+    expect(Object.is(leseForderungsbetrag('-0'), 0)).toBe(true);
+    expect(leseForderungsbetrag('9'.repeat(400))).toBeNull();
+  });
+
   it('wird von der Vertragsansicht benutzt', () => {
     const quelle = readFileSync('src/components/dashboard/mietvertrag-details/MietvertragTimelineView.tsx', 'utf-8');
     expect(quelle).not.toMatch(/sollbetrag = parseFloat\(newValue\) \|\| 0/);
