@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AlertTriangle, Bot, Building2, Euro, FileText, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,56 +34,7 @@ import {
   vertragsIdsMitIban,
 } from "@/utils/zahlungenUebernahme";
 import { alleSeiten } from "@/utils/supabaseSeiten";
-
-/**
- * Robuster Betragsparser für deutsche und englische Formate:
- * "1.250,00" → 1250.00  (DE mit Tausender)
- * "1,250.00" → 1250.00  (EN mit Tausender)
- * "1250,50"  → 1250.50  (DE ohne Tausender)
- * "5000 00"  → 5000.00  (Leerzeichen als Dezimal)
- * "-1.250,00"→ -1250.00 (Negativ vorne)
- * "1.250,00-"→ -1250.00 (Negativ hinten)
- */
-function parseAmountRobust(raw: string | number): number {
-  if (typeof raw === "number") return raw;
-  if (!raw || typeof raw !== "string") return 0;
-
-  let s = raw.trim();
-
-  // Vorzeichen erkennen (vorne oder hinten)
-  let negative = false;
-  if (s.startsWith("-")) { negative = true; s = s.substring(1).trim(); }
-  else if (s.endsWith("-")) { negative = true; s = s.slice(0, -1).trim(); }
-
-  // Leerzeichen als Dezimaltrenner: "5000 00" → "5000.00"
-  const spaceDecimalMatch = s.match(/^(\d+)\s(\d{2})$/);
-  if (spaceDecimalMatch) {
-    const val = parseFloat(`${spaceDecimalMatch[1]}.${spaceDecimalMatch[2]}`);
-    return negative ? -val : val;
-  }
-
-  // Alle Leerzeichen entfernen
-  s = s.replace(/\s/g, "");
-
-  // Bestimme ob Komma oder Punkt der Dezimaltrenner ist
-  const lastComma = s.lastIndexOf(",");
-  const lastDot = s.lastIndexOf(".");
-
-  if (lastComma > lastDot) {
-    // Komma ist Dezimaltrenner (DE): "1.250,00"
-    s = s.replace(/\./g, "").replace(",", ".");
-  } else if (lastDot > lastComma) {
-    // Punkt ist Dezimaltrenner (EN): "1,250.00"
-    s = s.replace(/,/g, "");
-  } else {
-    // Nur eines vorhanden
-    s = s.replace(",", ".");
-  }
-
-  const val = parseFloat(s);
-  if (isNaN(val)) return 0;
-  return negative ? -val : val;
-}
+import { kontoauszugLesen, textAusCsvDatei, type CsvZahlung } from "@/utils/kontoauszugCsv";
 
 interface PaymentManagementProps {
   onBack: () => void;
@@ -112,16 +63,6 @@ interface DuplicatePayment {
   verwendungszweck: string;
   empfaengername?: string;
   existingId: string;
-}
-
-/** Eine Zeile aus der CSV, so wie sie an process-payments geht. */
-interface CsvZahlung {
-  buchungsdatum: string;
-  wertstellungsdatum?: string;
-  betrag: number;
-  iban: string;
-  verwendungszweck: string;
-  empfaengername: string;
 }
 
 /** Rohform der Zahlungsabfrage mit den eingebetteten Bezügen. */
@@ -329,49 +270,13 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     }
   };
 
+  // Einlesen in utils/kontoauszugCsv.ts (RFC 4180, Kodierung, Betrag, Datum); nicht lesbare Zeilen
+  // werden gezählt und gemeldet statt still verworfen oder verschoben übernommen (27.10.2026)
+  const uebersprungenRef = useRef(0);
   const parseCsvToPayments = async (file: File): Promise<CsvZahlung[]> => {
-    const text = await file.text();
-    const lines = text.split('\n').filter(line => line.trim());
-
-    if (lines.length < 2) return [];
-
-    const headers = lines[0].split(';').map(h => h.trim().replace(/"/g, ''));
-    const payments: CsvZahlung[] = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(';').map(v => v.trim().replace(/"/g, ''));
-      if (values.length < headers.length) continue;
-
-      const row: Record<string, string> = {};
-      headers.forEach((header, idx) => {
-        row[header] = values[idx] || '';
-      });
-
-      const buchungsdatumRaw = row["Buchungstag"] || row["Buchungsdatum"] || row["Datum"];
-      const wertstellungsdatumRaw = row["Wertstellung"] || row["Wertstellungstag"] || row["Valuta"] || row["Valutadatum"];
-      const betrag = row["Betrag"] || row["Umsatz"];
-      const iban = row["Kontonummer/IBAN"] || row["IBAN des Absenders"] || row["IBAN"] || row["Auftraggeber-Konto"] || row["Auftragskonto"];
-      const verwendungszweck = row["Verwendungszweck"] || row["Buchungstext"];
-      const empfaengername = row["Empfaenger"] || row["Beguenstigter/Zahlungspflichtiger"] || row["Name"] || row["Empfänger"] || row["Begünstigter/Zahlungspflichtiger"] || row["Auftraggeber/Begünstigter"] || row["Beguenstigter"] || row["Begünstigter"] || row["AbweichenderEmpfaenger"] || row["Absender"] || row["Auftraggeber"] || row["Zahlungspflichtiger"] || row["Name des Absenders"] || row["Absender/Empfänger"];
-
-      if (!buchungsdatumRaw || !betrag) continue;
-
-      const toIsoDate = (d: string) => {
-        if (!d) return d;
-        if (d.includes('.')) {
-          const [day, month, year] = d.split('.');
-          return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-        }
-        return d;
-      };
-
-      const buchungsdatum = toIsoDate(buchungsdatumRaw);
-      const wertstellungsdatum = wertstellungsdatumRaw ? toIsoDate(wertstellungsdatumRaw) : undefined;
-      const betragNum = parseAmountRobust(betrag);
-
-      payments.push({ buchungsdatum, wertstellungsdatum, betrag: betragNum, iban, verwendungszweck, empfaengername });
-    }
-    return payments;
+    const { zahlungen, uebersprungen } = kontoauszugLesen(textAusCsvDatei(await file.arrayBuffer()));
+    uebersprungenRef.current = uebersprungen;
+    return zahlungen;
   };
 
   const enrichResults = async (results: Zuordnungsvorschlag[]): Promise<Zuordnungsvorschlag[]> => {
@@ -424,7 +329,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
       toast({
         title: "CSV wird verarbeitet...",
-        description: `${payments.length} Zahlungen werden analysiert.`,
+        description: `${payments.length} Zahlungen werden analysiert.${uebersprungenRef.current > 0 ? ` ${uebersprungenRef.current} Zeile(n) der Datei waren nicht lesbar und wurden übersprungen.` : ''}`,
         duration: 60000 // Keep visible during processing
       });
 
@@ -447,7 +352,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
       toast({
         title: "CSV verarbeitet",
-        description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.`,
+        description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.${uebersprungenRef.current > 0 ? ` Achtung: ${uebersprungenRef.current} Zeile(n) der Datei waren nicht lesbar und fehlen.` : ''}`,
         duration: 4000
       });
 
