@@ -208,8 +208,10 @@ export const fristloseKuendigungFelder = (
   // Endet der Vertrag ohnehin frueher (ordentliche Kuendigung, Befristung), bleibt es dabei:
   // Bis zum 27.10.2026 schob Stufe 3 ein Ende zum 31.10. auf den 10.11., und die Sollstellung
   // legte eine volle Novembermiete an.
+  // Ein schon vergangenes Ende zählt nicht: Das Schreiben nannte sonst eine abgelaufene Räumungsfrist
   const frueher = bestehendesEnde?.slice(0, 10);
-  const tag = frueher && frueher < raeumung ? frueher : raeumung;
+  const heute = alsIsoTag(basis);
+  const tag = frueher && frueher >= heute && frueher < raeumung ? frueher : raeumung;
   return { status: "gekuendigt", kuendigungsdatum: tag, ende_datum: tag };
 };
 

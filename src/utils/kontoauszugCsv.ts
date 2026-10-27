@@ -52,7 +52,9 @@ export function zerlegeCsv(text: string, trenner = ';'): string[][] {
       } else {
         feld += z;
       }
-    } else if (z === '"' && amFeldanfang) {
+    } else if (z === '"' && (amFeldanfang || feld.trim() === '')) {
+      // Leerzeichen vor dem öffnenden Anführungszeichen („a; "x;y"“) gehören nicht zum Feld
+      feld = '';
       inAnfuehrung = true;
       amFeldanfang = false;
     } else if (z === trenner) {
@@ -157,7 +159,14 @@ const SPALTEN_IBAN = ['Kontonummer/IBAN', 'IBAN des Absenders', 'IBAN', 'IBAN Za
 
 /** Liest die Buchungen eines Kontoauszugs; `uebersprungen` zählt nicht lesbare Zeilen. */
 export function kontoauszugLesen(text: string): { zahlungen: CsvZahlung[]; uebersprungen: number } {
-  const zeilen = zerlegeCsv(text);
+  const alleZeilen = zerlegeCsv(text);
+  // DKB und ING stellen Kontodaten und Zeitraum vor die Kopfzeile: Kopf ist die erste Zeile mit einer
+  // Datums- und einer Betragsspalte, sonst die erste Zeile
+  const kopfIndex = Math.max(0, alleZeilen.findIndex((z) => {
+    const namen = z.map((f) => f.trim());
+    return SPALTEN_BUCHUNGSTAG.some((n) => namen.includes(n)) && SPALTEN_BETRAG.some((n) => namen.includes(n));
+  }));
+  const zeilen = alleZeilen.slice(kopfIndex);
   if (zeilen.length < 2) return { zahlungen: [], uebersprungen: 0 };
   const kopf = zeilen[0].map((h) => h.trim());
   // Ein Semikolon am Ende der Kopfzeile ergibt eine leere Spalte, die den Datenzeilen fehlt

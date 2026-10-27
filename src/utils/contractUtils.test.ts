@@ -264,6 +264,11 @@ describe("fristloseKuendigungFelder mit bestehendem Ende", () => {
     expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2027-03-31").ende_datum).toBe("2026-11-10");
     expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), null).kuendigungsdatum).toBe("2026-11-10");
   });
+
+  it("nennt keine schon abgelaufene Räumungsfrist, wenn das bestehende Ende vergangen ist", () => {
+    expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2026-09-15").ende_datum).toBe("2026-11-10");
+    expect(fristloseKuendigungFelder(14, new Date(2026, 9, 27), "2026-10-27").ende_datum).toBe("2026-10-27");
+  });
 });
 
 describe("statusNachMietende", () => {

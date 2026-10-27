@@ -19,6 +19,10 @@ describe('zerlegeCsv', () => {
       ['d', 'e', 'f'],
     ]);
   });
+
+  it('öffnet ein Anführungszeichen auch nach Leerzeichen am Feldanfang', () => {
+    expect(zerlegeCsv('a; "x;y";c\n')).toEqual([['a', 'x;y', 'c']]);
+  });
 });
 
 describe('kontoauszugLesen', () => {
@@ -52,6 +56,11 @@ describe('kontoauszugLesen', () => {
     expect(dkb.zahlungen[0]).toMatchObject({ buchungsdatum: '2026-10-01', empfaengername: 'Anna Beispiel', betrag: 500 });
     const ing = kontoauszugLesen('Buchung;Wertstellungsdatum;Auftraggeber/Empfänger;Buchungstext;Verwendungszweck;Betrag\n01.10.2026;01.10.2026;Anna Beispiel;Gutschrift;Miete;500,00\n');
     expect(ing.zahlungen[0]).toMatchObject({ buchungsdatum: '2026-10-01', empfaengername: 'Anna Beispiel', betrag: 500 });
+  });
+
+  it('überspringt Vorspannzeilen vor der Kopfzeile', () => {
+    const text = 'Kontonummer:;DE00111122223333444455\nZeitraum:;01.10.2026 - 31.10.2026\n\n' + KOPF + '\n02.10.2026;;Miete;DE00;10,00;X\n';
+    expect(kontoauszugLesen(text)).toMatchObject({ uebersprungen: 0, zahlungen: [{ buchungsdatum: '2026-10-02', betrag: 10 }] });
   });
 
   it('liest Datenzeilen, wenn nur die Kopfzeile ein Semikolon am Ende hat', () => {
