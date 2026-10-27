@@ -5,6 +5,7 @@ import {
   Korrekturen,
   VertragOption,
   Zuordnungsvorschlag,
+  abgewaehlteVorschlaege,
   effektiveImmobilieId,
   effektiveVertragId,
   istManuellGeaendert,
@@ -42,6 +43,32 @@ describe('vorschlagsSchluessel', () => {
     const v = vorschlag({ buchungsdatum: '2026-09-01', betrag: 850, iban: 'DE00', verwendungszweck: 'x'.repeat(80) });
     expect(vorschlagsSchluessel(v)).toBe(`2026-09-01_850_DE00_${'x'.repeat(50)}`);
     expect(vorschlagsSchluessel(vorschlag({ iban: '', verwendungszweck: '' }))).toBe('2026-09-01_850__');
+  });
+});
+
+describe('abgewaehlteVorschlaege', () => {
+  // 27.10.2026: Zwei Buchungen mit gleichem Schlüssel — die abgewählte ging beim Übernehmen verloren
+  const gleicherAnfang = 'Miete Oktober 2026 Wohnung Musterstrasse 12 Erdgeschoss ';
+  const a = vorschlag({ mietvertrag_id: null, mieter_name: 'A', verwendungszweck: `${gleicherAnfang}links` });
+  const b = vorschlag({ mietvertrag_id: 'mv-b', mieter_name: 'B', verwendungszweck: `${gleicherAnfang}rechts` });
+
+  it('bestimmt die abgewählten Zeilen über die Position, nicht über den Schlüssel', () => {
+    expect(vorschlagsSchluessel(a)).toBe(vorschlagsSchluessel(b));
+    const abgewaehlt = abgewaehlteVorschlaege([a, b], new Set([1]));
+    expect(abgewaehlt).toHaveLength(1);
+    expect(abgewaehlt[0].mieter_name).toBe('A');
+    expect(abgewaehlt[0].mietvertrag_id).toBeNull();
+  });
+
+  it('deckt zusammen mit der Auswahl jede Zeile genau einmal ab', () => {
+    const auswahl = new Set([1]);
+    const gewaehlt = wendeKorrekturenAn([a, b], KEINE_KORREKTUREN, auswahl, [], []);
+    const alle = [...gewaehlt, ...abgewaehlteVorschlaege([a, b], auswahl)].map((v) => v.mieter_name).sort();
+    expect(alle).toEqual(['A', 'B']);
+  });
+
+  it('nimmt einer abgewählten Zeile den Vertrag', () => {
+    expect(abgewaehlteVorschlaege([b], new Set())[0].mietvertrag_id).toBeNull();
   });
 });
 

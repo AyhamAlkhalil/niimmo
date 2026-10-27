@@ -21,7 +21,7 @@ import { ZahlungsAnomalienBanner } from "./ZahlungsAnomalienBanner";
 import { PaymentKategorieEditor } from "./PaymentKategorieEditor";
 import { SprungZiel, ZahlungenArbeitsplatz } from "./ZahlungenArbeitsplatz";
 import { ZahlungZeile, formatEuro, formatIsoDatum } from "@/utils/zahlungenAnsicht";
-import { Zuordnungsvorschlag, vorschlagsSchluessel } from "@/utils/zuordnungsvorschlaege";
+import { Zuordnungsvorschlag, abgewaehlteVorschlaege } from "@/utils/zuordnungsvorschlaege";
 import {
   BestehendeIndex,
   BestehendeZahlung,
@@ -452,35 +452,17 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
     }
   };
 
-  const handleApplyAssignments = async (selectedResults?: Zuordnungsvorschlag[]) => {
+  const handleApplyAssignments = async (selectedResults?: Zuordnungsvorschlag[], auswahl?: ReadonlySet<number>) => {
     // Die Prüfmaske zeigt seit dem 09.10.2026 alle Kategorien, auch Nichtmiete.
     // Bis dahin lief Nichtmiete hier an der Auswahl vorbei und wurde zusätzlich
     // gespeichert -- eine in der Maske umgestellte Nichtmiete hätte die
     // Korrektur gleich wieder mit der alten Kategorie überschrieben.
     const selectedToApply = selectedResults ?? aiResults;
 
-    // Der Schluessel ist inhaltsbasiert (Tag, Betrag, IBAN, 50 Zeichen Verwendungszweck).
-    // Zwei Buchungen mit gleichem Schluessel im selben Import: Bis zum 07.09.2026 galt
-    // die zweite als "gewaehlt", sobald die erste gewaehlt war, und fiel beim
-    // Uebernehmen stillschweigend weg. Deshalb wird je Schluessel gezaehlt.
-    const gewaehltJeSchluessel = new Map<string, number>();
-    for (const r of selectedToApply) {
-      const schluessel = vorschlagsSchluessel(r);
-      gewaehltJeSchluessel.set(schluessel, (gewaehltJeSchluessel.get(schluessel) ?? 0) + 1);
-    }
-
-    // Abgewählte Buchungen werden ebenfalls gespeichert, aber ohne Vertrag.
-    const unselected = aiResults
-      .filter(r => {
-        const schluessel = vorschlagsSchluessel(r);
-        const offen = gewaehltJeSchluessel.get(schluessel) ?? 0;
-        if (offen > 0) {
-          gewaehltJeSchluessel.set(schluessel, offen - 1);
-          return false;
-        }
-        return true;
-      })
-      .map(r => ({ ...r, mietvertrag_id: null }));
+    // Abgewählte Buchungen werden ebenfalls gespeichert, aber ohne Vertrag. Welche das
+    // sind, sagt die Position in der Prüfmaske. Der frühere Abgleich über den
+    // inhaltlichen Schlüssel verlor bei zwei gleich beginnenden Buchungen eine davon (27.10.2026).
+    const unselected = auswahl ? abgewaehlteVorschlaege(aiResults, auswahl) : [];
 
     const allResultsToSave = [...selectedToApply, ...unselected];
 

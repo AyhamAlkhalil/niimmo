@@ -254,6 +254,23 @@ export function wendeKorrekturenAn(
 }
 
 /**
+ * Die in der Prüfmaske abgewählten Buchungen — gespeichert werden sie trotzdem, aber
+ * ohne Vertrag. Bestimmt über die Zeilenposition, nicht über vorschlagsSchluessel:
+ * Zwei Buchungen mit gleichem Tag, Betrag, IBAN und gleichen ersten 50 Zeichen
+ * Verwendungszweck galten sonst als dieselbe. Die gewählte wurde dann doppelt
+ * verarbeitet und die abgewählte nie geschrieben, während die Meldung beide als
+ * gespeichert zählte (gefunden am 27.10.2026; im Bestand 8 solche Schlüsselgruppen).
+ */
+export function abgewaehlteVorschlaege(
+  vorschlaege: readonly Zuordnungsvorschlag[],
+  auswahl: ReadonlySet<number>
+): Zuordnungsvorschlag[] {
+  return vorschlaege
+    .filter((_, idx) => !auswahl.has(idx))
+    .map((v) => ({ ...v, mietvertrag_id: null }));
+}
+
+/**
  * Nächste Zeile nach `ab`, die noch Aufmerksamkeit braucht (offen oder
  * unsicher), innerhalb der sichtbaren Zeilen; läuft am Ende von vorn an.
  */

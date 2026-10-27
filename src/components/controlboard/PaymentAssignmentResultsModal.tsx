@@ -88,7 +88,8 @@ interface PaymentAssignmentResultsModalProps {
   stats: Stats;
   dateiname?: string;
   /** Liefert zurueck, wie viele Zeilen tatsaechlich gespeichert wurden. */
-  onApply: (selectedResults: Zuordnungsvorschlag[]) => Promise<
+  /** auswahl: Positionen der gewählten Zeilen in `results` — die übrigen werden ohne Vertrag gespeichert. */
+  onApply: (selectedResults: Zuordnungsvorschlag[], auswahl: ReadonlySet<number>) => Promise<
     { gesamt: number; gespeichert: number; fehler: Array<{ zeile: string; grund: string }> } | void
   >;
 }
@@ -395,7 +396,7 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
   const handleApply = async () => {
     setIsApplying(true);
     try {
-      const ergebnis = (await onApply(finale)) || undefined;
+      const ergebnis = (await onApply(finale, auswahl)) || undefined;
       // onApply meldet Fehlschlaege bereits selbst. Hier darf deshalb nur dann
       // Erfolg stehen, wenn wirklich alles gespeichert wurde.
       const fehlgeschlagen = ergebnis && "fehler" in ergebnis ? ergebnis.fehler.length : 0;
