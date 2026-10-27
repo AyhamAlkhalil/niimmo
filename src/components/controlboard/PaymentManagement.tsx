@@ -529,6 +529,11 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       }
     }
 
+    // Entweder Vertrag oder Objekt, nie beides (docs/datenmodell.md): Die Prüfmaske sorgt dafür,
+    // abgewählte Zeilen kommen aber roh aus process-payments. Live standen am 27.10.2026 fünf
+    // Altbuchungen mit beiden Bezügen, die doppelt zählten.
+    const objektBezug = (r: Zuordnungsvorschlag) => (r.mietvertrag_id ? null : r.immobilie_id || null);
+
     // Auto-fill IBAN on contract if empty
     const ibanNachtragen = async (mietvertragId: string, iban: string) => {
       if (!bankkonten.has(mietvertragId) || bankkonten.get(mietvertragId)) return;
@@ -565,7 +570,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         const updatePayload = {
           mietvertrag_id: result.mietvertrag_id,
           kategorie: result.kategorie as never,
-          immobilie_id: result.immobilie_id || null,
+          immobilie_id: objektBezug(result),
         };
 
         const { error } = await supabase
@@ -593,7 +598,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
             verwendungszweck: vzValue,
             empfaengername: result.empfaengername?.trim() || null,
             mietvertrag_id: result.mietvertrag_id || null,
-            immobilie_id: result.immobilie_id || null,
+            immobilie_id: objektBezug(result),
             kategorie: (result.kategorie as never) || null,
           });
 

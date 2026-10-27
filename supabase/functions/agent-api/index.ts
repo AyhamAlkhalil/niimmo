@@ -743,7 +743,9 @@ async function executeWrite(
       case 'assign_payment_to_contract': {
         const { data, error } = await supabase
           .from('zahlungen')
-          .update({ mietvertrag_id: args.mietvertrag_id, kategorie: args.kategorie })
+          // Entweder Vertrag oder Objekt, nie beides -- sonst zaehlt die Zahlung doppelt
+          // (docs/datenmodell.md). Bis zum 27.10.2026 blieb ein Objektbezug stehen.
+          .update({ mietvertrag_id: args.mietvertrag_id, kategorie: args.kategorie, immobilie_id: null })
           .eq('id', args.zahlung_id)
           .select()
           .single();

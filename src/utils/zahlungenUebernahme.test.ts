@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   BestehendeZahlung,
   abgleichSchluessel,
@@ -114,5 +115,20 @@ describe('Vorabfrage-Filter', () => {
         { mietvertrag_id: 'mv3', iban: 'DE03' },
       ])
     ).toEqual(['mv1', 'mv3']);
+  });
+});
+
+describe('Vertrag oder Objekt, nie beides', () => {
+  it('speichert beim CSV-Import keinen Objektbezug neben einem Vertrag', () => {
+    // 27.10.2026: Fünf Altbuchungen trugen beide Bezüge und zählten doppelt
+    const quelle = readFileSync('src/components/controlboard/PaymentManagement.tsx', 'utf-8');
+    expect(quelle).toMatch(/const objektBezug = \(r: Zuordnungsvorschlag\) => \(r\.mietvertrag_id \? null : r\.immobilie_id \|\| null\);/);
+    expect(quelle.match(/immobilie_id: objektBezug\(result\)/g)).toHaveLength(2);
+    expect(quelle).not.toMatch(/immobilie_id: result\.immobilie_id \|\| null/);
+  });
+
+  it('räumt im Assistenten beim Zuordnen zu einem Vertrag den Objektbezug ab', () => {
+    const agent = readFileSync('supabase/functions/agent-api/index.ts', 'utf-8');
+    expect(agent).toMatch(/\.update\(\{ mietvertrag_id: args\.mietvertrag_id, kategorie: args\.kategorie, immobilie_id: null \}\)/);
   });
 });
