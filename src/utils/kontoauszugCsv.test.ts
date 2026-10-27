@@ -63,7 +63,7 @@ describe('betragAusText und datumAusText', () => {
 
 describe('textAusCsvDatei', () => {
   it('liest UTF-8 und fällt bei ungültigem UTF-8 auf Windows-1252 zurück', () => {
-    expect(textAusCsvDatei(new TextEncoder().encode('﻿Müller').buffer)).toBe('Müller');
+    expect(textAusCsvDatei(new TextEncoder().encode('\uFEFFMüller').buffer)).toBe('Müller');
     expect(textAusCsvDatei(new Uint8Array([0x4d, 0xfc, 0x6c, 0x6c, 0x65, 0x72]).buffer)).toBe('Müller');
   });
 });
