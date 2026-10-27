@@ -69,7 +69,9 @@ import {
   LEERE_ZAEHLER,
   istNetzfehler,
   belegeFuer,
-  fremdBelegt,
+  unbelegterRueckbau,
+  mitZeitlimit,
+  UPLOAD_ZEITLIMIT_MS,
   type BelegAblesung,
   type HistorieHerkunft,
   type Rueckbau,
@@ -973,7 +975,7 @@ export const UebergabeDialog = ({
     // Der Stand beim Klick; das Formular ist während des Speicherns gesperrt
     const stand = pdfStand;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await mitZeitlimit(supabase.auth.getUser(), 30_000, "Anmeldung prüfen");
 
       // 1. Zuerst das PDF: Fotos laden und aufbereiten ist der aufwendigste und
       // anfälligste Schritt. Scheitert er, ist noch nichts geschrieben.
@@ -1075,9 +1077,12 @@ export const UebergabeDialog = ({
         }
         hochgeladenesPdfRef.current = null;
         filePath = uebergabePdfPfad(contracts[0].id, isEinzug, new Date());
-        const { error: pdfUploadError } = await supabase.storage
-          .from("dokumente")
-          .upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false });
+        // Mit Grenze wie die Fotos: ohne sie hing das Speichern im Funkloch für immer
+        const { error: pdfUploadError } = await mitZeitlimit(
+          supabase.storage.from("dokumente").upload(filePath, aktuellesPdf, { contentType: "application/pdf", upsert: false }),
+          UPLOAD_ZEITLIMIT_MS,
+          "Protokoll-PDF hochladen"
+        );
         if (pdfUploadError) throw pdfUploadError;
         hochgeladenesPdfRef.current = { pdf: aktuellesPdf, pfad: filePath };
       }
@@ -1371,6 +1376,7 @@ export const UebergabeDialog = ({
     for (const z of [...r.zeilen].reverse()) {
       if (z.tabelle === "zaehlerstand_historie") continue;
       const belege = belegeFuer(z);
+      let zeile: typeof z | null = z;
       if (belege.length > 0) {
         const { data: ablesungen, error } = await supabase
           .from("zaehlerstand_historie")
@@ -1380,9 +1386,10 @@ export const UebergabeDialog = ({
           .in("stand", [...new Set(belege.map((b) => b.stand))])
           .limit(500);
         if (error) throw error;
-        if (fremdBelegt(belege, (ablesungen ?? []) as BelegAblesung[], r.pdfPfad)) continue;
+        // Je Spalte: Eine belegte Spalte bleibt, die übrigen werden zurückgesetzt (27.10.2026)
+        zeile = unbelegterRueckbau(z, (ablesungen ?? []) as BelegAblesung[], r.pdfPfad);
       }
-      await zuruecksetzen(z);
+      if (zeile) await zuruecksetzen(zeile);
     }
     if (r.pdfPfad && r.pdfPfad !== pdfBehalten) {
       // Ohne Dokumenteintrag ist die Datei unsichtbar; bleibt sie liegen, stört sie nicht

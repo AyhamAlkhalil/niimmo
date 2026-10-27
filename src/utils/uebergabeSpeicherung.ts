@@ -263,21 +263,61 @@ export interface BelegAblesung {
  * zurück, weil er nur die Werte verglich (24.10.2026).
  */
 export function belegeFuer(zeile: Rueckbau["zeilen"][number]): Beleg[] {
-  const belege: Beleg[] = [];
-  for (const [spalte, wert] of Object.entries(zeile.neu)) {
-    if (typeof wert !== "number") continue;
-    if (zeile.tabelle === "einheiten") {
-      const typ = /^(strom|gas|kaltwasser|warmwasser)_stand_aktuell$/.exec(spalte)?.[1];
-      const datum = typ ? zeile.neu[`${typ}_stand_datum`] : undefined;
-      if (typ && typeof datum === "string") belege.push({ einheitId: zeile.id, zaehlerTyp: typ, stand: wert, datum });
-    } else if (zeile.tabelle === "mietvertrag") {
-      const treffer = /^(strom|gas|kaltwasser|warmwasser)_(einzug|auszug)$/.exec(spalte);
-      if (treffer) {
-        belege.push({ mietvertragId: zeile.id, zaehlerTyp: treffer[1], stand: wert, quelle: treffer[2] === "einzug" ? "Übergabe (Einzug)" : "Übergabe (Auszug)" });
-      }
+  return Object.entries(zeile.neu).flatMap(([spalte, wert]) => {
+    const treffer = belegFuerSpalte(zeile, spalte, wert);
+    return treffer ? [treffer.beleg] : [];
+  });
+}
+
+/** Beleg zu einer geschriebenen Spalte und die Spalten, die er abdeckt (Stand samt Datum). */
+function belegFuerSpalte(
+  zeile: Rueckbau["zeilen"][number],
+  spalte: string,
+  wert: unknown
+): { beleg: Beleg; spalten: string[] } | null {
+  if (typeof wert !== "number") return null;
+  if (zeile.tabelle === "einheiten") {
+    const typ = /^(strom|gas|kaltwasser|warmwasser)_stand_aktuell$/.exec(spalte)?.[1];
+    const datum = typ ? zeile.neu[`${typ}_stand_datum`] : undefined;
+    if (typ && typeof datum === "string") {
+      return { beleg: { einheitId: zeile.id, zaehlerTyp: typ, stand: wert, datum }, spalten: [spalte, `${typ}_stand_datum`] };
+    }
+  } else if (zeile.tabelle === "mietvertrag") {
+    const treffer = /^(strom|gas|kaltwasser|warmwasser)_(einzug|auszug)$/.exec(spalte);
+    if (treffer) {
+      return {
+        beleg: { mietvertragId: zeile.id, zaehlerTyp: treffer[1], stand: wert, quelle: treffer[2] === "einzug" ? "Übergabe (Einzug)" : "Übergabe (Auszug)" },
+        spalten: [spalte],
+      };
     }
   }
-  return belege;
+  return null;
+}
+
+/**
+ * Die Rückbau-Zeile ohne die Spalten, deren Wert eine fremde Ablesung belegt — oder null,
+ * wenn keine Spalte mehr zurückzusetzen ist.
+ *
+ * Bis zum 27.10.2026 galt die ganze Zeile als belegt, sobald eine Spalte belegt war. Ein
+ * gescheitertes Korrekturprotokoll (Strom 100 wie vorher, Gas 55 statt 50) ließ so Gas 55 am
+ * Vertrag stehen, weil das alte Protokoll Strom 100 belegte; Historie, Einheit und das einzige
+ * Protokoll sagten 50.
+ */
+export function unbelegterRueckbau(
+  zeile: Rueckbau["zeilen"][number],
+  ablesungen: BelegAblesung[],
+  eigenerPfad: string | null | undefined
+): Rueckbau["zeilen"][number] | null {
+  const belegt = new Set<string>();
+  for (const [spalte, wert] of Object.entries(zeile.neu)) {
+    const treffer = belegFuerSpalte(zeile, spalte, wert);
+    if (treffer && fremdBelegt([treffer.beleg], ablesungen, eigenerPfad)) treffer.spalten.forEach((s) => belegt.add(s));
+  }
+  if (belegt.size === 0) return zeile;
+  const neu = Object.fromEntries(Object.entries(zeile.neu).filter(([s]) => !belegt.has(s)));
+  if (Object.keys(neu).length === 0) return null;
+  const vorher = Object.fromEntries(Object.entries(zeile.vorher).filter(([s]) => !belegt.has(s)));
+  return { ...zeile, neu, vorher };
 }
 
 /** Trägt eine fremde Ablesung (nicht aus diesem Lauf) einen der Werte? */
@@ -356,6 +396,25 @@ export interface HochladeErgebnis {
   /** Pfade der Fotos, die angekommen sind — in der Reihenfolge der Auswahl */
   pfade: string[];
   fehlgeschlagen: number;
+}
+
+/**
+ * Wartet höchstens `ms` auf eine Antwort, sonst Fehler „Zeitlimit überschritten“ — den
+ * istNetzfehler() als offenen Ausgang wertet (der Server kann die Anfrage trotzdem
+ * ausgeführt haben). Bis zum 27.10.2026 hatten PDF-Upload und Anmeldeprüfung beim Speichern
+ * keine Grenze: Brach im Keller die Verbindung ab, ohne dass der Browser einen Fehler
+ * meldete, drehte „Wird gespeichert …“ ohne Ende, und der Dialog ließ sich nicht schließen.
+ */
+export async function mitZeitlimit<T>(arbeit: PromiseLike<T>, ms: number, was: string): Promise<T> {
+  let zeitgeber: ReturnType<typeof setTimeout> | undefined;
+  const zuSpaet = new Promise<never>((_, nein) => {
+    zeitgeber = setTimeout(() => nein(new Error(`Zeitlimit überschritten: ${was}`)), ms);
+  });
+  try {
+    return await Promise.race([Promise.resolve(arbeit), zuSpaet]);
+  } finally {
+    clearTimeout(zeitgeber);
+  }
 }
 
 /** Höchstdauer eines Upload-Versuchs: ein 8-MB-Foto über langsames Mobilnetz braucht gut eine Minute. */

@@ -9,6 +9,8 @@ import {
   istNetzfehler,
   belegeFuer,
   fremdBelegt,
+  unbelegterRueckbau,
+  mitZeitlimit,
   aktuelleStaende,
   fehlendeDokumente,
   dateienHochladen,
@@ -322,6 +324,25 @@ describe("Belege für den Rückbau", () => {
     expect(fremdBelegt(belegeFuer(einheit), [ablesung({ datum: "2026-10-02" })], PFAD)).toBe(false);
   });
 
+  it("setzt nur die Spalten zurück, die keine fremde Ablesung belegt", () => {
+    // 27.10.2026: Korrekturprotokoll Strom 100 (wie vorher), Gas 55 statt 50 scheitert. Das alte
+    // Protokoll belegt Strom 100 — bisher blieb deshalb die ganze Zeile und damit Gas 55 stehen.
+    const korrektur = {
+      tabelle: "mietvertrag" as const, id: "v1",
+      neu: { strom_auszug: 100, gas_auszug: 55 },
+      vorher: { strom_auszug: 100, gas_auszug: 50 },
+    };
+    const altesProtokoll = ablesung({ mietvertrag_id: "v1", zaehler_typ: "strom", stand: 100, quelle: "Übergabe (Auszug)", protokoll_pfad: "uebergabeprotokolle/v1/alt.pdf" });
+    expect(unbelegterRueckbau(korrektur, [altesProtokoll], PFAD)).toEqual({
+      tabelle: "mietvertrag", id: "v1", neu: { gas_auszug: 55 }, vorher: { gas_auszug: 50 },
+    });
+  });
+
+  it("lässt eine Zeile ganz stehen, wenn alle Spalten belegt sind, und nimmt Stand und Datum der Einheit gemeinsam heraus", () => {
+    expect(unbelegterRueckbau(einheit, [ablesung({})], PFAD)).toBeNull();
+    expect(unbelegterRueckbau(einheit, [], PFAD)).toBe(einheit);
+  });
+
   it("dieselbe Übergabe von einem zweiten Gerät belegt die Vertragsstände", () => {
     const zweitesGeraet = ablesung({ mietvertrag_id: "v1", quelle: "Übergabe (Auszug)", protokoll_pfad: "uebergabeprotokolle/v1/zweites.pdf" });
     expect(fremdBelegt(belegeFuer(vertrag), [zweitesGeraet], PFAD)).toBe(true);
@@ -335,5 +356,20 @@ describe("Belege für den Rückbau", () => {
 
   it("Stände als Text aus der Datenbank werden als Zahl verglichen", () => {
     expect(fremdBelegt(belegeFuer(einheit), [ablesung({ stand: "4711.5" })], PFAD)).toBe(true);
+  });
+});
+
+describe("mitZeitlimit", () => {
+  it("gibt die Antwort weiter, wenn sie rechtzeitig kommt", async () => {
+    await expect(mitZeitlimit(Promise.resolve({ error: null }), 50, "Test")).resolves.toEqual({ error: null });
+  });
+
+  it("bricht ohne Antwort mit einem Fehler ab, den istNetzfehler als offen wertet", async () => {
+    // 27.10.2026: Ohne Grenze hing das Speichern im Funkloch für immer
+    const nie = new Promise(() => {});
+    const fehler = (await mitZeitlimit(nie, 10, "Protokoll-PDF hochladen").catch((e: unknown) => e)) as Error;
+    expect(fehler).toBeInstanceOf(Error);
+    expect(fehler.message).toMatch(/Zeitlimit überschritten: Protokoll-PDF hochladen/);
+    expect(istNetzfehler(fehler)).toBe(true);
   });
 });
