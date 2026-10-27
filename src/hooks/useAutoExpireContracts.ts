@@ -1,9 +1,14 @@
 import { useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { istVergangenerTag } from '@/utils/contractUtils';
 
 /**
  * Automatically transitions a contract from 'gekuendigt' to 'beendet'
  * once its Kündigungsdatum has passed.
+ *
+ * Der letzte Vertragstag zählt noch als laufend, wie im Nachtlauf (`< CURRENT_DATE`).
+ * Bis zum 27.10.2026 setzte der Vergleich `terminationDate > today` den Vertrag schon an
+ * seinem letzten Tag auf 'beendet', sobald jemand die Objektansicht öffnete.
  */
 export const useAutoExpireContract = (
   vertragId: string | undefined,
@@ -12,13 +17,7 @@ export const useAutoExpireContract = (
 ) => {
   useEffect(() => {
     if (!vertragId || status !== 'gekuendigt' || !kuendigungsdatum) return;
-
-    const terminationDate = new Date(kuendigungsdatum);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    terminationDate.setHours(0, 0, 0, 0);
-
-    if (terminationDate > today) return;
+    if (!istVergangenerTag(kuendigungsdatum)) return;
 
     const updateStatus = async () => {
       try {

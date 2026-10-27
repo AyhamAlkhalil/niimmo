@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   getVertragsende,
   istGekuendigt,
@@ -205,5 +206,12 @@ describe("istVergangenerTag", () => {
     expect(istVergangenerTag("")).toBe(false);
     // Ein ungültiges „heute“ darf keinen Vertrag beenden
     expect(istVergangenerTag("2026-10-31", new Date("x"))).toBe(false);
+  });
+
+  it("entscheidet auch beim automatischen Beenden in der Objektansicht", () => {
+    // 27.10.2026: useAutoExpireContract setzte per `terminationDate > today` am letzten Tag 'beendet'
+    const hook = readFileSync("src/hooks/useAutoExpireContracts.ts", "utf-8");
+    expect(hook).toMatch(/if \(!istVergangenerTag\(kuendigungsdatum\)\) return;/);
+    expect(hook).not.toMatch(/new Date\(kuendigungsdatum\)/);
   });
 });
