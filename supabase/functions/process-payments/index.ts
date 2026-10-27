@@ -534,8 +534,22 @@ function isPaymentInContractPeriod(paymentDate: string, contract: ContractInfo):
 
 // Select best contract from multiple IBAN matches based on payment date and amount
 function selectBestContractByDate(payment: Payment, matchingContracts: ContractInfo[]): ContractInfo | null {
-  if (matchingContracts.length === 0) return null;
-  if (matchingContracts.length === 1) return matchingContracts[0];
+  return waehleVertrag(payment, matchingContracts).vertrag;
+}
+
+/**
+ * Wie selectBestContractByDate, sagt aber zusaetzlich, ob die Wahl begruendet ist
+ * (ein Vertrag, Datum, Betrag oder Kaution eindeutig) oder nur geraten (Status, erster Treffer).
+ *
+ * Bis zum 27.10.2026 entschied bei gleicher IBAN ohne passenden Betrag (Teilzahlung, alte
+ * Miete nach Erhoehung, Wohnung und Stellplatz in einer Summe) der Status und danach die
+ * Reihenfolge, in der die Datenbank die Vertraege lieferte -- die Abfrage hat kein ORDER BY,
+ * und jede Aenderung an einer Vertragszeile verschiebt sie. Die Buchung ging mit 95 %
+ * vorausgewaehlt an einen beliebigen der Vertraege. Jetzt deterministisch und als unsicher markiert.
+ */
+function waehleVertrag(payment: Payment, matchingContracts: ContractInfo[]): { vertrag: ContractInfo | null; eindeutig: boolean } {
+  if (matchingContracts.length === 0) return { vertrag: null, eindeutig: false };
+  if (matchingContracts.length === 1) return { vertrag: matchingContracts[0], eindeutig: true };
   
   const buchungsDatum = payment.buchungsdatum;
   console.log(`Multiple IBAN matches (${matchingContracts.length}) for payment date ${buchungsDatum}, selecting best match...`);
@@ -545,49 +559,43 @@ function selectBestContractByDate(payment: Payment, matchingContracts: ContractI
   
   if (validByDate.length === 1) {
     console.log(`Selected contract ${validByDate[0].id} (${validByDate[0].mieter}) based on date range`);
-    return validByDate[0];
+    return { vertrag: validByDate[0], eindeutig: true };
   }
   
   // Multiple contracts valid for this date - try amount matching first
   const candidates = validByDate.length > 1 ? validByDate : matchingContracts;
   
-  if (candidates.length > 1) {
-    // BETRAG-MATCH: Bei gleicher IBAN, schaue welcher Vertrag zum Betrag passt
-    const amountMatches = candidates.filter(c => 
-      Math.abs(c.gesamtmiete - payment.betrag) <= BETRAG_TOLERANZ && payment.betrag > 0
-    );
-    
-    if (amountMatches.length === 1) {
-      console.log(`Selected contract ${amountMatches[0].id} (${amountMatches[0].mieter}) based on AMOUNT match (${payment.betrag} ≈ ${amountMatches[0].gesamtmiete})`);
-      return amountMatches[0];
-    }
-    
-    // Also check Kaution match
-    const kautionMatches = candidates.filter(c =>
-      c.kaution && Math.abs(payment.betrag - c.kaution) <= BETRAG_TOLERANZ && payment.betrag > 0
-    );
-    if (kautionMatches.length === 1) {
-      console.log(`Selected contract ${kautionMatches[0].id} (${kautionMatches[0].mieter}) based on KAUTION amount match (${payment.betrag} ≈ ${kautionMatches[0].kaution})`);
-      return kautionMatches[0];
-    }
-    
-    // Fall back to status priority
-    const statusPriority: Record<string, number> = { "aktiv": 0, "gekuendigt": 1, "beendet": 2 };
-    candidates.sort((a, b) => (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99));
-    console.log(`Selected contract ${candidates[0].id} (${candidates[0].mieter}) - status: ${candidates[0].status} (no unique amount match)`);
-    return candidates[0];
+  // BETRAG-MATCH: Bei gleicher IBAN, schaue welcher Vertrag zum Betrag passt
+  const amountMatches = candidates.filter(c => 
+    Math.abs(c.gesamtmiete - payment.betrag) <= BETRAG_TOLERANZ && payment.betrag > 0
+  );
+  
+  if (amountMatches.length === 1) {
+    console.log(`Selected contract ${amountMatches[0].id} (${amountMatches[0].mieter}) based on AMOUNT match (${payment.betrag} ≈ ${amountMatches[0].gesamtmiete})`);
+    return { vertrag: amountMatches[0], eindeutig: true };
   }
   
-  // No valid date match - fall back to aktiv status
-  const activeContract = matchingContracts.find(c => c.status === "aktiv");
-  if (activeContract) {
-    console.log(`No date match, falling back to active contract ${activeContract.id} (${activeContract.mieter})`);
-    return activeContract;
+  // Also check Kaution match
+  const kautionMatches = candidates.filter(c =>
+    c.kaution && Math.abs(payment.betrag - c.kaution) <= BETRAG_TOLERANZ && payment.betrag > 0
+  );
+  if (kautionMatches.length === 1) {
+    console.log(`Selected contract ${kautionMatches[0].id} (${kautionMatches[0].mieter}) based on KAUTION amount match (${payment.betrag} ≈ ${kautionMatches[0].kaution})`);
+    return { vertrag: kautionMatches[0], eindeutig: true };
   }
   
-  // Last resort: first contract
-  console.log(`No clear match, using first contract ${matchingContracts[0].id} (${matchingContracts[0].mieter})`);
-  return matchingContracts[0];
+  // Fall back to status priority, bei Gleichstand juengerer Vertrag, dann id -- nie die DB-Reihenfolge
+  const statusPriority: Record<string, number> = { "aktiv": 0, "gekuendigt": 1, "beendet": 2 };
+  const rang = (c: ContractInfo) => statusPriority[c.status] ?? 99;
+  const sortiert = [...candidates].sort((a, b) =>
+    rang(a) - rang(b) ||
+    (b.start_datum ?? "").localeCompare(a.start_datum ?? "") ||
+    a.id.localeCompare(b.id)
+  );
+  // Begruendet nur, wenn genau ein Kandidat den besten Status hat (z. B. aktiv gegen beendet)
+  const eindeutig = sortiert.filter(c => rang(c) === rang(sortiert[0])).length === 1;
+  console.log(`Selected contract ${sortiert[0].id} (${sortiert[0].mieter}) - status: ${sortiert[0].status} (no unique amount match${eindeutig ? '' : ', unsicher'})`);
+  return { vertrag: sortiert[0], eindeutig };
 }
 
 // Erkennt ob ein Verwendungszweck auf eine Betriebskostenabrechnung hinweist.
@@ -740,7 +748,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
   if (ibanMatchedContracts.length > 0) {
     // Select best contract considering payment date
     const matchingContracts = ibanMatchedContracts.map(m => m.contract);
-    const bestContract = selectBestContractByDate(payment, matchingContracts);
+    const { vertrag: bestContract, eindeutig } = waehleVertrag(payment, matchingContracts);
     
     if (bestContract) {
       const matchInfo = ibanMatchedContracts.find(m => m.contract.id === bestContract.id);
@@ -752,15 +760,21 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
                         bestContract.kaution &&
                         Math.abs(payment.betrag - bestContract.kaution) <= BETRAG_TOLERANZ;
       const matchType = matchInfo?.matchType === 'weitere' ? 'Weitere IBAN' : 'IBAN';
-      const multiInfo = ibanMatchedContracts.length > 1 ? ` (1 von ${ibanMatchedContracts.length} Verträgen, ausgewählt nach Datum)` : '';
+      const multiInfo = ibanMatchedContracts.length > 1
+        ? eindeutig
+          ? ` (1 von ${ibanMatchedContracts.length} Verträgen, ausgewählt nach Datum/Betrag)`
+          : ` (${ibanMatchedContracts.length} Verträge mit dieser IBAN, Betrag passt zu keinem eindeutig — bitte prüfen)`
+        : '';
       const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
       return {
         ...payment,
         mietvertrag_id: bestContract.id,
         kategorie,
         zuordnungsgrund: `${matchType}-Match: ${bestContract.mieter}${multiInfo}`,
-        confidence: matchInfo?.matchType === 'weitere' ? 90 : 95,
-        selected: true
+        // Geraten ist nicht sicher: unter KONFIDENZ_SICHER (80) und nicht vorausgewählt,
+        // wie im Rücklastschrift-Pfad
+        confidence: eindeutig ? (matchInfo?.matchType === 'weitere' ? 90 : 95) : 60,
+        selected: eindeutig
       };
     }
   }
