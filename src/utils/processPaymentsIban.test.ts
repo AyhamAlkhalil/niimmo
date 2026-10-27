@@ -191,6 +191,13 @@ describe('process-payments Zugriff', () => {
     expect(handler).toMatch(/teileNachBestand\(gruppen\.get\(hash\)/);
   });
 
+  it('vergibt jede Bestandsbuchung nur einmal, Treffer am selben Tag zuerst', () => {
+    // Review 27.10.2026: Über die ±5-Tage-Suche deckte eine Bestandsbuchung zwei Gruppen
+    expect(handler).toMatch(/\[\.\.\.bestandsTreffer\]\.sort\(\(a, b\) => a\.stufe - b\.stufe\)/);
+    expect(handler).toMatch(/const frei = treffer\.filter\(\(id\) => !vergeben\.has\(id\)\);/);
+    expect(handler).toMatch(/stufe = 3;/);
+  });
+
   it('schreibt nie selbst in zahlungen', () => {
     // Der frühere Schreibpfad (dryRun: false) hängte jede Buchung mit gleichem Tag, Betrag und IBAN um
     expect(handler).toMatch(/if \(dryRun !== true\)[\s\S]{0,200}status: 400/);

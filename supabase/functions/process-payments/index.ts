@@ -1473,6 +1473,8 @@ serve(async (req) => {
         );
 
         let treffer: string[] = [];
+        // 1 = gleicher Tag per Hash, 2 = gleicher Tag per IBAN/Text, 3 = ±5 Tage
+        let stufe = 1;
 
         // Primäre Prüfung: Exakter Match auf Datum + Betrag + IBAN + Verwendungszweck
         if (candidateDates.length > 0) {
@@ -1505,6 +1507,7 @@ serve(async (req) => {
           
           // Fallback: Klassischer Vergleich (IBAN + Verwendungszweck)
           if (treffer.length === 0) {
+            stufe = 2;
             treffer = rows.filter((row) => {
               const dbIban = (row.iban ?? "").toString().trim();
               const dbVz = (row.verwendungszweck ?? "").toString().trim();
@@ -1515,6 +1518,7 @@ serve(async (req) => {
 
         // Fallback: date drift ±5 days
         if (treffer.length === 0 && payment.buchungsdatum) {
+          stufe = 3;
           const base = new Date(`${payment.buchungsdatum}T00:00:00Z`);
           if (!Number.isNaN(base.getTime())) {
             const from = new Date(base);
@@ -1546,17 +1550,23 @@ serve(async (req) => {
           }
         }
 
-        return { hash, treffer: [...new Set(treffer)] };
+        return { hash, treffer: [...new Set(treffer)], stufe };
       })
     );
 
-    // Ergebnis in der Reihenfolge der CSV, nicht nach Gruppen
+    // Jede Bestandsbuchung deckt hoechstens eine Importzeile, auch ueber Gruppen hinweg; Treffer
+    // am selben Tag vor der ±5-Tage-Suche. Sonst galten zwei Mieten am 01. und 03. mit gleichem
+    // Betrag und Text als vorhanden, obwohl nur eine im Bestand stand (Review 27.10.2026).
     const bestandsId = new Map<(typeof paymentHashes)[number], string | null>();
-    for (const { hash, treffer } of bestandsTreffer) {
-      for (const { item, existingId } of teileNachBestand(gruppen.get(hash) ?? [], treffer)) {
+    const vergeben = new Set<string>();
+    for (const { hash, treffer } of [...bestandsTreffer].sort((a, b) => a.stufe - b.stufe)) {
+      const frei = treffer.filter((id) => !vergeben.has(id));
+      for (const { item, existingId } of teileNachBestand(gruppen.get(hash) ?? [], frei)) {
         bestandsId.set(item, existingId);
+        if (existingId) vergeben.add(existingId);
       }
     }
+    // Ergebnis in der Reihenfolge der CSV, nicht nach Gruppen
     const duplicateChecks = paymentHashes.map((item) => {
       const existingId = bestandsId.get(item) ?? null;
       return { payment: item.payment, isDuplicate: existingId !== null, existingId };
