@@ -15,7 +15,7 @@ import type { Json, Tables } from '@/integrations/supabase/types';
 import { dateiendung } from '@/utils/storagePfad';
 import {
   aktivierungsDaten,
-  mieterZeile,
+  bestandsStammdaten,
   type EntwurfDatei,
   type EntwurfPerson,
   type HerkunftKarte,
@@ -302,7 +302,9 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
 
   const ergebnis = (data ?? {}) as { vertrag_id?: string; nachgeholt?: number };
 
-  // 3. Bei vorhandenen Mietern nur leere Kontakt- und Anschriftsfelder ergänzen (nicht kritisch)
+  // 3. Bei vorhandenen Mietern nur leere Kontakt- und Anschriftsfelder ergänzen (nicht kritisch).
+  // Nur, was auf der Karte geändert wurde (bestandsStammdaten): Bis zum 27.10.2026 kam hier die
+  // ganze alte Karte zum Zug — eine im Bestand inzwischen gelöschte falsche Rufnummer kam zurück.
   for (const p of entwurf.personen.filter(m => m.rolle === 'mitmieter' && m.mieterId)) {
     const { data: vorhanden } = await supabase
       .from('mieter')
@@ -310,7 +312,7 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
       .eq('id', p.mieterId!)
       .maybeSingle();
     if (!vorhanden) continue;
-    const neu = mieterZeile(p);
+    const neu = bestandsStammdaten(p);
     const ergaenzung: Record<string, string | null> = {};
     for (const feld of ['hauptmail', 'telnr', 'geburtsdatum', 'strasse', 'hausnummer', 'plz', 'ort', 'anrede', 'vertreten_durch'] as const) {
       if (!vorhanden[feld] && neu[feld]) ergaenzung[feld] = neu[feld] as string;

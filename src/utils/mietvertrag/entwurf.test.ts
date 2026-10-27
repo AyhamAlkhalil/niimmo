@@ -7,6 +7,7 @@
  * Namen sind erfunden.
  */
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 import type { Tables } from '@/integrations/supabase/types';
 import {
@@ -19,6 +20,7 @@ import {
   mieterBezug,
   mieterRolle,
   mieterZeile,
+  bestandsStammdaten,
   mitBestandsmieter,
   mitPersonen,
   ohneHerkunft,
@@ -632,6 +634,15 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
       personen: [alt],
     });
     expect(z.verknuepfungen[0].stammdaten).toMatchObject({ hauptmail: 'jm@example.de', anrede: 'Herr' });
+  });
+
+  it('ergänzt nach dem Aktivieren nur auf der Karte geänderte Felder', () => {
+    // 27.10.2026: Der Nachtrag nahm die ganze alte Karte — eine im Bestand gelöschte Rufnummer kam zurück
+    const karte = mitBestandsmieter(leerePerson(), { ...bestandsMieter, telnr: '0511 111' });
+    expect(bestandsStammdaten(karte)).toEqual({});
+    expect(bestandsStammdaten({ ...karte, telefon: '0511 222' })).toEqual({ telnr: '0511 222' });
+    const dienst = readFileSync('src/services/mietvertragEntwurfService.ts', 'utf-8');
+    expect(dienst).toMatch(/const neu = bestandsStammdaten\(p\);/);
   });
 
   describe('wo der Mieter wohnt oder wohnte', () => {

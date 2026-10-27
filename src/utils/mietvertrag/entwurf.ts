@@ -1074,7 +1074,7 @@ export interface AktivierungsDaten {
  * Mail oder Rufnummer still auf den alten Stand zurück — Mahnungen gingen dann an die alte
  * Adresse. Karten ohne `bestandStand` (vor diesem Tag gespeichert) geben weiter alles mit.
  */
-function bestandsStammdaten(p: EntwurfPerson): BestandsStammdaten {
+export function bestandsStammdaten(p: EntwurfPerson): BestandsStammdaten {
   const { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort } = mieterZeile(p);
   const karte: BestandsStammdaten = { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort };
   const stand = p.bestandStand;
