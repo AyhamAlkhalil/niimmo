@@ -15,6 +15,14 @@ describe("leseKautionsbetrag", () => {
     expect(leseKautionsbetrag("   ")).toBeNull();
   });
 
+  it("liest „1.000“ nicht als 1 €", () => {
+    // QA 27.10.2026: neueMieteAusEingabe('1.000', '10') setzte die Kaltmiete auf 1 €
+    expect(leseKautionsbetrag("1.000")).toBeUndefined();
+    expect(leseKautionsbetrag("12.500")).toBeUndefined();
+    expect(leseKautionsbetrag("0.125")).toBe(0.125);
+    expect(leseKautionsbetrag("1000.50")).toBe(1000.5);
+  });
+
   it("lässt eine eingetragene 0 als 0 stehen", () => {
     expect(leseKautionsbetrag(0)).toBe(0);
     expect(leseKautionsbetrag("0")).toBe(0);

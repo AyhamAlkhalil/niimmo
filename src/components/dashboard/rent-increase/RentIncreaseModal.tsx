@@ -66,6 +66,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const [istAngespannt, setIstAngespannt] = useState(false);
   const [angespanntUnbekannt, setAngespanntUnbekannt] = useState(false);
   const [fruehereErhoehungen, setFruehereErhoehungen] = useState<Array<{ wirksam_ab: string | null; alte_kaltmiete: number | null; status: string | null }>>([]);
+  const [erhoehungenGeladen, setErhoehungenGeladen] = useState<'laedt' | 'ok' | 'fehler'>('laedt');
   // § 558a Abs. 2 BGB: ohne Begründungsmittel ist das Verlangen unwirksam.
   const [begruendungsart, setBegruendungsart] = useState<BegruendungsArt>("mietspiegel");
   const [begruendungText, setBegruendungText] = useState("");
@@ -76,9 +77,12 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // § 558 Abs. 3 BGB: 15 % bei angespanntem Markt, sonst 20 % in drei Jahren — gerechnet von der
   // Miete drei Jahre vor dem Wirksamwerden (kappungsBasis), nicht von der heutigen.
   const kappungsgrenze = kappungsgrenzeProzent(istAngespannt);
-  const basis = contractData
+  // Solange die früheren Erhöhungen nicht geladen sind (oder das Laden scheiterte), ist die Basis
+  // unbekannt — bis zum 27.10.2026 galt dann still die heutige Miete als sicher (Review)
+  const basisGerechnet = contractData
     ? kappungsBasis(contractData.current_kaltmiete, wirksamAbTag(new Date()), contractData.letzte_mieterhoehung_am, fruehereErhoehungen)
     : { betrag: 0, sicher: true };
+  const basis = erhoehungenGeladen === 'ok' ? basisGerechnet : { ...basisGerechnet, sicher: false };
   const maxKaltmiete = maximaleKaltmiete(basis.betrag, istAngespannt);
   const erhoehungProzent = basis.betrag > 0
     ? ((parseFloat(neueKaltmiete) - basis.betrag) / basis.betrag * 100)
@@ -108,13 +112,20 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // Frühere wirksame Erhöhungen für die Ausgangsmiete der Kappungsgrenze
   useEffect(() => {
     if (!isOpen || !contractData?.mietvertrag_id) return;
+    // Beim Vertragswechsel nicht mit den Vorgängen des vorherigen Vertrags rechnen
+    setFruehereErhoehungen([]);
+    setErhoehungenGeladen('laedt');
+    let abgebrochen = false;
     (async () => {
       const { data, error } = await supabase
         .from('mieterhoehungen')
         .select('wirksam_ab, alte_kaltmiete, status')
         .eq('mietvertrag_id', contractData.mietvertrag_id);
+      if (abgebrochen) return;
       setFruehereErhoehungen(error ? [] : (data ?? []) as typeof fruehereErhoehungen);
+      setErhoehungenGeladen(error ? 'fehler' : 'ok');
     })();
+    return () => { abgebrochen = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, contractData?.mietvertrag_id]);
 
@@ -557,7 +568,13 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                     <p>
                       Max. Kaltmiete: {maxKaltmiete.toFixed(2)} € | Erhöhung: {erhoehungProzent.toFixed(1)}%
                       {ueberKappung && ' — Überschreitung!'}
-                      {!basis.sicher && (
+                      {erhoehungenGeladen === 'fehler' ? (
+                        <span className="block mt-1">
+                          Frühere Mieterhöhungen ließen sich nicht laden; gerechnet wird mit der heutigen Miete. Die Kappungsgrenze gilt für die Miete von vor drei Jahren — bitte die damalige Miete prüfen.
+                        </span>
+                      ) : erhoehungenGeladen === 'laedt' ? (
+                        <span className="block mt-1">Frühere Mieterhöhungen werden geladen …</span>
+                      ) : !basis.sicher && (
                         <span className="block mt-1">
                           Die Miete wurde in den letzten drei Jahren schon erhöht; die Kappungsgrenze gilt für die Miete von vor drei Jahren. Bitte die damalige Miete prüfen.
                         </span>

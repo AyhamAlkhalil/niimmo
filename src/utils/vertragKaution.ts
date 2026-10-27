@@ -36,6 +36,8 @@ export function leseKautionsbetrag(wert: unknown): number | null | undefined {
   if (typeof wert === "string") {
     const text = wert.trim().replace(/^(\d+),(\d*)$/, "$1.$2");
     if (!text) return null;
+    // „1.000“ ist ein Tausenderpunkt, kein Betrag von 1 € (QA 27.10.2026: Mieterhöhung auf 1 €)
+    if (/^[1-9]\d{0,2}\.\d{3}$/.test(text)) return undefined;
     if (!/^(\d+\.?\d*|\.\d+)$/.test(text)) return undefined;
     const zahl = Number(text);
     return Number.isFinite(zahl) ? zahl : undefined;
