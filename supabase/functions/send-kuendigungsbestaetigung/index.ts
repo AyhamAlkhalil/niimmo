@@ -297,9 +297,11 @@ serve(async (req: Request) => {
     const erlaubt = new Set<string>();
     for (const zeile of vertragsMieter ?? []) {
       const m = (zeile as Record<string, { hauptmail?: string | null; weitere_mails?: string | null }>).mieter;
-      if (m?.hauptmail?.includes('@')) erlaubt.add(m.hauptmail.trim().toLowerCase());
       // Haupt- und weitere Adressen zerlegt wie mailadressenDerMieter() in der App (27.10.2026):
-      // „a@x.de, b@y.de“ im Hauptfeld lehnte sonst jede einzelne Adresse ab
+      // „a@x.de, b@y.de“ im Hauptfeld lehnte sonst jede einzelne Adresse ab. Den rohen Text des
+      // Hauptfelds als eine „Adresse“ gibt es seit 28.10.2026 nicht mehr: Die App sendet nur
+      // zerlegte Adressen (vorausgewaehlteEmpfaenger, empfaengerDerAuswahl), und ein Rohtext mit
+      // Komma ging sonst als eine Empfängerzeile an mehrere Adressen, ohne dass sie einzeln geprüft wurden.
       for (const teil of `${m?.hauptmail ?? ''} ${m?.weitere_mails ?? ''}`.split(/[,;\s<>]+/)) {
         if (teil.includes('@')) erlaubt.add(teil.trim().toLowerCase());
       }

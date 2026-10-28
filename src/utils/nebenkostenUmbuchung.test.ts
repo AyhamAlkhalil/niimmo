@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   UmbuchungGesperrtFehler,
   erlaubteKategorienMitKostenpositionen,
+  loeschSperrgrund,
   umbuchungSperrMeldung,
   umbuchungSperrgrund,
 } from "./nebenkostenUmbuchung";
@@ -82,5 +84,27 @@ describe("umbuchungSperrMeldung", () => {
     expect(umbuchungSperrMeldung({ code: "P0001", message: "interner Fehler" })).toBeNull();
     expect(umbuchungSperrMeldung(new Error("Netzwerk"))).toBeNull();
     expect(umbuchungSperrMeldung(null)).toBeNull();
+  });
+});
+
+describe("loeschSperrgrund", () => {
+  // 28.10.2026: Aufteilen löschte die Originalzahlung, die Umlage blieb ohne Zahlung stehen
+  it("lässt Zahlungen ohne Kostenpositionen löschen", () => {
+    expect(loeschSperrgrund(0)).toBeNull();
+    expect(loeschSperrgrund(Number.NaN)).toBeNull();
+  });
+
+  it("sperrt mit derselben Meldung wie der Datenbank-Trigger", () => {
+    const meldung = loeschSperrgrund(1);
+    expect(meldung).toMatch(/^Die Zahlung ist in der Betriebskostenabrechnung einer Kostenposition zugeordnet\. Sie lässt sich deshalb weder löschen noch aufteilen\./);
+    expect(loeschSperrgrund(3)).toContain("3 Kostenpositionen");
+    // Der Meldungsanfang ist das Erkennungszeichen für umbuchungSperrMeldung
+    expect(umbuchungSperrMeldung({ code: "P0001", message: meldung })).toBe(meldung);
+  });
+
+  it("steht wortgleich im Trigger der Migration", () => {
+    const sql = readFileSync("supabase/migrations/20261028120100_zahlung_umbuchung_sperre.sql", "utf-8");
+    expect(sql).toContain("' Sie lässt sich deshalb weder löschen noch aufteilen. '");
+    expect(sql).toMatch(/create trigger zahlung_loeschen_pruefen\s+before delete on public\.zahlungen/);
   });
 });

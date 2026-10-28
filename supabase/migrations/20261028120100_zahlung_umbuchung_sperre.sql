@@ -34,6 +34,16 @@
 -- Ohne Definer sähe ein anderer Nutzer keine Positionen und käme durch.
 -- Der Meldungstext beginnt fest mit „Die Zahlung ist“ — die Oberfläche
 -- erkennt daran die fachliche Ablehnung (umbuchungSperrMeldung).
+--
+-- Nachtrag 28.10.2026, Löschen: Aufteilen und Aufheben (PaymentSplitModal) legen
+-- neue Zeilen an und löschen die alte. kostenpositionen.zahlung_id fiel dabei per
+-- ON DELETE SET NULL auf NULL; die Umlage blieb ohne Zahlung stehen, und die
+-- neuen Teilzahlungen erschienen in Schritt 1 als unverteilt — dieselbe Ausgabe
+-- ein zweites Mal umlegbar. Live am 28.10.2026: 0 betroffene Zahlungen, weil der
+-- Dialog nur Vertragszahlungen aufteilt und keine davon Positionen trägt. Die
+-- Sperre gilt trotzdem für jeden Schreibweg (SQL, Dashboard, künftige Dialoge).
+-- Ein mehrzeiliges DELETE ist atomar; der Dialog nimmt dann seine neuen Zeilen
+-- zurück. Kein Pfad im Code löscht sonst Zahlungen (am 28.10.2026 geprüft).
 
 create or replace function public.zahlung_umbuchung_pruefen()
 returns trigger
@@ -48,6 +58,22 @@ declare
   v_abhilfe constant text :=
     'Bitte die Zuordnung zuerst im Objekt unter Nebenkosten, Schritt 1, entfernen — sonst würde der Betrag doppelt umgelegt.';
 begin
+  -- Löschen: NEW ist hier NULL, die Vergleiche unten dürfen nicht laufen
+  if tg_op = 'DELETE' then
+    select count(*) into v_anzahl
+      from public.kostenpositionen kp
+     where kp.zahlung_id = old.id;
+    if v_anzahl > 0 then
+      raise exception using
+        errcode = 'P0001',
+        message = format(
+          'Die Zahlung ist in der Betriebskostenabrechnung %s zugeordnet.',
+          case when v_anzahl = 1 then 'einer Kostenposition' else v_anzahl::text || ' Kostenpositionen' end
+        ) || ' Sie lässt sich deshalb weder löschen noch aufteilen. ' || v_abhilfe;
+    end if;
+    return old;
+  end if;
+
   if new.immobilie_id is not distinct from old.immobilie_id
      and new.kategorie is not distinct from old.kategorie
      and new.betrag is not distinct from old.betrag then
@@ -98,7 +124,7 @@ end;
 $$;
 
 comment on function public.zahlung_umbuchung_pruefen() is
-  'Lehnt Objekt-, Kategorie- oder Betragswechsel einer Zahlung mit Kostenpositionen ab (doppelte Umlage), seit 28.10.2026.';
+  'Lehnt Objekt-, Kategorie- oder Betragswechsel sowie das Löschen einer Zahlung mit Kostenpositionen ab (doppelte Umlage), seit 28.10.2026.';
 
 -- Trigger-Funktionen werden nie direkt aufgerufen; Default-Privilegien entziehen.
 revoke execute on function public.zahlung_umbuchung_pruefen() from public;
@@ -108,5 +134,12 @@ revoke execute on function public.zahlung_umbuchung_pruefen() from authenticated
 drop trigger if exists zahlung_umbuchung_pruefen on public.zahlungen;
 create trigger zahlung_umbuchung_pruefen
   before update of immobilie_id, kategorie, betrag on public.zahlungen
+  for each row
+  execute function public.zahlung_umbuchung_pruefen();
+
+-- Löschen (auch Aufteilen und Aufheben, die die alte Zeile löschen), seit 28.10.2026
+drop trigger if exists zahlung_loeschen_pruefen on public.zahlungen;
+create trigger zahlung_loeschen_pruefen
+  before delete on public.zahlungen
   for each row
   execute function public.zahlung_umbuchung_pruefen();

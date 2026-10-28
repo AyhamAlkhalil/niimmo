@@ -81,6 +81,25 @@ export function umbuchungSperrgrund(
   return null;
 }
 
+/**
+ * Grund, warum Zahlungen nicht gelöscht werden dürfen, sonst null.
+ *
+ * Aufteilen und Aufheben (PaymentSplitModal) legen neue Zeilen an und löschen die
+ * alte. Bis zum 28.10.2026 setzte das Löschen kostenpositionen.zahlung_id per
+ * ON DELETE SET NULL auf NULL: Die Umlage blieb ohne Zahlung stehen, die neuen
+ * Teilzahlungen erschienen in Schritt 1 als unverteilt. Die Datenbank sperrt das
+ * seit diesem Tag per Trigger (zahlung_loeschen_pruefen, gleicher Meldungsanfang);
+ * hier steht die Regel für eine Meldung, bevor überhaupt etwas geschrieben wird.
+ * `anzahlKostenpositionen` zählt die Positionen aller zu löschenden Zahlungen.
+ */
+export function loeschSperrgrund(anzahlKostenpositionen: number): string | null {
+  if (!(anzahlKostenpositionen > 0)) return null;
+  const zuordnung = `Die Zahlung ist in der Betriebskostenabrechnung ${
+    anzahlKostenpositionen === 1 ? "einer Kostenposition" : `${anzahlKostenpositionen} Kostenpositionen`
+  } zugeordnet.`;
+  return `${zuordnung} Sie lässt sich deshalb weder löschen noch aufteilen. Bitte die Zuordnung zuerst im Objekt unter Nebenkosten, Schritt 1, entfernen — sonst würde der Betrag doppelt umgelegt.`;
+}
+
 /** Fehler mit fachlicher Meldung, die so in der Oberfläche erscheinen darf. */
 export class UmbuchungGesperrtFehler extends Error {
   constructor(meldung: string) {

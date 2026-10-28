@@ -249,6 +249,14 @@ describe('send-kuendigungsbestaetigung hält die Versandregeln ein', () => {
     expect(quelle).toContain('weitere_mails');
   });
 
+  it('lässt den rohen Text des Hauptfelds nicht als eine Adresse zu (28.10.2026)', () => {
+    // „a@x.de, b@y.de“ ging sonst als eine Empfängerzeile an beide, ohne Einzelprüfung;
+    // die App sendet nur zerlegte Adressen
+    expect(quelle).not.toMatch(/erlaubt\.add\(m\.hauptmail/);
+    expect(quelle).not.toMatch(/erlaubt\.add\(m\?\.hauptmail/);
+    expect(quelle.match(/erlaubt\.add\(/g)).toHaveLength(1);
+  });
+
   it('liest das Vertragsende aus der Datenbank und pinnt supabase-js', () => {
     expect(quelle).toMatch(/ende_datum \|\| .*kuendigungsdatum/);
     expect(quelle).toContain('supabase-js@2.49.1');

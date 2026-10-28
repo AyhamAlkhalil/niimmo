@@ -124,10 +124,33 @@ export function betragAusText(roh: string | number | null | undefined): number |
   return negativ ? -wert : wert;
 }
 
-/** Kalendertag aus „TT.MM.JJJJ“, „TT.MM.JJ“ oder „JJJJ-MM-TT“ (auch mit Uhrzeit dahinter), sonst null. */
+const BERLINER_TAG = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Berlin',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** Kalendertag (JJJJ-MM-TT) eines Zeitpunkts in Berlin, unabhängig von der Zeitzone des Rechners. */
+function berlinerKalendertag(zeitpunkt: Date): string {
+  const teile = Object.fromEntries(BERLINER_TAG.formatToParts(zeitpunkt).map((t) => [t.type, t.value]));
+  return `${teile.year}-${teile.month}-${teile.day}`;
+}
+
+/**
+ * Kalendertag aus „TT.MM.JJJJ“, „TT.MM.JJ“ oder „JJJJ-MM-TT“ (auch mit Uhrzeit dahinter), sonst null.
+ *
+ * Ein ISO-Zeitstempel mit Zeitzone (`Z` oder `+02:00`) wird seit 28.10.2026 in den Berliner Tag
+ * umgerechnet. Bis dahin zählten nur die ersten zehn Zeichen: „2026-10-01T22:00:00Z“ — so legen
+ * Exporte die Berliner Mitternacht des 02.10. in UTC ab — wurde zum 01.10., die Buchung fiel einen
+ * Tag und am Monatsende in den falschen Monat. Ohne Zeitzone gilt die Angabe als Berliner Ortszeit
+ * und der Tag bleibt, wie er dasteht.
+ */
 export function datumAusText(roh: string | null | undefined): string | null {
   const s = (roh ?? '').trim();
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$/);
+  // Die Uhrzeit wird wie vor dem 28.10.2026 großzügig angenommen („9:05“, „13:45:00.000“); streng
+  // gelesen wird sie nur, wenn eine Zeitzone dabeisteht und umgerechnet werden muss (Review 28.10.2026)
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s]([\d:.,]+)\s*(Z|[+-]\d{2}:?\d{2})?)?$/i);
   const de = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
   let j: number, m: number, t: number;
   if (iso) {
@@ -141,6 +164,26 @@ export function datumAusText(roh: string | null | undefined): string | null {
   }
   const d = new Date(j, m - 1, t);
   if (d.getFullYear() !== j || d.getMonth() !== m - 1 || d.getDate() !== t) return null;
+
+  if (iso?.[5]) {
+    const zeit = iso[4].match(/^(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?$/);
+    if (!zeit) return null;
+    const stunde = Number(zeit[1]);
+    const minute = Number(zeit[2]);
+    const sekunde = Number(zeit[3] ?? 0);
+    if (stunde > 23 || minute > 59 || sekunde > 59) return null;
+    const zone = iso[5].toUpperCase();
+    let versatzMinuten = 0;
+    if (zone !== 'Z') {
+      const z = zone.match(/^([+-])(\d{2}):?(\d{2})$/)!;
+      const vh = Number(z[2]);
+      const vm = Number(z[3]);
+      if (vh > 14 || vm > 59) return null;
+      versatzMinuten = (z[1] === '-' ? -1 : 1) * (vh * 60 + vm);
+    }
+    const utc = Date.UTC(j, m - 1, t, stunde, minute, sekunde) - versatzMinuten * 60_000;
+    return berlinerKalendertag(new Date(utc));
+  }
   return `${j}-${String(m).padStart(2, '0')}-${String(t).padStart(2, '0')}`;
 }
 

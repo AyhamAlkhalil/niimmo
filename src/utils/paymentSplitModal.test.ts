@@ -22,4 +22,18 @@ describe('PaymentSplitModal', () => {
     // Erfolg beim Aufteilen, Erfolg beim Aufheben, und beide Doppelbuchungsfälle
     expect(quelle.match(/await zahlungsAnsichtenNeuLaden\(\);/g)).toHaveLength(4);
   });
+
+  it('prüft vor dem ersten Schreiben, ob eine zu löschende Zahlung Kostenpositionen trägt (28.10.2026)', () => {
+    // Aufteilen und Aufheben löschen die alte Zeile; die Umlage blieb bis dahin ohne Zahlung stehen
+    expect(quelle).toMatch(/\.from\("kostenpositionen"\)\s*\.select\("id", \{ count: "exact", head: true \}\)\s*\.in\("zahlung_id", zahlungIds\)/);
+    const speichern = quelle.slice(quelle.indexOf('const handleSave = async'), quelle.indexOf('const resetSplits'));
+    const aufheben = quelle.slice(quelle.indexOf('const handleUndoSplit = async'));
+    for (const teil of [speichern, aufheben]) {
+      const pruefung = teil.indexOf('await kostenpositionenSperre(');
+      expect(pruefung).toBeGreaterThan(-1);
+      expect(pruefung).toBeLessThan(teil.indexOf('.insert('));
+    }
+    // Die Ablehnung durch den Trigger erscheint fachlich, nicht als Rohfehler
+    expect(quelle.match(/umbuchungSperrMeldung\(deleteError\)/g)).toHaveLength(2);
+  });
 });

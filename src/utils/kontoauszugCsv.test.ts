@@ -110,6 +110,46 @@ describe('betragAusText und datumAusText', () => {
     expect(datumAusText('2026-10-27T00:00:00')).toBe('2026-10-27');
     expect(datumAusText('2026-10-27 13:45:00.000+02:00')).toBe('2026-10-27');
   });
+
+  // 28.10.2026: Bis dahin zählten nur die ersten zehn Zeichen — ein UTC-Zeitstempel kurz vor
+  // Mitternacht landete einen Tag zu früh, am Monatsende im falschen Monat
+  it('rechnet einen Zeitstempel mit Zeitzone in den Berliner Tag um', () => {
+    expect(datumAusText('2026-10-01T23:30:00Z')).toBe('2026-10-02');
+    expect(datumAusText('2026-10-01T22:00:00Z')).toBe('2026-10-02'); // Berliner Mitternacht (Sommerzeit)
+    expect(datumAusText('2026-10-01T21:59:59Z')).toBe('2026-10-01');
+    expect(datumAusText('2026-12-31T23:30:00Z')).toBe('2027-01-01'); // Winterzeit, Jahreswechsel
+    expect(datumAusText('2026-12-31T22:59:59z')).toBe('2026-12-31');
+    expect(datumAusText('2026-10-25T22:59:59Z')).toBe('2026-10-25'); // nach der Umstellung UTC+1
+    expect(datumAusText('2026-03-29T00:30:00Z')).toBe('2026-03-29');
+    expect(datumAusText('2026-10-01T23:30:00+00:00')).toBe('2026-10-02');
+    expect(datumAusText('2026-10-01T23:30:00+0000')).toBe('2026-10-02');
+    expect(datumAusText('2026-10-02T00:30:00+05:00')).toBe('2026-10-01');
+    expect(datumAusText('2026-10-01T20:00:00-05:00')).toBe('2026-10-02');
+    expect(datumAusText('2026-10-01T23:30Z')).toBe('2026-10-02');
+    expect(datumAusText('2026-10-01T23:30:00.123456Z')).toBe('2026-10-02');
+    expect(datumAusText('2026-10-01T9:30Z')).toBe('2026-10-01');
+    expect(datumAusText('2026-10-01T23:30:00+02:00')).toBe('2026-10-01');
+  });
+
+  it('nimmt eine einstellige Stunde wie vor dem 28.10.2026 (Review)', () => {
+    expect(datumAusText('2026-10-27 9:05')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27T9:30')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27T9:30:15.5')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27T24:00Z')).toBeNull();
+    expect(datumAusText('2026-10-27T9:60Z')).toBeNull();
+    // ohne Zeitzone so großzügig wie vorher
+    expect(datumAusText('2026-10-27T13')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27 13.45')).toBe('2026-10-27');
+    expect(datumAusText('2026-10-27T1345Z')).toBeNull();
+  });
+
+  it('lässt einen Zeitstempel ohne Zeitzone beim angegebenen Tag und lehnt Unmögliches ab', () => {
+    expect(datumAusText('2026-10-01T23:30:00')).toBe('2026-10-01');
+    expect(datumAusText('2026-10-01 23:30')).toBe('2026-10-01');
+    expect(datumAusText('2026-02-30T10:00:00Z')).toBeNull();
+    expect(datumAusText('2026-10-01T25:00:00Z')).toBeNull();
+    expect(datumAusText('2026-10-01T10:00:00+25:00')).toBeNull();
+  });
 });
 
 describe('textAusCsvDatei', () => {

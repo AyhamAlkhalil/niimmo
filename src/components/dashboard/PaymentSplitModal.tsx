@@ -11,6 +11,7 @@ import { Trash2, Plus, ArrowRightLeft, Pencil, Undo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { loeschSperrgrund, umbuchungSperrMeldung } from "@/utils/nebenkostenUmbuchung";
 
 interface PaymentSplit {
   id: string;
@@ -183,6 +184,25 @@ export function PaymentSplitModal({
     );
   };
 
+  /**
+   * Sperrgrund, wenn eine der zu löschenden Zahlungen Kostenpositionen trägt, sonst null.
+   * Aufteilen und Aufheben löschen die alte Zeile; bis zum 28.10.2026 blieb deren Umlage dann
+   * ohne Zahlung stehen (kostenpositionen.zahlung_id ON DELETE SET NULL). Die Datenbank sperrt
+   * das per Trigger; hier wird vor dem ersten Schreiben geprüft, damit nichts zurückzunehmen ist.
+   */
+  const kostenpositionenSperre = async (zahlungIds: string[]): Promise<string | null> => {
+    if (zahlungIds.length === 0) return null;
+    const { count, error } = await supabase
+      .from("kostenpositionen")
+      .select("id", { count: "exact", head: true })
+      .in("zahlung_id", zahlungIds);
+    if (error) {
+      console.error("[Aufteilen] Kostenpositionen nicht prüfbar:", error.message);
+      throw new Error("Die Zuordnung zur Betriebskostenabrechnung ließ sich nicht prüfen. Es wurde nichts geändert.");
+    }
+    return loeschSperrgrund(count ?? 0);
+  };
+
   const handleSave = async () => {
     if (!isBalanced) {
       toast({
@@ -203,6 +223,15 @@ export function PaymentSplitModal({
 
     setIsLoading(true);
     try {
+      const idsToDelete = editMode
+        ? existingSplitPayments.map((p) => p.id)
+        : [payment.id];
+      const sperre = await kostenpositionenSperre(idsToDelete);
+      if (sperre) {
+        toast({ title: "Aufteilen nicht möglich", description: sperre, variant: "destructive", duration: 15000 });
+        return;
+      }
+
       let splitTimestamp: string;
       let originalPaymentData: any;
 
@@ -271,10 +300,6 @@ export function PaymentSplitModal({
 
       if (insertError) throw new Error(`Fehler beim Erstellen der Teilzahlungen: ${insertError.message}`);
 
-      const idsToDelete = editMode
-        ? existingSplitPayments.map((p) => p.id)
-        : [payment.id];
-
       const { error: deleteError } = await supabase
         .from("zahlungen")
         .delete()
@@ -298,7 +323,8 @@ export function PaymentSplitModal({
             );
           }
         }
-        throw new Error(`Fehler beim Aktualisieren: ${deleteError.message}`);
+        // Die Löschsperre der Datenbank (Kostenpositionen) fachlich weitergeben (28.10.2026)
+        throw new Error(umbuchungSperrMeldung(deleteError) ?? `Fehler beim Aktualisieren: ${deleteError.message}`);
       }
 
       toast({
@@ -334,6 +360,12 @@ export function PaymentSplitModal({
 
     setIsLoading(true);
     try {
+      const sperre = await kostenpositionenSperre(existingSplitPayments.map((p) => p.id));
+      if (sperre) {
+        toast({ title: "Aufheben nicht möglich", description: sperre, variant: "destructive", duration: 15000 });
+        return;
+      }
+
       // Originaldaten aus dem SPLIT_GROUP-Marker extrahieren
       const meta = extractSplitMeta(existingSplitPayments[0]);
       const originalData = meta.originalData;
@@ -380,7 +412,7 @@ export function PaymentSplitModal({
               `und die zusammengeführte Zahlung über ${formatBetrag(totalAmount)} ließ sich nicht zurücknehmen. Bitte eine der beiden Buchungen von Hand löschen.`
           );
         }
-        throw new Error(`Fehler beim Löschen der Teilzahlungen: ${deleteError.message}`);
+        throw new Error(umbuchungSperrMeldung(deleteError) ?? `Fehler beim Löschen der Teilzahlungen: ${deleteError.message}`);
       }
 
       toast({
