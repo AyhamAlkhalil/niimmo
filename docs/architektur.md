@@ -58,7 +58,7 @@ Betrag, Datum und Fläche sind heute 14-fach nachgebaut. Neue Formatierungen kom
   nicht zu kopieren.
 - **Die Mahnstufe steigt nur durch erfolgreichen Versand** — per E-Mail oder als gebuchter Postversand, beides
   über `send-mahnung`. Manuell ist ausschließlich Zurücksetzen erlaubt. Durchgesetzt im UI, in
-  `useMietvertragMutations`, im `set_mahnstufe`-Tool der `agent-api` und seit 28.10.2026 per Trigger
+  `useMietvertragMutations` und seit 28.10.2026 per Trigger
   `mahnstufe_nur_durch_versand` in der Datenbank. Stufe, Frist und Kündigung eines Schreibens legt der Server beim
   Speichern in `mahnung_versand` ab (vorgemerkt) und liest sie beim Versand von dort, nicht aus dem Request.
 - **Der Vertragsgenerator rät nichts.** Fehlt eine Pflichtangabe, entsteht kein PDF. Blocker in

@@ -34,7 +34,7 @@ null` (`MietvertragTimelineView.tsx:257-259`). Beide Felder gleichzeitig zu fül
 | Zustand | Bedeutung | Wer setzt ihn |
 |---|---|---|
 | `aktiv` | laufendes Mietverhältnis | Vertragsanlage |
-| `gekuendigt` | gekündigt, Ende terminiert, Mieter wohnt noch | `TerminationDialog` (beide Wege), `agent-api.terminate_contract` |
+| `gekuendigt` | gekündigt, Ende terminiert, Mieter wohnt noch | `TerminationDialog` (beide Wege) |
 | `beendet` | Mietverhältnis vorbei | `useAutoExpireContracts`, DB-Funktion `update_expired_terminated_contracts` |
 
 Übergänge nur vorwärts; einen Weg zurück von `beendet` gibt es im UI nicht.
@@ -155,8 +155,8 @@ dienstwohnung) · `uebergabezustand` · `kategorie` (Dokumente) · `anrede` · `
 Nicht im Frontend, sondern in der Datenbank: `has_role`, `is_admin`, `is_hausmeister`, `mein_app_benutzer_id`,
 `lege_benachrichtigung_an` (+ vier Trigger), `generate_monthly_mietforderungen`, `update_faellige_forderungen`,
 `update_expired_terminated_contracts`, `check_zahlungs_anomalien`, `calculate_zugeordneter_monat`,
-`replace_kostenposition_anteile`, `ist_angespannter_markt`, `hybrid_search`, dazu die `rpc_agent_*`-Funktionen
-für den Telegram-Assistenten.
+`replace_kostenposition_anteile`, `ist_angespannter_markt`, `hybrid_search` (die `rpc_agent_*`-Funktionen
+des Telegram-Assistenten sind seit 28.10.2026 entfernt).
 
 Storage: genau ein Bucket `dokumente` mit den Präfixen `<vertrag|objekt|general>/`, `zaehlerfotos/<vertragId>/`,
 `mahnungen/<vertragId>/`, `aufgaben/`. Eine Datei ohne Zeile in `dokumente` ist im UI unsichtbar.

@@ -6,10 +6,10 @@
  * Kappungsgrenze hinaus ist nach § 558 Abs. 3 BGB in Höhe des Überschusses
  * unwirksam; die Buchhaltung bekam die zu hohe Grenze grün bestätigt.
  *
- * Die übrigen Stellen im System rechneten bereits richtig: agent-api
- * (index.ts:992), der Hinweis an der Immobilie und die Vertragsklausel in
- * wohnraumKlauseln.ts. Diese Datei ist ab jetzt die Quelle für das Frontend;
- * die Deno-Kopie in agent-api ist bei Änderungen mitzuziehen.
+ * Die übrigen Stellen im System rechneten bereits richtig: der Hinweis an der
+ * Immobilie und die Vertragsklausel in wohnraumKlauseln.ts. Diese Datei ist ab
+ * jetzt die Quelle für das Frontend (die Deno-Kopie im Telegram-Assistenten
+ * entfiel mit ihm am 28.10.2026).
  */
 
 import { format } from 'date-fns';

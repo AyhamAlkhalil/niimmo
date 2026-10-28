@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import {
-  Activity, Bot, Building, ChevronDown, FilePlus2, FileSpreadsheet, Gauge, KeyRound, Landmark,
+  Activity, Building, ChevronDown, FilePlus2, FileSpreadsheet, Gauge, KeyRound, Landmark,
   ListChecks, Mail, Menu, Search, Settings, ShieldAlert, TableProperties, Wrench, type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,6 @@ export type Ziel =
   | "blacklist"
   | "aufgaben"
   | "mails"
-  | "agentlogs"
   | "devlog";
 
 export type Bereich = "portfolio" | "verwaltung" | "finanzen" | "system";
@@ -74,7 +73,6 @@ const GRUPPEN: { bereich: Exclude<Bereich, "portfolio">; label: string; eintraeg
       { ziel: "blacklist", label: "Blacklist", beschreibung: "Gesperrte Bewerber", icon: ShieldAlert },
       { ziel: "aufgaben", label: "Aufgaben", beschreibung: "Meldungen und Zuständigkeiten", icon: ListChecks },
       { ziel: "mails", label: "Mails", beschreibung: "Versendete Mails ansehen", icon: Mail },
-      { ziel: "agentlogs", label: "Chilla Logs", beschreibung: "Gespräche des Assistenten", icon: Bot },
       { ziel: "devlog", label: "Activity Log", beschreibung: "Aktivitäten im System", icon: Activity, nurDev: true },
     ],
   },

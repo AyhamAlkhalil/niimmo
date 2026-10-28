@@ -18,7 +18,6 @@ import { HausmeisterDashboard } from "@/components/dashboard/HausmeisterDashboar
 import { ZaehlerVerwaltung } from "@/components/dashboard/ZaehlerVerwaltung";
 import { MietaufstellungBank } from "@/components/dashboard/MietaufstellungBank";
 import { DevActivityLog } from "@/components/dashboard/DevActivityLog";
-import { AgentLogViewer } from "@/components/dashboard/AgentLogViewer";
 import { BlacklistVerwaltung } from "@/components/dashboard/BlacklistVerwaltung";
 import { AufgabenBoard } from "@/components/aufgaben/AufgabenBoard";
 import { MailProtokoll } from "@/components/dashboard/MailProtokoll";
@@ -75,7 +74,6 @@ const Index = () => {
   const [showZaehlerVerwaltung, setShowZaehlerVerwaltung] = useState<boolean>(false);
   const [showMietaufstellung, setShowMietaufstellung] = useState<boolean>(false);
   const [showDevLog, setShowDevLog] = useState<boolean>(false);
-  const [showAgentLogs, setShowAgentLogs] = useState<boolean>(false);
   const [showBlacklist, setShowBlacklist] = useState<boolean>(false);
   const [showMails, setShowMails] = useState<boolean>(false);
   const [showNeuerMietvertrag, setShowNeuerMietvertrag] = useState<boolean>(false);
@@ -302,7 +300,6 @@ const Index = () => {
     setShowZaehlerVerwaltung(ziel === 'zaehler');
     setShowMietaufstellung(ziel === 'mietaufstellung');
     setShowDevLog(ziel === 'devlog');
-    setShowAgentLogs(ziel === 'agentlogs');
     setShowBlacklist(ziel === 'blacklist');
     setShowMails(ziel === 'mails');
     setListSource(null);
@@ -364,9 +361,6 @@ const Index = () => {
     // Dev Activity Log (nur für info@kitdienstleistungen.de)
     bereich = 'system';
     inhalt = <DevActivityLog onBack={() => setShowDevLog(false)} />;
-  } else if (showAgentLogs && isAdmin) {
-    bereich = 'system';
-    inhalt = <AgentLogViewer onBack={() => setShowAgentLogs(false)} />;
   } else if (showMails && isAdmin) {
     bereich = 'system';
     inhalt = <MailProtokoll onBack={() => setShowMails(false)} />;

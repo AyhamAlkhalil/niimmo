@@ -131,11 +131,6 @@ describe('Vertrag oder Objekt, nie beides', () => {
     expect(quelle.match(/immobilie_id: objektBezug\(result\)/g)).toHaveLength(2);
     expect(quelle).not.toMatch(/immobilie_id: result\.immobilie_id \|\| null/);
   });
-
-  it('räumt im Assistenten beim Zuordnen zu einem Vertrag den Objektbezug ab', () => {
-    const agent = readFileSync('supabase/functions/agent-api/index.ts', 'utf-8');
-    expect(agent).toMatch(/\.update\(\{ mietvertrag_id: args\.mietvertrag_id, kategorie: args\.kategorie, immobilie_id: null \}\)/);
-  });
 });
 
 describe('ibanFuerNachtrag', () => {

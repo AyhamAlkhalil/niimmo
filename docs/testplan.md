@@ -235,11 +235,7 @@ Einstieg: Objekt → Nebenkosten
 
 ## 14. Assistent
 
-- [ ] Chatbot im Dashboard: Portfolio-Fragen, Mietersuche, Rückstände
-- [ ] ❓ Antworten gegen die Oberfläche gegenprüfen — der Chatbot liest teils aus veralteten Tabellen
-- [ ] Telegram-Agent „Chilla": Leseabfragen
-- [ ] ⚠️ Schreibende Agent-Befehle (Mahnstufe, Zählerstand, Kündigung) nur bewusst testen — sie ändern
-      den Echtbestand
+Der Telegram-Assistent „Chilla" ist seit 28.10.2026 entfernt; einen Chat-Assistenten im Dashboard gibt es nicht mehr.
 
 ---
 

@@ -7,6 +7,8 @@ erreichbare (siehe Ende).
 Reife: `fertig` = im Betrieb tragfähig · `teilweise` = nutzbar, mit bekannter Lücke · `prototyp` = nicht abgenommen.
 Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), Zustände in [datenmodell.md](datenmodell.md).
 
+> 28.10.2026: Der Telegram-Assistent („Chilla", Edge Function `agent-api`, `rpc_agent_*`) ist entfernt; seine Zeilen sind gestrichen.
+
 
 ## Immobilien, Einheiten, Zähler
 
@@ -32,8 +34,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Datenluecken-Pruefung Flaeche und Personenzahl** | Zaehlt Einheiten ohne m2 und laufende Vertraege ohne Personenzahl je Objekt und bietet einen Filter auf… | `src/components/dashboard/EditableMietUebersichtModal.tsx:530-…` | fertig |
 | **Zaehlerstaende aus dem Uebergabeprotokoll** | Erfasst Strom, Gas, Kalt- und Warmwasser je Vertrag, schreibt sie in die *_einzug/_auszug-Spalten des… | `src/components/dashboard/handover/UebergabeDialog.tsx:437-490` | teilweise |
 | **Einheitendaten im Mietvertrags-PDF** | Bezeichnung, Lage, Wohnflaeche, Zimmerzahl, Raumaufstellung, Nebenraeume und Einbaukueche der Einheit… | `src/hooks/useMietvertragPdfDaten.ts:217-230` | teilweise |
-| **Objekt- und Leerstandsauskunft fuer Chatbot und Telegram-Agent** | Der Chatbot baut je Objekt eine Einheitenliste mit LEERSTAND-Markierung, der Agent liest Leerstaende… | `supabase/functions/chat/index.ts:160-192` | teilweise |
-| **Zaehlerstand per Telegram-Agent setzen** | Schreibt ueber mieter_search oder einheit_id den aktuellen Stand und das Datum in die Einheit und legt… | `supabase/functions/agent-api/index.ts:850-889` | teilweise |
 
 ## Mieter und Mieterbeziehungen
 
@@ -54,10 +54,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Globale Mietersuche** | Sucht Mieter ueber Vorname, Nachname oder E-Mail und gruppiert die Treffer zu Mietvertraegen samt aller… | `src/components/dashboard/SearchPanel.tsx:29-80` | teilweise |
 | **Mieterhistorie je Einheit** | Baut aus allen Vertraegen einer Einheit eine Zeitachse und zeigt je Periode die zugehoerigen Mieter. | `src/components/dashboard/EinheitHistorieView.tsx:45-80 und :3…` | fertig |
 | **Bewerbungs-Blacklist verwalten** | Anlegen, Suchen und Loeschen gesperrter Bewerber mit Name, E-Mail, Telefon, Grund und Notizen. | `src/components/dashboard/BlacklistVerwaltung.tsx:29-306` | fertig |
-| **Blacklist-Auskunft ueber den KI-Assistenten** | Chilla und der Dashboard-Chatbot kennen die vollstaendige Blacklist und pruefen auf Zuruf, ob eine… | `supabase/functions/agent-api/index.ts:430-442 (rpc_agent_blac…` | fertig |
-| **WhatsApp-Verlauf ueber den KI-Assistenten** | Gibt die letzten Nachrichten eines Mieters aus; die einzige tatsaechlich erreichbare Nutzung der… | `supabase/functions/agent-api/index.ts:333-348 (rpc_agent_what…` | teilweise |
-| **Mieterkontakte fuer den Telegram-Assistenten** | Liefert vollstaendige Kontaktdaten, Gesamtlisten nach Vertragsstatus und Namenssuche ueber… | `supabase/functions/agent-api/index.ts:268-315 (rpc_agent_tena…` | fertig |
-| **Mieter per Agent anlegen und aendern** | Schreibende Aussenschnittstelle zum Anlegen und Aendern von Mieterstammdaten; create_mieter schreibt… | `supabase/functions/agent-api/index.ts:754-766 (create_mieter)…` | prototyp |
 | **Mieter als Adressat von Schreiben (Mahnung, Kuendigung, Mieterhoehung)** | Zieht Empfaengername und E-Mail aus dem ersten Mieter des Vertrags; Anrede und Anschrift werden im… | `src/components/dashboard/MahnungErstellungModal.tsx:107-109` | teilweise |
 | **Empfaengerauswahl und E-Mail-Ruecklauf beim Uebergabeprotokoll** | Waehlt je Mieter die Zieladresse und schreibt eine im Dialog korrigierte Adresse nach mieter.hauptmail… | `src/components/dashboard/handover/UebergabeEmailDialog.tsx:17…` | fertig |
 
@@ -85,7 +81,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Vertragserzeugung als PDF mit Pflichtpruefung** | Prueft vor dem Druck rund 30 fachliche und gesetzliche Bedingungen; ein Blocker verhindert das PDF, die… | `src/utils/mietvertrag/pflichtpruefung.ts:22-320 (Aufruf ueber…` | teilweise |
 | **Uebergabe schreibt Zaehlerstaende an den Vertrag** | Je nach Richtung werden die erfassten Staende in die *_einzug- oder *_auszug-Spalten des Vertrags… | `src/components/dashboard/handover/UebergabeDialog.tsx:428-457` | fertig |
 | **Vorschlagsliste faelliger Uebergaben (Einzug/Auszug)** | Priorisiert Vertraege nach Naehe zum Einzugs- bzw. Auszugstermin; beendete Vertraege bleiben bewusst… | `src/components/dashboard/handover/UebergabeContractList.tsx:6…` | fertig |
-| **Kuendigung ueber die Aussenschnittstelle agent-api** | Werkzeug terminate_contract des Telegram-Assistenten setzt status='gekuendigt', kuendigungsdatum und… | `supabase/functions/agent-api/index.ts:504-519 und 813-828` | teilweise |
 | **Vertragskennzahlen im Dashboard** | Zaehlt aktive und gekuendigte Vertraege, summiert Soll-Kaltmiete und Betriebskosten stichtagsbezogen… | `src/components/dashboard/DashboardStats.tsx:113-147` | teilweise |
 | **Mietaufstellung fuer die Bank und Mietuebersicht** | Objektuebergreifende Aufstellungen, die konsequent den am Stichtag laufenden Vertrag verwenden und… | `src/components/dashboard/MietaufstellungBank.tsx:90-128` | fertig |
 
@@ -144,7 +139,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Arbeitsliste nicht zugeordneter Zahlungen** | Eigener Reiter mit allen Zahlungen ohne Vertragsbezug in den Kategorien Miete, Mietkaution,… | `src/components/controlboard/PaymentManagement.tsx:194-206` | teilweise |
 | **Nebenkosten-Zuordnung: Ausgaben einem Objekt zuweisen** | Reiter „Nebenkosten" als Arbeitsplatz wie „Alle Zahlungen": gefensterte Tabelle mit Monatsgruppen, Sichten „Ohne Objekt / Zugeordnet / Ausgeblendet" mit Zaehlwerten, Kategoriefilter, Suche, Zeitraum; rechts die Detailspalte mit KI-Vorschlag (Kostenart, Konfidenz, Begruendung, „Vorschlag uebernehmen"), durchsuchbarer Objektliste mit Zaehlwerten, „Zum Objekt", Kategorie-Aktionen (als Nichtmiete/Nebenkosten, ausblenden, wieder einblenden). Knopf „KI-Vorschlaege" ruft classify-nebenkosten. Beide Abfragen mit range(). Logik in `utils/nebenkostenZuordnung.ts` (getestet). Ziehen und Ablegen entfaellt. | `src/components/controlboard/NebenkostenArbeitsplatz.tsx`, `NebenkostenInspector.tsx` | fertig |
 | **Verdachtsfaelle falscher Zuordnung anzeigen** | Banner ueber der Zahlungsverwaltung zeigt taeglich vom Datenbank-Job erkannte Zahlungen, die vermutlich… | `src/components/controlboard/ZahlungsAnomalienBanner.tsx:24` | fertig |
-| **Zahlungen ueber die Aussenschnittstelle agent-api buchen** | Der Telegram-Assistent kann eine bestehende Zahlung einem Vertrag zuordnen und eine manuelle Zahlung… | `supabase/functions/agent-api/index.ts:743 (assign_payment_to_…` | teilweise |
 | **Rueckstands- und Vorauszahlungsrechnung** | Stellt Forderungen und Zahlungen gegenueber; Zahlungen auf einen Monat ohne Forderung wandern auf den… | `src/utils/rueckstandsberechnung.ts:8` | fertig |
 | **Zahlungsstatus je Mietforderung** | Markiert eine Forderung als bezahlt, wenn eine Miete-Zahlung mit demselben Verrechnungsmonat existiert;… | `src/components/dashboard/PaymentHistory.tsx:75 (getPaymentSta…` | teilweise |
 
@@ -171,7 +165,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Anomalien-Banner im Controlboard** | Zeigt Admins offene Verdachtsfaelle mit Betrag, Begruendung und beiden Vertraegen, springt zur… | `src/components/controlboard/ZahlungsAnomalienBanner.tsx:24-120` | fertig |
 | **Verdachtsfall pruefen oder ignorieren** | Setzt status auf geprueft oder ignoriert und vermerkt geprueft_von und geprueft_am; laut Hinweis im… | `src/hooks/useZahlungsAnomalien.ts:181-208` | teilweise |
 | **Rueckstand fuer den Chatbot** | Bildet die Kennzahl "Offene faellige Forderungen" als Summe aller Forderungen mit ist_faellig —… | `supabase/functions/chat/index.ts:156-157 und 327` | prototyp |
-| **Rueckstand ueber die agent-api** | Stellt dem Telegram-Assistenten die Werkzeuge rpc_agent_outstanding (Schuldnerliste mit soll_gesamt,… | `supabase/functions/agent-api/index.ts:112-139` | unvalidiert |
 
 ## Mahnwesen und Kündigung
 
@@ -194,8 +187,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Vorhandenes Kuendigungsschreiben hochladen** | Nimmt PDF/JPG/PNG bis 10 MB entgegen, setzt `status`, `kuendigungsdatum` und `ende_datum` und legt eine… | `src/components/dashboard/termination/TerminationDialog.tsx:32…` | fertig |
 | **Kuendigungsbestaetigung erstellen und versenden** | Oeffnet sich nach dem Upload einer Mieterkuendigung und spaeter ueber den Knopf am gekuendigten Vertrag: Anrede je Mieter, Eingangsdaten, Vertragsende aus `getVertragsende()`, Widerspruch nach § 545 BGB, PDF-Vorschau; speichert nach `kuendigungen/<vertragId>/` mit `dokumente`-Zeile und versendet ueber `send-kuendigungsbestaetigung` (Empfaenger nur aus `hauptmail`/`weitere_mails`, Postfach `KUENDIGUNG_SMTP_*`, sonst `UEBERGABE_SMTP_*`). | `src/components/dashboard/termination/KuendigungsbestaetigungDialog.tsx` | teilweise |
 | **Kuendigungsschreiben-Generator fuer drei Kuendigungsarten** | Baut je nach ordentlich, ausserordentlich fristlos oder ausserordentlich mit Frist einen anderen… | `src/utils/kuendigungPdfGenerator.ts:55 generateKuendigungPdf` | fertig |
-| **Kuendigung ueber die Aussenschnittstelle des Telegram-Assistenten** | Setzt `status`, `kuendigungsdatum`, `ende_datum` und zusaetzlich `kuendigungsgrund` — eine Spalte, die… | `supabase/functions/agent-api/index.ts:507 (Werkzeug) und 813 …` | prototyp |
-| **Mahnstufe ueber die Aussenschnittstelle zuruecksetzen** | Liest die aktuelle Stufe, verweigert jede Erhoehung, schreibt den neuen Wert und bestaetigt ihn durch… | `supabase/functions/agent-api/index.ts:580 (Werkzeug) und 891 …` | fertig |
 | **Automatischer Statuswechsel gekuendigt -> beendet im Browser** | Sobald eine Einheitenkarte gerendert wird und das `kuendigungsdatum` in der Vergangenheit liegt, setzt… | `src/hooks/useAutoExpireContracts.ts:8` | teilweise |
 | **Statusfortschreibung durch DB-Trigger** | Vergangenes `ende_datum` setzt `beendet`; zukuenftiges `ende_datum` plus belegtes `kuendigungsdatum`… | `supabase/migrations/20260903120000_vertragsende_vereinheitlic…` | fertig |
 | **Faelligkeitsmarkierung als Vorstufe des Mahnwesens** | Cron-Function mit Header `x-cron-key`, ruft `update_faellige_forderungen` und protokolliert das… | `supabase/functions/check-faelligkeiten/index.ts:25` | fertig |
@@ -259,7 +250,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Fortschreibung der Anteile je Kostenposition und Einheit** | Schreibt bei jedem PDF und jedem Versand Prozentsatz, Betrag, Bezugsgroessen, Zeitraum und… | `src/components/dashboard/nebenkosten/NebenkostenStep3Abrechnu…` | teilweise |
 | **BKA-Salden in die Forderungsuebersicht uebernehmen** | Legt Nachzahlungen und Guthaben einzeln oder gesammelt als mietforderungen mit typ = 'BKA' und… | `src/components/dashboard/nebenkosten/NebenkostenStep3Abrechnu…` | teilweise |
 | **Nachsendeadresse fuer ausgezogene Mieter** | Adressiert die Abrechnung nach Auszug an mietvertrag.neue_anschrift und faellt sonst auf die… | `src/utils/nebenkostenBerechnung.ts:380 (nachsendeAdresseZeile…` | fertig |
-| **Kostenposition ueber die Aussenschnittstelle anlegen** | Der Telegram-Assistent kann fuer ein per Namen gesuchtes Objekt eine Kostenposition mit Betrag und… | `supabase/functions/agent-api/index.ts:1018 (Werkzeug create_k…` | teilweise |
 | **Nebenkosten-Auskunft fuer Chatbot und Assistent** | Liest Nebenkostenarten, Kostenpositionen und nebenkosten_zahlungen als Kontext bzw. liefert… | `supabase/functions/chat/index.ts:113-115 und :264` | fertig |
 | **Betriebskostenkatalog im Mietvertrag** | Zieht die Nebenkostenarten des Objekts in die Mietvertragserzeugung und friert sie als… | `src/hooks/useMietvertragPdfDaten.ts:105-139` | fertig |
 | **Durchreich-Komponente ImmobilienNebenkostenTabNew** | Neun Zeilen, die ausschliesslich BetrKVNebenkostenTab weiterreichen; die Namensendung "New" deutet auf… | `src/components/dashboard/nebenkosten/ImmobilienNebenkostenTab…` | teilweise |
@@ -286,7 +276,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Indexklausel im Gewerbemietvertrag** | Frei vereinbarte Wertsicherung mit Schwellenwert in Prozent, beidseitig wirkend, Basis VPI 2020=100. | `src/utils/mietvertrag/gewerbeKlauseln.ts:578-592` | teilweise |
 | **Mietpreisbremsen-Pruefung im Vertragsgenerator** | Bei Wohnraum in angespanntem Markt ist die Auskunft nach § 556g Abs. 1a BGB Pflicht (Blocker) und es… | `src/utils/mietvertrag/pflichtpruefung.ts:284-298` | teilweise |
 | **Kappungsgrenzen-Absatz im erzeugten Mietvertrag** | § 5 nennt die 15-Monats- und die Jahresfrist sowie 15 % (angespannt) bzw. 20 % (normal) in drei Jahren;… | `src/utils/mietvertrag/wohnraumKlauseln.ts:960-970` | fertig |
-| **Mieterhoehungspruefung fuer den Telegram-Assistenten** | Liefert Kappungsgrenze, maximale neue Kaltmiete und Sperrfriststand — mit 15/20 %, aber ausschliesslich… | `supabase/functions/agent-api/index.ts:658-670 (Werkzeug) und …` | teilweise |
 
 ## Darlehen und Versicherungen
 
@@ -303,8 +292,6 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Darlehenssuche im globalen Suchfeld** | Sucht ueber Bezeichnung, Bank und Kontonummer; ein Treffer oeffnet lediglich die Darlehensuebersicht,… | `src/components/dashboard/SearchPanel.tsx:111-115` | teilweise |
 | **Eigenkapital- und Portfolioauswertung mit Restschuld** | Rechnet Gesamtrestschuld und Eigenkapital aus immobilien.restschuld statt aus den Darlehenskonten;… | `src/components/dashboard/Analytics.tsx:76-78 und :216-221` | prototyp |
 | **Darlehens- und Versicherungskontext fuer den Chatbot** | Baut je Darlehen Restschuld, Tilgungsgrad und zugeordnete Objekte sowie die Versicherungsliste samt… | `supabase/functions/chat/index.ts:105-111` | fertig |
-| **Darlehensauskunft der agent-api (Telegram-Assistent)** | Zwei Lesewerkzeuge fuer Uebersicht und Details inklusive "letzter Tilgungszahlung"; die… | `supabase/functions/agent-api/index.ts:160-163 (rpc_agent_loan…` | teilweise |
-| **Restschuld per Assistent aktualisieren** | Schreibwerkzeug update_loan_balance setzt darlehen.restschuld, findet das Darlehen notfalls per… | `supabase/functions/agent-api/index.ts:641-654 (Tool)` | fertig |
 | **Versicherungen je Objekt pflegen** | Anlegen, Bearbeiten und Loeschen von Policen mit Typ, Firma, Vertragsnummer, Kontaktperson, Telefon,… | `src/components/dashboard/ImmobilienVersicherungenTab.tsx:104-…` | fertig |
 | **Versicherungsdokumente hochladen, ansehen, herunterladen, loeschen** | PDF-Upload ueber useDocumentUpload mit Kategorie "Versicherungen", Vorschau und Download ueber… | `src/components/dashboard/ImmobilienVersicherungenTab.tsx:194-…` | teilweise |
 | **Versicherungssuche im globalen Suchfeld** | Sucht Policen ueber Firma, Typ, Vertragsnummer, Kontaktperson, E-Mail und Telefon objektuebergreifend —… | `src/components/dashboard/SearchPanel.tsx:102-109` | fertig |
@@ -380,8 +367,6 @@ Seit 14.09.2026 ausgedünnt: Es gibt nur noch eine Benachrichtigung, den Hinweis
 | **Internes Personenverzeichnis (Erwaehnungen, Melder)** | app_benutzer ist bewusst von auth.users getrennt, damit Personen ohne Konto erwaehnt werden koennen;… | `src/hooks/useAppBenutzer.ts:42-87` | teilweise |
 | **Aktivitaetsprotokoll (Wer hat was geaendert)** | Schreibt fachliche Aenderungen nach activity_logs; nur sechs der dreizehn deklarierten Aktionsarten… | `src/hooks/useActivityLog.ts:22-50` | teilweise |
 | **Chatbot Chilla im Dashboard** | Schwebender Knopf oeffnet einen Streaming-Chat; die Function laedt siebzehn Tabellen und baut daraus… | `src/components/chatbot/ModernChatbotTrigger.tsx:105 (aus src/…` | teilweise |
-| **Aussenschnittstelle Chilla (Telegram-Assistent)** | Mit x-agent-key geschuetzte Schnittstelle mit 27 lesenden rpc_agent_*-Werkzeugen und 12 weiteren, davon… | `supabase/functions/agent-api/index.ts:1079-1199` | teilweise |
-| **Anti-Halluzinations-Regelwerk des Agenten** | Der Systemtext verbietet Erfolgsmeldungen ohne Tool-Aufruf; set_mahnstufe liest den gespeicherten Wert… | `supabase/functions/agent-api/index.ts:19-34` | fertig |
 | **Chilla-Protokoll (Agent-Logs)** | Admin-Ansicht ueber agent_logs mit Kennzahlen, Diagrammen und Tool-Aufrufen; geschrieben wird dort nur… | `src/components/dashboard/AgentLogViewer.tsx (Aufruf src/pages…` | fertig |
 | **Bewerbungs-Blacklist pflegen** | Gesperrte Mietinteressenten mit Name, Mail, Telefon und Grund anlegen, suchen und loeschen; beide… | `src/components/dashboard/BlacklistVerwaltung.tsx:36-80 (Aufru…` | fertig |
 | **Dashboard-Kennzahlen (Soll-Ist der Monatsmiete)** | Zaehlt Immobilien, Einheiten, Leerstand, gekuendigte Vertraege und stellt erwartete gegen erfasste… | `src/components/dashboard/DashboardStats.tsx:113-123` | fertig |
