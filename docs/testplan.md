@@ -76,6 +76,9 @@ Einstieg: Dashboard → „Übergabe"
 - [ ] Zählerstände stehen danach am Vertrag (`strom_einzug` etc.)
 - [ ] E-Mail an Mieter versenden (bewusster zweiter Klick)
 - [ ] Versorgerbenachrichtigung — ⚠️ Absender muss „NiImmo Wohnungsbaugesellschaft mbH" sein
+- [ ] Dialog nach dem Speichern **ohne Versand** schließen → in der Übergabe-Liste den Vertrag erneut wählen →
+      „Übergabeprotokoll versenden" zeigt das Protokoll und „Noch nicht versendet"; Mail und Versorger lassen sich
+      jetzt senden, danach steht dort „Versendet an … am …" (auch über Dokumente → „Versenden")
 - [ ] ❓ **Belastungstest**: 30, dann 100 Fotos in einem Protokoll → wo wird es langsam, wo bricht der Mailversand?
 
 > Es gibt keine Fotogrenze. Das ist die wichtigste offene Frage aus D2 — bitte hier bewusst ausreizen und
@@ -127,6 +130,11 @@ Einstieg: Dashboard → Rückstände
 - [ ] ⚠️ Versand an eine **nicht hinterlegte** Adresse → muss abgelehnt werden
 - [ ] Versand an die hinterlegte Adresse → Mail kommt **mit PDF-Anhang** an
 - [ ] ⚠️ Mahnstufe steigt erst nach erfolgreichem Versand, um genau eins
+- [ ] Vertrag **ohne Mailadresse**: Versand „per Post" vorgewählt, Fristen 10/17 Tage → „Als per Post versandt
+      buchen" → Stufe steigt, unter der Mahnstufe steht „Zuletzt: … per Post am …"
+- [ ] Schreiben speichern, Dialog schließen, wieder öffnen → „gespeichert, aber noch nicht versandt" wird
+      angeboten und lässt sich per E-Mail oder Post versenden
+- [ ] Mehrere Mieteradressen: nur angehakte Adressen bekommen die Mail
 - [ ] Mahnstufe manuell zurücksetzen → geht; manuell erhöhen → geht nicht
 - [ ] Stufe 2 erzeugen und versenden
 - [ ] ⚠️ **Stufe 3**: Bestätigungsdialog warnt vor der Kündigung → nach Versand steht der Vertrag auf
@@ -138,20 +146,23 @@ Einstieg: Dashboard → Rückstände
 
 Einstieg: Dashboard → Mieterhöhung
 
-- [ ] Kandidatenliste zeigt nur Verträge mit 15 Monaten Frist
+- [ ] Kandidatenliste: Verlangen ab 12 Monaten nach der letzten Erhöhung, Wirksamwerden frühestens nach 15
 - [ ] ⚠️ **Kappungsgrenze prüfen**: normaler Markt 20 %, angespannter Markt 15 %
 - [ ] ⚠️ Erhöhung über der Grenze → Warnung erscheint
 - [ ] ⚠️ **Ohne Begründung** → kein PDF, Hinweis auf § 558a BGB
 - [ ] Begründungsart wählen, Text erfassen → PDF entsteht mit Begründungsabschnitt
 - [ ] ⚠️ Brieftext prüfen: verlangt **Zustimmung**, behauptet keine einseitige Erhöhung, sagt nicht
       „Schweigen gilt als Zustimmung"
-- [ ] ⚠️ **Ohne Haken** speichern → Kaltmiete am Vertrag bleibt unverändert
-- [ ] ⚠️ **Mit Haken „Der Mieter hat der Erhöhung zugestimmt"** → Kaltmiete steht sofort auf dem neuen Wert
-- [ ] ⚠️ Haken setzen, während das Wirksamkeitsdatum in der Zukunft liegt → gelber Warnhinweis erscheint
+- [ ] ⚠️ **Ohne Haken** speichern → Kaltmiete am Vertrag bleibt unverändert, Vorgang `verlangt`
+- [ ] ⚠️ **Mit Haken „Der Mieter hat der Erhöhung zugestimmt"** → Vorgang `zugestimmt`, Kaltmiete bleibt bis zum
+      Wirksamkeitsdatum; Vertrag zeigt „Erhöhung auf … ab … vereinbart"
+- [ ] Offenes Verlangen öffnen → „Zustimmung zum Verlangen vom … erfassen" → kein zweiter Vorgang, kein neues PDF
+- [ ] Am Wirksamkeitstag (Nachtlauf 05:00 UTC) steht die neue Miete am Vertrag, Vorgang `wirksam`
+- [ ] Miete seit dem Verlangen geändert → „überfällig, nicht übernommen" mit „Trotzdem übernehmen"
 
-> Beide Wege legen einen Vorgang in `mieterhoehungen` an — ohne Haken mit Status `verlangt`, mit Haken
-> `wirksam`. Der Warnhinweis ist bewusst keine Sperre: Die erhöhte Miete ist erst ab dem dritten
-> Kalendermonat nach Zugang geschuldet, aber wann Sie den Vertrag anpassen, entscheiden Sie.
+> Die Vertragsmiete ändert sich seit 28.10.2026 erst zum Wirksamkeitsdatum (§ 558b BGB): Die Zustimmung setzt den
+> Vorgang auf `zugestimmt`, `mieterhoehungen_anwenden` übernimmt die Miete im Nachtlauf vor der Sollstellung. Eine
+> späte Zustimmung wird sofort übernommen, samt unveränderter Monatsforderungen seit dem Wirksamkeitsdatum.
 
 ## 9. Kündigung und Auszug
 

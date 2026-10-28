@@ -37,6 +37,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.8.0",
+    datum: "2026-10-28",
+    aenderungen: [
+      { art: "neu", titel: "Mahnung per Post buchen – auch für Mieter ohne E-Mail, mit Einschreiben-Nummer und später versendbar" },
+      { art: "neu", titel: "Gespeicherte Übergabeprotokolle nachträglich an Mieter und Versorger senden" },
+      { art: "neu", titel: "Mieterhöhung mit Zustimmung gilt automatisch erst ab dem Wirksamkeitsdatum" },
+    ],
+  },
+  {
     version: "1.7.1",
     datum: "2026-10-27",
     aenderungen: [
