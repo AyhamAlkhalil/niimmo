@@ -1,22 +1,79 @@
 // Exakte Version (28.10.2026): Ein unversionierter Import zog still jede neue 2.x und brachte so die agent-api zum Absturz
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
-// Diese Edge Function wird taeglich per Cron aufgerufen und holt:
+// Diese Edge Function ruft pg_cron monatlich auf (Job niimmo-fetch-marktdaten, am 1. um 04:00 UTC) und holt:
 // 1. Basiszinssatz der Bundesbank (API, CSV-Format)
 // 2. Verbraucherpreisindex (VPI) von Destatis (Open Data CSV)
 
 const BUNDESBANK_API = 'https://api.statistiken.bundesbank.de/rest/data/BBIN1/M.DE.BBK.BBKBAS2.EUR.ME';
 const DESTATIS_VPI_CSV = 'https://www.destatis.de/static/de_/opendata/data/verbraucherpreisindex_gesamtindex_bv41.csv';
 
-Deno.serve(async (req) => {
-  // Auth: Bearer Token erforderlich (Anon-Key reicht, da intern service_role genutzt wird)
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+// Mindestlänge des Cron-Schlüssels: Ein kurzer oder leerer Wert in CRON_SECRET darf nie als
+// gültige Freigabe gelten (eingerichtet wird ein Zufallswert aus 32 Byte, 64 Hex-Zeichen).
+const CRON_SCHLUESSEL_MIN_LAENGE = 32;
+
+function antwort(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+/** Vergleich in konstanter Zeit: beide Werte erst hashen, dann jedes Byte vergleichen. */
+async function gleicherSchluessel(gesendet: string, erwartet: string): Promise<boolean> {
+  const kodierer = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', kodierer.encode(gesendet)),
+    crypto.subtle.digest('SHA-256', kodierer.encode(erwartet)),
+  ]);
+  const x = new Uint8Array(a);
+  const y = new Uint8Array(b);
+  let unterschied = 0;
+  for (let i = 0; i < x.length; i++) unterschied |= x[i] ^ y[i];
+  return unterschied === 0;
+}
+
+/**
+ * Freigabe: der Cron-Job mit Header x-cron-key (= Edge-Secret CRON_SECRET, den Wert liest pg_cron
+ * aus Supabase Vault, Name cron_secret) oder ein angemeldeter Admin.
+ *
+ * Bis zum 28.10.2026 genügte ein beliebiger Text nach „Bearer “: Jeder mit dem öffentlichen
+ * anon-Key konnte die Function auslösen, die mit Service-Role in marktdaten schreibt. Der Cron-Job
+ * (jobid 7) schickte ein festes Token, das zu keinem Secret passte.
+ */
+async function freigabe(req: Request): Promise<Response | null> {
+  const cronSchluessel = req.headers.get('x-cron-key');
+  const erwartet = Deno.env.get('CRON_SECRET') ?? '';
+  if (cronSchluessel && erwartet.length >= CRON_SCHLUESSEL_MIN_LAENGE && await gleicherSchluessel(cronSchluessel, erwartet)) {
+    return null;
   }
 
-  // Supabase-Client mit service_role (aus Edge Function Env, nicht aus Request)
-  // Damit kann die Function in marktdaten schreiben (RLS: nur service_role)
+  const authHeader = req.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return antwort({ error: 'Unauthorized' }, 401);
+  }
+  const authClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: userData, error: authError } = await authClient.auth.getUser();
+  if (authError || !userData?.user?.id) {
+    return antwort({ error: 'Unauthorized' }, 401);
+  }
+  // Wie process-payments und classify-nebenkosten: Rolle über is_admin, sonst 403
+  const rollenClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const { data: istAdmin, error: rolleError } = await rollenClient.rpc('is_admin', { _user_id: userData.user.id });
+  if (rolleError || istAdmin !== true) {
+    return antwort({ error: 'Forbidden' }, 403);
+  }
+  return null;
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== 'POST') {
+    return antwort({ error: 'Method not allowed' }, 405);
+  }
+  const abgelehnt = await freigabe(req);
+  if (abgelehnt) return abgelehnt;
+
+  // Supabase-Client mit service_role (aus Edge Function Env, nicht aus Request), erst nach der
+  // Freigabe erzeugt. Damit kann die Function in marktdaten schreiben (RLS: nur service_role)
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
