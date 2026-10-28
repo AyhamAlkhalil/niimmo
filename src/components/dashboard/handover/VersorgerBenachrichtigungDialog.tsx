@@ -40,7 +40,14 @@ interface VersorgerBenachrichtigungDialogProps {
   pdfPfad: string;
   /** Meldet die Versorger (typ), die tatsächlich benachrichtigt wurden */
   onVersendet?: (typen: string[]) => void;
+  /**
+   * Je Versorger (typ) die Adressen, die die Benachrichtigung laut Mail-Protokoll schon
+   * haben (nachträglicher Versand, 28.10.2026) — ein neuer Versuch geht nur an die übrigen.
+   */
+  bereitsZugestellt?: Record<string, string[]>;
 }
+
+const VERSORGER_BEZEICHNUNG: Record<string, string> = { strom: "Strom", gas: "Gas", wasser: "Wasser" };
 
 type Ladezustand = "offen" | "laedt" | "fertig" | "fehler";
 
@@ -58,6 +65,7 @@ export const VersorgerBenachrichtigungDialog = ({
   initialSelected,
   pdfPfad,
   onVersendet,
+  bereitsZugestellt,
 }: VersorgerBenachrichtigungDialogProps) => {
   const [versorger, setVersorger] = useState<VersorgerInfo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -71,9 +79,13 @@ export const VersorgerBenachrichtigungDialog = ({
   const [isSending, setIsSending] = useState(false);
   const [sentResult, setSentResult] = useState<{ sent: string[]; failed: string[] } | null>(null);
   // Versorger, die in diesem Dialog schon benachrichtigt wurden (Bezeichnung)
-  const [bereitsBenachrichtigt, setBereitsBenachrichtigt] = useState<string[]>([]);
+  const [bereitsBenachrichtigt, setBereitsBenachrichtigt] = useState<string[]>(() =>
+    Object.entries(bereitsZugestellt ?? {})
+      .filter(([, adressen]) => adressen.length > 0)
+      .map(([typ]) => VERSORGER_BEZEICHNUNG[typ] ?? typ)
+  );
   // Je Versorger die Adressen, die die Mail schon haben — ein zweiter Versuch geht nur an die übrigen
-  const [zugestellt, setZugestellt] = useState<Record<string, string[]>>({});
+  const [zugestellt, setZugestellt] = useState<Record<string, string[]>>(() => ({ ...(bereitsZugestellt ?? {}) }));
 
   const datumFormatiert = format(uebergabeDatum, "dd.MM.yyyy", { locale: de });
   const aktion = isEinzug ? "Einzug" : "Auszug";

@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { datumAusTitel, letzteProtokolle, protokollArt } from "./uebergabeProtokolle";
+import { datumAusTitel, istProtokollPdf, letzteProtokolle, protokollArt } from "./uebergabeProtokolle";
+
+describe("istProtokollPdf", () => {
+  it("erkennt PDFs am Dateityp oder an der Endung in Pfad oder Titel, Fotos nicht", () => {
+    expect(istProtokollPdf({ dateityp: "application/pdf", pfad: "x", titel: null })).toBe(true);
+    expect(istProtokollPdf({ dateityp: null, pfad: "1754_Protokoll.PDF", titel: null })).toBe(true);
+    expect(istProtokollPdf({ dateityp: null, pfad: "v/abc", titel: "20250630 Übergabeprotokoll.pdf" })).toBe(true);
+    expect(istProtokollPdf({ dateityp: null, pfad: "zaehlerfotos/v/strom.jpg", titel: "Zähler Strom (Auszug) – 30.09.2026" })).toBe(false);
+  });
+});
 
 describe("protokollArt", () => {
   it("liest die Art aus Titel oder Pfad", () => {

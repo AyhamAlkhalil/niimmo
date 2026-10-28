@@ -59,6 +59,7 @@ async function mailAbschliessen(
   id: string | null,
   status: 'gesendet' | 'fehler',
   fehlertext?: string,
+  nutzlast?: Record<string, unknown>,
 ): Promise<void> {
   if (!id) return;
   try {
@@ -68,6 +69,7 @@ async function mailAbschliessen(
         status,
         gesendet_am: status === 'gesendet' ? new Date().toISOString() : null,
         fehler: fehlertext ?? null,
+        ...(nutzlast ? { nutzlast } : {}),
       })
       .eq('id', id);
   } catch (fehler) {
@@ -75,13 +77,20 @@ async function mailAbschliessen(
   }
 }
 
-// ── Eingangspruefung (19.10.2026) ─────────────────────────────────────────────
-// Bis dahin pruefte die Function vom Anhang nur das Praefix uebergabeprotokolle/.
+// ── Eingangspruefung (19.10.2026, Erlaubnisliste seit 28.10.2026 aus der DB) ──
+// Bis 19.10. pruefte die Function vom Anhang nur das Praefix uebergabeprotokolle/.
 // Der URL-Parser loest aber auch %2e%2e als ".." auf; damit liess sich jede Datei
-// des Buckets anhaengen. Jetzt gilt eine Erlaubnisliste: genau ein PDF direkt im
-// Protokollordner eines der uebergebenen Vertraege (wie send-mahnung).
+// des Buckets anhaengen. Danach galt ein Dateimuster im Protokollordner des Vertrags.
+// Das liess nur 9 der 69 gespeicherten Protokolle zu: von Hand hochgeladene Scans
+// liegen anderswo, aeltere Dateinamen tragen ein Komma. Seit 28.10.2026 entscheidet
+// der Bestand: Der Pfad muss als Uebergabeprotokoll eines der uebergebenen Vertraege
+// in `dokumente` stehen. Vorher eine strenge Formpruefung, damit kein Pfadtrick
+// (%, \, ..) die Datenbankpruefung umgeht.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PROTOKOLL_PFAD = /^uebergabeprotokolle\/([0-9a-f-]{36})\/([A-Za-z0-9_.-]+\.pdf)$/i;
+// Zeichen, die in den gespeicherten Protokollpfaden vorkommen (am 28.10.2026 live gezaehlt:
+// Buchstaben, Ziffern, . _ - / , und Leerzeichen) — kein %, kein \, keine Steuerzeichen
+const PFAD_ZEICHEN = /^[A-Za-z0-9_.,\/ -]+$/;
+const ANHANG_UNZULAESSIG = 'Als Anhang ist nur das Übergabeprotokoll dieses Vertrags zulässig.';
 // Ohne ( ) : \ [ ]: nodemailer liest sonst „bcc:b@y.de“ als Gruppe oder Kommentar
 const ADRESSE = /^[^\s@<>,;"():\\[\]]+@[^\s@<>,;"():\\[\]]+\.[^\s@<>,;"():\\[\]]+$/;
 const MAX_EMPFAENGER = 20;
@@ -126,11 +135,48 @@ const URSACHE_TEXT: Record<Ursache, string> = {
   server: 'vom Mailserver nicht angenommen',
 };
 
-function protokollErlaubt(pfad: string, vertragIds: string[]): boolean {
-  const treffer = PROTOKOLL_PFAD.exec(pfad);
-  if (!treffer || treffer[2].includes('..')) return false;
-  const ordner = treffer[1].toLowerCase();
-  return vertragIds.some((id) => id.toLowerCase() === ordner);
+/** Form des Anhangpfads: ein PDF im Bucket, ohne leere, "."- oder ".."-Segmente */
+function anhangFormOk(pfad: string): boolean {
+  if (pfad.length === 0 || pfad.length > 512 || !PFAD_ZEICHEN.test(pfad)) return false;
+  if (pfad.startsWith('/') || !/\.pdf$/i.test(pfad)) return false;
+  return pfad.split('/').every((teil) => teil.trim() !== '' && teil !== '.' && teil !== '..');
+}
+
+/**
+ * Der Anhang muss als Uebergabeprotokoll eines der Vertraege in `dokumente` stehen.
+ * Liefert den Vertrag der Fundstelle, null wenn nicht eingetragen; wirft bei DB-Fehler.
+ */
+async function protokollVertrag(
+  client: ReturnType<typeof createClient>,
+  pfad: string,
+  vertragIds: string[],
+): Promise<string | null> {
+  const { data, error } = await client
+    .from('dokumente')
+    .select('mietvertrag_id')
+    .eq('pfad', pfad)
+    .eq('kategorie', 'Übergabeprotokoll')
+    .eq('geloescht', false)
+    .in('mietvertrag_id', vertragIds)
+    .limit(1);
+  if (error) throw new Error(`dokumente: ${error.message}`);
+  const zeile = (data as { mietvertrag_id: string | null }[] | null)?.[0];
+  return zeile?.mietvertrag_id ?? null;
+}
+
+type Rolle = 'mieter' | 'cc' | 'strom' | 'gas' | 'wasser' | 'unbekannt';
+
+/**
+ * Rolle eines Empfaengers fuer das Mail-Protokoll (28.10.2026). Die Dialoge schicken je
+ * Empfaenger `mieterId`: die Mieter-ID, "cc" oder den Versorger (strom/gas/wasser). Eine
+ * Mieter-ID zaehlt nur, wenn der Mieter zu einem der Vertraege gehoert. Die Rolle steuert
+ * nichts, sie zeigt spaeter nur an, ob Mieter oder Versorger das Protokoll schon haben.
+ */
+function rolleAus(mieterId: unknown, vertragsMieter: Set<string>): Rolle {
+  if (mieterId === 'cc') return 'cc';
+  if (mieterId === 'strom' || mieterId === 'gas' || mieterId === 'wasser') return mieterId;
+  if (typeof mieterId === 'string' && UUID.test(mieterId) && vertragsMieter.has(mieterId.toLowerCase())) return 'mieter';
+  return 'unbekannt';
 }
 
 /** Text fuer den HTML-Teil: Der Brief kommt als Klartext aus dem Dialog. */
@@ -163,8 +209,9 @@ function anfrageFehler(daten: Partial<EmailRequest> | null): string | null {
   if (!Array.isArray(contractIds) || contractIds.length === 0 || contractIds.length > 20 || !contractIds.every((id) => typeof id === 'string' && UUID.test(id))) {
     return 'Ungültige Vertragsangabe.';
   }
-  if (pdfPath !== undefined && pdfPath !== null && (typeof pdfPath !== 'string' || !protokollErlaubt(pdfPath, contractIds))) {
-    return 'Als Anhang ist nur das Übergabeprotokoll dieses Vertrags zulässig.';
+  // Ob der Pfad wirklich ein Protokoll dieser Vertraege ist, prueft danach protokollVertrag
+  if (pdfPath !== undefined && pdfPath !== null && (typeof pdfPath !== 'string' || !anhangFormOk(pdfPath))) {
+    return ANHANG_UNZULAESSIG;
   }
   return null;
 }
@@ -234,15 +281,42 @@ serve(async (req) => {
       return json({ error: fehler }, fehler.startsWith('Als Anhang') ? 403 : 400);
     }
     const { subject, body } = anfrage as EmailRequest;
+    const contractIds = (anfrage.contractIds as string[]).map((id) => id.toLowerCase());
     const pdfPath = anfrage.pdfPath || undefined;
+
+    // Erlaubnisliste aus dem Bestand (28.10.2026): nur ein eingetragenes Uebergabeprotokoll
+    // eines der Vertraege. Der Vertrag der Fundstelle steht danach im Mail-Protokoll.
+    let protokollVertragId: string | null = null;
+    if (pdfPath) {
+      try {
+        protokollVertragId = await protokollVertrag(rollenClient, pdfPath, contractIds);
+      } catch (pruefFehler) {
+        console.error('Anhangpruefung fehlgeschlagen:', pruefFehler instanceof Error ? pruefFehler.message : 'unbekannt');
+        return json({ error: 'Das Übergabeprotokoll konnte nicht geprüft werden. Es wurde nichts versendet.' }, 500);
+      }
+      if (!protokollVertragId) return json({ error: ANHANG_UNZULAESSIG }, 403);
+    }
+
+    // Mieter der Vertraege, damit eine Mieter-ID im Protokoll als Mieter zaehlt. Scheitert
+    // das Lesen, wird trotzdem versendet — die Rolle ist nur Anzeige.
+    const vertragsMieter = new Set<string>();
+    const { data: mieterLinks, error: mieterFehler } = await rollenClient
+      .from('mietvertrag_mieter')
+      .select('mieter_id')
+      .in('mietvertrag_id', contractIds);
+    if (mieterFehler) console.error('[mails] Mieter der Vertraege nicht gelesen:', mieterFehler.message);
+    for (const l of (mieterLinks as { mieter_id: string }[] | null) ?? []) vertragsMieter.add(String(l.mieter_id).toLowerCase());
+
     // Je Adresse eine eigene Mail; doppelte Adressen nur einmal
     const gesehen = new Set<string>();
     const recipients: EmailRecipient[] = [];
+    const rollen: { email: string; rolle: Rolle }[] = [];
     for (const r of anfrage.recipients as EmailRecipient[]) {
       for (const email of adressenAus(r.email) ?? []) {
         if (gesehen.has(email.toLowerCase())) continue;
         gesehen.add(email.toLowerCase());
         recipients.push({ ...r, email });
+        rollen.push({ email, rolle: rolleAus(r.mieterId, vertragsMieter) });
       }
     }
 
@@ -262,7 +336,7 @@ serve(async (req) => {
     // Load PDF attachment if path provided
     let pdfBuffer: Buffer | null = null;
     if (pdfPath) {
-      // Pfad ist oben gegen die Erlaubnisliste geprueft (anfrageFehler)
+      // Pfad ist oben geprueft: Form (anfrageFehler) und Eintrag in dokumente (protokollVertrag)
       const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
       const { data: fileData, error: fileError } = await supabase.storage
         .from('dokumente')
@@ -306,6 +380,9 @@ serve(async (req) => {
     );
     const tag = /^\d{4}-\d{2}-\d{2}$/.test(String(anfrage?.uebergabeDatum ?? '')) ? String(anfrage.uebergabeDatum) : `${berlin.year}-${berlin.month}-${berlin.day}`;
     const anhangName = `Uebergabeprotokoll_${tag}.pdf`;
+    // Vertrag, Rollen und spaeter das Ergebnis je Adresse (28.10.2026): Bis dahin liess sich
+    // nach dem Schliessen des Dialogs nicht mehr feststellen, ob und an wen das Protokoll ging.
+    const nutzlast: Record<string, unknown> = { vertrag_ids: contractIds, uebergabe_datum: tag, empfaenger: rollen };
     const mailId = await mailVormerken(rollenClient, {
       typ: 'uebergabe',
       status: 'entwurf',
@@ -315,6 +392,8 @@ serve(async (req) => {
       empfaenger: recipients.map((r) => r.email),
       anhang_pfad: pdfPath ?? null,
       anhang_name: pdfBuffer ? anhangName : null,
+      mietvertrag_id: protokollVertragId,
+      nutzlast,
       erstellt_von: userData.user.id,
     });
 
@@ -360,6 +439,7 @@ serve(async (req) => {
       mailId,
       sentEmails.length > 0 ? 'gesendet' : 'fehler',
       failedEmails.length > 0 ? failedEmails.map((f) => `${f.email}: ${f.error}`).join('; ') : undefined,
+      { ...nutzlast, zugestellt: sentEmails, abgelehnt: failedEmails.map((f) => f.email) },
     );
 
     console.log(`Versand: ${sentEmails.length} zugestellt, ${failedEmails.length} fehlgeschlagen`);

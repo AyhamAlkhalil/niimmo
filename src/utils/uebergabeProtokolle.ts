@@ -26,6 +26,16 @@ export interface ProtokollZeile {
 }
 
 /**
+ * Ein Protokoll ist ein PDF; Zähler- und Zustandsfotos derselben Kategorie zählen nicht.
+ * Von Hand hochgeladene tragen oft keinen Dateityp, nur die Endung im Pfad oder Titel.
+ * Seit 28.10.2026 gemeinsam für Listenhinweis und nachträglichen Versand — beide müssen
+ * dieselben Protokolle sehen, sonst zeigt die Liste eines, das sich nicht versenden lässt.
+ */
+export function istProtokollPdf(z: Pick<ProtokollZeile, "dateityp" | "pfad" | "titel">): boolean {
+  return z.dateityp === "application/pdf" || /\.pdf$/i.test(z.pfad ?? "") || /\.pdf$/i.test(z.titel ?? "");
+}
+
+/**
  * Das Übergabedatum aus dem Titel: „Übergabeprotokoll (Einzug) – 17.04.2026",
  * „2026-04-17 …" oder, wie bei den von Hand hochgeladenen, „20260417 Übergabeprotokoll
  * Einzug.pdf". Bis zum 24.10.2026 kannte es nur die erste Form; bei 24 Protokollen
@@ -61,8 +71,7 @@ export function letzteProtokolle(zeilen: ProtokollZeile[]): Map<string, Partial<
   const hochgeladen = new Map<string, Partial<Record<UebergabeArt, string>>>();
   for (const z of zeilen) {
     if (!z.mietvertrag_id || !z.hochgeladen_am) continue;
-    const istPdf = z.dateityp === "application/pdf" || /\.pdf$/i.test(z.pfad ?? "") || /\.pdf$/i.test(z.titel ?? "");
-    if (!istPdf) continue;
+    if (!istProtokollPdf(z)) continue;
     const art = protokollArt(z.titel, z.pfad);
     if (!art) continue;
     const bisher = ergebnis.get(z.mietvertrag_id) ?? {};

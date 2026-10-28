@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Mail, Send, AlertCircle, CheckCircle2, Plus, X } from "lucide-react";
-import { format } from "date-fns";
+import { format, isToday } from "date-fns";
 import { cn } from "@/lib/utils";
 import { de } from "date-fns/locale";
 import { funktionsFehlertext, mailadressen, versandAuswerten } from "@/utils/uebergabeMail";
@@ -48,6 +48,12 @@ interface UebergabeEmailDialogProps {
    * darunter war — eine angekommene CC-Kopie allein informiert den Mieter nicht.
    */
   onVersendet?: (adressen: string[], anMieter: boolean) => void;
+  /**
+   * Adressen, die das Protokoll laut Mail-Protokoll schon haben (nachträglicher Versand,
+   * 28.10.2026). Ohne sie sähe der Dialog nach dem Wiederöffnen nichts vom ersten Versand
+   * und schickte ein zweites Mal.
+   */
+  bereitsVersendet?: { adressen: string[]; am: Date } | null;
 }
 
 interface VersandErgebnis {
@@ -75,6 +81,7 @@ export const UebergabeEmailDialog = ({
   mieterName,
   pdfPfad,
   onVersendet,
+  bereitsVersendet,
 }: UebergabeEmailDialogProps) => {
   // Hinweise im Dialog statt als Einblendung: Die lag unten rechts über „E-Mail senden“
   const [hinweis, setHinweis] = useState<string | null>(null);
@@ -82,7 +89,9 @@ export const UebergabeEmailDialog = ({
   // Ergebnis des letzten Versands — solange gesetzt, zeigt der Dialog die Übersicht statt des Formulars
   const [ergebnis, setErgebnis] = useState<VersandErgebnis | null>(null);
   // Alle Adressen, an die in diesem Dialog schon versendet wurde, mit Uhrzeit des letzten Versands
-  const [bisherVersendet, setBisherVersendet] = useState<{ adressen: string[]; am: Date } | null>(null);
+  const [bisherVersendet, setBisherVersendet] = useState<{ adressen: string[]; am: Date } | null>(() =>
+    bereitsVersendet && bereitsVersendet.adressen.length > 0 ? bereitsVersendet : null
+  );
 
   const [emailAddresses, setEmailAddresses] = useState<{ [mieterId: string]: string }>(() => {
     const initial: { [key: string]: string } = {};
@@ -302,8 +311,10 @@ Ihre Hausverwaltung`
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
                 <div className="space-y-2">
                   <span className="break-all">
+                    {/* Ein früherer Tag gehört dazu: Beim nachträglichen Versand kann er Wochen zurückliegen */}
                     Bereits versendet an {bisherVersendet.adressen.join(", ")} (zuletzt{" "}
-                    {format(bisherVersendet.am, "HH:mm", { locale: de })} Uhr). Diese Adressen bekommen die Mail nicht noch einmal.
+                    {format(bisherVersendet.am, isToday(bisherVersendet.am) ? "HH:mm" : "'am' dd.MM.yyyy, HH:mm", { locale: de })} Uhr). Diese
+                    Adressen bekommen die Mail nicht noch einmal.
                   </span>
                   <div className="flex items-center gap-2">
                     <Checkbox

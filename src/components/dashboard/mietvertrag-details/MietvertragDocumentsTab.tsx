@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Edit3, X, Eye, Plus, Upload, Trash2, AlertCircle } from "lucide-react";
+import { FileText, Download, Loader2, ArrowUpDown, ArrowUp, ArrowDown, Edit3, X, Eye, Plus, Upload, Trash2, AlertCircle, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useState, useMemo } from "react";
@@ -16,8 +16,17 @@ import { DocumentDragDropZone } from "../DocumentDragDropZone";
 import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
 import { downloadDateiname } from "@/utils/dokumentDateiname";
 import type { Database } from "@/integrations/supabase/types";
+import { istProtokollPdf, protokollArt } from "@/utils/uebergabeProtokolle";
+import { UebergabeProtokollVersand } from "../handover/UebergabeProtokollVersand";
 
 type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
+
+/**
+ * Übergabeprotokolle lassen sich seit 28.10.2026 auch hier versenden — vorher nur direkt
+ * nach dem Speichern im Übergabe-Dialog. Fotos derselben Kategorie gehen nicht als Anhang.
+ */
+const protokollVersendbar = (dok: { kategorie?: string | null; pfad?: string | null; titel?: string | null; dateityp?: string | null }) =>
+  dok.kategorie === "Übergabeprotokoll" && !!dok.pfad && istProtokollPdf({ pfad: dok.pfad, titel: dok.titel ?? null, dateityp: dok.dateityp ?? null });
 
 interface MietvertragDocumentsTabProps {
   /** undefined, solange nichts geladen ist */
@@ -77,6 +86,10 @@ export function MietvertragDocumentsTab({
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<string | null>(null);
+
+  // Übergabeprotokoll, das gerade versendet wird (Pfad)
+  const [versandPfad, setVersandPfad] = useState<string | null>(null);
+  const versandDok = versandPfad ? dokumente?.find((d) => d.pfad === versandPfad) : null;
   
   // dokumentOeffnen() öffnet das Fenster noch im Klick. Bis 23.10.2026 kam window.open erst
   // nach dem await auf createSignedUrl -- Safari auf iPhone/iPad blockierte das still.
@@ -500,6 +513,18 @@ export function MietvertragDocumentsTab({
                         </div>
                         
                         <div className="flex items-center gap-2">
+                          {protokollVersendbar(dok) && (
+                            <Button
+                              onClick={() => setVersandPfad(dok.pfad)}
+                              size="sm"
+                              variant="outline"
+                              className="flex items-center space-x-2"
+                              aria-label="Übergabeprotokoll versenden"
+                            >
+                              <Mail className="h-4 w-4" />
+                              <span>Versenden</span>
+                            </Button>
+                          )}
                           <Button
                             onClick={() => handlePreview(dok)}
                             size="sm"
@@ -607,6 +632,18 @@ export function MietvertragDocumentsTab({
                     </div>
                     
                     <div className="flex items-center gap-2">
+                      {protokollVersendbar(dok) && (
+                        <Button
+                          onClick={() => setVersandPfad(dok.pfad)}
+                          size="sm"
+                          variant="outline"
+                          className="flex items-center space-x-2"
+                          aria-label="Übergabeprotokoll versenden"
+                        >
+                          <Mail className="h-4 w-4" />
+                          <span>Versenden</span>
+                        </Button>
+                      )}
                       <Button
                         onClick={() => handlePreview(dok)}
                         size="sm"
@@ -761,6 +798,16 @@ export function MietvertragDocumentsTab({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    {versandPfad && (
+      <UebergabeProtokollVersand
+        isOpen
+        onClose={() => setVersandPfad(null)}
+        mietvertragId={mietvertragId}
+        pfad={versandPfad}
+        art={versandDok ? protokollArt(versandDok.titel, versandDok.pfad) : null}
+      />
+    )}
       </DocumentDragDropZone>
     </>
   );

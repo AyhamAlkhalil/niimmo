@@ -1545,7 +1545,8 @@ export const UebergabeDialog = ({
       return;
     }
     if (isSaved && offeneVersendungen.length > 0 && !fertigFragen) {
-      // Versendet wird nur hier — nach dem Schließen gibt es dafür keinen Weg mehr
+      // Hier sind Texte und Adressen schon vorbereitet. Nachholen lässt sich der Versand seit
+      // 28.10.2026 auch später (Übergabe-Liste, Dokumente beim Vertrag) — erinnert wird trotzdem.
       setFertigFragen(true);
       return;
     }
@@ -2278,7 +2279,7 @@ export const UebergabeDialog = ({
           <AlertDialogTitle>Noch nicht versendet</AlertDialogTitle>
           <AlertDialogDescription>
             Das Protokoll ist gespeichert. Offen {offeneVersendungen.length === 1 ? "ist" : "sind"} noch {offeneVersendungen.join(", ")}.
-            Nach dem Schließen lässt sich das von hier aus nicht mehr nachholen.
+            Nachholen lässt es sich später über die Übergabe-Liste oder beim Vertrag unter Dokumente.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

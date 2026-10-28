@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { UebergabeDialog } from "@/components/dashboard/handover/UebergabeDialog";
 import { UebergabeContractList } from "@/components/dashboard/handover/UebergabeContractList";
+import { UebergabeProtokollVersand } from "@/components/dashboard/handover/UebergabeProtokollVersand";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { cn } from "@/lib/utils";
 import { alleSeiten } from "@/utils/supabaseSeiten";
@@ -215,8 +216,30 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
     return m;
   }, [protokolle, uebergabeType]);
 
-  const handleContractClick = (group: any) => {
-    setSelectedContracts(group.contracts);
+  // Vertrag, dessen gespeichertes Protokoll gerade versendet wird (seit 28.10.2026)
+  const [versandVertrag, setVersandVertrag] = useState<ContractWithDetails | null>(null);
+
+  const handleContractClick = (group: { contracts: Array<{ id: string }> }) => {
+    // Die Liste reicht die Verträge dieser Seite unverändert zurück, nur schmaler typisiert
+    const gruppe = group.contracts as ContractWithDetails[];
+    const vertrag = gruppe[0];
+    // Gibt es schon ein Protokoll dieser Art, geht es zuerst um dessen Versand. Bis zum
+    // 28.10.2026 begann hier immer ein neues, leeres Protokoll — Mail und Versorger ließen
+    // sich nach dem Schließen des Übergabe-Dialogs nicht mehr nachholen. Ein angefangener
+    // Entwurf auf diesem Gerät geht vor: Wer ihn hat, will weiter erfassen.
+    if (gruppe.length === 1 && vertrag && !entwurfJeVertrag.has(vertrag.id) && protokollJeVertrag.has(vertrag.id)) {
+      setVersandVertrag(vertrag);
+      return;
+    }
+    setSelectedContracts(gruppe);
+    setShowDialog(true);
+  };
+
+  const neuesProtokollStattVersand = () => {
+    const vertrag = versandVertrag;
+    setVersandVertrag(null);
+    if (!vertrag) return;
+    setSelectedContracts([vertrag]);
     setShowDialog(true);
   };
 
@@ -431,6 +454,16 @@ export const Uebergabe = ({ onBack }: UebergabeProps) => {
           </div>
         )}
       </div>
+
+      {versandVertrag && (
+        <UebergabeProtokollVersand
+          isOpen
+          onClose={() => setVersandVertrag(null)}
+          mietvertragId={versandVertrag.id}
+          art={uebergabeType}
+          onNeuesProtokoll={neuesProtokollStattVersand}
+        />
+      )}
 
       {selectedContracts.length > 0 && (
         <UebergabeDialog
