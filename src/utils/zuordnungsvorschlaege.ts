@@ -134,6 +134,10 @@ export function vorschlagStatus(idx: number, v: Zuordnungsvorschlag, k: Korrektu
   if (istManuellGeaendert(idx, v, k)) return 'geaendert';
   if (effektiveKategorie(idx, v, k) === 'Nichtmiete') return nichtmieteUnsicher(v) ? 'unsicher' : 'nichtmiete';
   if (!hatZuordnung(idx, v, k)) return 'offen';
+  // Was das Backend nicht vorauswählt, hat es geraten (z. B. Wohnung und Garage mit derselben IBAN,
+  // Betrag passt zu keinem). Bis zum 28.10.2026 stand so eine Zeile mit 60 % als „Zugeordnet“ mit
+  // grünem Haken da; Filter und „Nächster Prüffall“ übersprangen sie.
+  if (v.selected === false) return 'unsicher';
   if (v.confidence < KONFIDENZ_UNSICHER) return 'unsicher';
   return 'zugeordnet';
 }

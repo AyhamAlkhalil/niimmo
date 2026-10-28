@@ -81,6 +81,15 @@ describe('Status je Vorschlag', () => {
     expect(vorschlagStatus(0, vorschlag({ confidence: 40, mietvertrag_id: null }), KEINE_KORREKTUREN)).toBe('offen');
   });
 
+  it('ist unsicher, wenn das Backend nicht vorauswählt, auch bei mittlerer Konfidenz', () => {
+    // 28.10.2026: IBAN-Treffer bei Wohnung und Garage ohne passenden Betrag kam mit 60 % als „Zugeordnet“
+    const geraten = vorschlag({ confidence: 60, selected: false });
+    expect(vorschlagStatus(0, geraten, KEINE_KORREKTUREN)).toBe('unsicher');
+    expect(naechsterPruefFall([vorschlag({}), geraten], KEINE_KORREKTUREN, [0, 1], null)).toBe(1);
+    expect(vorschlagStatus(0, vorschlag({ confidence: 60, selected: false, mietvertrag_id: null }), KEINE_KORREKTUREN)).toBe('offen');
+    expect(vorschlagStatus(0, geraten, { ...KEINE_KORREKTUREN, vertrag: { 0: 'mv2' } })).toBe('geaendert');
+  });
+
   it('wird durch jede manuelle Korrektur zu „geändert"', () => {
     const v = vorschlag({ confidence: 40 });
     expect(vorschlagStatus(3, v, { ...KEINE_KORREKTUREN, vertrag: { 3: 'mv2' } })).toBe('geaendert');
