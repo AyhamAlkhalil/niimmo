@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { Euro, TrendingUp, TrendingDown, CheckCircle } from "lucide-react";
-import { leseKautionsbetrag } from "@/utils/vertragKaution";
+import { kautionAufteilung, kautionIstVorschau, leseKautionsbetrag } from "@/utils/vertragKaution";
 
 interface MietvertragKautionSectionProps {
   vertrag: any;
@@ -30,15 +30,22 @@ export function MietvertragKautionSection({
   // geaenderteKaution(), ob leer (null), Betrag oder ungültig. Eine leere Kaution
   // steht leer im Feld -- bis 26.10.2026 stand dort eine 0 und wurde gespeichert.
   const sollRoh = isGlobalEditMode && editedValues.kaution_betrag !== undefined ? editedValues.kaution_betrag : vertrag.kaution_betrag;
-  const istRoh = isGlobalEditMode && editedValues.kaution_ist !== undefined ? editedValues.kaution_ist : vertrag.kaution_ist;
+  // Seit 28.10.2026 rechnet die Datenbank das Ist: Anteil von Hand (bar, Altbestand vor dem Import)
+  // plus Kautionsbuchungen. Bearbeitbar ist nur der Anteil von Hand. Vorher war das Ist selbst
+  // ein Eingabefeld, auf das jede Buchung addiert wurde — von Hand eingetragen und danach
+  // importiert stand dieselbe Überweisung doppelt da, ohne dass es zu sehen war.
+  const aufteilung = kautionAufteilung(vertrag);
+  const vonHandRoh = isGlobalEditMode && editedValues.kaution_ist_grundwert !== undefined
+    ? editedValues.kaution_ist_grundwert
+    : aufteilung.vonHand;
   const kautionSoll = leseKautionsbetrag(sollRoh) ?? 0;
-  const kautionIst = leseKautionsbetrag(istRoh) ?? 0;
+  const kautionIst = (isGlobalEditMode ? kautionIstVorschau(aufteilung, vonHandRoh) : aufteilung.ist) ?? 0;
   const kautionDifferenz = kautionSoll - kautionIst;
 
   // Ohne onValueChange ging eine Eingabe im Bearbeitungsmodus verloren,
   // wenn nicht zuerst der Haken am Feld geklickt wurde
   const speichere = (field: 'soll' | 'ist', value: string) => {
-    if (isGlobalEditMode) onUpdateEditedValue?.(field === 'soll' ? 'kaution_betrag' : 'kaution_ist', value);
+    if (isGlobalEditMode) onUpdateEditedValue?.(field === 'soll' ? 'kaution_betrag' : 'kaution_ist_grundwert', value);
     else onEditKaution(field, value);
   };
   const betragAnzeige = (value: string | number) => formatBetrag(Number(value) || 0);
@@ -86,7 +93,7 @@ export function MietvertragKautionSection({
             />
           </div>
 
-          {/* Kaution Ist */}
+          {/* Kaution Ist: berechnet, nur der Anteil von Hand ist bearbeitbar */}
           <div className="rounded-xl border border-border/80 bg-neutral-50/60 p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
@@ -96,20 +103,36 @@ export function MietvertragKautionSection({
                 <CheckCircle className="h-3.5 w-3.5 text-forest-600" />
               </div>
             </div>
-            <MietvertragEditableField
-              label=""
-              value={istRoh ?? ""}
-              isEditing={isGlobalEditMode || editingKaution === 'ist'}
-              onEdit={() => !isGlobalEditMode && onStartEditKaution('ist')}
-              onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('kaution_ist', raw) : undefined}
-              onSave={(value) => speichere('ist', value)}
-              onCancel={onCancelEditKaution}
-              type="number"
-              className="font-display text-3xl leading-none tabular-nums text-foreground md:text-3xl"
-              formatter={betragAnzeige}
-              hideEditButton={true}
-              isGlobalEditMode={isGlobalEditMode}
-            />
+            <p className="font-display text-3xl leading-none tabular-nums text-foreground md:text-3xl">
+              {formatBetrag(kautionIst)}
+            </p>
+            <dl className="mt-3 space-y-1.5 border-t border-border/70 pt-3 text-xs md:text-sm">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-muted-foreground">aus Kontobuchungen</dt>
+                <dd className="tabular-nums text-foreground">{formatBetrag(aufteilung.ausBuchungen)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-muted-foreground" title="Bar erhalten oder vor dem Kontoimport eingegangen — keine Überweisung, die als Buchung kommt">
+                  von Hand (bar, vor dem Import)
+                </dt>
+                <dd className="tabular-nums text-foreground">
+                  <MietvertragEditableField
+                    label=""
+                    value={vonHandRoh ?? ""}
+                    isEditing={isGlobalEditMode || editingKaution === 'ist'}
+                    onEdit={() => !isGlobalEditMode && onStartEditKaution('ist')}
+                    onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('kaution_ist_grundwert', raw) : undefined}
+                    onSave={(value) => speichere('ist', value)}
+                    onCancel={onCancelEditKaution}
+                    type="number"
+                    className="text-xs tabular-nums text-foreground md:text-sm"
+                    formatter={betragAnzeige}
+                    hideEditButton={true}
+                    isGlobalEditMode={isGlobalEditMode}
+                  />
+                </dd>
+              </div>
+            </dl>
           </div>
 
           {/* Differenz */}

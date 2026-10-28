@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { geaenderteKaution, kautionFeldBezeichnung, leseKautionsbetrag } from "./vertragKaution";
+import { readFileSync } from "node:fs";
+import {
+  geaenderteKaution,
+  kautionAufteilung,
+  kautionFeldBezeichnung,
+  kautionIstVorschau,
+  leseKautionsbetrag,
+} from "./vertragKaution";
 
 describe("leseKautionsbetrag", () => {
   it("liefert für -0 eine 0 und für übergroße Ziffernfolgen keinen Betrag", () => {
@@ -53,8 +60,8 @@ describe("leseKautionsbetrag", () => {
 describe("geaenderteKaution", () => {
   it("schreibt eine unberührte leere Kaution nicht als 0 zurück", () => {
     const { aenderungen, ungueltig } = geaenderteKaution(
-      { kaution_betrag: null, kaution_ist: null },
-      { kaution_betrag: null, kaution_ist: null }
+      { kaution_betrag: null, kaution_ist_grundwert: null },
+      { kaution_betrag: null, kaution_ist_grundwert: null }
     );
     expect(aenderungen).toEqual({});
     expect(ungueltig).toEqual([]);
@@ -66,10 +73,10 @@ describe("geaenderteKaution", () => {
 
   it("übernimmt nur Felder, die sich geändert haben", () => {
     const { aenderungen } = geaenderteKaution(
-      { kaution_betrag: 1500, kaution_ist: 0 },
-      { kaution_betrag: "1500", kaution_ist: "750.5" }
+      { kaution_betrag: 1500, kaution_ist_grundwert: 0 },
+      { kaution_betrag: "1500", kaution_ist_grundwert: "750.5" }
     );
-    expect(aenderungen).toEqual({ kaution_ist: 750.5 });
+    expect(aenderungen).toEqual({ kaution_ist_grundwert: 750.5 });
   });
 
   it("unterscheidet eine eingetragene 0 von leer", () => {
@@ -78,16 +85,16 @@ describe("geaenderteKaution", () => {
   });
 
   it("ignoriert Felder, die nicht bearbeitet wurden", () => {
-    expect(geaenderteKaution({ kaution_betrag: 1500, kaution_ist: 0 }, { kaltmiete: 800 }).aenderungen).toEqual({});
+    expect(geaenderteKaution({ kaution_betrag: 1500, kaution_ist_grundwert: 0 }, { kaltmiete: 800 }).aenderungen).toEqual({});
   });
 
   it("meldet unlesbare Eingaben und übernimmt sie nicht", () => {
     const { aenderungen, ungueltig } = geaenderteKaution(
-      { kaution_betrag: 1500, kaution_ist: 0 },
-      { kaution_betrag: "-5", kaution_ist: "300" }
+      { kaution_betrag: 1500, kaution_ist_grundwert: 0 },
+      { kaution_betrag: "-5", kaution_ist_grundwert: "300" }
     );
     expect(ungueltig).toEqual(["kaution_betrag"]);
-    expect(aenderungen).toEqual({ kaution_ist: 300 });
+    expect(aenderungen).toEqual({ kaution_ist_grundwert: 300 });
   });
 
   it("lässt einen unlesbaren Altwert überschreiben", () => {
@@ -103,6 +110,73 @@ describe("geaenderteKaution", () => {
 describe("kautionFeldBezeichnung", () => {
   it("benennt Soll und Ist", () => {
     expect(kautionFeldBezeichnung("kaution_betrag")).toBe("Kaution Soll");
-    expect(kautionFeldBezeichnung("kaution_ist")).toBe("Kaution Ist");
+    expect(kautionFeldBezeichnung("kaution_ist_grundwert")).toBe("Kaution Ist (von Hand)");
+  });
+});
+
+// 28.10.2026: Das Ist rechnet die Datenbank (Grundwert + Kautionsbuchungen); von Hand nur der Grundwert
+describe("geaenderteKaution schreibt nie das berechnete Ist", () => {
+  it("ignoriert ein mitgeschicktes kaution_ist", () => {
+    const geladen: Record<string, unknown> = { kaution_ist: 1500 };
+    expect(geaenderteKaution(geladen, { kaution_ist: "3000" }).aenderungen).toEqual({});
+  });
+});
+
+describe("kautionAufteilung", () => {
+  it("trennt Buchungen und Anteil von Hand", () => {
+    expect(kautionAufteilung({ kaution_ist: "1849.46", kaution_ist_grundwert: "1349.46" })).toEqual({
+      ist: 1849.46,
+      vonHand: 1349.46,
+      ausBuchungen: 500,
+    });
+  });
+
+  it("zeigt eine Rückzahlung als negative Buchungssumme", () => {
+    expect(kautionAufteilung({ kaution_ist: 0, kaution_ist_grundwert: 3600 })).toEqual({ ist: 0, vonHand: 3600, ausBuchungen: -3600 });
+  });
+
+  it("behandelt nicht erfasste Werte als null", () => {
+    expect(kautionAufteilung({ kaution_ist: null, kaution_ist_grundwert: null })).toEqual({ ist: null, vonHand: null, ausBuchungen: 0 });
+    expect(kautionAufteilung(null)).toEqual({ ist: null, vonHand: null, ausBuchungen: 0 });
+  });
+
+  it("rechnet ohne die neue Spalte wie bisher: alles von Hand", () => {
+    expect(kautionAufteilung({ kaution_ist: 900 })).toEqual({ ist: 900, vonHand: 900, ausBuchungen: 0 });
+  });
+
+  it("rundet auf Cent", () => {
+    expect(kautionAufteilung({ kaution_ist: 0.3, kaution_ist_grundwert: 0.1 }).ausBuchungen).toBe(0.2);
+  });
+});
+
+describe("kautionIstVorschau", () => {
+  const aufteilung = { ist: 1849.46, vonHand: 1349.46, ausBuchungen: 500 };
+
+  it("rechnet die Eingabe von Hand auf die Buchungen", () => {
+    expect(kautionIstVorschau(aufteilung, "1000")).toBe(1500);
+    expect(kautionIstVorschau(aufteilung, "0")).toBe(500);
+    expect(kautionIstVorschau(aufteilung, "")).toBe(500);
+  });
+
+  it("lässt die Vorschau bei unlesbarer Eingabe stehen", () => {
+    expect(kautionIstVorschau(aufteilung, "1.000")).toBe(1849.46);
+    expect(kautionIstVorschau(aufteilung, "-5")).toBe(1849.46);
+  });
+
+  it("ist ohne Buchungen und ohne Eingabe nicht erfasst", () => {
+    expect(kautionIstVorschau({ ist: 200, vonHand: 200, ausBuchungen: 0 }, "")).toBeNull();
+  });
+});
+
+describe("Kautionsbearbeitung schreibt nur den Anteil von Hand", () => {
+  const hook = readFileSync("src/hooks/useMietvertragMutations.ts", "utf-8");
+  const abschnitt = readFileSync("src/components/dashboard/mietvertrag-details/MietvertragKautionSection.tsx", "utf-8");
+
+  it("setzt kaution_ist nirgends mehr von Hand", () => {
+    expect(hook).toContain("{ kaution_ist_grundwert: numericValue }");
+    expect(hook).not.toMatch(/\{ kaution_ist: numericValue \}/);
+    expect(hook).toMatch(/kaution_ist_grundwert: \(?vertrag(?: as [^)]*\))?\?\.kaution_ist_grundwert \?\? null/);
+    expect(abschnitt).not.toContain("'kaution_ist',");
+    expect(abschnitt).toContain("kautionAufteilung(vertrag)");
   });
 });

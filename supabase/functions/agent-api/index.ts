@@ -796,7 +796,8 @@ async function executeWrite(
             einheit_id: freie.id,
             kaltmiete: args.kaltmiete,
             betriebskosten: args.betriebskosten ?? 0,
-            kaution: args.kaution ?? 0,
+            // Die Spalte heißt kaution_betrag; `kaution` gibt es nicht, das Anlegen scheiterte (28.10.2026)
+            kaution_betrag: args.kaution ?? 0,
             start_datum: args.start_datum,
             status: 'aktiv',
           })

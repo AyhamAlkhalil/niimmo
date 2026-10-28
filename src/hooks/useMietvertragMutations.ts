@@ -262,11 +262,14 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         toast({ title: "Fehler", description: "Bitte geben Sie einen gültigen Betrag ein oder leeren Sie das Feld.", variant: "destructive" });
         return;
       }
-      const updateData = field === 'soll' ? { kaution_betrag: numericValue } : { kaution_ist: numericValue };
+      // Das Ist rechnet seit 28.10.2026 die Datenbank (Grundwert + Kautionsbuchungen); von Hand wird
+      // nur der Anteil gepflegt, der außerhalb des Kontos einging (vertragKaution.ts)
+      const updateData = field === 'soll' ? { kaution_betrag: numericValue } : { kaution_ist_grundwert: numericValue };
       const { error } = await supabase.from('mietvertrag').update(updateData).eq('id', vertragId);
       if (error) throw error;
       toast({ title: "Aktualisiert", description: `Kaution ${field === 'soll' ? 'Soll' : 'Ist'} wurde erfolgreich aktualisiert.` });
-      const altKautionWert = (field === 'soll' ? vertrag?.kaution_betrag : vertrag?.kaution_ist) ?? null;
+      // kaution_ist_grundwert kennt types.ts erst nach Migration 20261028145000 (dann neu erzeugen und den Cast streichen)
+      const altKautionWert = (field === 'soll' ? vertrag?.kaution_betrag : (vertrag as { kaution_ist_grundwert?: number | null } | undefined)?.kaution_ist_grundwert) ?? null;
       const mieterNameKaution = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;
       logActivity('kaution_geaendert', 'mietvertrag', vertragId, { feld: field, altWert: altKautionWert, neuerWert: numericValue, mieter: mieterNameKaution });
       setEditingKaution(null);
@@ -399,7 +402,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       bankkonto_mieter: vertrag?.bankkonto_mieter || '',
       // Bis 26.10.2026 `|| 0`: Eine leere Kaution wurde beim nächsten Speichern zu 0
       kaution_betrag: vertrag?.kaution_betrag ?? null,
-      kaution_ist: vertrag?.kaution_ist ?? null,
+      kaution_ist_grundwert: (vertrag as { kaution_ist_grundwert?: number | null } | undefined)?.kaution_ist_grundwert ?? null,
     };
     // Zählerstände mit dem geladenen Wert vorbelegen, leer bleibt null. Bis 23.10.2026 stand
     // hier `|| 0` -- jeder leere Stand wurde beim nächsten Speichern zu 0 (535 Historienzeilen).
@@ -617,7 +620,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       const mieterNameGlobal = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;
       const feldLabels: Record<string, string> = {
         kaltmiete: 'Kaltmiete', betriebskosten: 'Betriebskosten', start_datum: 'Startdatum',
-        ende_datum: 'Mietende', kaution_betrag: 'Kaution Soll', kaution_ist: 'Kaution Ist',
+        ende_datum: 'Mietende', kaution_betrag: 'Kaution Soll', kaution_ist_grundwert: 'Kaution Ist (von Hand)',
         anzahl_personen: 'Personenzahl', neue_anschrift: 'Neue Anschrift', ruecklastschrift_gebuehr: 'Rücklastschrift-Gebühr',
         bankkonto_mieter: 'Bankkonto',
       };
