@@ -15,7 +15,7 @@ import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Loader2, User, Users, Plus, Check, Calendar, Euro, FileUp, X, Building2, Zap, Crown, UserCheck, Upload, CheckCircle, AlertCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { OCRProcessingService } from "@/services/ocrProcessingService";
+import { DokumentZuGrossFehler, OCRProcessingService } from "@/services/ocrProcessingService";
 import { dateiendung } from "@/utils/storagePfad";
 import { nimmAnlageZurueck } from "@/services/mietvertragDirektService";
 import { vertragsReihenfolge, type VertragsmieterQuelle } from "@/utils/mietvertrag/vertragsmieter";
@@ -315,36 +315,19 @@ export const NewTenantContractDialog = ({
         description: "Das Dokument wird per KI analysiert.",
       });
       
-      // Extract text from PDF using pdfjs
+      // Alle Seiten als Text und Bild; bis 28.10.2026 nur fuenf Seiten Text oder bei Scans nur Seite 1
       let textContent = '';
-      let base64 = '';
-      // Scheitern beide Wege, braucht die Meldung den echten Grund - frueher sah
-      // ein kaputtes PDF.js wie ein inhaltsloses Dokument aus (22.09.2026).
-      let leseFehler = '';
+      let fileContents: string[] = [];
       try {
-        textContent = await OCRProcessingService.extractTextFromPDF(file);
+        ({ textContent, fileContents } = await OCRProcessingService.liesPdfFuerAuslese(file));
       } catch (e: any) {
-        // Kein Textlayer im PDF - unten wird die erste Seite als Bild gerendert
-        leseFehler = e?.message || String(e);
-      }
-
-      // If no text extracted, render first page as image
-      if (!textContent || textContent.trim().length < 30) {
-        try {
-          base64 = await OCRProcessingService.renderPdfFirstPageToBase64(file);
-        } catch (e: any) {
-          leseFehler = e?.message || String(e);
-        }
-      }
-
-      const effectiveFileType = (!textContent || textContent.trim().length < 30) ? 'image/jpeg' : file.type;
-
-      if ((!textContent || textContent.trim().length < 30) && !base64) {
+        // Die Meldung braucht den echten Grund - frueher sah ein kaputtes PDF.js
+        // wie ein inhaltsloses Dokument aus (22.09.2026).
         toast({
           title: "PDF konnte nicht gelesen werden",
-          description: leseFehler
-            ? `Das Dokument liess sich nicht oeffnen (${leseFehler}). Bitte fuelle die Felder manuell aus.`
-            : "Das Dokument enthaelt weder Text noch eine darstellbare Seite. Bitte fuelle die Felder manuell aus.",
+          description: e instanceof DokumentZuGrossFehler
+            ? e.message
+            : `Das Dokument liess sich nicht oeffnen (${e?.message || String(e)}). Bitte fuelle die Felder manuell aus.`,
           variant: "destructive"
         });
         setInputMode('manual');
@@ -352,15 +335,20 @@ export const NewTenantContractDialog = ({
         return;
       }
 
-      // Call Supabase Edge Function
+      if (!textContent && fileContents.length === 0) {
+        toast({
+          title: "PDF konnte nicht gelesen werden",
+          description: "Das Dokument enthaelt weder Text noch eine darstellbare Seite. Bitte fuelle die Felder manuell aus.",
+          variant: "destructive"
+        });
+        setInputMode('manual');
+        setStep('tenant');
+        return;
+      }
+
+      // Der Dateiname geht nicht mit: er enthaelt meist den Namen des Mieters
       const { data: result, error } = await supabase.functions.invoke('process-contract-ocr', {
-        body: {
-          fileName: file.name,
-          fileType: effectiveFileType,
-          fileSize: file.size,
-          fileContent: base64,
-          textContent: textContent,
-        },
+        body: { art: 'mietvertrag', textContent, fileContents },
       });
 
       if (error) {

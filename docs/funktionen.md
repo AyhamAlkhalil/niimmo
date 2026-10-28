@@ -333,7 +333,7 @@ Risiken zu einzelnen Funktionen stehen in [offene-punkte.md](offene-punkte.md), 
 | **Fotos EXIF-korrigiert und verkleinert ins PDF einbetten** | Dreht Handyfotos ueber ein Canvas gerade (jsPDF wertet EXIF nicht aus) und rechnet sie auf 1600 px… | `src/utils/pdfImageUtils.ts:1-24 und :73` | fertig |
 | **Mietvertrags-PDF erzeugen und ablegen** | Speichert unter mietvertraege/<vertragId>/ mit upsert:false und dokumente-Zeile 'Mietvertrag'; in der… | `src/components/dashboard/MietvertragErstellungModal.tsx:188-2…` | prototyp |
 | **Bildschirmfotos an Aufgaben** | Legt die Aufnahme unter aufgaben/<uuid>/ ab (bewusst vor dem Ticket-Insert) und haelt sie ueber… | `src/hooks/useAufgaben.ts:128-138` | fertig |
-| **Mietvertrag per KI aus PDF auslesen (OCR-Import)** | Zieht den Textlayer aus max. 5 Seiten; bleibt zu wenig Text uebrig, wird die erste Seite als JPEG… | `src/components/dashboard/NewTenantContractDialog.tsx:259-383 …` | teilweise |
+| **Mietvertrag per KI aus PDF auslesen (OCR-Import)** | Schickt seit 28.10.2026 alle Seiten: die Textebene und jede Seite als JPEG (zusammen unter 9 MB, `utils/pdfAuslese.ts`)… | `src/services/ocrProcessingService.ts` (`liesPdfFuerAuslese`) · `src/components/dashboard/NewTenantContractDialog.tsx` | teilweise |
 | **Vertrags-PDF beim Anlegen mitspeichern** | Legt die hochgeladene Datei flach in der Bucket-Wurzel als <vertragId>_<ts>.<ext> ab; ein Fehler beim… | `src/components/dashboard/NewTenantContractDialog.tsx:557-585` | teilweise |
 | **Dokumente im Chatbot und ueber die agent-api** | Liefert reine Metadaten (Titel, Kategorie, Dateityp, Datum), gefiltert auf geloescht=false; der Chat… | `supabase/functions/chat/index.ts:112 und supabase/functions/a…` | fertig |
 

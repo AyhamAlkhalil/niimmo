@@ -1,83 +1,86 @@
 import { ladePdfjs } from '@/utils/pdfjs';
+import {
+  MAX_BILDER_ZEICHEN,
+  bildBudget,
+  bildumfangFehler,
+  massstab,
+  rendereImBudget,
+  seitenText,
+  textebeneVorhanden,
+  textMitSeiten,
+  type BildStufe,
+} from '@/utils/pdfAuslese';
 
-interface OCRProcessingResult {
-  success: boolean;
-  extractedData?: {
-    kaltmiete?: number;
-    betriebskosten?: number;
-    kaution_betrag?: number;
-    start_datum?: string;
-    ende_datum?: string;
-    mieter_vorname?: string;
-    mieter_nachname?: string;
-    verwendungszweck?: string;
-  };
-  error?: string;
-  confidence?: 'high' | 'medium' | 'low';
-  fieldsExtracted?: number;
+/** Das PDF passt auch verkleinert nicht in eine Auslese; die Meldung geht so an den Nutzer. */
+export class DokumentZuGrossFehler extends Error {}
+
+/** Der Ausschnitt aus PDF.js, den das Rendern einer Seite braucht. */
+interface PdfSeite {
+  getViewport(optionen: { scale: number }): { width: number; height: number };
+  render(optionen: { canvasContext: CanvasRenderingContext2D; viewport: unknown }): { promise: Promise<void> };
 }
 
 export class OCRProcessingService {
-  static async processContractDocument(file: File): Promise<OCRProcessingResult> {
+  /**
+   * Ein PDF für `process-contract-ocr`: die Textebene aller Seiten und jede Seite als JPEG.
+   * Ohne nennenswerte Textebene (Scan) bleibt `textContent` leer. Warum alle Seiten und
+   * beides zugleich: siehe utils/pdfAuslese.ts.
+   */
+  static async liesPdfFuerAuslese(datei: Blob): Promise<{ textContent: string; fileContents: string[] }> {
+    const pdfjsLib = await ladePdfjs();
+    const ladeauftrag = pdfjsLib.getDocument({ data: await datei.arrayBuffer() });
     try {
-      let textContent = '';
-      let base64 = '';
-      let effectiveFileType = file.type;
-
-      // Handle PDF files
-      if (file.type === 'application/pdf') {
-        // First try text extraction
-        const extractedText = await this.extractTextFromPDF(file);
-
-        if (extractedText && extractedText.trim().length >= 50) {
-          // Good text extraction - use text mode, no image needed
-          textContent = extractedText;
-        } else {
-          // Poor/no text extraction - render as JPEG for vision processing
-          textContent = ''; // Clear any short garbage text
-          base64 = await this.renderPdfFirstPageToBase64(file);
-          effectiveFileType = 'image/jpeg';
-
-          // Validate base64 is a valid JPEG (starts with /9j/ = FF D8 FF)
-          if (!base64 || base64.length < 100 || !base64.startsWith('/9j/')) {
-            return { success: false, error: 'PDF konnte nicht als Bild gerendert werden. Bitte lade ein klares Bild (JPG/PNG) oder ein textbasiertes PDF hoch.' };
-          }
-        }
-      } else {
-        // Convert non-PDF files to base64 for image processing
-        base64 = await this.fileToBase64(file);
+      const pdf = await ladeauftrag.promise;
+      const texte: string[] = [];
+      const bilder: string[] = [];
+      let belegt = 0;
+      let stufe = 0;
+      for (let nr = 1; nr <= pdf.numPages; nr++) {
+        const page = await pdf.getPage(nr);
+        texte.push(seitenText((await page.getTextContent()).items));
+        const budget = bildBudget(MAX_BILDER_ZEICHEN - belegt, pdf.numPages - nr + 1);
+        // Eine Stufe schärfer als die vorige Seite beginnen: Nach einer Fotoseite
+        // sollen die folgenden Seiten nicht dauerhaft auf der kleinsten Stufe bleiben
+        const gerendert = await rendereImBudget(s => this.rendereSeite(page, s), budget, stufe - 1);
+        // Eine fehlende Seite darf nicht still wegfallen
+        if (!gerendert.bild) throw new Error(`Seite ${nr} ließ sich nicht als Bild darstellen`);
+        bilder.push(gerendert.bild);
+        belegt += gerendert.bild.length;
+        stufe = gerendert.stufe;
+        page.cleanup();
+        // Steht fest, dass es nicht passt, nicht die restlichen Seiten rendern
+        const fehler = bildumfangFehler(pdf.numPages, belegt);
+        if (fehler) throw new DokumentZuGrossFehler(fehler);
       }
-
-      // Invoke Supabase Edge Function (für Bild-OCR oder wenn Text vorhanden ist)
-      const { data, error } = await (await import('@/integrations/supabase/client'))
-        .supabase.functions.invoke('process-contract-ocr', {
-          body: {
-            fileName: file.name,
-            fileType: effectiveFileType,
-            fileSize: file.size,
-            fileContent: base64,
-            textContent: textContent,
-          },
-        });
-
-      if (error) {
-        throw new Error(error.message || 'OCR processing failed');
-      }
-
-      return (data as OCRProcessingResult) ?? { success: false, error: 'Leere Antwort vom Server' };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message || 'OCR processing failed',
-      };
+      return { textContent: textebeneVorhanden(texte) ? textMitSeiten(texte) : '', fileContents: bilder };
+    } finally {
+      // Jedes getDocument startet einen eigenen Worker; ohne destroy blieb er bis zum Neuladen,
+      // auch wenn schon das Laden scheiterte
+      ladeauftrag.destroy().catch(() => undefined);
     }
+  }
+
+  private static async rendereSeite(page: PdfSeite, stufe: BildStufe): Promise<string> {
+    const basis = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: massstab(stufe, basis.width, basis.height) });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const context = canvas.getContext('2d');
+    if (!context) return '';
+    await page.render({ canvasContext: context, viewport }).promise;
+    const dataUrl = canvas.toDataURL('image/jpeg', stufe.quality);
+    canvas.width = 0;
+    canvas.height = 0;
+    const komma = dataUrl.indexOf(',');
+    return komma >= 0 ? dataUrl.slice(komma + 1) : '';
   }
 
   /**
    * Liest eine Selbstauskunft oder einen Vorvertrag über `process-contract-ocr`.
    *
-   * Word-Dateien und PDFs mit Textebene gehen als Text, gescannte PDFs als
-   * mehrere Seitenbilder — die Kostenaufstellung eines alten Vertrags steht
+   * Word-Dateien gehen als Text, PDFs mit allen Seiten als Text und Seitenbild
+   * (liesPdfFuerAuslese) — die Kostenaufstellung eines alten Vertrags steht
    * auf Seite 2 oder 3, die weiteren Personen der Selbstauskunft auf Seite 2.
    * Der Dateiname geht nicht mit: er enthält meist den Namen des Mieters.
    */
@@ -100,12 +103,7 @@ export class OCRProcessingService {
           error: 'Word-Dateien im alten .doc-Format lassen sich nicht lesen. Bitte als PDF oder .docx ablegen.',
         };
       } else if (typ === 'application/pdf' || name.endsWith('.pdf')) {
-        textContent = await this.extractTextFromPDF(datei);
-        // Unter 200 Zeichen ist es ein Scan mit Kopfzeile, kein Textdokument
-        if (textContent.replace(/Seite \d+:/g, '').trim().length < 200) {
-          textContent = '';
-          fileContents = await this.renderPdfSeitenZuBase64(datei, art === 'vorvertrag' ? 4 : 3);
-        }
+        ({ textContent, fileContents } = await this.liesPdfFuerAuslese(datei));
       } else if (typ.startsWith('image/') || /\.(jpe?g|png)$/.test(name)) {
         fileContents = [await this.fileToBase64(datei)];
       } else {
@@ -114,7 +112,9 @@ export class OCRProcessingService {
     } catch (e) {
       return {
         success: false,
-        error: `Das Dokument ließ sich nicht öffnen (${e instanceof Error ? e.message : String(e)}).`,
+        error: e instanceof DokumentZuGrossFehler
+          ? e.message
+          : `Das Dokument ließ sich nicht öffnen (${e instanceof Error ? e.message : String(e)}).`,
       };
     }
 
@@ -158,92 +158,6 @@ export class OCRProcessingService {
       .map(z => z.trim())
       .filter(Boolean)
       .join('\n');
-  }
-
-  /** Die ersten Seiten eines PDFs als JPEG (base64), für gescannte Dokumente. */
-  static async renderPdfSeitenZuBase64(datei: Blob, maxSeiten: number): Promise<string[]> {
-    const pdfjsLib = await ladePdfjs();
-    const pdf = await pdfjsLib.getDocument({ data: await datei.arrayBuffer() }).promise;
-    const seiten: string[] = [];
-
-    for (let nr = 1; nr <= Math.min(pdf.numPages, maxSeiten); nr++) {
-      const page = await pdf.getPage(nr);
-      const rendere = async (scale: number, quality: number): Promise<string> => {
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const context = canvas.getContext('2d');
-        if (!context) return '';
-        await page.render({ canvasContext: context, viewport }).promise;
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        canvas.width = 0;
-        canvas.height = 0;
-        const komma = dataUrl.indexOf(',');
-        return komma >= 0 ? dataUrl.slice(komma + 1) : '';
-      };
-      // Mehrere Seiten in einer Anfrage: je Seite unter ~1,5 MB bleiben
-      let bild = await rendere(1.2, 0.7);
-      if (bild.length > 1.5 * 1024 * 1024) bild = await rendere(0.9, 0.55);
-      if (bild.startsWith('/9j/')) seiten.push(bild);
-    }
-    return seiten;
-  }
-
-  static async extractTextFromPDF(file: Blob): Promise<string> {
-    const pdfjsLib = await ladePdfjs();
-
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    let fullText = '';
-
-    // Extract text from each page (limit to first 5 pages for performance)
-    const numPages = Math.min(pdf.numPages, 5);
-
-    for (let i = 1; i <= numPages; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      fullText += `\n\nSeite ${i}:\n${pageText}`;
-    }
-
-    return fullText.trim();
-  }
-
-  static async renderPdfFirstPageToBase64(file: File): Promise<string> {
-    const pdfjsLib = await ladePdfjs();
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-    // Erste Seite als JPEG rendern; Skalierung klein halten, damit die
-    // base64-Nutzlast fuer die Edge Function handhabbar bleibt.
-    const renderePdfSeite = async (scale: number, quality: number): Promise<string> => {
-      const page = await pdf.getPage(1);
-      const viewport = page.getViewport({ scale });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const context = canvas.getContext('2d');
-      if (!context) return '';
-      await page.render({ canvasContext: context, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', quality);
-      canvas.width = 0;
-      canvas.height = 0;
-      const commaIdx = dataUrl.indexOf(',');
-      return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : '';
-    };
-
-    const result = await renderePdfSeite(1.0, 0.7);
-
-    // Zu gross (> 4MB base64 ~ 3MB Bild): noch einmal kleiner rendern.
-    if (result.length > 4 * 1024 * 1024) {
-      return renderePdfSeite(0.75, 0.5);
-    }
-
-    return result;
   }
 
   private static fileToBase64(file: Blob): Promise<string> {

@@ -24,10 +24,23 @@ function getCorsHeaders(req: Request) {
 type Art = 'mietvertrag' | 'selbstauskunft' | 'vorvertrag';
 const ARTEN: Art[] = ['mietvertrag', 'selbstauskunft', 'vorvertrag'];
 
-/** Gescannte Dokumente kommen als Seitenbilder; mehr als sechs Seiten braucht keine Art. */
-const MAX_BILDER = 6;
-const MAX_BILD_ZEICHEN = 5 * 1024 * 1024;
-const MAX_TEXT_ZEICHEN = 200_000;
+/**
+ * Ausdrücklich gewählt (28.10.2026): Lovable hat google/gemini-2.5-flash am 20.10.2026 abgeschaltet und
+ * die Anfragen seitdem still auf Gemini 3.8 Flash umgeleitet (Lovable-Doku „Deprecated models").
+ */
+const MODELL = 'google/gemini-3.8-flash';
+
+/**
+ * Seit 28.10.2026 kommt jede Seite als Bild, bei Text-PDFs dazu die Textebene. Bis dahin fielen Bilder
+ * über der sechsten und Text über 200.000 Zeichen still weg. Die Grenze liegt jetzt beim Umfang; der
+ * Browser rechnet die Seitenbilder auf 9 MB herunter (src/utils/pdfAuslese.ts).
+ */
+const MAX_BILDER_ZEICHEN = 12 * 1024 * 1024;
+const MAX_TEXT_ZEICHEN = 1_000_000;
+/** Das Denken des Modells zählt zur Ausgabe (Lovable-Doku „Chat models"); bei vielen Seiten reichten 2000 nicht sicher. */
+const MAX_AUSGABE_TOKEN = 16_000;
+/** Supabase beendet eine Anfrage nach 150 s ohne Antwort mit 504. */
+const KI_ZEITLIMIT_MS = 140_000;
 
 const PROMPT_MIETVERTRAG = `Du bist ein Experte für die Extraktion von Mietvertragsdaten aus deutschen Dokumenten.
 Analysiere das bereitgestellte Dokument und extrahiere folgende Informationen:
@@ -157,6 +170,69 @@ function antwort(body: unknown, corsHeaders: Record<string, string>, status = 20
   });
 }
 
+/**
+ * Prüft den Anfragekörper. Was nicht passt, wird gemeldet, nicht still weggelassen.
+ * Ältere Oberflächen schicken ein einzelnes `fileContent`; das gilt weiter.
+ */
+// deno-lint-ignore no-explicit-any
+function pruefeEingabe(body: any): { art: Art; textContent: string; bilder: string[] } | { fehler: string } {
+  const art: Art = ARTEN.includes(body?.art) ? body.art : 'mietvertrag';
+  const textContent = typeof body?.textContent === 'string' ? body.textContent.trim() : '';
+  if (textContent.length > MAX_TEXT_ZEICHEN) {
+    return { fehler: 'Das Dokument enthält zu viel Text, um es in einem Schritt auszulesen. Bitte den Vertrag ohne Anlagen hochladen.' };
+  }
+
+  const bilderRoh: unknown[] = Array.isArray(body?.fileContents)
+    ? body.fileContents
+    : typeof body?.fileContent === 'string' && body.fileContent.length > 0 ? [body.fileContent] : [];
+  const bilder: string[] = [];
+  for (const b of bilderRoh) {
+    if (typeof b !== 'string' || b.length < 100 || (!b.startsWith('/9j/') && !b.startsWith('iVBOR'))) {
+      return { fehler: 'Ungültiges Bildformat. Bitte lade ein klares JPG oder PNG hoch.' };
+    }
+    bilder.push(b);
+  }
+  if (bilder.reduce((summe, b) => summe + b.length, 0) > MAX_BILDER_ZEICHEN) {
+    return { fehler: `Das Dokument (${bilder.length} Seiten) ist zu groß, um es in einem Schritt auszulesen. Bitte den Vertrag ohne Anlagen hochladen.` };
+  }
+
+  const text = textContent.length > 10 ? textContent : '';
+  if (!text && bilder.length === 0) {
+    return { fehler: 'Kein verwertbarer Inhalt im Dokument gefunden. Bitte lade ein textbasiertes PDF oder ein klares Bild hoch.' };
+  }
+  return { art, textContent: text, bilder };
+}
+
+/**
+ * Textebene und Seitenbilder gehen zusammen an die KI. Bis 28.10.2026 galt entweder-oder: Hatte ein
+ * PDF eine Textebene, sah die KI handschriftlich eingetragene Beträge und Zählerstände nie.
+ */
+function baueNutzernachricht(einleitung: string, textContent: string, bilder: string[]) {
+  if (bilder.length === 0) {
+    return { role: 'user', content: `${einleitung}\n\n${textContent}` };
+  }
+  const kopf = [
+    einleitung,
+    `Es folgen ${bilder.length === 1 ? 'ein Seitenbild' : `${bilder.length} Seitenbilder`}. ` +
+      'Lies jede Seite vollständig, viele Angaben stehen erst auf späteren Seiten.',
+    textContent
+      ? 'Die Textebene unten enthält nur den getippten Text. Handschriftliche Einträge, Ankreuzungen und ' +
+        'Stempel stehen nur in den Seitenbildern; fehlt eine Angabe in der Textebene, suche sie dort.'
+      : '',
+    textContent ? `Textebene:\n${textContent}` : '',
+  ].filter(Boolean).join('\n\n');
+  return {
+    role: 'user',
+    content: [
+      { type: 'text', text: kopf },
+      ...bilder.flatMap((b, i) => [
+        { type: 'text', text: `Seitenbild ${i + 1} von ${bilder.length}:` },
+        { type: 'image_url', image_url: { url: `data:${b.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'};base64,${b}` } },
+      ]),
+    ],
+  };
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -189,17 +265,11 @@ serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
-    const art: Art = ARTEN.includes(body?.art) ? body.art : 'mietvertrag';
-    const textContent: string = typeof body?.textContent === 'string' ? body.textContent.slice(0, MAX_TEXT_ZEICHEN) : '';
-
-    // Mehrere Seitenbilder (fileContents) oder wie bisher eines (fileContent)
-    const bilderRoh: unknown[] = Array.isArray(body?.fileContents)
-      ? body.fileContents
-      : typeof body?.fileContent === 'string' && body.fileContent.length > 0 ? [body.fileContent] : [];
-    const bilder = bilderRoh
-      .filter((b): b is string => typeof b === 'string' && b.length > 100 && b.length <= MAX_BILD_ZEICHEN)
-      .slice(0, MAX_BILDER);
+    const eingabe = pruefeEingabe(await req.json());
+    if ('fehler' in eingabe) {
+      return antwort({ success: false, error: eingabe.fehler }, corsHeaders);
+    }
+    const { art, textContent, bilder } = eingabe;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
@@ -207,32 +277,8 @@ serve(async (req) => {
     }
 
     // Kein Dokumentinhalt im Log: Selbstauskünfte und Verträge enthalten Personendaten.
-    console.log(`Dokument wird gelesen: Art ${art}, Text ${textContent.trim().length} Zeichen, ${bilder.length} Bild(er)`);
-
-    let userMessage: unknown;
-    if (textContent.trim().length > 10) {
-      userMessage = {
-        role: "user",
-        content: `${PROMPTS[art].einleitung}\n\n${textContent}`
-      };
-    } else if (bilder.length > 0) {
-      const ungueltig = bilder.some(b => !b.startsWith('/9j/') && !b.startsWith('iVBOR'));
-      if (ungueltig) {
-        return antwort({ success: false, error: 'Ungültiges Bildformat. Bitte lade ein klares JPG oder PNG hoch.' }, corsHeaders);
-      }
-      userMessage = {
-        role: "user",
-        content: [
-          { type: "text", text: PROMPTS[art].einleitung },
-          ...bilder.map(b => ({
-            type: "image_url",
-            image_url: { url: `data:${b.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'};base64,${b}` },
-          })),
-        ]
-      };
-    } else {
-      return antwort({ success: false, error: 'Kein verwertbarer Inhalt im Dokument gefunden. Bitte lade ein textbasiertes PDF oder ein klares Bild hoch.' }, corsHeaders);
-    }
+    const bildZeichen = bilder.reduce((summe, b) => summe + b.length, 0);
+    console.log(`Dokument wird gelesen: Art ${art}, Text ${textContent.length} Zeichen, ${bilder.length} Bild(er), ${Math.round(bildZeichen / 1024)} KB`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -241,14 +287,15 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: MODELL,
         messages: [
           { role: "system", content: PROMPTS[art].system },
-          userMessage,
+          baueNutzernachricht(PROMPTS[art].einleitung, textContent, bilder),
         ],
-        max_tokens: art === 'vorvertrag' ? 3000 : 2000,
+        max_tokens: MAX_AUSGABE_TOKEN,
         temperature: 0.1
       }),
+      signal: AbortSignal.timeout(KI_ZEITLIMIT_MS),
     });
 
     if (!response.ok) {
@@ -260,6 +307,9 @@ serve(async (req) => {
       }
       if (response.status === 402) {
         return antwort({ success: false, error: "AI-Credits aufgebraucht. Bitte Credits aufladen." }, corsHeaders);
+      }
+      if (response.status === 413) {
+        return antwort({ success: false, error: "Das Dokument ist für die KI zu groß. Bitte den Vertrag ohne Anlagen hochladen oder die Angaben von Hand erfassen." }, corsHeaders);
       }
 
       let friendly = "AI-Verarbeitung fehlgeschlagen.";
@@ -276,6 +326,13 @@ serve(async (req) => {
     }
 
     const aiResult = await response.json();
+    if (aiResult.choices?.[0]?.finish_reason === 'length') {
+      console.error(`KI-Antwort bei ${MAX_AUSGABE_TOKEN} Token abgeschnitten`);
+      return antwort(
+        { success: false, error: 'Die Antwort der KI war unvollständig. Bitte erneut versuchen oder die Angaben von Hand erfassen.', extractedData: {} },
+        corsHeaders
+      );
+    }
     const extractedText = aiResult.choices?.[0]?.message?.content;
 
     if (!extractedText) {
@@ -308,6 +365,13 @@ serve(async (req) => {
     }, corsHeaders);
 
   } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      console.error(`KI-Antwort nach ${KI_ZEITLIMIT_MS / 1000} s abgebrochen`);
+      return antwort(
+        { success: false, error: 'Das Auslesen hat länger als zwei Minuten gedauert und wurde abgebrochen. Bitte erneut versuchen oder die Angaben von Hand erfassen.', extractedData: {} },
+        corsHeaders
+      );
+    }
     // Interne Ursachen (fehlender Schlüssel, kaputte KI-Antwort) nur ins Log, nicht in den Browser
     console.error("OCR processing error:", error instanceof Error ? error.message : error);
     return antwort(
