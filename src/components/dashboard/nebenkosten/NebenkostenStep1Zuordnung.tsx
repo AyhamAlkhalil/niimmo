@@ -52,8 +52,19 @@ import {
   positionenImZeitraum,
   verteilteBetraegeProZahlung,
   istZuordenbareZahlung,
+  ladeNebenkostenZahlungen,
+  nebenkostenZahlungenKey,
   type KostenpositionMitArt,
 } from "@/hooks/useNebenkostenDaten";
+import {
+  istGutschrift,
+  istNochOffen,
+  kostenbetragAusZahlung,
+  offenerKostenbetrag,
+} from "@/utils/nebenkostenGutschrift";
+
+/** PostgREST-URLs werden mit langen in()-Listen zu lang; 100 IDs je Abfrage. */
+const IN_GRUPPE = 100;
 
 interface NebenkostenStep1ZuordnungProps {
   immobilieId: string;
@@ -97,19 +108,11 @@ export function NebenkostenStep1Zuordnung({
   const yearStart = parseISO(`${selectedYear}-01-01`);
   const yearEnd = parseISO(`${selectedYear}-12-31`);
 
-  // Nur Ausgaben — Einnahmen sind keine Betriebskosten.
+  // Ausgaben und, seit 28.10.2026, Gutschriften der Versorger (Eingang unter
+  // Nebenkosten). Andere Einnahmen sind keine Betriebskosten.
   const { data: zahlungen } = useQuery({
-    queryKey: ["immobilie-nebenkosten-zahlungen", immobilieId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("zahlungen")
-        .select("id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, kategorie")
-        .eq("immobilie_id", immobilieId)
-        .lt("betrag", 0)
-        .order("buchungsdatum", { ascending: false });
-      if (error) throw error;
-      return (data || []) as Zahlung[];
-    },
+    queryKey: nebenkostenZahlungenKey(immobilieId),
+    queryFn: () => ladeNebenkostenZahlungen(immobilieId) as Promise<Zahlung[]>,
   });
 
   const { data: kostenpositionen } = useKostenpositionen(immobilieId);
@@ -121,12 +124,18 @@ export function NebenkostenStep1Zuordnung({
     queryFn: async () => {
       const zahlungIds = zahlungen?.map((z) => z.id) || [];
       if (zahlungIds.length === 0) return [];
-      const { data, error } = await supabase
-        .from("nebenkosten_klassifizierungen")
-        .select("zahlung_id, category, confidence")
-        .in("zahlung_id", zahlungIds);
-      if (error) throw error;
-      return data || [];
+      // In Gruppen zu 100 (28.10.2026): Eine in()-Liste mit Hunderten IDs
+      // sprengt die URL-Länge, die Abfrage scheitert dann als Ganzes.
+      const ergebnis: { zahlung_id: string; category: string; confidence: string }[] = [];
+      for (let i = 0; i < zahlungIds.length; i += IN_GRUPPE) {
+        const { data, error } = await supabase
+          .from("nebenkosten_klassifizierungen")
+          .select("zahlung_id, category, confidence")
+          .in("zahlung_id", zahlungIds.slice(i, i + IN_GRUPPE));
+        if (error) throw error;
+        ergebnis.push(...(data || []));
+      }
+      return ergebnis;
     },
     enabled: !!zahlungen && zahlungen.length > 0,
   });
@@ -198,7 +207,9 @@ export function NebenkostenStep1Zuordnung({
         immobilie_id: immobilieId,
         zahlung_id: zahlungId,
         nebenkostenart_id: nebenkostenartId,
-        gesamtbetrag: Math.abs(betrag),
+        // Vorzeichen umgekehrt zur Buchung (28.10.2026): Ausgabe positiv,
+        // Gutschrift negativ. Math.abs() machte aus einer Erstattung Kosten.
+        gesamtbetrag: kostenbetragAusZahlung(betrag),
         zeitraum_von: `${selectedYear}-01-01`,
         zeitraum_bis: `${selectedYear}-12-31`,
         bezeichnung,
@@ -241,7 +252,7 @@ export function NebenkostenStep1Zuordnung({
       if (jahr !== selectedYear && jahr !== selectedYear - 1) return false;
 
       const verteilt = verteiltProZahlung.get(z.id) || 0;
-      return verteilt < Math.abs(z.betrag) - 0.01;
+      return istNochOffen(z.betrag, verteilt);
     });
   }, [zahlungen, selectedYear, verteiltProZahlung]);
 
@@ -454,6 +465,11 @@ export function NebenkostenStep1Zuordnung({
               </div>
               {positionen.length > 0 && (
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* Gutschriften übersteigen die Kosten: Schritt 2 und 3 legen
+                      diese Kostenart nicht um (28.10.2026). */}
+                  {positionen.reduce((s, p) => s + p.gesamtbetrag, 0) < -0.005 && (
+                    <span className="text-xs text-warning">Gutschrift überwiegt</span>
+                  )}
                   <span className="text-sm font-semibold">
                     {positionen.reduce((s, p) => s + p.gesamtbetrag, 0).toFixed(2)} €
                   </span>
@@ -491,6 +507,7 @@ export function NebenkostenStep1Zuordnung({
                       {format(parseISO(pos.zeitraum_von), "dd.MM.yyyy", { locale: de })} –{" "}
                       {format(parseISO(pos.zeitraum_bis), "dd.MM.yyyy", { locale: de })}
                       {pos.quelle === "manuell" && " · manuell"}
+                      {pos.gesamtbetrag < 0 && " · Gutschrift"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -528,7 +545,7 @@ export function NebenkostenStep1Zuordnung({
               <div className="flex items-center gap-2">
                 <Euro className="h-5 w-5 text-primary" />
                 <span>
-                  Ausgaben {selectedYear - 1}/{selectedYear}
+                  Ausgaben und Gutschriften {selectedYear - 1}/{selectedYear}
                 </span>
               </div>
               <Badge variant="secondary" className="text-base px-3 py-1">
@@ -642,6 +659,7 @@ export function NebenkostenStep1Zuordnung({
                             {monthGroup.payments.map((zahlung) => {
                               const isExpanded = expandedPayment === zahlung.id;
                               const verteilt = verteiltProZahlung.get(zahlung.id) || 0;
+                              const gutschrift = istGutschrift(zahlung);
                               const vorschlag = vorschlagProZahlung.get(zahlung.id);
                               const istVorjahr =
                                 new Date(zahlung.buchungsdatum).getFullYear() === selectedYear - 1;
@@ -675,14 +693,28 @@ export function NebenkostenStep1Zuordnung({
                                           <p className="font-semibold text-base truncate">
                                             {zahlung.empfaengername || "Unbekannter Empfänger"}
                                           </p>
-                                          <span className="text-lg font-bold whitespace-nowrap text-red-600">
+                                          <span
+                                            className={cn(
+                                              "text-lg font-bold whitespace-nowrap",
+                                              gutschrift ? "text-success" : "text-red-600"
+                                            )}
+                                          >
                                             {(zahlung.betrag ?? 0).toFixed(2)} €
                                           </span>
                                         </div>
 
                                         <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                          {verteilt > 0.01 && (
-                                            Math.abs(zahlung.betrag) - verteilt <= 0.01 ? (
+                                          {gutschrift && (
+                                            <Badge
+                                              variant="outline"
+                                              className="text-xs border-success/40 text-success"
+                                              title="Erstattung eines Versorgers. Zugeordnet mindert sie die Kosten der gewählten Kostenart."
+                                            >
+                                              Gutschrift
+                                            </Badge>
+                                          )}
+                                          {Math.abs(verteilt) > 0.01 && (
+                                            !istNochOffen(zahlung.betrag, verteilt) ? (
                                               <Badge className="text-xs bg-green-100 text-green-800 border-green-200">
                                                 vollständig zugeordnet
                                               </Badge>
@@ -691,8 +723,8 @@ export function NebenkostenStep1Zuordnung({
                                                 variant="outline"
                                                 className="text-xs border-primary/50 text-primary"
                                               >
-                                                {verteilt.toFixed(2)} € verteilt – Rest:{" "}
-                                                {(Math.abs(zahlung.betrag) - verteilt).toFixed(2)} €
+                                                {Math.abs(verteilt).toFixed(2)} € verteilt – Rest:{" "}
+                                                {Math.abs(offenerKostenbetrag(zahlung.betrag, verteilt)).toFixed(2)} €
                                               </Badge>
                                             )
                                           )}

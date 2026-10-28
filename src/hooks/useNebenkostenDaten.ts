@@ -1,6 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { kostenAnteilImZeitraum, positionenImZeitraum } from "@/utils/nebenkostenBerechnung";
+import { alleSeiten } from "@/utils/supabaseSeiten";
+import {
+  NICHT_ZUORDENBARE_KATEGORIEN,
+  istZuordenbareZahlung,
+  summeUmzulegenderKostenarten,
+} from "@/utils/nebenkostenGutschrift";
+import {
+  UmbuchungGesperrtFehler,
+  umbuchungSperrgrund,
+  type UmbuchungsAenderung,
+} from "@/utils/nebenkostenUmbuchung";
 import {
   findeKategorieNachId,
   findeKategorieNachName,
@@ -8,6 +19,9 @@ import {
 
 // Lebt seit 27.10.2026 in utils (testbar); die Schritte importieren es weiter von hier.
 export { positionenImZeitraum };
+// Seit 28.10.2026 in utils/nebenkostenGutschrift.ts, weil Gutschriften der Versorger
+// dazukamen und die Regel getestet sein muss.
+export { NICHT_ZUORDENBARE_KATEGORIEN, istZuordenbareZahlung };
 
 /**
  * Gemeinsame Datenzugriffe der Betriebskostenabrechnung.
@@ -43,23 +57,61 @@ export interface KostenpositionMitArt {
   } | null;
 }
 
-/**
- * Zahlungskategorien, die nie Betriebskosten sind. Ohne diesen Filter standen
- * Mieteingänge in der Zuordnungsliste und konnten über Math.abs() als Kosten
- * gebucht werden.
- */
-export const NICHT_ZUORDENBARE_KATEGORIEN = [
-  "Miete",
-  "Mietkaution",
-  "Ignorieren",
-  "Rücklastschrift",
-];
+export interface NebenkostenZahlung {
+  id: string;
+  betrag: number;
+  buchungsdatum: string;
+  verwendungszweck: string | null;
+  empfaengername: string | null;
+  iban: string | null;
+  kategorie: string | null;
+}
 
-export function istZuordenbareZahlung(
-  zahlung: { betrag: number; kategorie: string | null },
-): boolean {
-  if (zahlung.betrag >= 0) return false;
-  return !zahlung.kategorie || !NICHT_ZUORDENBARE_KATEGORIEN.includes(zahlung.kategorie);
+export const nebenkostenZahlungenKey = (immobilieId: string) =>
+  ["immobilie-nebenkosten-zahlungen", immobilieId] as const;
+
+/**
+ * Buchungen eines Objekts, die in Schritt 1 zugeordnet werden können: alle
+ * Ausgaben und, seit 28.10.2026, die Gutschriften der Versorger (Eingang unter
+ * Nebenkosten). Vorher lud jede Stelle nur `betrag < 0`, eine Erstattung kam nie
+ * in die Abrechnung. Schritt 1 und die Übersicht teilen sich den Cache-Schlüssel
+ * und deshalb auch diese Abfrage. Seitenweise, weil PostgREST still bei 1000
+ * Zeilen abschneidet.
+ */
+export function ladeNebenkostenZahlungen(immobilieId: string): Promise<NebenkostenZahlung[]> {
+  return alleSeiten<NebenkostenZahlung>((von, bis, mitZaehlung) =>
+    supabase
+      .from("zahlungen")
+      .select("id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, kategorie", {
+        count: mitZaehlung ? "exact" : undefined,
+      })
+      .eq("immobilie_id", immobilieId)
+      .or("betrag.lt.0,and(betrag.gt.0,kategorie.eq.Nebenkosten)")
+      .order("buchungsdatum", { ascending: false })
+      .order("id") // eindeutige Reihenfolge über die Seiten
+      .range(von, bis)
+  );
+}
+
+/**
+ * Prüft unmittelbar vor dem Schreiben an der Datenbank, ob die Zahlung
+ * Kostenpositionen trägt, die das Umbuchen verbieten, und wirft dann eine
+ * fachliche Meldung. Der Zählwert aus der Oberfläche kann veraltet sein; der
+ * Trigger auf `zahlungen` setzt die Regel zusätzlich serverseitig durch.
+ */
+export async function pruefeUmbuchung(
+  zahlungId: string,
+  aenderung: UmbuchungsAenderung
+): Promise<void> {
+  // Der Betrag entscheidet mit: Eine Gutschrift darf nur unter Nebenkosten bleiben.
+  const [positionen, zahlung] = await Promise.all([
+    supabase.from("kostenpositionen").select("immobilie_id").eq("zahlung_id", zahlungId),
+    supabase.from("zahlungen").select("betrag").eq("id", zahlungId).maybeSingle(),
+  ]);
+  if (positionen.error) throw positionen.error;
+  if (zahlung.error) throw zahlung.error;
+  const grund = umbuchungSperrgrund(positionen.data ?? [], aenderung, Number(zahlung.data?.betrag ?? 0));
+  if (grund) throw new UmbuchungGesperrtFehler(grund);
 }
 
 export const kostenpositionenKey = (immobilieId: string) =>
@@ -174,14 +226,23 @@ export function verteilteBetraegeProZahlung(
   return map;
 }
 
-/** Umlagefähige Kosten im Zeitraum, zeitanteilig gewichtet. */
+/**
+ * Umlagefähige (bzw. nicht umlagefähige) Kosten im Zeitraum, zeitanteilig gewichtet —
+ * seit 28.10.2026 wie in Schritt 3 je Kostenart netto: Arten, deren Gutschriften die
+ * Kosten übersteigen, und Positionen ohne Kostenart zählen nicht mit.
+ */
 export function summeImZeitraum(
   positionen: KostenpositionMitArt[] | undefined,
   von: Date,
   bis: Date,
   nurUmlagefaehig: boolean
 ): number {
-  return positionenImZeitraum(positionen, von, bis)
-    .filter((kp) => kp.ist_umlagefaehig === nurUmlagefaehig)
-    .reduce((sum, kp) => sum + kostenAnteilImZeitraum(kp, von, bis), 0);
+  return summeUmzulegenderKostenarten(
+    positionenImZeitraum(positionen, von, bis).filter((kp) => kp.ist_umlagefaehig === nurUmlagefaehig),
+    (kp) => kostenAnteilImZeitraum(kp, von, bis),
+    (kp) =>
+      kp.nebenkostenart
+        ? findeKategorieNachName(kp.nebenkostenart.name)?.id ?? `custom_${kp.nebenkostenart.id}`
+        : null
+  );
 }

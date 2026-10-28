@@ -61,7 +61,9 @@ function generateEmailHtml(data: NebenkostenAbrechnungEmailRequest): string {
   const betragFormatted = Math.abs(data.saldo).toFixed(2);
   const headerColor = isNachzahlung ? '#C0392B' : isGuthaben ? '#27AE60' : '#555555';
   const logoUrl = 'https://dashboard.niimmo.de/nilimmo-logo.png';
-  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  // Edge Functions laufen in UTC: Zwischen Mitternacht und 1 bzw. 2 Uhr deutscher Zeit stand
+  // bis zum 28.10.2026 noch das Datum des Vortags in der Mail. Deshalb fest Europe/Berlin.
+  const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Berlin' });
 
   const ergebnisText = isNachzahlung
     ? `<strong>Nachzahlungsbetrag: ${betragFormatted} €</strong><br>Bitte überweisen Sie diesen Betrag innerhalb von 30 Tagen auf das bekannte Mietkonto.`

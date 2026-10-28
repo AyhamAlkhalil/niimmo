@@ -29,12 +29,20 @@ interface ImmobilienDocumentsTabProps {
   dokumente?: any[];
 }
 
-const DOCUMENT_CATEGORIES = [
+/**
+ * Muss exakt den Werten des Enums `kategorie` entsprechen. Bis zum 28.10.2026 fehlten fünf
+ * davon in der Datenbank: Das Einfügen scheiterte (22P02), die schon hochgeladene Datei blieb
+ * verwaist im Bucket. „Versicherung“ heißt live „Versicherungen“ (so auch im Reiter
+ * Versicherungen); Kaufvertrag, Grundbuchauszug, Energieausweis und Rechnung legt die Migration
+ * 20261028120200_dokument_kategorien_objekt.sql an. types.ts kennt sie erst nach dem nächsten
+ * Generieren — bis dahin der Cast an den beiden Auswahlfeldern.
+ */
+const DOCUMENT_CATEGORIES: readonly string[] = [
   'Mietvertrag',
   'Kaufvertrag',
   'Grundbuchauszug',
   'Energieausweis',
-  'Versicherung',
+  'Versicherungen',
   'Rechnung',
   'Sonstiges',
 ];
@@ -461,6 +469,7 @@ export function ImmobilienDocumentsTab({ immobilieId }: ImmobilienDocumentsTabPr
             
             <div className="space-y-2">
               <Label>Kategorie</Label>
+              {/* Cast: siehe DOCUMENT_CATEGORIES, vier Werte fehlen noch in types.ts */}
               <Select value={uploadKategorie} onValueChange={(v) => setUploadKategorie(v as DokumentKategorie)}>
                 <SelectTrigger>
                   <SelectValue />

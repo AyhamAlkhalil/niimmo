@@ -41,6 +41,8 @@ import {
   vorschlaegeNachZahlung,
   zaehleSichten,
 } from "@/utils/nebenkostenZuordnung";
+import { umbuchungSperrMeldung } from "@/utils/nebenkostenUmbuchung";
+import { pruefeUmbuchung } from "@/hooks/useNebenkostenDaten";
 
 /**
  * Der Reiter „Nebenkosten" der Zahlungsverwaltung als Arbeitsplatz — dieselbe
@@ -129,14 +131,19 @@ export function NebenkostenArbeitsplatz() {
     queryKey: ["nebenkosten-klassifizierungen-cached"],
     staleTime: CACHE_ZEIT,
     queryFn: async (): Promise<KiVorschlag[]> => {
-      const { data, error } = await supabase
-        .from("nebenkosten_klassifizierungen")
-        .select("zahlung_id, confidence, category, suggested_immobilie_id, reasoning, immobilie:suggested_immobilie_id (id, name)")
-        .eq("is_betriebskosten", true)
-        .eq("bestaetigt", false)
-        .eq("uebersprungen", false);
-      if (error) throw error;
-      return ((data ?? []) as unknown as KlassifizierungRoh[]).map((c) => ({
+      // Seitenweise seit 28.10.2026 (live 403 Zeilen): ab 1000 fehlten Vorschläge still.
+      const data = await alleSeiten<KlassifizierungRoh>((von, bis, mitZaehlung) =>
+        supabase
+          .from("nebenkosten_klassifizierungen")
+          .select("zahlung_id, confidence, category, suggested_immobilie_id, reasoning, immobilie:suggested_immobilie_id (id, name)", { count: mitZaehlung ? "exact" : undefined })
+          .eq("is_betriebskosten", true)
+          .eq("bestaetigt", false)
+          .eq("uebersprungen", false)
+          .order("id") // eindeutige Reihenfolge über die Seiten
+          .range(von, bis)
+          .then((antwort) => ({ data: antwort.data as unknown as KlassifizierungRoh[] | null, error: antwort.error, count: antwort.count }))
+      );
+      return data.map((c) => ({
         zahlung_id: c.zahlung_id,
         confidence: (c.confidence === "high" || c.confidence === "medium" ? c.confidence : "low") as KiVorschlag["confidence"],
         category: c.category,
@@ -151,9 +158,17 @@ export function NebenkostenArbeitsplatz() {
     queryKey: ["nebenkosten-klassifizierungen-skipped"],
     staleTime: CACHE_ZEIT,
     queryFn: async (): Promise<Set<string>> => {
-      const { data, error } = await supabase.from("nebenkosten_klassifizierungen").select("zahlung_id").eq("uebersprungen", true);
-      if (error) throw error;
-      return new Set((data ?? []).map((c) => c.zahlung_id));
+      // Seitenweise seit 28.10.2026: ab 1000 übersprungenen Zahlungen wären die übrigen
+      // still wieder als „offen“ erschienen.
+      const data = await alleSeiten<{ zahlung_id: string }>((von, bis, mitZaehlung) =>
+        supabase
+          .from("nebenkosten_klassifizierungen")
+          .select("zahlung_id", { count: mitZaehlung ? "exact" : undefined })
+          .eq("uebersprungen", true)
+          .order("id")
+          .range(von, bis)
+      );
+      return new Set(data.map((c) => c.zahlung_id));
     },
   });
   const ausgeblendet = ausgeblendetQuery.data ?? LEER;
@@ -190,6 +205,22 @@ export function NebenkostenArbeitsplatz() {
   const objektAnzahl = useMemo(() => anzahlJeObjekt(alleZeilen), [alleZeilen]);
   const nachId = useMemo(() => new Map(alleZeilen.map((z) => [z.id, z])), [alleZeilen]);
   const ausgewaehlt = ausgewaehltId ? nachId.get(ausgewaehltId) : undefined;
+
+  // Trägt die gewählte Zahlung Kostenpositionen, sperrt die Detailspalte Objekt-
+  // und Kategoriewechsel schon vorab (28.10.2026). Maßgeblich bleibt die Prüfung
+  // beim Schreiben und der Trigger auf zahlungen.
+  const kostenpositionenDerAuswahl = useQuery({
+    queryKey: ["kostenpositionen-der-zahlung", ausgewaehltId],
+    enabled: Boolean(ausgewaehltId),
+    queryFn: async (): Promise<number> => {
+      const { count, error } = await supabase
+        .from("kostenpositionen")
+        .select("id", { count: "exact", head: true })
+        .eq("zahlung_id", ausgewaehltId as string);
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
 
   const sucheAktiv = suche.trim().length > 0;
   const offeneMonate = useMemo(
@@ -240,6 +271,7 @@ export function NebenkostenArbeitsplatz() {
       ["nebenkosten-klassifizierungen-skipped"],
       ["zahlungen-overview"],
       ["immobilie-nebenkosten-zahlungen"],
+      ["kostenpositionen-der-zahlung"],
     ]) {
       queryClient.invalidateQueries({ queryKey: key });
     }
@@ -248,7 +280,10 @@ export function NebenkostenArbeitsplatz() {
   const fehlerMelden = useCallback(
     (titel: string) => (e: unknown) => {
       console.error(`[Nebenkosten] ${titel}`, e);
-      toast({ title: titel, description: "Die Änderung wurde nicht gespeichert. Bitte erneut versuchen.", variant: "destructive" });
+      // Sperre wegen Kostenpositionen (28.10.2026): Die fachliche Meldung sagt, was zu
+      // tun ist; „bitte erneut versuchen“ führte hier nur zur selben Ablehnung.
+      const sperre = umbuchungSperrMeldung(e);
+      toast({ title: titel, description: sperre ?? "Die Änderung wurde nicht gespeichert. Bitte erneut versuchen.", variant: "destructive" });
     },
     [toast]
   );
@@ -259,6 +294,9 @@ export function NebenkostenArbeitsplatz() {
       // vom Mietvertrag, sonst zählt sie doppelt. Am 17.09.2026 hingen nach dem Import
       // mehrere Nichtmiete-Ausgaben (Grundsteuer, Wasserabschläge) am Mietvertrag und
       // wären hier doppelt gebunden worden.
+      // Trägt die Zahlung Kostenpositionen eines anderen Objekts, wird nicht umgebucht
+      // (28.10.2026) — sonst würde der Betrag in beiden Objekten umgelegt.
+      await pruefeUmbuchung(zahlungId, { immobilieId });
       const { error } = await supabase
         .from("zahlungen")
         .update({ immobilie_id: immobilieId, mietvertrag_id: null })
@@ -276,6 +314,7 @@ export function NebenkostenArbeitsplatz() {
 
   const aufheben = useMutation({
     mutationFn: async (zahlungId: string) => {
+      await pruefeUmbuchung(zahlungId, { immobilieId: null });
       const { error } = await supabase.from("zahlungen").update({ immobilie_id: null }).eq("id", zahlungId);
       if (error) throw error;
     },
@@ -289,6 +328,8 @@ export function NebenkostenArbeitsplatz() {
 
   const alsNichtmiete = useMutation({
     mutationFn: async (zahlungId: string) => {
+      // Nimmt den Objektbezug weg — mit Kostenpositionen gesperrt (28.10.2026).
+      await pruefeUmbuchung(zahlungId, { kategorie: "Nichtmiete", immobilieId: null });
       const { error } = await supabase.from("zahlungen").update({ kategorie: "Nichtmiete", immobilie_id: null }).eq("id", zahlungId);
       if (error) throw error;
       await supabase.from("nebenkosten_klassifizierungen").update({ uebersprungen: true }).eq("zahlung_id", zahlungId);
@@ -402,6 +443,7 @@ export function NebenkostenArbeitsplatz() {
       immobilienLaden={objekte.isLoading}
       immobilienFehler={objekte.isError}
       anzahlJeObjekt={objektAnzahl}
+      anzahlKostenpositionen={kostenpositionenDerAuswahl.data ?? 0}
       beschaeftigt={beschaeftigt}
       onZuordnen={(zahlungId, immobilieId) => zuordnen.mutate({ zahlungId, immobilieId })}
       onAufheben={(id) => aufheben.mutate(id)}

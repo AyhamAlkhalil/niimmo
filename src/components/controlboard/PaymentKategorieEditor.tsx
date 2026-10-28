@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { KATEGORIE_PUNKT_KLASSEN, KATEGORIE_TON_KLASSEN, ZAHLUNG_KATEGORIEN, kategorieTon } from "@/utils/zahlungKategorie";
+import { pruefeUmbuchung } from "@/hooks/useNebenkostenDaten";
 
 interface PaymentKategorieEditorProps {
   paymentId: string;
@@ -81,6 +82,15 @@ export function PaymentKategorieEditor({
       } else if (kategorie === "Ignorieren") {
         updateData.mietvertrag_id = null;
       }
+
+      // Trägt die Zahlung Kostenpositionen, darf sie weder in eine Kategorie ohne
+      // Betriebskosten (Miete, Ignorieren …) noch auf ein anderes Objekt wandern —
+      // sonst bleibt sie in der Abrechnung des alten Objekts und wird doppelt
+      // umgelegt (28.10.2026). Die Meldung erscheint über onError im Toast.
+      await pruefeUmbuchung(paymentId, {
+        kategorie,
+        ...("immobilie_id" in updateData ? { immobilieId: updateData.immobilie_id as string } : {}),
+      });
 
       const { error } = await supabase
         .from('zahlungen')

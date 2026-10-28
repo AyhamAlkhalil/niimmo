@@ -31,6 +31,11 @@ interface NebenkostenInspectorProps {
   immobilienLaden: boolean;
   immobilienFehler: boolean;
   anzahlJeObjekt: ReadonlyMap<string, number>;
+  /**
+   * Kostenpositionen der gewählten Zahlung. Solange es welche gibt, lassen sich
+   * Objekt und Kategorie hier nicht ändern (28.10.2026, doppelte Umlage).
+   */
+  anzahlKostenpositionen: number;
   beschaeftigt: boolean;
   onZuordnen: (zahlungId: string, immobilieId: string) => void;
   onAufheben: (zahlungId: string) => void;
@@ -51,6 +56,7 @@ export function NebenkostenInspector({
   immobilienLaden,
   immobilienFehler,
   anzahlJeObjekt,
+  anzahlKostenpositionen,
   beschaeftigt,
   onZuordnen,
   onAufheben,
@@ -81,6 +87,8 @@ export function NebenkostenInspector({
       toast({ title: "IBAN konnte nicht kopiert werden", variant: "destructive" });
     }
   };
+
+  const verteilt = anzahlKostenpositionen > 0;
 
   const statusText = sicht === "zugeordnet" ? "Zugeordnet" : sicht === "ausgeblendet" ? "Ausgeblendet" : "Ohne Objekt";
   const statusKlasse =
@@ -160,7 +168,7 @@ export function NebenkostenInspector({
               )}
               {vorschlag.reasoning && <p className="text-xs leading-snug text-muted-foreground">{vorschlag.reasoning}</p>}
               {vorschlag.suggested_immobilie_id && zahlung.immobilie_id !== vorschlag.suggested_immobilie_id && (
-                <Button size="sm" className="w-full" disabled={beschaeftigt} onClick={() => onZuordnen(zahlung.id, vorschlag.suggested_immobilie_id as string)}>
+                <Button size="sm" className="w-full" disabled={beschaeftigt || verteilt} onClick={() => onZuordnen(zahlung.id, vorschlag.suggested_immobilie_id as string)}>
                   <Check className="h-4 w-4" />
                   Vorschlag übernehmen
                 </Button>
@@ -186,16 +194,28 @@ export function NebenkostenInspector({
             ) : (
               <p className="rounded-md border border-warning/40 bg-warning/5 p-3 text-sm text-warning">Kein Objekt gewählt — die Ausgabe fehlt in jeder Nebenkostenabrechnung.</p>
             )}
-            <ZuordnungsAuswahl
-              modus="immobilie"
-              vertraege={[]}
-              immobilien={immobilien}
-              aktuelleId={zahlung.immobilie_id}
-              onAuswahl={(id) => (id ? onZuordnen(zahlung.id, id) : onAufheben(zahlung.id))}
-              laedt={immobilienLaden}
-              fehler={immobilienFehler}
-              anzahlJeId={anzahlJeObjekt}
-            />
+            {verteilt ? (
+              // Bis zum 28.10.2026 ließ sich hier umbuchen, obwohl die Zahlung im Objekt schon
+              // Kostenarten zugeordnet war: Die Positionen blieben am alten Objekt, das neue
+              // zeigte die Zahlung als unverteilt, der Betrag wurde doppelt umgelegt.
+              <p className="rounded-md border border-warning/40 bg-warning/5 p-3 text-sm text-warning" role="status">
+                Die Ausgabe ist in der Betriebskostenabrechnung{" "}
+                {anzahlKostenpositionen === 1 ? "einer Kostenposition" : `${anzahlKostenpositionen} Kostenpositionen`} zugeordnet.
+                Objekt und Kategorie lassen sich erst ändern, wenn die Zuordnung im Objekt unter Nebenkosten, Schritt 1,
+                entfernt ist.
+              </p>
+            ) : (
+              <ZuordnungsAuswahl
+                modus="immobilie"
+                vertraege={[]}
+                immobilien={immobilien}
+                aktuelleId={zahlung.immobilie_id}
+                onAuswahl={(id) => (id ? onZuordnen(zahlung.id, id) : onAufheben(zahlung.id))}
+                laedt={immobilienLaden}
+                fehler={immobilienFehler}
+                anzahlJeId={anzahlJeObjekt}
+              />
+            )}
           </section>
 
           <Separator />
@@ -204,7 +224,7 @@ export function NebenkostenInspector({
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Kategorie</h3>
             <div className="flex flex-col gap-2">
               {zahlung.kategorie === "Nebenkosten" ? (
-                <Button variant="outline" size="sm" className="justify-start text-destructive hover:text-destructive" disabled={beschaeftigt} onClick={() => onAlsNichtmiete(zahlung.id)}>
+                <Button variant="outline" size="sm" className="justify-start text-destructive hover:text-destructive" disabled={beschaeftigt || verteilt} onClick={() => onAlsNichtmiete(zahlung.id)}>
                   <X className="h-4 w-4" />
                   Als Nichtmiete markieren
                 </Button>

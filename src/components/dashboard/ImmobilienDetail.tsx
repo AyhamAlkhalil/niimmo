@@ -20,6 +20,7 @@ import { ImmobilienVersicherungenTab } from "./ImmobilienVersicherungenTab";
 import { ObjektFinanzierung } from "./ObjektFinanzierung";
 import { Fassade } from "./Fassade";
 import { freieEinheiten } from "@/utils/fassadenPlan";
+import { standImEntwurf } from "./ZaehlerVerwaltung";
 
 /** Mieterfelder, die der Vertrags-Query nachlaedt (siehe useQuery 'mietvertrag-detail'). */
 type MieterKurz = Pick<
@@ -283,7 +284,13 @@ export const ImmobilienDetail = ({
                     title="Kappungsgrenze: 15% in 36 Monaten (angespannt) vs. 20% (normal)"
                     onClick={async () => {
                       const neuerWert = !(immobilie as any)?.ist_angespannt;
-                      await (supabase as any).from('immobilien').update({ ist_angespannt: neuerWert }).eq('id', immobilieId);
+                      const { error } = await (supabase as any).from('immobilien').update({ ist_angespannt: neuerWert }).eq('id', immobilieId);
+                      // Bis zum 28.10.2026 ungeprüft: Scheiterte das Speichern, sah der Klick
+                      // wirkungslos aus — und die Kappungsgrenze der Mieterhöhung hängt daran.
+                      if (error) {
+                        toast.error('„Angespannter Markt“ wurde nicht gespeichert. Bitte erneut versuchen.');
+                        return;
+                      }
                       queryClient.invalidateQueries({ queryKey: ['immobilie', immobilieId] });
                     }}
                   >
@@ -386,12 +393,17 @@ export const ImmobilienDetail = ({
                                     type="number"
                                     placeholder="Stand"
                                     defaultValue={meterValues[`${key}_stand`] ?? (standVal ?? '')}
-                                    onChange={(e) => setMeterValues(prev => ({ ...prev, [`${key}_stand`]: e.target.value }))}
+                                    // Neuer Stand → Datum auf heute, solange noch das alte im Feld steht
+                                    // (28.10.2026, wie in der Zählerverwaltung)
+                                    onChange={(e) => {
+                                      const stand = e.target.value;
+                                      setMeterValues(prev => standImEntwurf(prev, key, stand, { stand: String(standVal ?? ''), datum: datumVal }, format(new Date(), 'yyyy-MM-dd')));
+                                    }}
                                     className="h-7 text-xs flex-1"
                                   />
                                   <Input
                                     type="date"
-                                    defaultValue={meterValues[`${key}_datum`] ?? datumVal}
+                                    value={meterValues[`${key}_datum`] ?? datumVal}
                                     onChange={(e) => setMeterValues(prev => ({ ...prev, [`${key}_datum`]: e.target.value }))}
                                     className="h-7 text-xs flex-1"
                                   />
@@ -410,11 +422,15 @@ export const ImmobilienDetail = ({
                                     if (error) {
                                       toast.error('Fehler beim Speichern');
                                     } else {
-                                      toast.success('Gespeichert');
                                       queryClient.invalidateQueries({ queryKey: ['immobilie', immobilieId] });
                                       const standNum = updates[standField] as number | null;
-                                      if (standNum != null) {
-                                        await supabase.from('zaehlerstand_historie').insert({
+                                      // Historie nur bei geändertem Stand, wie in der Zählerverwaltung. Bis zum
+                                      // 28.10.2026 entstand bei jedem Speichern eine Zeile, auch wenn nur die
+                                      // Zählernummer korrigiert wurde — eine Ablesung, die es nie gab.
+                                      const standAlt = standVal == null || standVal === '' ? null : Number(standVal);
+                                      let historieOk = true;
+                                      if (standNum != null && standNum !== standAlt) {
+                                        const { error: historieFehler } = await supabase.from('zaehlerstand_historie').insert({
                                           immobilie_id: immobilieId,
                                           zaehler_typ: key,
                                           zaehler_nummer: (updates[zaehlerField] as string | null) ?? null,
@@ -422,8 +438,12 @@ export const ImmobilienDetail = ({
                                           datum: (updates[datumField] as string | null) ?? format(new Date(), 'yyyy-MM-dd'),
                                           quelle: 'manuell',
                                         });
+                                        // Fehler wurde bis zum 28.10.2026 verschluckt (Muster: useMietvertragMutations)
+                                        historieOk = !historieFehler;
                                         queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
                                       }
+                                      if (historieOk) toast.success('Gespeichert');
+                                      else toast.error('Gespeichert, Historie unvollständig', { description: 'Der Zählerstand ist gespeichert, die Zählerhistorie konnte aber nicht ergänzt werden.' });
                                     }
                                     setEditingMeter(null);
                                   }}>

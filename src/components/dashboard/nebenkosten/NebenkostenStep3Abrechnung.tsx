@@ -72,6 +72,7 @@ import {
   type VerteilerSchluessel,
 } from "@/utils/nebenkostenBerechnung";
 import { useKostenpositionen, positionenImZeitraum } from "@/hooks/useNebenkostenDaten";
+import { trenneKostenartenNachSumme } from "@/utils/nebenkostenGutschrift";
 import { mailadressenDerMieter } from "@/utils/kuendigungsbestaetigung";
 import { edgeFehlertext } from "@/utils/edgeFehler";
 
@@ -106,6 +107,19 @@ interface KategorieKosten {
   schluessel: VerteilerSchluessel;
   /** Bereits auf den Abrechnungszeitraum heruntergerechnet. */
   total: number;
+  /** Darin verrechnete Gutschriften der Versorger (Summe der negativen Positionen, <= 0). */
+  gutschriften: number;
+}
+
+/** Kostenart einer Position, wie sie Schritt 3 gruppiert — auch für die Anteile. */
+function kategorieDerPosition(art: { id: string; name: string; verteilerschluessel_art: string | null }) {
+  const kategorie: NebenkostenKategorie | undefined = findeKategorieNachName(art.name);
+  return {
+    kategorie,
+    kategorieId: kategorie?.id ?? `custom_${art.id}`,
+    name: kategorie?.name ?? art.name ?? "Sonstige Betriebskosten",
+    schluessel: (art.verteilerschluessel_art || kategorie?.schluessel || "qm") as VerteilerSchluessel,
+  };
 }
 
 function mieterNamenText(namen: string[]): string {
@@ -264,7 +278,7 @@ export function NebenkostenStep3Abrechnung({
   );
 
   // ── Kosten je BetrKV-Kategorie, anteilig auf den Abrechnungszeitraum ───────
-  const kostenProKategorie = useMemo(() => {
+  const { kostenProKategorie, negativeKostenarten } = useMemo(() => {
     const map = new Map<string, KategorieKosten>();
 
     kostenpositionen.forEach((kp) => {
@@ -273,20 +287,19 @@ export function NebenkostenStep3Abrechnung({
       // sie trotzdem still als „Sonstige Betriebskosten“ nach Fläche um (live 24 € in Celle 2026).
       // Jetzt wie in den Schritten davor nicht umgelegt, aber unten benannt.
       if (!art) return;
-      const kategorie: NebenkostenKategorie | undefined = findeKategorieNachName(art?.name);
+      const { kategorie, kategorieId, name, schluessel } = kategorieDerPosition(art);
 
-      const kategorieId = kategorie?.id ?? (art ? `custom_${art.id}` : "sonstige_betriebskosten");
-      const name = kategorie?.name ?? art?.name ?? "Sonstige Betriebskosten";
-      const schluessel = (art?.verteilerschluessel_art ||
-        kategorie?.schluessel ||
-        "qm") as VerteilerSchluessel;
-
+      // Gutschriften der Versorger (negative Positionen) zählen seit 28.10.2026 mit und
+      // mindern die Kosten ihrer Art. Bis dahin fiel jede Position <= 0 heraus und die
+      // vollen Abschläge wurden umgelegt. Geprüft wird unten die Summe je Kostenart.
       const betrag = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
-      if (betrag <= 0) return;
+      if (betrag === 0) return;
+      const gutschrift = betrag < 0 ? betrag : 0;
 
       const vorhanden = map.get(kategorieId);
       if (vorhanden) {
         vorhanden.total += betrag;
+        vorhanden.gutschriften += gutschrift;
       } else {
         map.set(kategorieId, {
           kategorieId,
@@ -295,18 +308,30 @@ export function NebenkostenStep3Abrechnung({
           pdfName: kategorie?.pdfName ?? name,
           schluessel,
           total: betrag,
+          gutschriften: gutschrift,
         });
       }
     });
 
-    return map;
+    // Nur eine positive Summe je Kostenart wird umgelegt. Übersteigen die
+    // Gutschriften die Kosten, bleibt die Art draußen und wird oben gemeldet.
+    const { umzulegen, negativ } = trenneKostenartenNachSumme(map.values());
+    return {
+      kostenProKategorie: new Map(umzulegen.map((k) => [k.kategorieId, k] as const)),
+      negativeKostenarten: negativ,
+    };
   }, [kostenpositionen, abrStart, abrEnde]);
 
   const ohneKostenart = useMemo(
-    () => kostenpositionen.filter((kp) => !kp.nebenkostenart && kostenAnteilImZeitraum(kp, abrStart, abrEnde) > 0),
+    () => kostenpositionen.filter((kp) => !kp.nebenkostenart && kostenAnteilImZeitraum(kp, abrStart, abrEnde) !== 0),
     [kostenpositionen, abrStart, abrEnde]
   );
-  const ohneKostenartBetrag = ohneKostenart.reduce((s, kp) => s + kostenAnteilImZeitraum(kp, abrStart, abrEnde), 0);
+  // Kosten und Gutschriften getrennt nennen (28.10.2026): Eine Gutschrift ohne Kostenart
+  // ergäbe sonst „über -45,00 €“. Sie sperrt nichts, sie wird nur nicht umgelegt.
+  const ohneKostenartAnteile = ohneKostenart.map((kp) => kostenAnteilImZeitraum(kp, abrStart, abrEnde));
+  const ohneKostenartKosten = ohneKostenartAnteile.filter((b) => b > 0).reduce((s, b) => s + b, 0);
+  const ohneKostenartGutschriften = ohneKostenartAnteile.filter((b) => b < 0).reduce((s, b) => s + b, 0);
+  const euroText = (b: number) => b.toFixed(2).replace(".", ",");
 
   const gesamtkostenUmlagefaehig = useMemo(
     () => Array.from(kostenProKategorie.values()).reduce((s, k) => s + k.total, 0),
@@ -535,13 +560,16 @@ export function NebenkostenStep3Abrechnung({
 
     for (const kp of kostenpositionen) {
       const art = kp.nebenkostenart;
-      const kategorie = findeKategorieNachName(art?.name);
-      const schluessel = (art?.verteilerschluessel_art ||
-        kategorie?.schluessel ||
-        "qm") as VerteilerSchluessel;
+      // Anteile nur für Positionen, deren Kostenart tatsächlich umgelegt wird — auch
+      // für Gutschriften darin, sonst ergäben die Anteile nicht die abgerechnete Summe
+      // (28.10.2026). Positionen ohne Kostenart oder in einer Art mit negativer Summe
+      // werden nicht umgelegt und bekommen keine Anteile.
+      if (!art) continue;
+      const { kategorieId, schluessel } = kategorieDerPosition(art);
+      if (!kostenProKategorie.has(kategorieId)) continue;
 
       const betragImZeitraum = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
-      if (betragImZeitraum <= 0) continue;
+      if (betragImZeitraum === 0) continue;
 
       for (const abr of abrechnungen) {
         const anteil = berechneAnteil(abr.periode, schluessel, bezugsgroessen);
@@ -622,6 +650,7 @@ export function NebenkostenStep3Abrechnung({
             : schluessel,
         betragGesamt: entry?.total ?? 0,
         einheitenLabel: einheitenLabelFuer(schluessel),
+        gutschriften: entry?.gutschriften ?? 0,
       };
     });
 
@@ -639,6 +668,7 @@ export function NebenkostenStep3Abrechnung({
           : entry.schluessel,
         betragGesamt: entry.total,
         einheitenLabel: einheitenLabelFuer(entry.schluessel),
+        gutschriften: entry.gutschriften,
       });
     });
 
@@ -929,13 +959,39 @@ export function NebenkostenStep3Abrechnung({
         </Card>
       )}
 
+      {/* Gutschriften übersteigen die Kosten einer Art (28.10.2026) */}
+      {negativeKostenarten.length > 0 && (
+        <Card className="border-warning/40 bg-warning/5">
+          <CardContent className="py-4 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+            <p className="text-sm">
+              <span className="font-semibold text-warning">Nicht umgelegt: </span>
+              {negativeKostenarten
+                .map((k) => `${k.betrkvNummer ? `${k.betrkvNummer} ` : ""}${k.name} (${k.total.toFixed(2).replace(".", ",")} €)`)
+                .join(", ")}
+              . Die Gutschriften übersteigen hier die Kosten des Jahres. Bitte in Schritt 1 prüfen, ob
+              die Gutschrift in ein anderes Jahr oder zu einer anderen Kostenart gehört.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Fehlende Bezugsgrößen sperren die Abrechnung */}
       {ohneKostenart.length > 0 && (
         <Card className="border-amber-300 bg-amber-50">
           <CardContent className="py-4 flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
             <p className="text-sm text-amber-900">
-              {ohneKostenart.length} Kostenposition(en) ohne Kostenart über {ohneKostenartBetrag.toFixed(2).replace(".", ",")} € werden nicht umgelegt. Bitte in Schritt 1 einer Kostenart zuordnen, wenn sie abgerechnet werden sollen.
+              {ohneKostenart.length} Kostenposition(en) ohne Kostenart werden nicht umgelegt
+              {" ("}
+              {[
+                ohneKostenartKosten > 0 ? `Kosten ${euroText(ohneKostenartKosten)} €` : null,
+                ohneKostenartGutschriften < 0 ? `Gutschriften ${euroText(ohneKostenartGutschriften)} €` : null,
+              ]
+                .filter(Boolean)
+                .join(", ")}
+              {")"}. Die Abrechnung bleibt möglich. Sollen sie abgerechnet werden: in Schritt 1 unter „Alle
+              Zahlungen des Objekts“ die Zahlung über „Aufteilen / Zuordnen“ einer Kostenart zuordnen.
             </p>
           </CardContent>
         </Card>

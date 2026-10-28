@@ -46,6 +46,7 @@ import {
   findeOderErstelleNebenkostenart,
   type KostenpositionMitArt,
 } from "@/hooks/useNebenkostenDaten";
+import { istGutschrift as istGutschriftZahlung } from "@/utils/nebenkostenGutschrift";
 
 interface SplitLine {
   id: string;
@@ -68,6 +69,8 @@ interface NebenkostenSplitDialogProps {
     empfaengername: string | null;
     verwendungszweck: string | null;
     iban: string | null;
+    /** Für die Erkennung einer Gutschrift (nur Eingänge unter Nebenkosten). */
+    kategorie: string | null;
   } | null;
   immobilieId: string;
   selectedYear: number;
@@ -93,6 +96,11 @@ export function NebenkostenSplitDialog({
   const [isSaving, setIsSaving] = useState(false);
 
   const istManuell = zahlung === null;
+  // Gutschrift eines Versorgers (28.10.2026): Im Dialog wird ohne Vorzeichen
+  // gerechnet, gespeichert wird negativ — die Position mindert die Kosten ihrer
+  // Kostenart. Dieselbe Regel wie in Schritt 1 (utils/nebenkostenGutschrift.ts).
+  const istGutschrift = !!zahlung && istGutschriftZahlung(zahlung);
+  const vorzeichen = istGutschrift ? -1 : 1;
   const defaultVon = `${selectedYear}-01-01`;
   const defaultBis = `${selectedYear}-12-31`;
 
@@ -126,7 +134,8 @@ export function NebenkostenSplitDialog({
         bestehendePositionen.map((pos) => ({
           id: crypto.randomUUID(),
           kategorieId: findeKategorieNachName(pos.nebenkostenart?.name)?.id ?? "",
-          betrag: pos.gesamtbetrag.toString(),
+          // Ohne Vorzeichen anzeigen; eine Gutschrift steht als negative Position.
+          betrag: Math.abs(pos.gesamtbetrag).toString(),
           zeitraumVon: pos.zeitraum_von ?? defaultVon,
           zeitraumBis: pos.zeitraum_bis ?? defaultBis,
           bezeichnung: pos.bezeichnung || "",
@@ -233,7 +242,7 @@ export function NebenkostenSplitDialog({
           immobilie_id: immobilieId,
           zahlung_id: zahlung?.id ?? null,
           nebenkostenart_id: nebenkostenartId,
-          gesamtbetrag: parseFloat(line.betrag),
+          gesamtbetrag: vorzeichen * parseFloat(line.betrag),
           zeitraum_von: line.zeitraumVon,
           zeitraum_bis: line.zeitraumBis,
           bezeichnung: line.bezeichnung || kategorie.name,
@@ -285,7 +294,11 @@ export function NebenkostenSplitDialog({
         <DialogHeader className="px-6 pt-5 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Euro className="h-5 w-5 text-primary" />
-            {istManuell ? "Kostenposition manuell anlegen" : "Zahlung aufteilen"}
+            {istManuell
+              ? "Kostenposition manuell anlegen"
+              : istGutschrift
+              ? "Gutschrift zuordnen"
+              : "Zahlung aufteilen"}
           </DialogTitle>
         </DialogHeader>
 
@@ -324,6 +337,11 @@ export function NebenkostenSplitDialog({
                     <p className="text-xs text-muted-foreground flex items-start gap-1 line-clamp-2">
                       <FileText className="h-3 w-3 mt-0.5 shrink-0" />
                       {zahlung.verwendungszweck}
+                    </p>
+                  )}
+                  {istGutschrift && (
+                    <p className="text-xs text-success">
+                      Gutschrift: Der Betrag wird von den Kosten der gewählten Kostenart abgezogen.
                     </p>
                   )}
                 </div>

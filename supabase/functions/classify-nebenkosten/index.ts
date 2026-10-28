@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.58.0";
+// Auf 2.49.1 wie die übrigen Functions (28.10.2026, Projektregel: exakte, einheitliche Version).
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const ALLOWED_ORIGINS = [
   'https://immobilien-blick-dashboard.lovable.app',
@@ -13,6 +14,35 @@ function getCorsHeaders(req: Request) {
     'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
   };
+}
+
+/**
+ * PostgREST liefert still höchstens 1000 Zeilen. Bis zum 28.10.2026 lasen beide Abfragen ohne
+ * range() — live 639 offene Nichtmiete-Zahlungen und 403 Klassifizierungen, ab 1000 hätten
+ * still Daten gefehlt. Die Seiten laufen nacheinander mit eindeutiger Sortierung.
+ */
+const SEITENGROESSE = 1000;
+
+async function alleSeiten<T>(
+  seite: (von: number, bis: number) => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  const alle: T[] = [];
+  for (let von = 0; ; von += SEITENGROESSE) {
+    const { data, error } = await seite(von, von + SEITENGROESSE - 1);
+    if (error) throw error;
+    const zeilen = data ?? [];
+    alle.push(...zeilen);
+    if (zeilen.length < SEITENGROESSE) return alle;
+  }
+}
+
+interface KlassifizierungZeile {
+  zahlung_id: string;
+  is_betriebskosten: boolean;
+  confidence: string;
+  category: string;
+  suggested_immobilie_id: string | null;
+  reasoning: string | null;
 }
 
 interface Zahlung {
@@ -204,15 +234,17 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const forceReclassify = body.force === true;
 
-    // Fetch all unassigned Nichtmiete payments
-    const { data: zahlungen, error: zahlungenError } = await supabase
-      .from("zahlungen")
-      .select("*")
-      .eq("kategorie", "Nichtmiete")
-      .is("immobilie_id", null)
-      .order("buchungsdatum", { ascending: false });
-
-    if (zahlungenError) throw zahlungenError;
+    // Fetch all unassigned Nichtmiete payments (seitenweise, siehe alleSeiten)
+    const zahlungen = await alleSeiten<Zahlung>((von, bis) =>
+      supabase
+        .from("zahlungen")
+        .select("*")
+        .eq("kategorie", "Nichtmiete")
+        .is("immobilie_id", null)
+        .order("buchungsdatum", { ascending: false })
+        .order("id")
+        .range(von, bis)
+    );
 
     // Fetch all Immobilien
     const { data: immobilien, error: immobilienError } = await supabase
@@ -221,14 +253,16 @@ serve(async (req) => {
 
     if (immobilienError) throw immobilienError;
 
-    // Fetch existing cached classifications
-    const { data: existingClassifications, error: classError } = await supabase
-      .from("nebenkosten_klassifizierungen")
-      .select("*")
-      .eq("bestaetigt", false)
-      .eq("uebersprungen", false);
-
-    if (classError) throw classError;
+    // Fetch existing cached classifications (seitenweise, siehe alleSeiten)
+    const existingClassifications = await alleSeiten<KlassifizierungZeile>((von, bis) =>
+      supabase
+        .from("nebenkosten_klassifizierungen")
+        .select("*")
+        .eq("bestaetigt", false)
+        .eq("uebersprungen", false)
+        .order("id")
+        .range(von, bis)
+    );
 
     const existingClassMap = new Map(
       (existingClassifications || []).map(c => [c.zahlung_id, c])

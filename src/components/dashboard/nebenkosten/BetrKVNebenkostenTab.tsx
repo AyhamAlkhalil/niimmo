@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,7 +31,10 @@ import {
   verteilteBetraegeProZahlung,
   summeImZeitraum,
   istZuordenbareZahlung,
+  ladeNebenkostenZahlungen,
+  nebenkostenZahlungenKey,
 } from "@/hooks/useNebenkostenDaten";
+import { istNochOffen } from "@/utils/nebenkostenGutschrift";
 
 interface BetrKVNebenkostenTabProps {
   immobilieId: string;
@@ -44,19 +46,11 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
   const [activeStep, setActiveStep] = useState<string>("step1");
 
   // Die Statistik braucht id und betrag — vorher wurde nur buchungsdatum selektiert,
-  // wodurch jede Zahlung des Jahres als "noch offen" gezählt wurde.
+  // wodurch jede Zahlung des Jahres als "noch offen" gezählt wurde. Dieselbe Abfrage
+  // wie in Schritt 1 (gemeinsamer Cache-Schlüssel), seit 28.10.2026 mit Gutschriften.
   const { data: zahlungen, isLoading: zahlungenLoading } = useQuery({
-    queryKey: ["immobilie-nebenkosten-zahlungen", immobilieId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("zahlungen")
-        .select("id, betrag, buchungsdatum, verwendungszweck, empfaengername, iban, kategorie")
-        .eq("immobilie_id", immobilieId)
-        .lt("betrag", 0)
-        .order("buchungsdatum", { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
+    queryKey: nebenkostenZahlungenKey(immobilieId),
+    queryFn: () => ladeNebenkostenZahlungen(immobilieId),
   });
 
   const { data: kostenpositionen, isLoading: kostenLoading } = useKostenpositionen(immobilieId);
@@ -81,7 +75,7 @@ export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps)
       if (!istZuordenbareZahlung(z)) return false;
       const jahr = new Date(z.buchungsdatum).getFullYear();
       if (jahr !== selectedYear && jahr !== selectedYear - 1) return false;
-      return (verteilt.get(z.id) || 0) < Math.abs(z.betrag || 0) - 0.01;
+      return istNochOffen(z.betrag || 0, verteilt.get(z.id) || 0);
     });
 
     const positionenImJahr = positionenImZeitraum(kostenpositionen, abrStart, abrEnde);

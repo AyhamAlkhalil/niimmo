@@ -68,6 +68,7 @@ import {
   type Nutzungsperiode,
   type VerteilerSchluessel,
 } from "@/utils/nebenkostenBerechnung";
+import { trenneKostenartenNachSumme } from "@/utils/nebenkostenGutschrift";
 
 interface NebenkostenStep2VerteilungProps {
   immobilieId: string;
@@ -171,7 +172,7 @@ export function NebenkostenStep2Verteilung({
     [einheiten, perioden, gesamtTage]
   );
 
-  const kategorienMitKosten: KategorieMitKosten[] = useMemo(() => {
+  const { kategorienMitKosten, negativeKostenarten } = useMemo(() => {
     const map = new Map<string, KategorieMitKosten>();
 
     kostenpositionen.forEach((kp) => {
@@ -182,8 +183,11 @@ export function NebenkostenStep2Verteilung({
         ?? pseudoKategorieFuerArt(kp.nebenkostenart);
       if (!kategorie) return;
 
+      // Gutschriften (negative Positionen) zählen seit 28.10.2026 mit. Bis dahin
+      // fiel jede Position mit Betrag <= 0 heraus und die vollen Abschläge wurden
+      // umgelegt. Ob umgelegt wird, entscheidet unten die Summe je Kostenart.
       const betrag = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
-      if (betrag <= 0) return;
+      if (betrag === 0) return;
 
       const vorhanden = map.get(kategorie.id);
       if (vorhanden) {
@@ -201,7 +205,11 @@ export function NebenkostenStep2Verteilung({
       }
     });
 
-    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+    const { umzulegen, negativ } = trenneKostenartenNachSumme(map.values());
+    return {
+      kategorienMitKosten: umzulegen.sort((a, b) => b.total - a.total),
+      negativeKostenarten: negativ,
+    };
   }, [kostenpositionen, abrStart, abrEnde]);
 
   const gesamtUmlagefaehig = kategorienMitKosten
@@ -492,6 +500,25 @@ export function NebenkostenStep2Verteilung({
                   </Button>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Gutschriften übersteigen die Kosten einer Art: nicht umlegen, aber zeigen */}
+      {negativeKostenarten.length > 0 && (
+        <Card className="border-warning/40 bg-warning/5">
+          <CardContent className="py-3 flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-warning mt-0.5 shrink-0" />
+            <div className="text-sm">
+              <p className="font-semibold text-warning">Gutschriften übersteigen die Kosten</p>
+              <p className="text-muted-foreground mt-1">
+                {negativeKostenarten
+                  .map((k) => `${k.kategorie.betrkvNummer ? `${k.kategorie.betrkvNummer} ` : ""}${k.kategorie.name}: ${k.total.toFixed(2)} €`)
+                  .join(" · ")}
+                . Diese Kostenart wird nicht umgelegt. Bitte in Schritt 1 prüfen, ob die Gutschrift
+                in ein anderes Jahr oder zu einer anderen Kostenart gehört.
+              </p>
             </div>
           </CardContent>
         </Card>

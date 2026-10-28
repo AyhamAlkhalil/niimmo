@@ -27,6 +27,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ZaehlerHistorie } from "@/components/dashboard/ZaehlerHistorie";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { getLaufenderVertrag } from "@/utils/contractUtils";
+import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
 
 interface ZaehlerVerwaltungProps {
   onBack: () => void;
@@ -34,6 +35,69 @@ interface ZaehlerVerwaltungProps {
 
 const UNIT_TYPES = ['kaltwasser', 'warmwasser', 'strom', 'gas'] as const;
 type UnitType = typeof UNIT_TYPES[number];
+
+/**
+ * Gleicher Zählerstand? Numerisch über parseZaehlerstand (Komma oder Punkt), damit
+ * „1234.50“, „1234,5“ und der gespeicherte Wert 1234.5 als gleich gelten. Ein reiner
+ * Textvergleich setzte dort das Datum auf heute bzw. schrieb eine Historienzeile ohne
+ * neue Ablesung (Review 28.10.2026). Nicht lesbare Eingaben werden als Text verglichen.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function gleicherStand(a: string, b: string): boolean {
+  const zahlA = parseZaehlerstand(a);
+  const zahlB = parseZaehlerstand(b);
+  if (zahlA !== null && zahlB !== null) return zahlA === zahlB;
+  return a.trim() === b.trim();
+}
+
+/**
+ * Setzt im Bearbeitungsentwurf einen neuen Zählerstand und führt das Ablesedatum mit.
+ *
+ * Bis zum 28.10.2026 stand beim Bearbeiten das alte Ablesedatum im Feld, und gespeichert wurde
+ * `newDatum || heute` — ein neuer Stand landete also mit dem Datum der vorigen Ablesung in
+ * Einheit und Historie. Jetzt springt das Datum auf heute, sobald sich der Stand ändert und
+ * im Feld noch das alte Datum steht. Ein bewusst gewähltes anderes Datum bleibt stehen. Wird
+ * der Stand auf den alten Wert zurückgesetzt, kehrt auch das automatisch gesetzte Datum zurück.
+ * Auch für den Hausanschluss im Objektdetail (ImmobilienDetail).
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function standImEntwurf(
+  entwurf: Record<string, string>,
+  schluessel: string,
+  stand: string,
+  original: { stand: string; datum: string },
+  heute: string
+): Record<string, string> {
+  const datumKey = `${schluessel}_datum`;
+  const datum = entwurf[datumKey] ?? '';
+  const naechster = { ...entwurf, [`${schluessel}_stand`]: stand };
+  const geaendert = !gleicherStand(stand, original.stand);
+  if (geaendert && datum === original.datum) {
+    naechster[datumKey] = heute;
+  } else if (!geaendert && datum === heute && original.datum !== heute) {
+    naechster[datumKey] = original.datum;
+  }
+  return naechster;
+}
+
+/**
+ * Schreibt Historienzeilen und meldet, ob alle gelangen. Bis zum 28.10.2026 wurde der Fehler
+ * ignoriert und „gespeichert“ gemeldet, obwohl die Historie fehlte — Muster wie
+ * schreibeZaehlerHistorie in useMietvertragMutations.ts.
+ */
+async function schreibeHistorie(zeilen: Record<string, unknown>[]): Promise<boolean> {
+  let alleOk = true;
+  for (const zeile of zeilen) {
+    const { error } = await supabase.from('zaehlerstand_historie').insert(zeile as never);
+    if (error) alleOk = false;
+  }
+  return alleOk;
+}
+
+const HISTORIE_FEHLT = {
+  titel: 'Gespeichert, Historie unvollständig',
+  text: 'Die Zählerstände sind gespeichert, die Zählerhistorie konnte aber nicht ergänzt werden.',
+};
 
 export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
   const queryClient = useQueryClient();
@@ -171,7 +235,8 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           updates[`${t}_zaehler`] = newZaehler || null;
         }
 
-        if (newStand !== origStand) {
+        // Numerisch verglichen (28.10.2026): „1234.50“ gegen gespeicherte 1234.5 ist keine neue Ablesung
+        if (!gleicherStand(newStand, origStand)) {
           const standValue = newStand ? parseFloat(newStand) : null;
           const effectiveDatum = newDatum || today;
           // Datum-Guard: aktuellen Stand nur überschreiben wenn neues Datum nicht älter
@@ -204,15 +269,14 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
       if (Object.keys(updates).length > 0) {
         await updateUnitMutation.mutateAsync({ einheitId: einheit.id, updates });
       }
-      for (const entry of historyInserts) {
-        await supabase.from('zaehlerstand_historie').insert(entry);
-      }
+      const historieOk = await schreibeHistorie(historyInserts);
       if (historyInserts.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
       }
 
       cancelEditUnit();
-      toast.success('Zählerstände gespeichert');
+      if (historieOk) toast.success('Zählerstände gespeichert');
+      else toast.error(HISTORIE_FEHLT.titel, { description: HISTORIE_FEHLT.text });
     } catch {
       toast.error('Fehler beim Speichern');
     } finally {
@@ -265,7 +329,8 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           if (newZaehler !== origZaehler) {
             updates[`${dbBase}_zaehler${suffix}`] = newZaehler || null;
           }
-          if (newStand !== origStand) {
+          // Numerisch verglichen wie bei den Einheiten (28.10.2026)
+          if (!gleicherStand(newStand, origStand)) {
             const standValue = newStand ? parseFloat(newStand) : null;
             const effectiveDatum = newDatum || today;
             const isNewerOrSame = !newDatum || !origDatum || new Date(effectiveDatum) >= new Date(origDatum);
@@ -306,15 +371,14 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
       if (Object.keys(updates).length > 0) {
         await updatePropertyMutation.mutateAsync({ immobilieId: immobilie.id, updates });
       }
-      for (const entry of historyInserts) {
-        await supabase.from('zaehlerstand_historie').insert(entry);
-      }
+      const historieOk = await schreibeHistorie(historyInserts);
       if (historyInserts.length > 0) {
         queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
       }
 
       cancelEditProperty();
-      toast.success('Hausanschlusszähler gespeichert');
+      if (historieOk) toast.success('Hausanschlusszähler gespeichert');
+      else toast.error(HISTORIE_FEHLT.titel, { description: HISTORIE_FEHLT.text });
     } catch {
       toast.error('Fehler beim Speichern');
     } finally {
@@ -609,7 +673,11 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                             <Input
                                               type="number" step="0.01" placeholder="Stand"
                                               value={propertyDraft[`${draftKey}_stand`] ?? ''}
-                                              onChange={(e) => setPropertyDraft(prev => ({ ...prev, [`${draftKey}_stand`]: e.target.value }))}
+                                              onChange={(e) => {
+                                                const stand = e.target.value;
+                                                const original = { stand: dbS?.toString() ?? '', datum: dbD ?? '' };
+                                                setPropertyDraft(prev => standImEntwurf(prev, draftKey, stand, original, format(new Date(), 'yyyy-MM-dd')));
+                                              }}
                                               className="h-6 text-xs px-1.5"
                                             />
                                             <Input
@@ -699,7 +767,11 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                               <Input
                                                 type="number" step="0.01" placeholder="Stand"
                                                 value={unitDraft[`${type}_stand`] ?? ''}
-                                                onChange={(e) => setUnitDraft(prev => ({ ...prev, [`${type}_stand`]: e.target.value }))}
+                                                onChange={(e) => {
+                                                  const stand = e.target.value;
+                                                  const original = { stand: currentStand?.toString() ?? '', datum: standDatum ?? '' };
+                                                  setUnitDraft(prev => standImEntwurf(prev, type, stand, original, format(new Date(), 'yyyy-MM-dd')));
+                                                }}
                                                 className="h-6 text-xs px-1.5"
                                               />
                                               <Input

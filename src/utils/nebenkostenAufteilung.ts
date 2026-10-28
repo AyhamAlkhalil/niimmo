@@ -91,9 +91,9 @@ export function pruefeAufteilung(
   zielBetrag: number
 ): string | null {
   if (positionen.length === 0) return "In dieser Kategorie liegt keine Position.";
-  // Kostenpositionen werden immer als Betrag ohne Vorzeichen angelegt. Käme hier
-  // doch ein negativer Wert an, wäre die anteilige Verteilung nicht mehr
-  // nachvollziehbar — dann lieber gar nicht aufteilen.
+  // Seit 28.10.2026 gibt es negative Positionen: Gutschriften der Versorger. Mit
+  // ihnen wäre die anteilige Verteilung nicht mehr nachvollziehbar — dann lieber
+  // gar nicht aufteilen; die Gutschrift lässt sich über ihre Zahlung umbuchen.
   if (positionen.some((p) => (p.gesamtbetrag || 0) < 0)) {
     return "Diese Kategorie enthält eine Position mit negativem Betrag und lässt sich nicht aufteilen.";
   }

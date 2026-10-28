@@ -17,8 +17,15 @@ export interface NebenkostenImmobilieKostenRow {
   betrkvNummer: string;
   name: string;
   verteilerschluessel: string;
+  /** Kosten der Art nach Abzug der Gutschriften. */
   betragGesamt: number;
   einheitenLabel: string;
+  /**
+   * Darin verrechnete Gutschriften der Versorger (<= 0). Seit 28.10.2026: Eine
+   * Erstattung mindert die Kosten ihrer Art; damit der Mieter das nachrechnen
+   * kann, weist Seite 2 sie je Kostenart aus.
+   */
+  gutschriften?: number;
 }
 
 export interface NebenkostenAbrechnungPdfData {
@@ -103,6 +110,71 @@ async function loadLogo(): Promise<string | null> {
 function formatEur(v: number): string {
   if (v === 0) return '–';
   return v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+
+/**
+ * Zeilen, die auf Seite 2 die verrechneten Gutschriften je Kostenart belegen:
+ * Kosten, Gutschrift, verbleibender Betrag. Leer, wenn es keine gibt.
+ */
+export function gutschriftZeilen(zeilen: readonly NebenkostenImmobilieKostenRow[]): string[] {
+  return zeilen
+    .filter(z => (z.gutschriften ?? 0) < -0.005)
+    .map(z => {
+      const gutschrift = z.gutschriften as number;
+      const kosten = z.betragGesamt - gutschrift;
+      const nummer = z.betrkvNummer && z.betrkvNummer !== '—' ? `${z.betrkvNummer} ` : '';
+      return `${nummer}${z.name}: Kosten ${formatEur(kosten)}, Gutschrift ${formatEur(gutschrift)}, verbleiben ${formatEur(z.betragGesamt)}`;
+    });
+}
+
+/**
+ * Hinweis zum Rechenweg unter der Kostentabelle von Seite 3.
+ *
+ * Bis zum 28.10.2026 stand dort für jede Zeile „Preis/E × Ihre Einheiten ×
+ * Zeitanteil“. Beim Schlüssel Personentage steckt der Zeitanteil aber schon in
+ * den Einheiten (Personen × Tage), bei Alleinnutzung gibt es keine Einheiten —
+ * dort ging die gedruckte Rechnung nicht auf. Multipliziert wird der Zeitanteil
+ * nur bei Wohnfläche, Einheit und den ersatzweise nach Fläche gerechneten
+ * Altschlüsseln (berechneAnteil in nebenkostenBerechnung.ts).
+ */
+export function rechenwegHinweis(details: readonly NebenkostenKostenDetail[]): string | null {
+  const ohneZeitfaktor = new Set(['personen', 'alleinnutzung']);
+  const mitZeitanteil = details.filter(r => !ohneZeitfaktor.has(r.verteilerschluessel));
+  const personentage = details.some(r => r.verteilerschluessel === 'personen');
+  const alleinnutzung = details.some(r => r.verteilerschluessel === 'alleinnutzung');
+
+  const zeitanteile = [...new Set(mitZeitanteil
+    .map(r => r.nutzungsdauerProzent)
+    .filter((w): w is number => typeof w === 'number' && Number.isFinite(w))
+    .map(w => Math.round(w * 100) / 100))];
+
+  const saetze: string[] = [];
+  if (zeitanteile.length > 0) {
+    const anteilText = zeitanteile.length === 1
+      ? `${zeitanteile[0].toLocaleString('de-DE', { maximumFractionDigits: 2 })} %`
+      : 'je Kostenart verschieden';
+    const fuer = personentage || alleinnutzung ? ' bei Wohnfläche und Einheit' : '';
+    saetze.push(`Ihr Zeitanteil am Abrechnungszeitraum: ${anteilText}. Ihre Kosten${fuer} = Preis/E × Ihre Einheiten × Zeitanteil.`);
+  }
+  if (personentage) {
+    saetze.push('Bei Personentagen ist der Zeitanteil schon in Ihren Einheiten enthalten: Ihre Kosten = Preis/E × Ihre Einheiten.');
+  }
+  if (alleinnutzung) {
+    saetze.push('Bei Alleinnutzung tragen Sie die Kosten der Art vollständig.');
+  }
+  if (saetze.length === 0) return null;
+  return `${saetze.join(' ')} Auf ganze Cent verteilt.`;
+}
+
+/**
+ * Monatszahl der Vorauszahlungen: volle Monate ohne Nachkommastelle, angebrochene
+ * mit zwei. Bis zum 28.10.2026 nur eine Stelle — „5,5 Mon. × 240,00 €“ bei
+ * berechneten 5,48 Monaten passte nicht zum gedruckten Betrag.
+ */
+export function monateText(monate: number): string {
+  return Number.isInteger(monate)
+    ? `${monate}`
+    : monate.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ─── PDF-Generator ──────────────────────────────────────────────────────────────
@@ -399,6 +471,22 @@ function seite2(
     CW
   );
   doc.text(hinweis, ML, y);
+  y += hinweis.length * 3.5 + 2;
+
+  // Gutschriften der Versorger je Kostenart (28.10.2026): „Betrag gesamt“ steht
+  // netto, hier lässt sich nachrechnen, was abgezogen wurde.
+  const gutschriften = gutschriftZeilen(data.immobilieKosten);
+  if (gutschriften.length > 0) {
+    const zeilen = doc.splitTextToSize(
+      ['Verrechnete Gutschriften der Versorger:', ...gutschriften].join('\n'),
+      CW
+    );
+    if (y + zeilen.length * 3.5 > 285) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.text(zeilen, ML, y);
+  }
 }
 
 // ─── Seite 3: Einzelmieter ───────────────────────────────────────────────────
@@ -561,24 +649,17 @@ function seite3(
 
   y += 6;
 
-  // Zeitanteil drucken: Ihre Kosten = Preis/E × Ihre Einheiten × Zeitanteil. Bis zum 27.10.2026 wurde
-  // er berechnet, aber nie ausgewiesen; bei unterjähriger Nutzung passten die Zeilen scheinbar nicht.
-  const zeitanteile = [...new Set(data.kostenDetails
-    .map(r => r.nutzungsdauerProzent)
-    .filter((w): w is number => typeof w === 'number' && Number.isFinite(w))
-    .map(w => Math.round(w * 100) / 100))];
-  if (zeitanteile.length > 0) {
+  // Zeitanteil drucken. Bis zum 27.10.2026 wurde er berechnet, aber nie ausgewiesen; bei
+  // unterjähriger Nutzung passten die Zeilen scheinbar nicht. Seit 28.10.2026 nur dort, wo er
+  // wirklich multipliziert wird (siehe rechenwegHinweis).
+  const rechenweg = rechenwegHinweis(data.kostenDetails);
+  if (rechenweg) {
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...GRAY);
-    const anteilText = zeitanteile.length === 1
-      ? `${zeitanteile[0].toLocaleString('de-DE', { maximumFractionDigits: 2 })} %`
-      : 'je Kostenart verschieden';
-    doc.text(
-      `Ihr Zeitanteil am Abrechnungszeitraum: ${anteilText}. Ihre Kosten = Preis/E × Ihre Einheiten × Zeitanteil, auf ganze Cent verteilt.`,
-      ML + 2, y, { maxWidth: CW - 4 }
-    );
-    y += 6;
+    const zeilen = doc.splitTextToSize(rechenweg, CW - 4);
+    doc.text(zeilen, ML + 2, y);
+    y += Math.max(6, zeilen.length * 3.5 + 2.5);
   }
 
   // Vorauszahlung
@@ -587,10 +668,7 @@ function seite3(
   doc.text('VORAUSZAHLUNGEN LAUT MIETVERTRAG', ML + 2, y);
   // Deutsche Schreibweise: Komma als Dezimaltrennzeichen, und volle Monate ohne
   // Nachkommastelle. Vorher stand dort "12.0 Mon. x 240.00 EUR".
-  const monate =
-    Number.isInteger(data.anzahlMonate)
-      ? `${data.anzahlMonate}`
-      : data.anzahlMonate.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const monate = monateText(data.anzahlMonate);
   doc.text(
     `${monate} Mon. × ${formatEur(data.monatlicheVorauszahlung)}`,
     cx[5] + cW[5], y, { align: 'right' }
@@ -631,10 +709,16 @@ function seite3(
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...GRAY);
+  const mitGutschrift = gutschriftZeilen(data.immobilieKosten).length > 0;
   const fn = doc.splitTextToSize(
     'Umlage nach § 2 Betriebskostenverordnung. Der Verteilerschlüssel ist je Kostenart in der ' +
     'Spalte „Verteil." ausgewiesen; bei unterjährigem Nutzungswechsel erfolgt die Umlage ' +
-    'zeitanteilig. Gemäß § 556 BGB haben Sie das Recht, die Belege einzusehen. Einwendungen sind ' +
+    'zeitanteilig. ' +
+    (mitGutschrift
+      ? 'Gutschriften der Versorger sind in „Betrag ges." bereits abgezogen; die Gesamtaufstellung ' +
+        'weist sie je Kostenart aus. '
+      : '') +
+    'Gemäß § 556 BGB haben Sie das Recht, die Belege einzusehen. Einwendungen sind ' +
     'innerhalb von 12 Monaten nach Zugang dieser Abrechnung geltend zu machen (§ 556 Abs. 3 BGB).',
     CW
   );

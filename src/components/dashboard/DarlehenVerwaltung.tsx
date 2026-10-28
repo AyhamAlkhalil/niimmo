@@ -160,7 +160,12 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
     },
   });
 
-  const { data: darlehenImmobilien = [], isError: zuordnungFehler, refetch: zuordnungNeuLaden } = useQuery<DarlehenImmobilie[]>({
+  const {
+    data: darlehenImmobilien = [],
+    isError: zuordnungFehler,
+    isSuccess: zuordnungGeladen,
+    refetch: zuordnungNeuLaden,
+  } = useQuery<DarlehenImmobilie[]>({
     queryKey: ["darlehen_immobilien"],
     queryFn: async () => {
       const { data, error } = await supabase.from("darlehen_immobilien").select("*");
@@ -234,21 +239,49 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
         darlehenId = created.id;
       }
 
-      await supabase.from("darlehen_immobilien").delete().eq("darlehen_id", darlehenId!);
-      if (data.immobilien_ids.length > 0) {
-        await supabase.from("darlehen_immobilien").insert(
-          data.immobilien_ids.map((immoId) => ({
-            darlehen_id: darlehenId!,
-            immobilie_id: immoId,
-          })),
+      // Objektzuordnung: nur den Unterschied schreiben, beide Schritte prüfen (28.10.2026).
+      // Vorher wurde alles gelöscht und neu eingefügt, ohne Fehlerprüfung — scheiterte das
+      // Einfügen, meldete die App „aktualisiert“ und das Darlehen hing an keinem Objekt mehr.
+      // Verglichen wird mit dem Stand der Datenbank, nicht mit dem Cache; erst einfügen,
+      // dann entfernen, damit ein Fehler höchstens eine Zuordnung zu viel hinterlässt.
+      const zuordnungFehlertext = (schritt: string) =>
+        `${id ? "Konto gespeichert" : "Konto angelegt"}, aber die Objektzuordnung konnte nicht ${schritt} werden. Bitte erneut bearbeiten.`;
+      let vorher: string[] = [];
+      if (id) {
+        const { data: bestehend, error: ladeFehler } = await supabase
+          .from("darlehen_immobilien")
+          .select("immobilie_id")
+          .eq("darlehen_id", darlehenId!);
+        if (ladeFehler) throw new Error(zuordnungFehlertext("gelesen"));
+        vorher = (bestehend ?? []).map((z) => z.immobilie_id);
+      }
+      const nachher = [...new Set(data.immobilien_ids)];
+      const einfuegen = nachher.filter((immoId) => !vorher.includes(immoId));
+      const entfernen = vorher.filter((immoId) => !nachher.includes(immoId));
+
+      if (einfuegen.length > 0) {
+        const { error } = await supabase.from("darlehen_immobilien").insert(
+          einfuegen.map((immoId) => ({ darlehen_id: darlehenId!, immobilie_id: immoId })),
         );
+        if (error) throw new Error(zuordnungFehlertext("ergänzt"));
+      }
+      if (entfernen.length > 0) {
+        const { error } = await supabase
+          .from("darlehen_immobilien")
+          .delete()
+          .eq("darlehen_id", darlehenId!)
+          .in("immobilie_id", entfernen);
+        if (error) throw new Error(zuordnungFehlertext("entfernt"));
       }
     },
-    onSuccess: () => {
+    // Auch nach einem Fehler neu laden: Das Konto selbst kann schon gespeichert sein.
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["darlehen"] });
       queryClient.invalidateQueries({ queryKey: ["darlehen_immobilien"] });
       queryClient.invalidateQueries({ queryKey: ["objekt-darlehen"] });
       queryClient.invalidateQueries({ queryKey: ["darlehen-buchungen"] });
+    },
+    onSuccess: () => {
       closeDialog();
       toast.success(editId ? "Konto aktualisiert" : "Konto erstellt");
     },
@@ -279,7 +312,20 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
     setShowDialog(true);
   }
 
+  // Bearbeiten erst, wenn die Objektzuordnungen geladen sind (28.10.2026). Vorher öffnete der
+  // Dialog mit leerer Objektliste, und Speichern löschte alle Zuordnungen des Darlehens.
+  const bearbeitenMoeglich = zuordnungGeladen && !zuordnungFehler;
+  const bearbeitenHinweis = bearbeitenMoeglich
+    ? undefined
+    : zuordnungFehler
+      ? "Objektzuordnungen konnten nicht geladen werden"
+      : "Objektzuordnungen werden geladen …";
+
   function openEdit(d: Darlehen) {
+    if (!bearbeitenMoeglich) {
+      toast.error(bearbeitenHinweis ?? "Objektzuordnungen fehlen");
+      return;
+    }
     const immoIds = darlehenImmobilien
       .filter((di) => di.darlehen_id === d.id)
       .map((di) => di.immobilie_id);
@@ -555,6 +601,8 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                           size="icon"
                           className="h-7 w-7 text-gray-400 hover:text-gray-700"
                           onClick={() => openEdit(d)}
+                          disabled={!bearbeitenMoeglich}
+                          title={bearbeitenHinweis}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -632,6 +680,8 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                           size="sm"
                           className="mt-1"
                           onClick={() => openEdit(selectedDarlehen)}
+                          disabled={!bearbeitenMoeglich}
+                          title={bearbeitenHinweis}
                         >
                           Jetzt bearbeiten
                         </Button>
@@ -659,7 +709,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                             ` — damals noch offen: ${formatEuro(selectedStand.restschuldAmLaufzeitende)}`}
                           . Anschlussfinanzierung oder neue Konditionen eintragen.
                         </div>
-                        <Button variant="outline" size="sm" className="mt-1" onClick={() => openEdit(selectedDarlehen)}>
+                        <Button variant="outline" size="sm" className="mt-1" onClick={() => openEdit(selectedDarlehen)} disabled={!bearbeitenMoeglich} title={bearbeitenHinweis}>
                           Jetzt bearbeiten
                         </Button>
                       </div>
@@ -672,7 +722,7 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                         <div className="text-xs text-gray-500 text-center max-w-xs">
                           Die monatliche Rate ({selectedDarlehen.monatliche_rate?.toLocaleString("de-DE", { minimumFractionDigits: 2 })} €) ist niedriger als die monatlichen Zinsen. Das Darlehen kann so nicht getilgt werden. Bitte Rate erhöhen.
                         </div>
-                        <Button variant="outline" size="sm" className="mt-1" onClick={() => openEdit(selectedDarlehen)}>
+                        <Button variant="outline" size="sm" className="mt-1" onClick={() => openEdit(selectedDarlehen)} disabled={!bearbeitenMoeglich} title={bearbeitenHinweis}>
                           Rate anpassen
                         </Button>
                       </div>
@@ -868,6 +918,8 @@ export function DarlehenVerwaltung({ onBack }: DarlehenVerwaltungProps) {
                       size="sm"
                       className="mt-4"
                       onClick={() => openEdit(selectedDarlehen)}
+                      disabled={!bearbeitenMoeglich}
+                      title={bearbeitenHinweis}
                     >
                       <Pencil className="h-3.5 w-3.5 mr-1.5" />
                       Bearbeiten

@@ -54,7 +54,22 @@ export const useDocumentUpload = () => {
         .select()
         .single();
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        // Ohne Zeile in dokumente ist die Datei in der Oberfläche unsichtbar. Bis zum
+        // 28.10.2026 blieb sie dann verwaist im Bucket (z. B. bei einer Kategorie, die das
+        // Enum nicht kannte, 22P02). Deshalb die eben hochgeladene Datei wieder entfernen.
+        console.error("[Dokument-Upload] Eintrag in dokumente fehlgeschlagen", dbError.code);
+        const { error: removeError } = await supabase.storage.from('dokumente').remove([filePath]);
+        if (removeError) console.error("[Dokument-Upload] Aufräumen im Speicher fehlgeschlagen", filePath);
+        const grund = dbError.code === '22P02'
+          ? `Die Kategorie „${metadata.kategorie ?? 'Sonstiges'}“ ist in der Datenbank nicht bekannt.`
+          : 'Der Dokumenteintrag konnte nicht angelegt werden.';
+        throw new Error(
+          removeError
+            ? `${grund} Die hochgeladene Datei ließ sich nicht wieder entfernen — bitte der Entwicklung melden.`
+            : `${grund} Die Datei wurde nicht gespeichert, bitte erneut versuchen.`
+        );
+      }
 
       setProgress(100);
 
