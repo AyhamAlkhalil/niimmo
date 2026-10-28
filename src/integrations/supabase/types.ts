@@ -11,7 +11,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.3 (519615d)"
+    PostgrestVersion: "12.2.3"
   }
   graphql_public: {
     Tables: {
@@ -1196,6 +1196,84 @@ export type Database = {
         }
         Relationships: []
       }
+      mahnung_versand: {
+        Row: {
+          aktualisiert_am: string
+          betraege: Json | null
+          dokument_pfad: string | null
+          erstellt_am: string
+          erstellt_von: string | null
+          herkunft: string
+          id: string
+          kuendigung: Json | null
+          mail_id: string | null
+          mietvertrag_id: string
+          sendungsnummer: string | null
+          status: string
+          stufe: number
+          versandart: string | null
+          versendet_am: string | null
+          von_hand_bestaetigt: boolean
+          zahlungsfrist: string | null
+          zugang_am: string | null
+        }
+        Insert: {
+          aktualisiert_am?: string
+          betraege?: Json | null
+          dokument_pfad?: string | null
+          erstellt_am?: string
+          erstellt_von?: string | null
+          herkunft?: string
+          id?: string
+          kuendigung?: Json | null
+          mail_id?: string | null
+          mietvertrag_id: string
+          sendungsnummer?: string | null
+          status?: string
+          stufe: number
+          versandart?: string | null
+          versendet_am?: string | null
+          von_hand_bestaetigt?: boolean
+          zahlungsfrist?: string | null
+          zugang_am?: string | null
+        }
+        Update: {
+          aktualisiert_am?: string
+          betraege?: Json | null
+          dokument_pfad?: string | null
+          erstellt_am?: string
+          erstellt_von?: string | null
+          herkunft?: string
+          id?: string
+          kuendigung?: Json | null
+          mail_id?: string | null
+          mietvertrag_id?: string
+          sendungsnummer?: string | null
+          status?: string
+          stufe?: number
+          versandart?: string | null
+          versendet_am?: string | null
+          von_hand_bestaetigt?: boolean
+          zahlungsfrist?: string | null
+          zugang_am?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mahnung_versand_mail_id_fkey"
+            columns: ["mail_id"]
+            isOneToOne: false
+            referencedRelation: "mails"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mahnung_versand_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mails: {
         Row: {
           anhang_name: string | null
@@ -1440,6 +1518,7 @@ export type Database = {
           id: string
           ist_faellig: boolean | null
           mietvertrag_id: string | null
+          ruecklastschrift_am: string | null
           sollbetrag: number | null
           sollmonat: string
           typ: string | null
@@ -1451,6 +1530,7 @@ export type Database = {
           id?: string
           ist_faellig?: boolean | null
           mietvertrag_id?: string | null
+          ruecklastschrift_am?: string | null
           sollbetrag?: number | null
           sollmonat: string
           typ?: string | null
@@ -1462,6 +1542,7 @@ export type Database = {
           id?: string
           ist_faellig?: boolean | null
           mietvertrag_id?: string | null
+          ruecklastschrift_am?: string | null
           sollbetrag?: number | null
           sollmonat?: string
           typ?: string | null
@@ -1508,6 +1589,7 @@ export type Database = {
           kaution_betrag: number | null
           kaution_gezahlt_am: string | null
           kaution_ist: number | null
+          kaution_ist_grundwert: number | null
           kaution_raten: number
           kaution_status: string | null
           kleinreparatur_einzelgrenze: number
@@ -1590,6 +1672,7 @@ export type Database = {
           kaution_betrag?: number | null
           kaution_gezahlt_am?: string | null
           kaution_ist?: number | null
+          kaution_ist_grundwert?: number | null
           kaution_raten?: number
           kaution_status?: string | null
           kleinreparatur_einzelgrenze?: number
@@ -1672,6 +1755,7 @@ export type Database = {
           kaution_betrag?: number | null
           kaution_gezahlt_am?: string | null
           kaution_ist?: number | null
+          kaution_ist_grundwert?: number | null
           kaution_raten?: number
           kaution_status?: string | null
           kleinreparatur_einzelgrenze?: number
@@ -2806,6 +2890,10 @@ export type Database = {
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       is_hausmeister: { Args: { _user_id: string }; Returns: boolean }
       ist_angespannter_markt: { Args: { _ort: string }; Returns: boolean }
+      kaution_ist_berechnen: {
+        Args: { p_grundwert: number; p_mietvertrag_id: string }
+        Returns: number
+      }
       lege_benachrichtigung_an: {
         Args: {
           _ausloeser: string
@@ -2818,361 +2906,57 @@ export type Database = {
         Returns: undefined
       }
       mein_app_benutzer_id: { Args: never; Returns: string }
+      mieterhoehung_anwenden: {
+        Args: { p_mieterhoehung_id: string; p_trotz_abweichung?: boolean }
+        Returns: Json
+      }
+      mieterhoehung_anwenden_intern: {
+        Args: { p_id: string; p_trotz_abweichung?: boolean }
+        Returns: number
+      }
+      mieterhoehung_zustimmen: {
+        Args: { p_mieterhoehung_id: string; p_trotz_abweichung?: boolean }
+        Returns: Json
+      }
+      mieterhoehung_zustimmung_pruefen: {
+        Args: { p_id: string; p_mietvertrag_id: string; p_wirksam_ab: string }
+        Returns: undefined
+      }
+      mieterhoehung_zustimmung_zuruecknehmen: {
+        Args: { p_mieterhoehung_id: string }
+        Returns: Json
+      }
+      mieterhoehungen_anwenden: { Args: never; Returns: number }
       mietforderungen_nachholen: {
         Args: { p_mietvertrag_id: string }
+        Returns: number
+      }
+      monatsanteil: {
+        Args: {
+          p_betrag: number
+          p_ende: string
+          p_monat: string
+          p_start: string
+        }
+        Returns: number
+      }
+      monatsmiete_am: {
+        Args: {
+          p_betriebskosten: number
+          p_kaltmiete: number
+          p_mietanpassung_art: string
+          p_monat: string
+          p_staffelplan: Json
+        }
+        Returns: number
+      }
+      monatstage: {
+        Args: { p_ende: string; p_monat: string; p_start: string }
         Returns: number
       }
       replace_kostenposition_anteile: {
         Args: { p_anteile: Json; p_kostenposition_ids: string[] }
         Returns: number
-      }
-      rpc_agent_all_tenants: {
-        Args: { p_status?: string }
-        Returns: {
-          einheit: string
-          hauptmail: string
-          immobilie: string
-          kaltmiete: number
-          mahnstufe: number
-          mieter_name: string
-          start_datum: string
-          telnr: string
-          warmmiete: number
-        }[]
-      }
-      rpc_agent_blacklist: { Args: { p_search?: string }; Returns: Json }
-      rpc_agent_contract_history: {
-        Args: { p_search: string }
-        Returns: {
-          einheit: string
-          ende_datum: string
-          immobilie: string
-          kaltmiete: number
-          kuendigungsdatum: string
-          mieter_name: string
-          start_datum: string
-          vertrag_status: string
-        }[]
-      }
-      rpc_agent_documents: {
-        Args: { p_search?: string }
-        Returns: {
-          dateityp: string
-          hochgeladen_am: string
-          id: string
-          immobilie: string
-          kategorie: string
-          mieter_name: string
-          titel: string
-        }[]
-      }
-      rpc_agent_dunning_summary: {
-        Args: never
-        Returns: {
-          immobilie: string
-          kaltmiete: number
-          mahnstufe: number
-          mieter_namen: string
-          mietvertrag_id: string
-          offene_forderungen: number
-        }[]
-      }
-      rpc_agent_find_tenants: {
-        Args: { p_search: string }
-        Returns: {
-          einheit: string
-          ende_datum: string
-          hauptmail: string
-          immobilie: string
-          kaltmiete: number
-          kuendigungsdatum: string
-          mahnstufe: number
-          mieter_id: string
-          nachname: string
-          start_datum: string
-          vertrag_status: string
-          vorname: string
-          warmmiete: number
-        }[]
-      }
-      rpc_agent_insurance: {
-        Args: { p_search?: string }
-        Returns: {
-          email: string
-          firma: string
-          immobilie: string
-          jahresbeitrag: number
-          kontaktperson: string
-          notizen: string
-          telefon: string
-          typ: string
-          vertragsnummer: string
-        }[]
-      }
-      rpc_agent_loan_details: {
-        Args: { p_search?: string }
-        Returns: {
-          bank: string
-          bezeichnung: string
-          darlehen_id: string
-          darlehensbetrag: number
-          ende_datum: string
-          immobilien: string
-          letzte_tilgung_betrag: number
-          letzte_tilgung_datum: string
-          monatliche_rate: number
-          restschuld: number
-          start_datum: string
-          zinssatz_prozent: number
-        }[]
-      }
-      rpc_agent_loans: {
-        Args: never
-        Returns: {
-          bank: string
-          bezeichnung: string
-          ende_datum: string
-          immobilie_namen: string
-          monatliche_rate: number
-          restschuld: number
-          zinssatz: number
-        }[]
-      }
-      rpc_agent_market_data: {
-        Args: never
-        Returns: {
-          quelle: string
-          stichtag: string
-          typ: string
-          wert: number
-        }[]
-      }
-      rpc_agent_meter_history: {
-        Args: { p_limit?: number; p_search: string }
-        Returns: {
-          datum: string
-          einheit: string
-          immobilie: string
-          quelle: string
-          stand: number
-          zaehler_nummer: string
-          zaehler_typ: string
-        }[]
-      }
-      rpc_agent_meter_readings: {
-        Args: { p_search?: string }
-        Returns: {
-          einheit: string
-          gas_datum: string
-          gas_stand: number
-          gas_zaehler: string
-          immobilie: string
-          kaltwasser_datum: string
-          kaltwasser_stand: number
-          kaltwasser_zaehler: string
-          mieter_namen: string
-          strom_datum: string
-          strom_stand: number
-          strom_zaehler: string
-          warmwasser_datum: string
-          warmwasser_stand: number
-          warmwasser_zaehler: string
-        }[]
-      }
-      rpc_agent_nebenkosten: {
-        Args: { p_search?: string; p_year?: number }
-        Returns: {
-          bezeichnung: string
-          gesamtbetrag: number
-          immobilie: string
-          ist_umlagefaehig: boolean
-          nebenkostenart: string
-          zeitraum_bis: string
-          zeitraum_von: string
-        }[]
-      }
-      rpc_agent_outstanding: {
-        Args: { p_search?: string }
-        Returns: {
-          einheit: string
-          immobilie: string
-          ist_gesamt: number
-          kaltmiete: number
-          mahnstufe: number
-          mieter_namen: string
-          mietvertrag_id: string
-          rueckstand: number
-          soll_gesamt: number
-        }[]
-      }
-      rpc_agent_portfolio_summary: { Args: never; Returns: Json }
-      rpc_agent_property_details: {
-        Args: { p_search: string }
-        Returns: {
-          adresse: string
-          aktive_vertraege: number
-          baujahr: number
-          einheiten_count: number
-          gas_datum: string
-          gas_stand: number
-          hat_gas: boolean
-          hat_strom: boolean
-          hat_wasser: boolean
-          immobilie_id: string
-          ist_angespannt: boolean
-          kaufpreis: number
-          leerstand: number
-          marktwert: number
-          name: string
-          objekttyp: string
-          strom_datum: string
-          strom_stand: number
-          versorger_gas: string
-          versorger_strom: string
-          versorger_wasser: string
-          wasser_datum: string
-          wasser_stand: number
-        }[]
-      }
-      rpc_agent_property_units: {
-        Args: { p_search: string }
-        Returns: {
-          einheit: string
-          einheitentyp: string
-          kaltmiete: number
-          mahnstufe: number
-          mieter_namen: string
-          qm: number
-          start_datum: string
-          vertrag_status: string
-          warmmiete: number
-        }[]
-      }
-      rpc_agent_rent_received: {
-        Args: { p_month: number; p_year: number }
-        Returns: Json
-      }
-      rpc_agent_revenue_by_property: {
-        Args: { p_month?: number; p_year?: number }
-        Returns: {
-          aktive_vertraege: number
-          differenz: number
-          immobilie: string
-          ist_eingegangen: number
-          kaltmiete_soll: number
-          warmmiete_soll: number
-        }[]
-      }
-      rpc_agent_tenant_balance: {
-        Args: { p_mieter_id?: string; p_search?: string }
-        Returns: {
-          einheit: string
-          ende_datum: string
-          immobilie: string
-          ist_gesamt: number
-          kaltmiete: number
-          kuendigungsdatum: string
-          letzte_zahlung: string
-          mieter_id: string
-          mieter_name: string
-          monate_soll: number
-          rueckstand: number
-          soll_gesamt: number
-          start_datum: string
-          warmmiete: number
-        }[]
-      }
-      rpc_agent_tenant_contacts: {
-        Args: { p_search: string }
-        Returns: {
-          einheit: string
-          geburtsdatum: string
-          hauptmail: string
-          immobilie: string
-          mieter_id: string
-          nachname: string
-          telnr: string
-          vertrag_status: string
-          vorname: string
-          weitere_mails: string
-        }[]
-      }
-      rpc_agent_tenant_deposit: {
-        Args: { p_mieter_id?: string; p_search?: string }
-        Returns: {
-          einheit: string
-          immobilie: string
-          kaution_betrag: number
-          kaution_gezahlt_am: string
-          kaution_ist: number
-          kaution_status: string
-          mieter_id: string
-          mieter_name: string
-          vertrag_status: string
-        }[]
-      }
-      rpc_agent_tenant_payments: {
-        Args: {
-          p_mieter_id?: string
-          p_month?: number
-          p_search?: string
-          p_year?: number
-        }
-        Returns: {
-          betrag: number
-          buchungsdatum: string
-          empfaenger: string
-          kategorie: string
-          mieter_namen: string
-          mietvertrag_id: string
-          verwendungszweck: string
-        }[]
-      }
-      rpc_agent_unassigned_payments: {
-        Args: { p_limit?: number }
-        Returns: {
-          betrag: number
-          buchungsdatum: string
-          empfaengername: string
-          iban: string
-          id: string
-          verwendungszweck: string
-        }[]
-      }
-      rpc_agent_upcoming_endings: {
-        Args: { p_months?: number }
-        Returns: {
-          einheit: string
-          ende_datum: string
-          immobilie: string
-          kaltmiete: number
-          kuendigungsdatum: string
-          mieter_name: string
-          tage_bis_ende: number
-          vertrag_status: string
-        }[]
-      }
-      rpc_agent_vacancies: {
-        Args: never
-        Returns: {
-          adresse: string
-          einheit_id: string
-          einheitentyp: string
-          etage: string
-          immobilie: string
-          qm: number
-        }[]
-      }
-      rpc_agent_whatsapp: {
-        Args: { p_limit?: number; p_search: string }
-        Returns: {
-          absender_name: string
-          gelesen: boolean
-          nachricht: string
-          richtung: string
-          telefonnummer: string
-          zeitstempel: string
-        }[]
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
@@ -3219,6 +3003,10 @@ export type Database = {
         | "Schriftverkehr"
         | "Versicherungen"
         | "Betriebskostenabrechnung"
+        | "Kaufvertrag"
+        | "Grundbuchauszug"
+        | "Energieausweis"
+        | "Rechnung"
       kaution_art:
         | "barkaution"
         | "buergschaft"
@@ -3395,6 +3183,10 @@ export const Constants = {
         "Schriftverkehr",
         "Versicherungen",
         "Betriebskostenabrechnung",
+        "Kaufvertrag",
+        "Grundbuchauszug",
+        "Energieausweis",
+        "Rechnung",
       ],
       kaution_art: [
         "barkaution",
