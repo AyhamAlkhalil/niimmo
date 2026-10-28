@@ -94,23 +94,46 @@ describe('Das Erhöhungsmodal ändert die Miete nur mit Zustimmung', () => {
     expect(quelle).toContain('Der Mieter hat der Erhöhung zugestimmt');
   });
 
-  it('ändert die Vertragsmiete ausschließlich innerhalb dieses Hakens', () => {
-    // Bis zum 06.09.2026 wurde die Miete bedingungslos gesetzt — drei Monate
-    // lang stand damit ein zu hohes Soll, und der Mahnlauf traf Mieter, die
-    // korrekt zahlten. Der Schreibzugriff darf nur im Zweig der Zustimmung
-    // stehen.
-    const schreibstelle = quelle.search(/from\(['"]mietvertrag['"]\)[\s\S]{0,40}\.update\(/);
-    expect(schreibstelle, 'kein Schreibzugriff auf mietvertrag gefunden').toBeGreaterThan(-1);
-
-    const bedingung = quelle.lastIndexOf('if (mieterHatZugestimmt)', schreibstelle);
-    expect(bedingung, 'der Schreibzugriff steht außerhalb der Zustimmungsprüfung').toBeGreaterThan(-1);
-    // Die Bedingung muss unmittelbar davor stehen, nicht irgendwo weiter oben.
-    expect(schreibstelle - bedingung).toBeLessThan(400);
+  it('schreibt die Vertragsmiete nie selbst — sie stellt die Datenbank zum wirksam_ab um', () => {
+    // Bis zum 06.09.2026 wurde die Miete bedingungslos gesetzt, bis zum 28.10.2026 mit Zustimmung
+    // sofort statt ab wirksam_ab (§ 558b Abs. 1 BGB) — beide Male stand monatelang ein zu hohes Soll,
+    // und der Mahnlauf traf Mieter, die korrekt zahlten. Seit 28.10.2026 übernimmt nur die Datenbank
+    // (mieterhoehung_anwenden_intern, Migration 20261028142000); der Dialog fasst mietvertrag nicht an.
+    expect(quelle, 'Schreibzugriff auf mietvertrag im Erhöhungsdialog').not.toMatch(/from\(['"]mietvertrag['"]\)/);
+    // 'wirksam' setzt nur die Datenbank (Wächter-Trigger mieterhoehung_status_waechter)
+    expect(quelle).not.toMatch(/status:\s*['"]wirksam['"]/);
+    // Der Haken macht den neuen Vorgang 'zugestimmt', sonst bleibt er 'verlangt'
+    expect(quelle).toContain("status: mieterHatZugestimmt ? 'zugestimmt' : 'verlangt',");
   });
 
-  it('warnt, wenn die Erhöhung erst später geschuldet ist', () => {
+  it('übernimmt nur über die Datenbankfunktionen, jede an genau einer Stelle', () => {
+    const zustimmen = [...quelle.matchAll(/erhoehungsRpc\('mieterhoehung_zustimmen'/g)];
+    const anwenden = [...quelle.matchAll(/erhoehungsRpc\('mieterhoehung_anwenden'/g)];
+    const zuruecknehmen = [...quelle.matchAll(/erhoehungsRpc\('mieterhoehung_zustimmung_zuruecknehmen'/g)];
+    expect(zustimmen).toHaveLength(1);
+    expect(anwenden).toHaveLength(1);
+    expect(zuruecknehmen).toHaveLength(1);
+    const zweig = (kopf: string) => {
+      const start = quelle.indexOf(kopf);
+      return [start, quelle.indexOf('\n  };\n', start)];
+    };
+    const [zStart, zEnde] = zweig('const handleZustimmungErfassen = async');
+    expect(zustimmen[0].index).toBeGreaterThan(zStart);
+    expect(zustimmen[0].index).toBeLessThan(zEnde);
+    const [aStart, aEnde] = zweig('const handleTrotzdemUebernehmen = async');
+    expect(anwenden[0].index).toBeGreaterThan(aStart);
+    expect(anwenden[0].index).toBeLessThan(aEnde);
+    // „Trotzdem übernehmen“ ist immer ausdrücklich
+    expect(quelle.slice(aStart, aEnde)).toContain('p_trotz_abweichung: true');
+    const [rStart, rEnde] = zweig('const handleZustimmungZuruecknehmen = async');
+    expect(zuruecknehmen[0].index).toBeGreaterThan(rStart);
+    expect(zuruecknehmen[0].index).toBeLessThan(rEnde);
+  });
+
+  it('nennt beim Haken, ab wann die erhöhte Miete gilt', () => {
     expect(quelle).toContain('erhoehungGiltSpaeter');
     expect(quelle).toContain('558b Abs. 1 BGB');
+    expect(quelle).toContain('Bis dahin bleiben Vertragsmiete und Forderungen unverändert');
   });
 });
 

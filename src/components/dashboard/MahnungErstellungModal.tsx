@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, AlertTriangle, Download, Mail, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, AlertTriangle, Download, Mail, Mailbox, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMahnungPdf, rueckstandsUmfang, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
@@ -20,11 +22,37 @@ import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRuecksta
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
-import { alsIsoTag, fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
+import { fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
 import { leseKautionsbetrag } from "@/utils/vertragKaution";
 import { leseAnzahlSchreiben, leseMahnungBetraege, mahnkostenGesamtText, mahnungBetragsMeldung } from "@/utils/mahnungEingaben";
+import { empfaengerDerAuswahl, mailadressenDerMieter, vorausgewaehlteEmpfaenger } from "@/utils/kuendigungsbestaetigung";
+import {
+  angeboteneVormerkung,
+  berlinerKalendertag,
+  betraegeDesSchreibens,
+  deutschAusIso,
+  fristVorgaben,
+  istAblehnung,
+  MAX_EMPFAENGER,
+  POST_ZUGANG_TAGE,
+  postversandFehler,
+  sendungsnummerFehler,
+  tageZwischen,
+  versandStandAusVormerkung,
+  vorgabeVersandart,
+  zugangBeiPost,
+  unklarerVersand,
+  type KuendigungsFelder,
+  type MahnungVormerkung,
+  type SchreibenKern,
+  type UnklarerVersand,
+  type Versandart,
+} from "@/utils/mahnungVersand";
 
 const ANZAHL_MELDUNG = 'Die Anzahl der Schreiben muss eine ganze Zahl ab 0 sein.';
+
+// mahnung_versand (Migration 20261028143000) steht erst nach dem Neuerzeugen in types.ts — bis dahin ohne Tabellentyp
+const mahnungVersandTabelle = () => (supabase as unknown as SupabaseClient).from('mahnung_versand');
 
 interface MahnungErstellungModalProps {
   isOpen: boolean;
@@ -46,6 +74,8 @@ interface MahnungErstellungModalProps {
       vorname: string;
       nachname: string;
       hauptmail: string | null;
+      /** Für die Empfängerauswahl; zerlegt wie in der Kündigungsbestätigung (mailadressenDerMieter) */
+      weitere_mails?: string | null;
       telnr: string | null;
     }>;
   } | null;
@@ -63,9 +93,10 @@ export function MahnungErstellungModal({
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
-  const [step, setStep] = useState<'edit' | 'email'>('edit');
+  const [step, setStep] = useState<'edit' | 'versand'>('edit');
   const [showConfirmSave, setShowConfirmSave] = useState(false);
   const [showConfirmSend, setShowConfirmSend] = useState(false);
+  const [showConfirmPost, setShowConfirmPost] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   // Eingaben, aus denen pdfBlob entstand (wie RentIncreaseModal). Die Vorschau läuft 500 ms plus
@@ -75,11 +106,13 @@ export function MahnungErstellungModal({
   // Abgelegtes Schreiben samt den Daten, aus denen es entstand — die Mail nennt genau diese Werte.
   // Zahlungsfrist und Räumungsende als Tage des Schreibens: Am Versandtag neu gerechnet, wichen sie
   // ab, wenn Speichern und Senden auf verschiedenen Tagen lagen (Review 28.10.2026).
+  // Seit 28.10.2026 auch aus einer Vormerkung (Dialog neu geöffnet, Schreiben noch nicht versandt);
+  // send-mahnung nimmt Stufe, Frist und Kündigung dann ohnehin aus der Vormerkung.
   const [gespeichert, setGespeichert] = useState<{
     pfad: string;
-    daten: MahnungPdfData;
+    daten: SchreibenKern;
     fristIso: string;
-    kuendigung: { status: 'gekuendigt'; kuendigungsdatum: string; ende_datum: string } | null;
+    kuendigung: KuendigungsFelder | null;
   } | null>(null);
   // Aktuelle Vorschau-URL; der Wert im Closure von regeneratePreview war veraltet (Review 28.10.2026)
   const pdfUrlRef = useRef<string | null>(null);
@@ -88,12 +121,25 @@ export function MahnungErstellungModal({
   // Ein älterer Vorschaulauf, der später fertig wird, darf den neueren nicht überschreiben
   const vorschauLauf = useRef(0);
   
-  // Email fields
-  const [emailRecipient, setEmailRecipient] = useState<string>('');
+  // Versand (28.10.2026): per E-Mail an ausgewählte Mieteradressen oder als „per Post versandt“ gebucht
+  const [versandart, setVersandart] = useState<Versandart>('email');
+  // Empfänger aus den zerlegten Mieteradressen wie in der Kündigungsbestätigung. Bis zum 28.10.2026
+  // stand hier der rohe hauptmail-Text: „a@x.de, b@y.de“ ging an beide, angezeigt war einer.
+  const [ausgewaehlt, setAusgewaehlt] = useState<string[]>([]);
   const [emailCc, setEmailCc] = useState<string>('');
+  // Kalendertage in Berlin wie in send-mahnung, nicht in der Ortszeit des Rechners (28.10.2026)
+  const [aufgabeAm, setAufgabeAm] = useState<string>(berlinerKalendertag());
+  // Tag des gespeicherten Schreibens (frühester Aufgabetag); send-mahnung nimmt erstellt_am der Vormerkung
+  const [schreibtag, setSchreibtag] = useState<string>(berlinerKalendertag());
+  const [sendungsnummer, setSendungsnummer] = useState<string>('');
+  // „Neues Schreiben erstellen“ statt die offene Vormerkung zu versenden
+  const [angebotVerworfen, setAngebotVerworfen] = useState(false);
+  const [vormerkungLaedt, setVormerkungLaedt] = useState(false);
 
   // Mahnung data
   const mahnstufe = (contractData?.mahnstufe || 0) + 1;
+  const adressen = useMemo(() => mailadressenDerMieter(contractData?.mieter ?? []), [contractData?.mieter]);
+  const versandEmpfaenger = useMemo(() => empfaengerDerAuswahl(ausgewaehlt, adressen), [ausgewaehlt, adressen]);
   // Leer = alle Mieter neutral beim Namen; „Herr“ als Vorgabe sprach jede Mieterin falsch an
   const [anrede, setAnrede] = useState<string>("");
   const [mieterAdresse, setMieterAdresse] = useState<string>("");
@@ -116,6 +162,7 @@ export function MahnungErstellungModal({
   const [mahnkostenGesamt, setMahnkostenGesamt] = useState<string>("11.00");
   
   // Zahlungsfrist
+  // Vorgaben 7/14 Tage, ohne Mailadresse 10/17 (fristVorgaben, beim Öffnen gesetzt)
   const [zahlungsfristTage, setZahlungsfristTage] = useState<string>("7");
   const [raeumungsfristTage, setRaeumungsfristTage] = useState<string>("14");
   const [uebergabeDatum, setUebergabeDatum] = useState<string>("");
@@ -133,9 +180,14 @@ export function MahnungErstellungModal({
       setPdfStand(null);
       setGesamtRueckstand(rueckstand.toFixed(2));
       setEmailCc('');
-      
-      const firstMieter = contractData.mieter?.[0];
-      setEmailRecipient(firstMieter?.hauptmail || '');
+
+      // Ohne Mailadresse bleibt nur die Post; die Fristvorgaben enthalten dann die Postlaufzeit
+      const vorgabe = vorgabeVersandart(mailadressenDerMieter(contractData.mieter ?? []));
+      setVersandart(vorgabe);
+      setAusgewaehlt(vorausgewaehlteEmpfaenger(contractData.mieter ?? []));
+      setAufgabeAm(berlinerKalendertag());
+      setSendungsnummer('');
+      setAngebotVerworfen(false);
       setAnrede("");
       setMieterAdresse(contractData.immobilie_adresse?.split(',')[0]?.trim() || '');
       setMieterPlzOrt(contractData.immobilie_adresse?.includes(',') 
@@ -158,8 +210,8 @@ export function MahnungErstellungModal({
       
       setVerzugszinsenGesamt("0.00");
       setVerzugszinsenDetails([]);
-      setZahlungsfristTage("7");
-      setRaeumungsfristTage("14");
+      setZahlungsfristTage(fristVorgaben(vorgabe).zahlungsfristTage);
+      setRaeumungsfristTage(fristVorgaben(vorgabe).raeumungsfristTage);
       setUebergabeDatum("");
       setUseFreitext(false);
       setFreitext("");
@@ -319,6 +371,144 @@ export function MahnungErstellungModal({
     };
   }, []);
 
+  // Gespeichert, aber noch nicht versandt (28.10.2026): send-mahnung merkt jedes Schreiben beim
+  // Speichern vor. Passt eine Vormerkung zur nächsten Stufe und ist sie nicht veraltet, bietet der
+  // Dialog an, sie jetzt zu versenden — ein gedrucktes, aber nicht gebuchtes Schreiben ging sonst verloren.
+  const vertragsId = contractData?.mietvertrag_id;
+  const { data: angebot = null, isError: angebotFehler } = useQuery({
+    queryKey: ['mahnung-vormerkungen', vertragsId, mahnstufe],
+    enabled: isOpen && !!vertragsId,
+    staleTime: 0,
+    queryFn: async (): Promise<MahnungVormerkung | null> => {
+      // Bewusst begrenzt: angeboten wird nur die jüngste passende Vormerkung
+      const { data: zeilen, error } = await mahnungVersandTabelle()
+        .select('id, stufe, dokument_pfad, zahlungsfrist, kuendigung, betraege, erstellt_am')
+        .eq('mietvertrag_id', vertragsId)
+        .eq('status', 'vorgemerkt')
+        .eq('stufe', mahnstufe)
+        .order('erstellt_am', { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      const liste = (zeilen ?? []) as MahnungVormerkung[];
+      if (liste.length === 0) return null;
+      // Nur Schreiben, die noch unter Dokumente liegen — send-mahnung lehnt die anderen ohnehin ab
+      const { data: dokumente, error: dokumentFehler } = await supabase
+        .from('dokumente')
+        .select('pfad')
+        .eq('mietvertrag_id', vertragsId)
+        .eq('geloescht', false)
+        .in('pfad', liste.map(v => v.dokument_pfad));
+      if (dokumentFehler) throw dokumentFehler;
+      const vorhanden = new Set((dokumente ?? []).map(d => d.pfad as string));
+      return angeboteneVormerkung(liste, mahnstufe, berlinerKalendertag(), vorhanden);
+    },
+  });
+
+  // Beansprucht, aber nicht abgeschlossen (28.10.2026): Absturz oder Zeitlimit während des Versands.
+  // Ob die Mail raus ist, ist unklar — der Dialog bietet das Schreiben deshalb nicht erneut an,
+  // sondern lässt den Versand klären (send-mahnung 'freigeben': abschließen oder freigeben).
+  const { data: unklar = null, refetch: unklarNeuLaden, isError: unklarFehler, isSuccess: unklarGeprueft } = useQuery({
+    queryKey: ['mahnung-unklar', vertragsId],
+    enabled: isOpen && !!vertragsId,
+    staleTime: 0,
+    queryFn: async () => {
+      const { data: zeilen, error } = await mahnungVersandTabelle()
+        .select('id, stufe, dokument_pfad, versandart, erstellt_am, aktualisiert_am')
+        .eq('mietvertrag_id', vertragsId)
+        .eq('status', 'wird_versendet')
+        .order('aktualisiert_am', { ascending: false })
+        .limit(5);
+      if (error) throw error;
+      return unklarerVersand((zeilen ?? []) as UnklarerVersand[]);
+    },
+  });
+  const [klaertGerade, setKlaertGerade] = useState(false);
+  // Mailversand ohne Beleg: Freigeben oder Nachbuchen nur nach ausdrücklicher Bestätigung (Review 28.10.2026)
+  const [showConfirmFreigabe, setShowConfirmFreigabe] = useState(false);
+  const [showConfirmVersendet, setShowConfirmVersendet] = useState(false);
+
+  const versandKlaeren = async (bestaetigung: 'nicht_versendet' | 'versendet' | null) => {
+    if (!contractData || !unklar) return;
+    setKlaertGerade(true);
+    try {
+      const { data: ergebnis, error } = await supabase.functions.invoke('send-mahnung', {
+        body: {
+          versandart: 'freigeben',
+          mietvertragId: contractData.mietvertrag_id,
+          pdfPath: unklar.zeile.dokument_pfad,
+          // Nur aus den Bestätigungsdialogen; send-mahnung bucht trotzdem nach, wenn mails 'gesendet' zeigt
+          bestaetigtNichtVersendet: bestaetigung === 'nicht_versendet' || undefined,
+          bestaetigtVersendet: bestaetigung === 'versendet' || undefined,
+        },
+      });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['mahnung-vormerkungen', contractData.mietvertrag_id] });
+      queryClient.invalidateQueries({ queryKey: ['mahnung-versand', contractData.mietvertrag_id] });
+      queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
+      void unklarNeuLaden();
+      const abgeschlossen = ergebnis?.ergebnis === 'abgeschlossen';
+      toast({
+        title: abgeschlossen ? "Versand abgeschlossen" : "Schreiben freigegeben",
+        description: ergebnis?.warnung
+          ? ergebnis.warnung
+          : abgeschlossen
+            ? ergebnis?.vonHand
+              ? "Der Versand ist als von Hand bestätigt gebucht. Bitte den Dialog neu öffnen."
+              : "Der Versand war erfolgt und ist jetzt gebucht. Bitte den Dialog neu öffnen."
+            : "Das Schreiben gilt als nicht versendet und kann erneut versendet werden. Bitte den Dialog neu öffnen.",
+        variant: ergebnis?.warnung ? "destructive" : undefined,
+      });
+      onClose();
+    } catch (err) {
+      toast({ title: "Fehler", description: await edgeFehlertext(err, 'Der Versand konnte nicht geklärt werden'), variant: "destructive" });
+    } finally {
+      setKlaertGerade(false);
+    }
+  };
+
+  // Postversand: dieselben Regeln wie in send-mahnung, vorab sichtbar (utils/mahnungVersand.ts)
+  const heuteIso = berlinerKalendertag();
+  const schreibtagIso = gespeichert ? schreibtag : heuteIso;
+  const zugangIso = /^\d{4}-\d{2}-\d{2}$/.test(aufgabeAm) ? zugangBeiPost(aufgabeAm) : null;
+  const postFehler = gespeichert
+    ? postversandFehler({
+        aufgabeIso: aufgabeAm,
+        schreibtagIso,
+        heuteIso,
+        fristIso: gespeichert.fristIso,
+        raeumungsendeIso: gespeichert.kuendigung?.ende_datum ?? null,
+      })
+    : null;
+  const nummerFehler = sendungsnummerFehler(sendungsnummer);
+
+  const vormerkungVersenden = async () => {
+    if (!angebot) return;
+    setVormerkungLaedt(true);
+    try {
+      const { data: datei, error } = await supabase.storage.from('dokumente').download(angebot.dokument_pfad);
+      if (error || !datei) throw new Error('Das gespeicherte Schreiben konnte nicht geladen werden.');
+      // Eine noch laufende Vorschau würde das geladene Schreiben sonst überschreiben
+      vorschauLauf.current++;
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      const url = URL.createObjectURL(datei);
+      pdfUrlRef.current = url;
+      setPdfBlobUrl(url);
+      setGespeichert(versandStandAusVormerkung(angebot));
+      setSchreibtag(berlinerKalendertag(new Date(angebot.erstellt_am)));
+      setAufgabeAm(berlinerKalendertag());
+      setStep('versand');
+    } catch (err) {
+      toast({
+        title: "Fehler",
+        description: err instanceof Error ? err.message : 'Das gespeicherte Schreiben konnte nicht geladen werden.',
+        variant: "destructive",
+      });
+    } finally {
+      setVormerkungLaedt(false);
+    }
+  };
+
   const handleSaveAndUpload = async () => {
     if (!contractData || !pdfBlob) return;
     // Blob und Daten zu Beginn festhalten: beide gehören zusammen, auch wenn weiter getippt wird
@@ -375,27 +565,66 @@ export function MahnungErstellungModal({
                            mahnstufe === 2 ? '2. Mahnung' : 
                            `${mahnstufe}. Mahnung / Letzte Zahlungsaufforderung`;
       
-      const { error: dokumentFehler } = await supabase.from('dokumente').insert({
+      const { data: dokument, error: dokumentFehler } = await supabase.from('dokumente').insert({
         titel: `${mahnungTitle} ${new Date().toLocaleDateString('de-DE')}`,
         pfad: filePath,
         kategorie: 'Schriftverkehr',
         dateityp: 'application/pdf',
         mietvertrag_id: contractData.mietvertrag_id,
-      });
+      }).select('id').single();
       // Ohne Zeile in dokumente ist das Schreiben unsichtbar (bis 27.10.2026 ungeprüft, Erfolg gemeldet)
-      if (dokumentFehler) {
+      if (dokumentFehler || !dokument) {
         await supabase.storage.from('dokumente').remove([filePath]);
-        throw new Error('Das Schreiben konnte nicht unter Dokumente abgelegt werden: ' + dokumentFehler.message);
+        throw new Error('Das Schreiben konnte nicht unter Dokumente abgelegt werden: ' + (dokumentFehler?.message ?? 'keine Zeile angelegt'));
       }
-      
-      setGespeichert({ pfad: filePath, daten, fristIso, kuendigung });
-      
-      toast({
-        title: "Mahnung erstellt",
-        description: "Das Mahnungsschreiben wurde gespeichert und kann jetzt versendet werden.",
+
+      // Vormerken (28.10.2026): send-mahnung prüft Stufe, Frist und Kündigung wie beim Versand und
+      // hält sie fest. Danach lässt sich das Schreiben per E-Mail versenden oder als per Post versandt
+      // buchen — auch später nach erneutem Öffnen. Scheitert das, wird das Schreiben wieder entfernt:
+      // Ohne Vormerkung ließe es sich weder per Post buchen noch später versenden.
+      const vormerken = () => supabase.functions.invoke('send-mahnung', {
+        body: {
+          versandart: 'vormerken',
+          mietvertragId: contractData.mietvertrag_id,
+          mahnstufe,
+          pdfPath: filePath,
+          fristDatum: fristIso,
+          kuendigung: kuendigung ?? undefined,
+          betraege: betraegeDesSchreibens(daten),
+        },
       });
-      
-      setStep('email');
+      let { error: vormerkFehler } = await vormerken();
+      // Ohne eindeutige Ablehnung (Netz, Zeitlimit, 5xx) einmal wiederholen: Hat der erste Aufruf die
+      // Vormerkung doch angelegt, meldet send-mahnung mit denselben Werten Erfolg, und nichts wird gelöscht
+      if (vormerkFehler && !istAblehnung(vormerkFehler)) {
+        ({ error: vormerkFehler } = await vormerken());
+      }
+      if (vormerkFehler) {
+        const grund = await edgeFehlertext(vormerkFehler, 'Das Schreiben konnte nicht zum Versand vorgemerkt werden.');
+        // Aufräumen und das Ergebnis melden: Bleibt das Schreiben liegen, ist es nicht versendbar
+        const { error: loeschFehler } = await supabase.from('dokumente').delete().eq('id', dokument.id);
+        const { data: entfernt, error: entfernFehler } = loeschFehler
+          ? { data: null, error: null }
+          : await supabase.storage.from('dokumente').remove([filePath]);
+        const rest = loeschFehler
+          ? ' Das Schreiben konnte nicht wieder entfernt werden und liegt weiter unter Dokumente; es ist nicht zum Versand vorgemerkt.'
+          : entfernFehler || !entfernt || entfernt.length === 0
+            ? ' Die PDF-Datei konnte nicht aus dem Speicher entfernt werden.'
+            : '';
+        throw new Error(grund + rest);
+      }
+
+      setGespeichert({ pfad: filePath, daten, fristIso, kuendigung });
+      setSchreibtag(berlinerKalendertag());
+      queryClient.invalidateQueries({ queryKey: ['mahnung-vormerkungen', contractData.mietvertrag_id] });
+
+      toast({
+        title: "Mahnung gespeichert",
+        description: "Das Schreiben liegt unter Dokumente und kann jetzt per E-Mail oder per Post versendet werden.",
+      });
+
+      setAufgabeAm(berlinerKalendertag());
+      setStep('versand');
     } catch (err) {
       toast({
         title: "Fehler",
@@ -421,10 +650,10 @@ export function MahnungErstellungModal({
     // Betrag, Frist und Räumungsende der Mail kommen aus dem abgelegten Schreiben, nicht aus dem
     // Formular — sonst nannte die Mail andere Werte als das angehängte PDF (28.10.2026)
     const stand = gespeichert;
-    if (!contractData || !emailRecipient || !stand) return;
+    if (!contractData || versandEmpfaenger.length === 0 || !stand) return;
     // Frist und Räumungsende stammen vom Tag des Speicherns. Sind sie inzwischen vorbei, passt das
     // Schreiben nicht mehr — neu speichern statt eine abgelaufene Frist zu versenden
-    const heuteIso = alsIsoTag(new Date());
+    const heuteIso = berlinerKalendertag();
     if (stand.fristIso < heuteIso || (stand.kuendigung && stand.kuendigung.ende_datum < heuteIso)) {
       toast({
         title: "Schreiben veraltet",
@@ -447,7 +676,9 @@ export function MahnungErstellungModal({
 
       const { data: versand, error } = await supabase.functions.invoke('send-mahnung', {
         body: {
-          recipientEmail: emailRecipient,
+          versandart: 'email',
+          // Nur ausgewählte, zerlegte Mieteradressen; send-mahnung prüft jede einzeln (28.10.2026)
+          recipientEmails: versandEmpfaenger,
           recipientName,
           ccEmails,
           mahnstufe,
@@ -507,6 +738,10 @@ export function MahnungErstellungModal({
         }
       }
 
+      queryClient.invalidateQueries({ queryKey: ['mahnung-vormerkungen', contractData.mietvertrag_id] });
+      queryClient.invalidateQueries({ queryKey: ['mahnung-versand', contractData.mietvertrag_id] });
+
+      const anAdressen = versandEmpfaenger.join(', ');
       if (probleme.length > 0) {
         toast({
           title: "Mahnung versendet – bitte prüfen",
@@ -516,9 +751,12 @@ export function MahnungErstellungModal({
       } else {
         toast({
           title: "E-Mail versendet",
-          description: mahnstufe >= 3
-            ? `Mahnung Stufe ${mahnstufe} mit fristloser Kündigung wurde an ${emailRecipient} versendet. Der Vertrag steht jetzt auf "gekündigt".`
-            : `Mahnung Stufe ${mahnstufe} wurde an ${emailRecipient} versendet.`,
+          // Wiederholung (Doppelklick, zweiter Tab): send-mahnung versendet nicht doppelt (28.10.2026)
+          description: versand?.bereitsVersendet
+            ? 'Dieses Schreiben war bereits versendet; es ging keine zweite Mail raus.'
+            : mahnstufe >= 3
+              ? `Mahnung Stufe ${mahnstufe} mit fristloser Kündigung wurde an ${anAdressen} versendet. Der Vertrag steht jetzt auf "gekündigt".`
+              : `Mahnung Stufe ${mahnstufe} wurde an ${anAdressen} versendet.`,
         });
       }
       onClose();
@@ -526,6 +764,62 @@ export function MahnungErstellungModal({
       toast({
         title: "Fehler",
         description: await edgeFehlertext(err, 'E-Mail konnte nicht versendet werden'),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
+  // „Per Post versandt“ (28.10.2026): send-mahnung bucht die Stufe aus der Vormerkung, mit denselben
+  // Prüfungen wie beim Mailversand, bei Stufe 3 samt Kündigungsfeldern im selben Update. Anders als im
+  // Mailweg setzt der Browser hier nie selbst den Status: Scheitert die Buchung, ist nichts geschehen.
+  const handlePostBuchen = async () => {
+    const stand = gespeichert;
+    if (!contractData || !stand) return;
+    const fehler = postFehler ?? nummerFehler;
+    if (fehler) {
+      toast({ title: "Postversand prüfen", description: fehler, variant: "destructive" });
+      return;
+    }
+
+    setIsSendingEmail(true);
+    try {
+      const { data: buchung, error } = await supabase.functions.invoke('send-mahnung', {
+        body: {
+          versandart: 'post',
+          mietvertragId: contractData.mietvertrag_id,
+          mahnstufe,
+          pdfPath: stand.pfad,
+          versendetAm: aufgabeAm,
+          sendungsnummer: sendungsnummer.trim() || undefined,
+        },
+      });
+      if (error) throw error;
+
+      queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
+      queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
+      queryClient.invalidateQueries({ queryKey: ['mahnung-vormerkungen', contractData.mietvertrag_id] });
+      queryClient.invalidateQueries({ queryKey: ['mahnung-versand', contractData.mietvertrag_id] });
+
+      const zugang = deutschAusIso(typeof buchung?.zugangAm === 'string' ? buchung.zugangAm : zugangBeiPost(aufgabeAm));
+      if (buchung?.warnung) {
+        toast({ title: "Postversand gebucht – bitte prüfen", description: buchung.warnung, variant: "destructive" });
+      } else {
+        toast({
+          title: "Postversand gebucht",
+          description: buchung?.bereitsVersendet
+            ? `Dieser Postversand war bereits gebucht (Zugang voraussichtlich ${zugang}).`
+            : stand.kuendigung
+            ? `Mahnung Stufe ${mahnstufe} mit fristloser Kündigung ist als per Post versandt gebucht (Zugang voraussichtlich ${zugang}). Der Vertrag steht jetzt auf "gekündigt".`
+            : `Mahnung Stufe ${mahnstufe} ist als per Post versandt gebucht (Zugang voraussichtlich ${zugang}).`,
+        });
+      }
+      onClose();
+    } catch (err) {
+      toast({
+        title: "Fehler",
+        description: await edgeFehlertext(err, 'Der Postversand konnte nicht gebucht werden'),
         variant: "destructive",
       });
     } finally {
@@ -584,7 +878,9 @@ export function MahnungErstellungModal({
   const versandGesamt = gespeichert
     ? gespeichert.daten.gesamtRueckstand + gespeichert.daten.mahnkostenGesamt + gespeichert.daten.verzugszinsenGesamt
     : gesamtkosten;
-  const speichernGesperrt = isSubmitting || parsedRueckstand <= 0 || betraege.ungueltig.length > 0 || anzahlUngueltig || !vorschauAktuell;
+  // Solange ein Versand unklar ist, lehnt send-mahnung neue Vormerkungen ab — erst klären (Review 28.10.2026)
+  // Auch gesperrt, solange nicht geprüft ist, ob ein Versand unklar ist (lädt oder Fehler)
+  const speichernGesperrt = isSubmitting || parsedRueckstand <= 0 || betraege.ungueltig.length > 0 || anzahlUngueltig || !vorschauAktuell || unklar !== null || !unklarGeprueft;
 
   const getMahnstufeColor = (stufe: number) => {
     if (stufe === 1) return "bg-yellow-100 text-yellow-800 border-yellow-300";
@@ -631,6 +927,80 @@ export function MahnungErstellungModal({
               {/* LEFT: Editable Fields */}
               <ScrollArea className="w-full md:w-[420px] md:flex-shrink-0 border-b md:border-b-0 border-r-0 md:border-r">
                 <div className="p-5 space-y-5">
+                  {/* Gespeichert, aber noch nicht versandt */}
+                  {angebot && !angebotVerworfen && !unklar && (
+                    <Alert>
+                      <Mailbox className="h-4 w-4" />
+                      <AlertDescription className="text-sm space-y-3">
+                        <p>
+                          Das Schreiben der Stufe {angebot.stufe} vom{' '}
+                          {deutschAusIso(berlinerKalendertag(new Date(angebot.erstellt_am)))} ist gespeichert, aber noch nicht versandt.
+                          Zahlungsfrist {deutschAusIso(angebot.zahlungsfrist.slice(0, 10))}.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" onClick={vormerkungVersenden} disabled={vormerkungLaedt}>
+                            {vormerkungLaedt ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
+                            Jetzt versenden (E-Mail oder Post)
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setAngebotVerworfen(true)} disabled={vormerkungLaedt}>
+                            Neues Schreiben erstellen
+                          </Button>
+                        </div>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {/* Beansprucht, aber nicht abgeschlossen: nicht erneut anbieten, sondern klären */}
+                  {unklar && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription className="text-sm space-y-3">
+                        <p>
+                          Versand unklar: Das Schreiben der Stufe {unklar.zeile.stufe} wurde am{' '}
+                          {new Date(unklar.zeile.aktualisiert_am).toLocaleString('de-DE', { timeZone: 'Europe/Berlin', dateStyle: 'short', timeStyle: 'short' })}{' '}
+                          {unklar.zeile.versandart === 'post' ? 'zur Postbuchung' : 'zum Mailversand'} angestoßen, der Vorgang
+                          wurde aber nicht abgeschlossen.
+                          {unklar.zeile.versandart === 'email'
+                            ? ' Bitte im Mail-Protokoll (System → Mails) und im Postausgang prüfen, ob die Mail raus ist, und das Ergebnis bestätigen. Steht sie im Mail-Protokoll als gesendet, wird der Versand in jedem Fall nachgebucht.'
+                            : ' „Klären“ schließt die Buchung ab, wenn die Mahnstufe schon steht, und gibt das Schreiben sonst wieder frei.'}
+                          {' '}Ein neues Schreiben lässt sich erst nach dem Klären speichern.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => (unklar.zeile.versandart === 'email' ? setShowConfirmFreigabe(true) : versandKlaeren(null))}
+                            disabled={!unklar.klaerbar || klaertGerade}
+                          >
+                            {klaertGerade && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                            {unklar.zeile.versandart === 'email' ? 'Als nicht versendet freigeben' : 'Buchung klären'}
+                          </Button>
+                          {unklar.zeile.versandart === 'email' && (
+                            <Button size="sm" variant="outline" onClick={() => setShowConfirmVersendet(true)} disabled={!unklar.klaerbar || klaertGerade}>
+                              Mail ist versendet worden
+                            </Button>
+                          )}
+                        </div>
+                        {!unklar.klaerbar && (
+                          <p className="text-xs">
+                            Möglich ab {unklar.klaerbarAb.toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' })} Uhr — bis dahin
+                            kann der Versand noch laufen.
+                          </p>
+                        )}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {unklarFehler && (
+                    <p className="text-xs text-destructive" role="alert">
+                      Ob ein früherer Versand noch unklar ist, konnte nicht geprüft werden. Speichern ist gesperrt;
+                      bitte den Dialog neu öffnen.
+                    </p>
+                  )}
+                  {angebotFehler && (
+                    <p className="text-xs text-destructive" role="alert">
+                      Gespeicherte, noch nicht versandte Schreiben konnten nicht geprüft werden.
+                    </p>
+                  )}
+
                   {/* Vertragsdaten */}
                   <div>
                     <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Vertragsdaten</h3>
@@ -816,6 +1186,12 @@ export function MahnungErstellungModal({
                   {/* Fristen */}
                   <div>
                     <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Fristen</h3>
+                    {adressen.length === 0 && (
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Keine Mailadresse hinterlegt – Versand per Post. Die Fristen enthalten {POST_ZUGANG_TAGE} Tage Postlaufzeit,
+                        weil sie erst mit dem Zugang beginnen.
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Zahlungsfrist (Tage)</Label>
@@ -960,39 +1336,94 @@ export function MahnungErstellungModal({
             </div>
           </>
         ) : (
-          /* EMAIL STEP */
+          /* VERSAND: per E-Mail oder „per Post versandt“ buchen */
           <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-6 py-4 border-b bg-background flex-shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-6 py-4 border-b bg-background flex-shrink-0">
               <div className="flex items-center gap-3">
-                <Mail className="h-5 w-5 text-destructive" />
-                <h2 className="text-lg font-semibold">Mahnung per E-Mail versenden</h2>
+                {versandart === 'post'
+                  ? <Mailbox className="h-5 w-5 text-destructive" />
+                  : <Mail className="h-5 w-5 text-destructive" />}
+                <h2 className="text-lg font-semibold">Mahnung versenden</h2>
                 <Badge variant="outline" className={getMahnstufeColor(mahnstufe)}>
                   Stufe {mahnstufe}
                 </Badge>
               </div>
               <div className="flex items-center gap-2 mr-6">
+                <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfBlobUrl}>
+                  <Download className="h-4 w-4 mr-1.5" />
+                  <span className="hidden sm:inline">PDF</span>
+                </Button>
                 <Button variant="outline" size="sm" onClick={() => setStep('edit')}>
                   <ArrowLeft className="h-4 w-4 mr-1.5" />
                   Zurück
                 </Button>
-                <Button 
-                  size="sm" 
-                  onClick={() => setShowConfirmSend(true)} 
-                  disabled={isSendingEmail || !emailRecipient || !gespeichert}
-                  variant="destructive"
-                >
-                  {isSendingEmail ? (
-                    <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Senden...</>
-                  ) : (
-                    <><Send className="h-4 w-4 mr-1.5" />Mahnung versenden</>
-                  )}
-                </Button>
+                {versandart === 'email' ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowConfirmSend(true)}
+                    disabled={isSendingEmail || versandEmpfaenger.length === 0 || versandEmpfaenger.length > MAX_EMPFAENGER || !gespeichert}
+                    variant="destructive"
+                  >
+                    {isSendingEmail ? (
+                      <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Senden...</>
+                    ) : (
+                      <><Send className="h-4 w-4 mr-1.5" />Mahnung versenden</>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => setShowConfirmPost(true)}
+                    disabled={isSendingEmail || !gespeichert || postFehler !== null || nummerFehler !== null}
+                    variant="destructive"
+                  >
+                    {isSendingEmail ? (
+                      <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Buchen...</>
+                    ) : (
+                      <><Mailbox className="h-4 w-4 mr-1.5" />Als per Post versandt buchen</>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
 
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
-              {/* Email settings */}
+              {/* Versandweg und Angaben */}
               <div className="w-full md:w-[420px] md:flex-shrink-0 border-b md:border-b-0 border-r-0 md:border-r p-5 space-y-5 overflow-auto">
+                <div>
+                  <Label>Versandweg</Label>
+                  <div className="mt-1 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Versandweg">
+                    <Button
+                      type="button"
+                      size="sm"
+                      role="radio"
+                      aria-checked={versandart === 'email'}
+                      variant={versandart === 'email' ? 'default' : 'outline'}
+                      onClick={() => setVersandart('email')}
+                      disabled={adressen.length === 0 || isSendingEmail}
+                    >
+                      <Mail className="h-4 w-4 mr-1.5" />E-Mail
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      role="radio"
+                      aria-checked={versandart === 'post'}
+                      variant={versandart === 'post' ? 'default' : 'outline'}
+                      onClick={() => setVersandart('post')}
+                      disabled={isSendingEmail}
+                    >
+                      <Mailbox className="h-4 w-4 mr-1.5" />Post
+                    </Button>
+                  </div>
+                  {adressen.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Für diesen Vertrag ist keine Mailadresse hinterlegt. Versand per Post – oder zuerst beim
+                      Mieter eine Adresse eintragen.
+                    </p>
+                  )}
+                </div>
+
                 <div className="p-3 bg-muted/50 rounded-lg text-sm space-y-1.5">
                   <p><span className="text-muted-foreground">Objekt:</span> {contractData.immobilie_name}</p>
                   <p>
@@ -1001,56 +1432,146 @@ export function MahnungErstellungModal({
                       {versandGesamt.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
                     </span>
                   </p>
-                  <p><span className="text-muted-foreground">PDF:</span> ✅ wird als Anhang versendet</p>
+                  {gespeichert && (
+                    <>
+                      <p><span className="text-muted-foreground">Schreiben vom:</span> {gespeichert.daten.datum}</p>
+                      <p><span className="text-muted-foreground">Zahlungsfrist:</span> {gespeichert.daten.zahlungsfristDatum}</p>
+                      {gespeichert.kuendigung && (
+                        <p><span className="text-muted-foreground">Räumungsende:</span> {deutschAusIso(gespeichert.kuendigung.ende_datum)}</p>
+                      )}
+                    </>
+                  )}
+                  {versandart === 'email' && (
+                    <p><span className="text-muted-foreground">PDF:</span> wird als Anhang versendet</p>
+                  )}
                 </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <Label>Empfänger E-Mail *</Label>
-                    <Input
-                      type="email"
-                      value={emailRecipient}
-                      onChange={(e) => setEmailRecipient(e.target.value)}
-                      placeholder="mieter@beispiel.de"
-                      className="mt-1"
-                    />
-                    {contractData.mieter && contractData.mieter.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {contractData.mieter.map(m => `${m.vorname} ${m.nachname}`).join(', ')}
+                {versandart === 'email' ? (
+                  <>
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Empfänger *</Label>
+                        <div className="mt-1 space-y-2">
+                          {adressen.map(adresse => (
+                            <label key={adresse} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={ausgewaehlt.includes(adresse)}
+                                onCheckedChange={an =>
+                                  setAusgewaehlt(liste => an ? [...liste, adresse] : liste.filter(a => a !== adresse))
+                                }
+                              />
+                              <span className="truncate">{adresse}</span>
+                            </label>
+                          ))}
+                        </div>
+                        {contractData.mieter && contractData.mieter.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {contractData.mieter.map(m => `${m.vorname} ${m.nachname}`).join(', ')}
+                          </p>
+                        )}
+                        {versandEmpfaenger.length === 0 && adressen.length > 0 && (
+                          <p className="text-xs text-destructive mt-1" role="alert">Bitte mindestens eine Adresse auswählen.</p>
+                        )}
+                        {versandEmpfaenger.length > MAX_EMPFAENGER && (
+                          <p className="text-xs text-destructive mt-1" role="alert">Höchstens {MAX_EMPFAENGER} Empfänger.</p>
+                        )}
+                      </div>
+                      <div>
+                        <Label>CC (optional, höchstens 5, kommagetrennt)</Label>
+                        <Input
+                          type="text"
+                          value={emailCc}
+                          onChange={(e) => setEmailCc(e.target.value)}
+                          placeholder="kopie@beispiel.de"
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-muted/50 rounded-lg border text-sm space-y-1">
+                      <p className="font-medium">E-Mail-Vorschau:</p>
+                      <p className="text-xs">
+                        <span className="font-medium">Betreff:</span>{' '}
+                        {mahnstufe >= 3
+                          ? `${mahnstufe}. und letzte Mahnung — Mietrückstand | ${contractData.immobilie_name}`
+                          : `${mahnstufe}. Mahnung — Mietrückstand | ${contractData.immobilie_name}`}
                       </p>
+                      <p className="text-xs text-muted-foreground">
+                        HTML-Template mit NilImmo-Branding, Forderungsübersicht und PDF-Anhang.
+                      </p>
+                    </div>
+
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription className="text-xs">
+                        Die Mahnung wird direkt an die ausgewählten Adressen versendet. Bitte die Auswahl prüfen.
+                      </AlertDescription>
+                    </Alert>
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Schreiben herunterladen, drucken und zur Post geben. Danach hier buchen: Die Mahnstufe
+                      steigt dann auf {mahnstufe}.
+                    </p>
+                    <div>
+                      <Label htmlFor="mahnung-aufgabe">Zur Post gegeben am *</Label>
+                      <Input
+                        id="mahnung-aufgabe"
+                        type="date"
+                        value={aufgabeAm}
+                        min={schreibtagIso}
+                        max={heuteIso}
+                        onChange={(e) => setAufgabeAm(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    {zugangIso && gespeichert && (
+                      <div className="text-sm space-y-1">
+                        <p>
+                          <span className="text-muted-foreground">Zugang voraussichtlich:</span>{' '}
+                          {deutschAusIso(zugangIso)} ({POST_ZUGANG_TAGE} Tage nach Aufgabe)
+                        </p>
+                        <p>
+                          <span className="text-muted-foreground">Zahlungsfrist:</span>{' '}
+                          {deutschAusIso(gespeichert.fristIso)} – {tageZwischen(zugangIso, gespeichert.fristIso)} Tage nach Zugang
+                        </p>
+                        {gespeichert.kuendigung && (
+                          <p>
+                            <span className="text-muted-foreground">Räumungsende:</span>{' '}
+                            {deutschAusIso(gespeichert.kuendigung.ende_datum)} – {tageZwischen(zugangIso, gespeichert.kuendigung.ende_datum)} Tage nach Zugang
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {postFehler && (
+                      <p className="text-xs text-destructive" role="alert">{postFehler}</p>
+                    )}
+                    <div>
+                      <Label htmlFor="mahnung-sendungsnummer">Sendungsnummer (Einschreiben, optional)</Label>
+                      <Input
+                        id="mahnung-sendungsnummer"
+                        type="text"
+                        value={sendungsnummer}
+                        onChange={(e) => setSendungsnummer(e.target.value)}
+                        placeholder="z. B. RR123456789DE"
+                        className="mt-1"
+                      />
+                      {nummerFehler && (
+                        <p className="text-xs text-destructive mt-1" role="alert">{nummerFehler}</p>
+                      )}
+                    </div>
+                    {mahnstufe >= 3 && (
+                      <Alert variant="destructive">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription className="text-xs">
+                          Die fristlose Kündigung wird erst mit dem Zugang wirksam, und den Zugang muss der
+                          Vermieter beweisen. Bitte per Einwurf-Einschreiben oder Boten zustellen.
+                        </AlertDescription>
+                      </Alert>
                     )}
                   </div>
-                  <div>
-                    <Label>CC (optional, höchstens 5, kommagetrennt)</Label>
-                    <Input
-                      type="text"
-                      value={emailCc}
-                      onChange={(e) => setEmailCc(e.target.value)}
-                      placeholder="kopie@beispiel.de"
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-
-                <div className="p-3 bg-muted/50 rounded-lg border text-sm space-y-1">
-                  <p className="font-medium">E-Mail-Vorschau:</p>
-                  <p className="text-xs">
-                    <span className="font-medium">Betreff:</span>{' '}
-                    {mahnstufe >= 3
-                      ? `${mahnstufe}. und letzte Mahnung — Mietrückstand | ${contractData.immobilie_name}`
-                      : `${mahnstufe}. Mahnung — Mietrückstand | ${contractData.immobilie_name}`}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    HTML-Template mit NilImmo-Branding, Forderungsübersicht und PDF-Anhang.
-                  </p>
-                </div>
-
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Die Mahnung wird direkt an den Mieter versendet. Bitte überprüfen Sie die E-Mail-Adresse.
-                  </AlertDescription>
-                </Alert>
+                )}
               </div>
 
               {/* PDF Preview in email step too */}
@@ -1083,7 +1604,8 @@ export function MahnungErstellungModal({
           <AlertDialogHeader>
             <AlertDialogTitle>Mahnung speichern?</AlertDialogTitle>
             <AlertDialogDescription>
-              Mahnung Stufe {mahnstufe} wird gespeichert und als Dokument zum Mietvertrag abgelegt. Fortfahren?
+              Mahnung Stufe {mahnstufe} wird gespeichert, als Dokument zum Mietvertrag abgelegt und zum Versand
+              vorgemerkt. Versendet ist sie erst per E-Mail oder mit der Buchung „per Post versandt“. Fortfahren?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1109,11 +1631,11 @@ export function MahnungErstellungModal({
                   auf „gekündigt" gesetzt und das Vertragsende auf das Ende der Räumungsfrist
                   ({gespeichert?.kuendigung
                     ? gespeichert.kuendigung.ende_datum.split('-').reverse().join('.')
-                    : `${raeumungsfristInTagen(parseInt(raeumungsfristTage))} Tage`}) datiert. Der Versand an {emailRecipient} kann nicht
+                    : `${raeumungsfristInTagen(parseInt(raeumungsfristTage))} Tage`}) datiert. Der Versand an {versandEmpfaenger.join(', ')} kann nicht
                   rückgängig gemacht werden.
                 </>
               ) : (
-                <>Die Mahnung wird an {emailRecipient} versendet. Dies kann nicht rückgängig gemacht werden.</>
+                <>Die Mahnung wird an {versandEmpfaenger.join(', ')} versendet. Dies kann nicht rückgängig gemacht werden.</>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1121,6 +1643,72 @@ export function MahnungErstellungModal({
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction onClick={handleSendEmail} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Bestätigen & Senden
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showConfirmFreigabe} onOpenChange={setShowConfirmFreigabe}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mail als nicht versendet freigeben?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Nur bestätigen, wenn die Mail laut Postausgang des Mahnungspostfachs nicht versendet wurde. Danach
+              lässt sich das Schreiben erneut versenden — war die Mail doch raus, bekommt der Mieter sie doppelt.
+              Steht die Mail im Mail-Protokoll als gesendet, bucht die Anwendung den Versand stattdessen nach.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={() => versandKlaeren('nicht_versendet')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ich habe im Postausgang geprüft: nicht versendet
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showConfirmVersendet} onOpenChange={setShowConfirmVersendet}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mail als versendet bestätigen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Nur bestätigen, wenn die Mail laut Postausgang des Mahnungspostfachs tatsächlich versendet wurde.
+              Die Mahnstufe steigt dann auf {unklar?.zeile.stufe}
+              {unklar?.zeile.stufe === 3 ? ', und der Vertrag wird mit den Feldern des Schreibens gekündigt' : ''}.
+              Die Bestätigung wird mit Ihrer Nutzerkennung protokolliert.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={() => versandKlaeren('versendet')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ich habe im Postausgang geprüft: die Mail ist versendet worden
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showConfirmPost} onOpenChange={setShowConfirmPost}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {mahnstufe >= 3 ? 'Fristlose Kündigung als per Post versandt buchen?' : 'Postversand buchen?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Mahnung Stufe {mahnstufe}, zur Post gegeben am {deutschAusIso(aufgabeAm)}
+              {zugangIso ? `, Zugang voraussichtlich am ${deutschAusIso(zugangIso)}` : ''}. Die Mahnstufe steigt auf {mahnstufe}.
+              {gespeichert?.kuendigung && (
+                <>
+                  {' '}Das Schreiben kündigt das Mietverhältnis <strong>außerordentlich fristlos</strong>; der Vertrag
+                  wird auf „gekündigt" gesetzt, Vertragsende {deutschAusIso(gespeichert.kuendigung.ende_datum)}.
+                </>
+              )}
+              {' '}Die Buchung kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={handlePostBuchen} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Bestätigen & Buchen
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

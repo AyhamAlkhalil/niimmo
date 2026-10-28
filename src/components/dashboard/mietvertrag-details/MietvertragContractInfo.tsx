@@ -13,6 +13,53 @@ import { toast } from "sonner";
 import { getVertragsende } from "@/utils/contractUtils";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 import { istUngueltigerEuroBetrag, leseEuroBetrag } from "@/utils/euroBetrag";
+import { useQuery } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
+import { useAppBenutzer } from "@/hooks/useAppBenutzer";
+import { kurzName } from "@/utils/benutzerName";
+import { versandZeileText, type MahnungVersandZeile } from "@/utils/mahnungVersand";
+import { MieterhoehungVereinbartZeile } from "@/components/dashboard/rent-increase/MieterhoehungVereinbartZeile";
+
+// mahnung_versand (Migration 20261028143000) steht erst nach dem Neuerzeugen in types.ts — bis dahin ohne Tabellentyp
+const mahnungVersandTabelle = () => (supabase as unknown as SupabaseClient).from("mahnung_versand");
+
+/**
+ * Letzter gebuchter Mahnungsversand (28.10.2026): Weg, Tag und Person aus mahnung_versand.
+ * letzte_mahnung_am wird bei jeder Stufe überschrieben und nennt weder den Weg noch die Person —
+ * beim Postversand ist beides die einzige Spur.
+ */
+function LetzteMahnung({ vertragId }: { vertragId: string }) {
+  const { benutzer } = useAppBenutzer();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["mahnung-versand", vertragId],
+    queryFn: async (): Promise<MahnungVersandZeile | null> => {
+      const { data: zeilen, error } = await mahnungVersandTabelle()
+        .select("stufe, versandart, versendet_am, erstellt_von, sendungsnummer")
+        .eq("mietvertrag_id", vertragId)
+        .eq("status", "versendet")
+        .order("versendet_am", { ascending: false })
+        .order("erstellt_am", { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return ((zeilen ?? [])[0] as MahnungVersandZeile | undefined) ?? null;
+    },
+  });
+
+  if (isError) {
+    return <p className="text-xs text-destructive mt-1" role="alert">Der letzte Mahnungsversand konnte nicht geladen werden.</p>;
+  }
+  // Lädt oder noch nie versendet: keine Zeile
+  if (isLoading || !data) return null;
+  const person = data.erstellt_von ? benutzer.find((b) => b.auth_user_id === data.erstellt_von) : undefined;
+  return (
+    <p className="text-xs text-muted-foreground mt-1">
+      Zuletzt: {versandZeileText(data)}
+      {data.sendungsnummer ? ` · Einschreiben ${data.sendungsnummer}` : ""}
+      {person ? ` · ${kurzName(person)}` : ""}
+    </p>
+  );
+}
 
 interface MietvertragContractInfoProps {
   vertrag: any;
@@ -243,6 +290,13 @@ export function MietvertragContractInfo({
               />
             </div>
 
+            {/* Vereinbarte, noch nicht wirksame Mieterhöhung (seit 28.10.2026 erst ab wirksam_ab in der Miete) */}
+            <MieterhoehungVereinbartZeile
+              mietvertragId={vertrag.id}
+              aktuelleKaltmiete={Number(vertrag.kaltmiete || 0)}
+              aktuelleBetriebskosten={Number(vertrag.betriebskosten || 0)}
+            />
+
             {/* Warmmiete + QM row */}
             <div className="grid grid-cols-2 gap-2">
               <div className="group flex items-center gap-2">
@@ -368,8 +422,9 @@ export function MietvertragContractInfo({
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Steigt nur beim tatsächlichen Mahnungsversand
+                  Steigt nur beim Versand: per E-Mail oder mit gebuchtem Postversand
                 </p>
+                {vertrag.id && <LetzteMahnung vertragId={vertrag.id} />}
               </div>
               <div />
             </div>

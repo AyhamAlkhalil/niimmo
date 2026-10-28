@@ -3,7 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { TrendingUp, ChevronRight } from "lucide-react";
+import { format } from "date-fns";
 import { RentIncreaseModal } from "./RentIncreaseModal";
+import { erhoehungUeberfaellig } from "@/utils/mieterhoehungRegeln";
 
 export interface RentIncreaseEligibility {
   mietvertrag_id: string;
@@ -15,6 +17,17 @@ export interface RentIncreaseEligibility {
   months_since_last_increase: number;
   months_since_start: number;
   reason: string;
+  // Offener Vorgang aus check-rent-increase-eligibility (28.10.2026): 'zugestimmt' = vereinbart, noch nicht übernommen
+  offener_vorgang?: {
+    status: 'verlangt' | 'zugestimmt';
+    verlangt_am: string;
+    wirksam_ab: string;
+    alte_kaltmiete: number;
+    neue_kaltmiete: number;
+  } | null;
+  // Vertragsende (getVertragsende) und Mietanpassungsart — für die Prüfung beim Haken im Dialog (28.10.2026)
+  vertragsende?: string | null;
+  mietanpassung_art?: string | null;
   einheit_id?: string;
   immobilie_id?: string;
   immobilie_name?: string;
@@ -52,6 +65,20 @@ function formatDate(dateStr: string | null) {
   }
 }
 
+/** Nach Immobilie (alphabetisch) und Einheitennummer (letzte zwei Ziffern numerisch). */
+function sortiereNachObjekt(contracts: ReadonlyArray<RentIncreaseEligibility>): RentIncreaseEligibility[] {
+  const getUnitNumber = (einheitId: string | undefined) => {
+    if (!einheitId) return 0;
+    const num = parseInt(einheitId.slice(-2), 10);
+    return isNaN(num) ? 0 : num;
+  };
+  return [...contracts].sort((a, b) => {
+    const nameCompare = (a.immobilie_name || '').localeCompare(b.immobilie_name || '', 'de', { numeric: true });
+    if (nameCompare !== 0) return nameCompare;
+    return getUnitNumber(a.einheit_id) - getUnitNumber(b.einheit_id);
+  });
+}
+
 export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIncreaseListProps) {
   const [internalOpen, setInternalOpen] = useState(() => {
     const saved = localStorage.getItem('rentIncreaseListOpen');
@@ -70,7 +97,7 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
     localStorage.setItem('rentIncreaseListOpen', String(newState));
   };
   
-  const { data, isLoading, error, refetch, isFetching } = useQuery<{ eligible_contracts?: RentIncreaseEligibility[] | null}>({
+  const { data, isLoading, error, refetch, isFetching } = useQuery<{ eligible_contracts?: RentIncreaseEligibility[] | null; all_contracts?: RentIncreaseEligibility[] | null }>({
     queryKey: ["rent-increase-eligibility"],
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke("check-rent-increase-eligibility");
@@ -82,26 +109,19 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
   });
 
   // Sortierte Liste nach Immobilie und Einheitennummer
-  const eligible = useMemo(() => {
-    const contracts = data?.eligible_contracts ?? [];
-    return [...contracts].sort((a, b) => {
-      // Primär: Nach Immobilienname sortieren (alphabetisch)
-      const nameA = a.immobilie_name || '';
-      const nameB = b.immobilie_name || '';
-      const nameCompare = nameA.localeCompare(nameB, 'de', { numeric: true });
-      if (nameCompare !== 0) return nameCompare;
+  const eligible = useMemo(() => sortiereNachObjekt(data?.eligible_contracts ?? []), [data?.eligible_contracts]);
+  // Zugestimmt, aber noch nicht übernommen (28.10.2026): Sie sind nicht mehr „möglich“, sollen aber sichtbar
+  // bleiben — vor allem überfällige, die der Nachtlauf nicht übernehmen konnte
+  const vereinbarte = useMemo(
+    () => sortiereNachObjekt((data?.all_contracts ?? []).filter((c) => c.offener_vorgang?.status === 'zugestimmt')),
+    [data?.all_contracts]
+  );
+  const heuteIso = format(new Date(), 'yyyy-MM-dd');
 
-      // Sekundär: Nach Einheitennummer sortieren (letzte 2 Ziffern numerisch)
-      const getUnitNumber = (einheitId: string | undefined) => {
-        if (!einheitId) return 0;
-        const lastTwo = einheitId.slice(-2);
-        const num = parseInt(lastTwo, 10);
-        return isNaN(num) ? 0 : num;
-      };
-
-      return getUnitNumber(a.einheit_id) - getUnitNumber(b.einheit_id);
-    });
-  }, [data?.eligible_contracts]);
+  const oeffneErhoehung = (row: RentIncreaseEligibility) => {
+    setSelectedContract(row);
+    setShowRentIncreaseModal(true);
+  };
 
   return (
     // Zeile unter „Handlungsbedarf“ auf der Startseite (27.10.2026): Haarlinie statt Karte
@@ -147,9 +167,11 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
             <p className="text-sm text-muted-foreground">Wird geprüft…</p>
           ) : error ? (
             <p className="text-sm text-destructive">Fehler: {(error as Error).message}</p>
-          ) : eligible.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aktuell sind keine Mieterhöhungen möglich.</p>
           ) : (
+            <>
+            {eligible.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aktuell sind keine Mieterhöhungen möglich.</p>
+            ) : (
             <div className="space-y-2">
               {eligible.map((row) => {
                 const einheitDisplay = row.einheit_id ? row.einheit_id.slice(-2) : 'N/A';
@@ -180,6 +202,11 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
                         {row.reason}
                       </div>
                     )}
+                    {row.offener_vorgang?.status === 'verlangt' && (
+                      <div className="text-xs text-warning mt-1">
+                        Verlangen vom {formatDate(row.offener_vorgang.verlangt_am)} offen, wirksam ab {formatDate(row.offener_vorgang.wirksam_ab)} — Zustimmung im Dialog erfassen
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2 shrink-0">
                     <Button 
@@ -187,8 +214,7 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
                       variant="default" 
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedContract(row);
-                        setShowRentIncreaseModal(true);
+                        oeffneErhoehung(row);
                       }}
                     >
                       Mieterhöhung erstellen
@@ -210,6 +236,52 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
                 );
               })}
             </div>
+            )}
+
+            {vereinbarte.length > 0 && (
+              <div className="space-y-2 pt-2">
+                <p className="eyebrow text-muted-foreground">Vereinbart, noch nicht wirksam</p>
+                {vereinbarte.map((row) => {
+                  const vorgang = row.offener_vorgang!;
+                  const ueberfaellig = erhoehungUeberfaellig(vorgang, heuteIso);
+                  return (
+                    <div
+                      key={`vereinbart-${row.mietvertrag_id}`}
+                      className={`flex items-center justify-between gap-3 rounded border p-3.5 ${ueberfaellig ? 'border-destructive/40 bg-destructive/10' : 'border-border'}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                          <span className="text-foreground">Objekt {row.immobilie_id ? row.immobilie_id.slice(-2) : 'N/A'}</span>
+                          <span className="text-muted-foreground">•</span>
+                          <span className="text-muted-foreground">Einheit {row.einheit_id ? row.einheit_id.slice(-2) : 'N/A'}</span>
+                          <span className="text-muted-foreground">•</span>
+                          <span className="text-muted-foreground tabular-nums">
+                            Kaltmiete {formatCurrencyEUR(vorgang.alte_kaltmiete)} → {formatCurrencyEUR(vorgang.neue_kaltmiete)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{row.immobilie_adresse}</div>
+                        <div className={`text-xs mt-1 ${ueberfaellig ? 'text-destructive' : 'text-muted-foreground'}`}>
+                          {ueberfaellig
+                            ? `Überfällig, nicht übernommen — wirksam seit ${formatDate(vorgang.wirksam_ab)}. Im Dialog prüfen.`
+                            : `Zugestimmt, wirksam ab ${formatDate(vorgang.wirksam_ab)} — die Miete wird dann automatisch umgestellt.`}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Button size="sm" variant={ueberfaellig ? 'default' : 'outline'} onClick={() => oeffneErhoehung(row)}>
+                          {ueberfaellig ? 'Prüfen' : 'Ansehen'}
+                        </Button>
+                        {onContractClick && (
+                          <Button size="sm" variant="secondary" onClick={() => onContractClick(row.mietvertrag_id)}>
+                            Öffnen
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>
@@ -227,6 +299,8 @@ export function RentIncreaseList({ onContractClick, open, onOpenChange }: RentIn
           current_betriebskosten: selectedContract.current_betriebskosten || 0,
           letzte_mieterhoehung_am: selectedContract.letzte_mieterhoehung_am,
           start_datum: selectedContract.start_datum,
+          vertragsende: selectedContract.vertragsende ?? null,
+          mietanpassung_art: selectedContract.mietanpassung_art ?? null,
           months_since_last_increase: selectedContract.months_since_last_increase,
           months_since_start: selectedContract.months_since_start,
           einheit_id: selectedContract.einheit_id,

@@ -101,6 +101,9 @@ export function neueMieteAusEingabe(
  * ist deren alte Miete die Basis. Steht nur ein Datum der letzten Erhöhung im Fenster (ohne Vorgang),
  * ist die Basis unbekannt: dann die heutige Miete mit sicher = false, der Dialog warnt.
  */
+/** Vorgänge, die als vereinbarte Erhöhung zählen: übernommen ('wirksam') oder zugestimmt und noch offen. */
+const ZAEHLT_ALS_ERHOEHUNG = new Set(['wirksam', 'zugestimmt']);
+
 export function kappungsBasis(
   aktuelleKaltmiete: number,
   wirksamAbIso: string,
@@ -109,8 +112,10 @@ export function kappungsBasis(
 ): { betrag: number; sicher: boolean } {
   const [j, m, t] = wirksamAbIso.split('-').map(Number);
   const fensterBeginn = format(new Date(j - 3, m - 1, t), 'yyyy-MM-dd');
+  // Seit 28.10.2026 zählt auch eine zugestimmte, noch nicht übernommene Erhöhung: Sie ist vereinbart,
+  // und ihre alte Miete ist ebenso die Ausgangsmiete im Fenster (sonst würde zweimal erhöht).
   const imFenster = erhoehungen
-    .filter((e) => (e.status ?? 'wirksam') === 'wirksam' && e.wirksam_ab && e.wirksam_ab.slice(0, 10) > fensterBeginn && e.alte_kaltmiete !== null)
+    .filter((e) => ZAEHLT_ALS_ERHOEHUNG.has(e.status ?? 'wirksam') && e.wirksam_ab && e.wirksam_ab.slice(0, 10) > fensterBeginn && e.alte_kaltmiete !== null)
     .sort((a, b) => (a.wirksam_ab as string).localeCompare(b.wirksam_ab as string));
   if (imFenster.length > 0) return { betrag: Number(imFenster[0].alte_kaltmiete), sicher: true };
   if (letzteErhoehungAm && letzteErhoehungAm.slice(0, 10) > fensterBeginn) return { betrag: aktuelleKaltmiete, sicher: false };
@@ -126,6 +131,7 @@ export interface ErhoehungsVorgang {
   neue_kaltmiete: number | string | null;
   neue_betriebskosten: number | string | null;
   status: string | null;
+  zugestimmt_am?: string | null;
 }
 
 /**
@@ -185,4 +191,120 @@ export function mehrforderungProMonat(
   const differenz = cent(miete.kaltmiete) - cent(aktuelleKaltmiete)
     + (miete.betriebskosten === null ? 0 : cent(miete.betriebskosten) - cent(aktuelleBetriebskosten));
   return differenz / 100;
+}
+
+/*
+ * Seit 28.10.2026 gilt eine Mieterhöhung erst ab wirksam_ab (§ 558b Abs. 1 BGB). Eine erfasste
+ * Zustimmung macht den Vorgang 'zugestimmt'; die Vertragsmiete stellt erst die Datenbank um
+ * (mieterhoehungen_anwenden im Nachtlauf vor der Sollstellung, Migration 20261028142000).
+ * Bis dahin setzte der Dialog die Miete sofort, und Rückstand und Mahnung rechneten zwei bis drei
+ * Monate mit einem zu hohen Soll.
+ */
+
+/** Die vereinbarte, noch nicht übernommene Erhöhung eines Vertrags (Status 'zugestimmt'), sonst null. */
+export function vereinbarteErhoehung<T extends ErhoehungsVorgang>(erhoehungen: ReadonlyArray<T>): T | null {
+  const vereinbart = erhoehungen
+    .filter((e) => e.status === 'zugestimmt' && e.wirksam_ab)
+    .sort((a, b) => (b.wirksam_ab as string).localeCompare(a.wirksam_ab as string));
+  return vereinbart[0] ?? null;
+}
+
+/**
+ * Überfällig: Der Tag nach wirksam_ab ist erreicht, der Vorgang steht aber noch auf 'zugestimmt'. Der
+ * Nachtlauf hat ihn dann übersprungen (meist, weil sich die Miete seit dem Verlangen geändert hat).
+ * heuteIso als Kalendertag JJJJ-MM-TT in deutscher Zeit.
+ *
+ * Erst ab dem Folgetag (Review 28.10.2026): Die Datenbank rechnet in UTC und übernimmt um 05:00 UTC. Am
+ * Monatsersten zwischen 0 und 2 Uhr deutscher Zeit ist dort noch der Vortag — „überfällig“ wäre falsch,
+ * und „Trotzdem übernehmen“ endete mit NOCH_NICHT_WIRKSAM.
+ */
+export function erhoehungUeberfaellig(v: Pick<ErhoehungsVorgang, 'status' | 'wirksam_ab'>, heuteIso: string): boolean {
+  return v.status === 'zugestimmt' && !!v.wirksam_ab && v.wirksam_ab.slice(0, 10) < heuteIso;
+}
+
+/**
+ * Was eine Zustimmung von vornherein ausschließt — dieselben Regeln wie mieterhoehung_zustimmung_pruefen
+ * in der Datenbank (Review 28.10.2026): Staffel- oder Indexmiete (§§ 557a Abs. 2, 557b Abs. 2 BGB) und ein
+ * Vertragsende vor dem Wirksamwerden. vertragsende wie getVertragsende(): ende_datum, sonst
+ * kuendigungsdatum. Gibt den Hinweis der Datenbank zurück oder null.
+ */
+export function zustimmungHindernis(vertrag: {
+  mietanpassungArt?: string | null;
+  vertragsende?: string | null;
+  wirksamAbIso: string;
+}): 'STAFFEL_ODER_INDEX' | 'VERTRAG_ENDET_VORHER' | null {
+  if (vertrag.mietanpassungArt === 'staffel' || vertrag.mietanpassungArt === 'index') return 'STAFFEL_ODER_INDEX';
+  if (vertrag.vertragsende && vertrag.vertragsende.slice(0, 10) < vertrag.wirksamAbIso.slice(0, 10)) return 'VERTRAG_ENDET_VORHER';
+  return null;
+}
+
+/** Warum eine überfällige Erhöhung (vermutlich) nicht übernommen wurde — für den Hinweis im Dialog. */
+export function ueberfaelligGrund(
+  v: ErhoehungsVorgang,
+  aktuelleKaltmiete: number,
+  aktuelleBetriebskosten: number,
+  vertrag: { mietanpassungArt?: string | null; vertragsende?: string | null } = {}
+): string {
+  const hindernis = v.wirksam_ab ? zustimmungHindernis({ ...vertrag, wirksamAbIso: v.wirksam_ab }) : null;
+  if (hindernis) return uebernahmeMeldung(hindernis);
+  if (uebernahmeKonflikt(v, aktuelleKaltmiete, aktuelleBetriebskosten)) {
+    return 'Die Miete am Vertrag hat sich seit dem Verlangen geändert, deshalb wurde nicht automatisch übernommen.';
+  }
+  return 'Der Nachtlauf hat sie nicht übernommen. Bitte die Miete am Vertrag prüfen.';
+}
+
+/**
+ * Würde die Datenbank die Übernahme ablehnen (Hinweis MIETE_GEAENDERT)? Dieselbe Regel wie in
+ * mieterhoehung_anwenden_intern: Die Kaltmiete am Vertrag ist weder die alte noch schon die neue des
+ * Verlangens, oder das Verlangen ändert die Betriebskosten und die am Vertrag sind nicht mehr die alten.
+ * Ändert das Verlangen die Betriebskosten nicht, ist eine spätere Anpassung der Vorauszahlung (§ 560 BGB)
+ * kein Konflikt — sie bleibt bei der Übernahme stehen.
+ */
+export function uebernahmeKonflikt(v: ErhoehungsVorgang, aktuelleKaltmiete: number, aktuelleBetriebskosten: number): boolean {
+  const verlangenAendertBk = cent(v.neue_betriebskosten) !== cent(v.alte_betriebskosten);
+  const bkNachher = verlangenAendertBk ? cent(v.neue_betriebskosten) : cent(aktuelleBetriebskosten);
+  const schonUebernommen = cent(aktuelleKaltmiete) === cent(v.neue_kaltmiete) && cent(aktuelleBetriebskosten) === bkNachher;
+  if (schonUebernommen) return false;
+  if (cent(aktuelleKaltmiete) !== cent(v.alte_kaltmiete)) return true;
+  return verlangenAendertBk && cent(aktuelleBetriebskosten) !== cent(v.alte_betriebskosten);
+}
+
+/**
+ * Wie viele Monatsforderungen eine späte Zustimmung höchstens anhebt: vom Monat des Wirksamwerdens bis
+ * einschließlich des laufenden Monats. 0, wenn wirksam_ab noch nicht erreicht ist. Höchstens, weil die
+ * Datenbank geminderte oder von Hand geänderte Forderungen stehen lässt.
+ */
+export function nachzuberechnendeMonate(wirksamAbIso: string, heute: Date): number {
+  const [jahr, monat] = wirksamAbIso.slice(0, 10).split('-').map(Number);
+  const anzahl = (heute.getFullYear() - jahr) * 12 + (heute.getMonth() + 1 - monat) + 1;
+  return wirksamAbIso.slice(0, 10) <= format(heute, 'yyyy-MM-dd') ? Math.max(anzahl, 0) : 0;
+}
+
+/** Fachliche Meldung zu den Hinweisen der Datenbankfunktionen mieterhoehung_zustimmen/_anwenden. */
+export function uebernahmeMeldung(hinweis: string | null | undefined, ersatz?: string): string {
+  switch (hinweis) {
+    case 'MIETE_GEAENDERT':
+      return 'Die Miete am Vertrag hat sich seit dem Verlangen geändert. Bitte prüfen und gegebenenfalls „Trotzdem übernehmen“ wählen.';
+    case 'STAFFEL_ODER_INDEX':
+      return 'Der Vertrag hat eine Staffel- oder Indexmiete; eine Erhöhung nach § 558 BGB ist ausgeschlossen.';
+    case 'VERTRAG_ENDET_VORHER':
+      return 'Der Vertrag endet vor dem Wirksamwerden der Erhöhung.';
+    case 'NICHT_OFFEN':
+      return 'Das Verlangen ist nicht mehr offen. Bitte den Dialog neu öffnen.';
+    case 'NOCH_NICHT_WIRKSAM':
+      // Meist am Monatsersten kurz nach Mitternacht: Die Datenbank rechnet in UTC noch mit dem Vortag
+      return 'Die Erhöhung wird heute früh automatisch übernommen.';
+    case 'NICHT_ZUGESTIMMT':
+      return 'Der Vorgang ist nicht mehr als zugestimmt erfasst. Bitte den Dialog neu öffnen.';
+    case 'SCHON_VEREINBART':
+      return 'Für diesen Vertrag ist schon eine Erhöhung vereinbart. Eine weitere ist erst nach deren Wirksamwerden möglich.';
+    case 'NUR_UEBER_ZURUECKNEHMEN':
+      return 'Eine Zustimmung lässt sich nur über „Zustimmung zurücknehmen“ aufheben.';
+    case 'NICHT_GEFUNDEN':
+      return 'Vorgang oder Vertrag wurde nicht gefunden. Bitte den Dialog neu öffnen.';
+    case 'NUR_ADMIN':
+      return 'Nur Administratoren dürfen Mieterhöhungen erfassen.';
+    default:
+      return ersatz || 'Die Mieterhöhung konnte nicht gespeichert werden.';
+  }
 }

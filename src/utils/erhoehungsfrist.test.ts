@@ -20,14 +20,15 @@ function ausschnitt(kopf: string): string {
 }
 
 const js = ts.transpileModule(
-  ['function berlinerHeute(', 'function plusMonate(', 'function wirksamAbTag(', 'function erhoehungsfrist('].map(ausschnitt).join('\n'),
+  ['function berlinerHeute(', 'function plusMonate(', 'function wirksamAbTag(', 'function erhoehungsfrist(', 'function fristReferenz('].map(ausschnitt).join('\n'),
   { compilerOptions: { target: ts.ScriptTarget.ES2020 } }
 ).outputText;
-const fn = new Function(`${js}\nreturn { berlinerHeute, plusMonate, wirksamAbTag, erhoehungsfrist };`)() as {
+const fn = new Function(`${js}\nreturn { berlinerHeute, plusMonate, wirksamAbTag, erhoehungsfrist, fristReferenz };`)() as {
   berlinerHeute: (jetzt: Date) => string;
   plusMonate: (iso: string, monate: number) => string;
   wirksamAbTag: (iso: string) => string;
   erhoehungsfrist: (referenz: string, heute: string) => { zulaessig: boolean; moeglichAb: string };
+  fristReferenz: (letzte: string | null, start: string | null, vereinbartAb: string | null) => string | null;
 };
 
 const tage = (von: string, bis: string): string[] => {
@@ -78,9 +79,11 @@ describe('Erhöhungsliste: Fristen nach § 558 Abs. 1 BGB', () => {
     expect(fn.berlinerHeute(new Date('2026-07-31T22:30:00Z'))).toBe('2026-08-01');
   });
 
-  it('prüft jeden Vertrag mit dieser Rechnung, ab letzter Erhöhung oder Mietbeginn', () => {
-    expect(quelle).toContain('const referenzIso = contract.letzte_mieterhoehung_am || contract.start_datum;');
-    expect(quelle).toContain('if (frist?.zulaessig) {');
+  it('prüft jeden Vertrag mit dieser Rechnung, ab letzter (auch vereinbarter) Erhöhung oder Mietbeginn', () => {
+    // Seit 28.10.2026 über fristReferenz, die eine zugestimmte, noch nicht übernommene Erhöhung mitzählt
+    expect(quelle).toMatch(/const referenzIso = fristReferenz\(\s*contract\.letzte_mieterhoehung_am,\s*contract\.start_datum,/);
+    expect(quelle).toContain('const frist = referenzIso ? erhoehungsfrist(referenzIso, heuteIso) : null;');
+    expect(quelle).toContain('} else if (frist?.zulaessig) {');
     expect(quelle).not.toMatch(/monthsSinceLastIncrease >= 15/);
     expect(quelle).toContain('supabase-js@2.49.1');
   });
@@ -90,5 +93,48 @@ describe('Erhöhungsliste: Fristen nach § 558 Abs. 1 BGB', () => {
     expect(modal).toContain('Verlangen frühestens 12 Monate nach Einzug bzw. letzter Erhöhung');
     expect(modal).toContain('seit 15 Monaten unverändert');
     expect(modal).not.toContain('Frühestens 15 Monate nach Einzug/letzter Erhöhung');
+  });
+});
+
+/**
+ * 28.10.2026: Eine zugestimmte Erhöhung übernimmt die Datenbank erst zum wirksam_ab; bis dahin steht
+ * letzte_mieterhoehung_am noch auf der vorigen. Die Liste muss die Fristen trotzdem ab der vereinbarten
+ * Erhöhung rechnen, sonst böte sie den Vertrag sofort wieder an.
+ */
+describe('Erhöhungsliste: Fristen ab einer vereinbarten Erhöhung', () => {
+  it('nimmt das spätere von letzter und vereinbarter Erhöhung, sonst den Mietbeginn', () => {
+    expect(fn.fristReferenz('2024-06-01', '2020-01-01', '2027-01-01')).toBe('2027-01-01');
+    expect(fn.fristReferenz('2024-06-01', '2020-01-01', null)).toBe('2024-06-01');
+    expect(fn.fristReferenz(null, '2020-01-01', '2027-01-01')).toBe('2027-01-01');
+    expect(fn.fristReferenz(null, '2020-01-01T00:00:00', null)).toBe('2020-01-01');
+    expect(fn.fristReferenz(null, null, null)).toBeNull();
+  });
+
+  it('bietet einen Vertrag mit vereinbarter Erhöhung erst zwölf Monate nach deren Wirksamwerden wieder an', () => {
+    const referenz = fn.fristReferenz('2024-06-01', '2020-01-01', '2027-01-01') as string;
+    expect(fn.erhoehungsfrist(referenz, '2026-10-28').zulaessig).toBe(false);
+    expect(fn.erhoehungsfrist(referenz, '2027-12-31').zulaessig).toBe(false);
+    expect(fn.erhoehungsfrist(referenz, '2028-01-01').zulaessig).toBe(true);
+  });
+
+  it('liest die offenen Vorgänge seitenweise und lässt die Antwort scheitern, wenn das nicht geht', () => {
+    expect(quelle).toContain(".in('status', ['verlangt', 'zugestimmt'])");
+    expect(quelle).toMatch(/if \(vorgangError\) \{[\s\S]{0,120}throw vorgangError;/);
+    // PostgREST kappt bei 1000 Zeilen: eindeutige Sortierung und Seiten statt range(0, 9999)
+    expect(quelle).toContain(".order('id', { ascending: true })");
+    expect(quelle).toContain('.range(von, von + VORGAENGE_SEITE - 1);');
+    expect(quelle).toContain('if (!seite || seite.length < VORGAENGE_SEITE) break;');
+    expect(quelle).not.toContain('range(0, 9999)');
+    expect(quelle).toContain("offenerVorgang?.status === 'zugestimmt' ? offenerVorgang.wirksam_ab : null");
+  });
+});
+
+describe('Erhöhungsliste: vereinbarte Erhöhungen bleiben sichtbar', () => {
+  it('zeigt gekündigte und Staffel-/Indexverträge nur mit vereinbarter Erhöhung und bietet ihnen nichts an', () => {
+    expect(quelle).toContain(".in('status', ['aktiv', 'gekuendigt'])");
+    expect(quelle).toMatch(/const ausgeschlossen = contract\.mietanpassung_art === 'staffel' \|\| contract\.mietanpassung_art === 'index'\s*\|\| contract\.status !== 'aktiv';\s*if \(ausgeschlossen && !vereinbart\) continue;/);
+    // Vereinbart: nie „möglich“, nur der Hinweis
+    expect(quelle.indexOf('if (vereinbart && offenerVorgang) {')).toBeLessThan(quelle.indexOf('} else if (frist?.zulaessig) {'));
+    expect(quelle).toContain('vertragsende: contract.ende_datum || contract.kuendigungsdatum || null,');
   });
 });

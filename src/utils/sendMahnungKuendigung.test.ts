@@ -55,12 +55,18 @@ describe('send-mahnung prüft die Felder der fristlosen Kündigung', () => {
   });
 
   it('prüft vor dem Versand und setzt die Felder im selben Update wie die Stufe', () => {
-    const pruefung = handler.indexOf('pruefeKuendigungsfelder(data.kuendigung');
+    // Seit 28.10.2026 aus der Vormerkung, bei aelteren App-Fassungen aus der Anfrage
+    const pruefung = handler.indexOf('pruefeKuendigungsfelder(kuendigungRoh');
     expect(pruefung).toBeGreaterThan(0);
     expect(pruefung).toBeLessThan(handler.indexOf('transporter.sendMail('));
-    expect(handler).toMatch(/if \('fehler' in geprueft\)[\s\S]{0,200}status: 400/);
-    const update = handler.indexOf("from('mietvertrag').update({\n      mahnstufe: neueMahnstufe");
-    expect(handler.indexOf('...(kuendigung ? { ...kuendigung', update)).toBeGreaterThan(update);
+    expect(handler).toMatch(/if \('fehler' in geprueft\)[\s\S]{0,250}, 400\)/);
+    // Seit 28.10.2026 in bucheStufe(): Stufe und Kündigung in einem Update, für Mail und Post
+    const buchen = quelle.slice(quelle.indexOf('async function bucheStufe('), quelle.indexOf('async function vormerkungBeanspruchen('));
+    const update = buchen.indexOf("client.from('mietvertrag').update({\n    mahnstufe: b.neueStufe,");
+    expect(update).toBeGreaterThan(0);
+    expect(buchen.indexOf('...(b.kuendigung ? { ...b.kuendigung', update)).toBeGreaterThan(update);
+    const mail = handler.slice(handler.indexOf('// ── E-Mail: SMTP'));
+    expect(mail).toMatch(/await bucheStufe\(supabase, \{[\s\S]{0,250}kuendigung,\s*\}\);/);
     expect(handler).toContain('kuendigungGesetzt: kuendigung !== null && gespeichert');
   });
 
@@ -90,8 +96,10 @@ describe('send-mahnung: Frist als Datum und kein Zurückholen beendeter Verträg
 
   it('nennt in der Mail das geprüfte Datum und rechnet nur ohne es ab heute', () => {
     expect(quelle).toContain("const fristFormatted = fristDatum ? fristDatum.split('-').reverse().join('.') : berlinerTag(fristTage);");
-    expect(handler).toContain('const htmlBody = generateMahnungHtml(data, fristDatum);');
-    expect(handler.indexOf('pruefeFristDatum(data.fristDatum')).toBeLessThan(handler.indexOf('transporter.sendMail('));
+    // Mit Vormerkung nennt die Mail Stufe und Betraege des gespeicherten Schreibens (28.10.2026)
+    expect(handler).toContain('const htmlBody = generateMahnungHtml(inhalt, fristDatum);');
+    expect(handler.indexOf('pruefeFristDatum(fristRoh')).toBeGreaterThan(0);
+    expect(handler.indexOf('pruefeFristDatum(fristRoh')).toBeLessThan(handler.indexOf('transporter.sendMail('));
   });
 
   it('lehnt Stufe 3 für einen beendeten Vertrag vor dem Versand ab und setzt nur laufende Verträge', () => {
@@ -99,7 +107,36 @@ describe('send-mahnung: Frist als Datum und kein Zurückholen beendeter Verträg
     const pruefung = handler.indexOf("if (vertragVorher.status !== 'aktiv' && vertragVorher.status !== 'gekuendigt')");
     expect(pruefung).toBeGreaterThan(0);
     expect(pruefung).toBeLessThan(handler.indexOf('transporter.sendMail('));
-    expect(handler.slice(pruefung, pruefung + 400)).toContain('status: 409');
-    expect(handler).toContain("if (kuendigung) stufenUpdate = stufenUpdate.in('status', ['aktiv', 'gekuendigt']);");
+    expect(handler.slice(pruefung, pruefung + 400)).toContain(', 409)');
+    expect(quelle).toContain("if (b.kuendigung) stufenUpdate = stufenUpdate.in('status', ['aktiv', 'gekuendigt']);");
+  });
+});
+
+/**
+ * 28.10.2026: Stufe 3 per Post. Es gibt keinen Ersatzweg im Browser — die Kündigungsfelder sind beim
+ * Vormerken und bei der Postbuchung Pflicht und kommen beim Versand aus der Vormerkung.
+ */
+describe('send-mahnung: Stufe 3 beim Vormerken und per Post', () => {
+  it('verlangt die Kündigungsfelder für Vormerken und Post vor jeder Buchung', () => {
+    const pflicht = handler.indexOf("if (stufe === 3 && versandart !== 'email' && (kuendigungRoh === undefined || kuendigungRoh === null))");
+    expect(pflicht).toBeGreaterThan(0);
+    expect(pflicht).toBeLessThan(handler.indexOf("if (versandart === 'vormerken') {\n      const betraege"));
+    expect(pflicht).toBeLessThan(handler.indexOf('await bucheStufe(', handler.indexOf('// ── Post: beanspruchen')));
+  });
+
+  it('prüft eine Vormerkung beim Versand erneut gegen heute und bittet sonst um ein neues Schreiben', () => {
+    expect(handler).toMatch(/const abhilfe = ausVormerkung \? ' Bitte ein neues Schreiben erstellen\.' : '';/);
+    // Beim Vormerken gegen heute, beim Versand einer Vormerkung gegen Versandtag bzw. Zugang (Review 28.10.2026)
+    expect(handler).toContain('pruefeKuendigungsfelder(kuendigungRoh, heuteIso)');
+    expect(handler).toContain('pruefeVorgemerkteKuendigung(kuendigungRoh, heuteIso, zugangAm)');
+    expect(handler).toContain('pruefeFristDatum(fristRoh, heuteIso)');
+  });
+
+  it('der Postweg im Dialog setzt den Status nicht selbst', () => {
+    const modal = readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8');
+    const post = modal.slice(modal.indexOf('const handlePostBuchen'), modal.indexOf('const monatsmieteDesVertrags'));
+    expect(post.length).toBeGreaterThan(100);
+    expect(post).not.toContain(".from('mietvertrag')");
+    expect(post).not.toContain('kuendigungGesetzt');
   });
 });

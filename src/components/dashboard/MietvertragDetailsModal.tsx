@@ -257,6 +257,12 @@ export default function MietvertragDetailsModal({
               queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
               queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
               queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
+              // Versandprotokoll in der Vertragsansicht und offene Vormerkungen (28.10.2026)
+              queryClient.invalidateQueries({ queryKey: ['mahnung-versand', vertragId] }),
+              queryClient.invalidateQueries({ queryKey: ['mahnung-vormerkungen', vertragId] }),
+              queryClient.invalidateQueries({ queryKey: ['mahnung-unklar', vertragId] }),
+              // Ein gespeichertes Schreiben liegt unter Dokumente, auch wenn es nicht versendet wurde
+              queryClient.invalidateQueries({ queryKey: ['dokumente-detail', vertragId] }),
             ]);
           }}
           contractData={vertrag ? {

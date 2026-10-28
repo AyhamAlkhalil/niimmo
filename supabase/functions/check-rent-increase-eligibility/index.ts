@@ -15,6 +15,14 @@ function getCorsHeaders(req: Request) {
   };
 }
 
+interface OffenerVorgang {
+  status: 'verlangt' | 'zugestimmt';
+  verlangt_am: string;
+  wirksam_ab: string;
+  alte_kaltmiete: number;
+  neue_kaltmiete: number;
+}
+
 interface RentIncreaseEligibility {
   mietvertrag_id: string;
   current_kaltmiete: number;
@@ -25,6 +33,11 @@ interface RentIncreaseEligibility {
   months_since_last_increase: number;
   months_since_start: number;
   reason: string;
+  // Offener Vorgang (28.10.2026): 'zugestimmt' = vereinbart, noch nicht übernommen; sonst das jüngste offene Verlangen
+  offener_vorgang: OffenerVorgang | null;
+  // Für Hinweise und die Prüfung beim Haken im Dialog (28.10.2026); vertragsende wie getVertragsende()
+  vertragsende: string | null;
+  mietanpassung_art: string | null;
   einheit_id?: string;
   immobilie_id?: string;
   immobilie_name?: string;
@@ -79,6 +92,21 @@ function erhoehungsfrist(referenzIso: string, heuteIso: string): { zulaessig: bo
   };
 }
 
+/**
+ * Bezugstag der Fristen des § 558 Abs. 1 BGB: das Wirksamwerden der letzten Erhöhung, sonst der Mietbeginn.
+ * Seit 28.10.2026 übernimmt die Datenbank eine zugestimmte Erhöhung erst zum wirksam_ab; bis dahin steht
+ * letzte_mieterhoehung_am noch auf der vorigen. Zählt die vereinbarte nicht mit, böte die Liste den Vertrag
+ * sofort wieder an — und es würde zweimal erhöht.
+ */
+function fristReferenz(letzteIso: string | null, startIso: string | null, vereinbartAbIso: string | null): string | null {
+  const erhoehungen = [letzteIso, vereinbartAbIso].filter((d): d is string => !!d).map((d) => String(d).slice(0, 10)).sort();
+  if (erhoehungen.length > 0) return erhoehungen[erhoehungen.length - 1];
+  return startIso ? String(startIso).slice(0, 10) : null;
+}
+
+/** Seitengröße beim Laden der offenen Vorgänge — die Obergrenze, die PostgREST je Abfrage liefert. */
+const VORGAENGE_SEITE = 1000;
+
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -122,6 +150,8 @@ const handler = async (req: Request): Promise<Response> => {
         betriebskosten,
         letzte_mieterhoehung_am,
         start_datum,
+        ende_datum,
+        kuendigungsdatum,
         status,
         mietanpassung_art,
         einheit_id,
@@ -142,11 +172,48 @@ const handler = async (req: Request): Promise<Response> => {
           )
         )
       `)
-      .eq('status', 'aktiv');
+      // Gekündigte nur, damit eine vereinbarte Erhöhung sichtbar bleibt (28.10.2026); angeboten wird ihnen nichts
+      .in('status', ['aktiv', 'gekuendigt']);
 
     if (error) {
       console.error('Error fetching contracts:', error);
       throw error;
+    }
+
+    // Offene Vorgänge (28.10.2026). Scheitert das Laden, scheitert die Antwort: Ohne sie würde ein
+    // Vertrag mit vereinbarter Erhöhung erneut angeboten. Seitenweise mit eindeutiger Sortierung —
+    // PostgREST liefert je Abfrage höchstens 1000 Zeilen, auch bei größerem Bereich (Review 28.10.2026).
+    const vorgaenge: Array<OffenerVorgang & { mietvertrag_id: string }> = [];
+    for (let von = 0; ; von += VORGAENGE_SEITE) {
+      const { data: seite, error: vorgangError } = await supabase
+        .from('mieterhoehungen')
+        .select('id, mietvertrag_id, status, verlangt_am, wirksam_ab, alte_kaltmiete, neue_kaltmiete')
+        .in('status', ['verlangt', 'zugestimmt'])
+        .order('id', { ascending: true })
+        .range(von, von + VORGAENGE_SEITE - 1);
+      if (vorgangError) {
+        console.error('Error fetching mieterhoehungen:', vorgangError);
+        throw vorgangError;
+      }
+      vorgaenge.push(...((seite ?? []) as unknown as Array<OffenerVorgang & { mietvertrag_id: string }>));
+      if (!seite || seite.length < VORGAENGE_SEITE) break;
+    }
+    const offeneVorgaenge = new Map<string, OffenerVorgang>();
+    for (const v of vorgaenge) {
+      const bisher = offeneVorgaenge.get(v.mietvertrag_id);
+      // Vorrang hat die vereinbarte Erhöhung, sonst das jüngste Verlangen
+      const besser = !bisher
+        || (v.status === 'zugestimmt' && bisher.status !== 'zugestimmt')
+        || (v.status === bisher.status && String(v.verlangt_am) > String(bisher.verlangt_am));
+      if (besser) {
+        offeneVorgaenge.set(v.mietvertrag_id, {
+          status: v.status,
+          verlangt_am: String(v.verlangt_am).slice(0, 10),
+          wirksam_ab: String(v.wirksam_ab).slice(0, 10),
+          alte_kaltmiete: Number(v.alte_kaltmiete),
+          neue_kaltmiete: Number(v.neue_kaltmiete),
+        });
+      }
     }
 
     const eligibleContracts: RentIncreaseEligibility[] = [];
@@ -154,9 +221,14 @@ const handler = async (req: Request): Promise<Response> => {
     const heuteIso = berlinerHeute(currentDate);
 
     for (const contract of contracts || []) {
+      const offenerVorgang = offeneVorgaenge.get(contract.id) ?? null;
+      const vereinbart = offenerVorgang?.status === 'zugestimmt';
       // Staffel- und Indexmiete schließen die Erhöhung nach § 558 aus (§§ 557a Abs. 2, 557b Abs. 2
-      // BGB); bis zum 27.10.2026 wurden auch sie angeboten
-      if (contract.mietanpassung_art === 'staffel' || contract.mietanpassung_art === 'index') continue;
+      // BGB); bis zum 27.10.2026 wurden auch sie angeboten. Gekündigte bekommen keine angeboten.
+      // Beide erscheinen nur noch, wenn eine Erhöhung vereinbart ist — sonst hinge sie unsichtbar.
+      const ausgeschlossen = contract.mietanpassung_art === 'staffel' || contract.mietanpassung_art === 'index'
+        || contract.status !== 'aktiv';
+      if (ausgeschlossen && !vereinbart) continue;
       const startDate = new Date(contract.start_datum);
       const lastIncreaseDate = contract.letzte_mieterhoehung_am 
         ? new Date(contract.letzte_mieterhoehung_am) 
@@ -176,10 +248,17 @@ const handler = async (req: Request): Promise<Response> => {
       let isEligible = false;
       let reason = '';
 
-      // § 558 Abs. 1 BGB: Verlangen nach 12 Monaten, 15 Monate unverändert zum Wirksamwerden (erhoehungsfrist)
-      const referenzIso = contract.letzte_mieterhoehung_am || contract.start_datum;
-      const frist = referenzIso ? erhoehungsfrist(String(referenzIso), heuteIso) : null;
-      if (frist?.zulaessig) {
+      // § 558 Abs. 1 BGB: Verlangen nach 12 Monaten, 15 Monate unverändert zum Wirksamwerden (erhoehungsfrist),
+      // gerechnet ab der letzten oder der schon vereinbarten Erhöhung (fristReferenz)
+      const referenzIso = fristReferenz(
+        contract.letzte_mieterhoehung_am,
+        contract.start_datum,
+        offenerVorgang?.status === 'zugestimmt' ? offenerVorgang.wirksam_ab : null
+      );
+      const frist = referenzIso ? erhoehungsfrist(referenzIso, heuteIso) : null;
+      if (vereinbart && offenerVorgang) {
+        reason = `Erhöhung vereinbart, wirksam ab ${offenerVorgang.wirksam_ab.split('-').reverse().join('.')}`;
+      } else if (frist?.zulaessig) {
         isEligible = true;
         reason = lastIncreaseDate 
           ? `${monthsSinceLastIncrease} Monate seit letzter Erhöhung`
@@ -200,6 +279,9 @@ const handler = async (req: Request): Promise<Response> => {
         months_since_last_increase: monthsSinceLastIncrease,
         months_since_start: monthsSinceStart,
         reason,
+        offener_vorgang: offenerVorgang,
+        vertragsende: contract.ende_datum || contract.kuendigungsdatum || null,
+        mietanpassung_art: contract.mietanpassung_art ?? null,
         einheit_id: contract.einheit_id,
         immobilie_id: contract.einheiten?.immobilie_id,
         immobilie_name: contract.einheiten?.immobilien?.name || 'Unbekannt',

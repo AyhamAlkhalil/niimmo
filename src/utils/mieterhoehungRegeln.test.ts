@@ -3,18 +3,27 @@ import { readFileSync } from 'node:fs';
 import {
   KAPPUNGSGRENZE_ANGESPANNT_PROZENT,
   KAPPUNGSGRENZE_REGEL_PROZENT,
+  erhoehungUeberfaellig,
   kappungsBasis,
   kappungsgrenzeProzent,
   maximaleKaltmiete,
   mehrforderungProMonat,
   mieteAusVerlangen,
   mieteSeitVerlangenGeaendert,
+  nachzuberechnendeMonate,
   neueMieteAusEingabe,
   offeneVerlangenIds,
   offenesVerlangen,
+  ueberfaelligGrund,
+  uebernahmeKonflikt,
+  uebernahmeMeldung,
+  vereinbarteErhoehung,
   wirksamAb,
   wirksamAbTag,
+  zustimmungHindernis,
 } from './mieterhoehungRegeln';
+
+const migration = readFileSync('supabase/migrations/20261028142000_mieterhoehung_ab_wirksamwerden.sql', 'utf-8');
 
 describe('Kappungsgrenze § 558 Abs. 3 BGB', () => {
   it('begrenzt im Regelfall auf 20 Prozent', () => {
@@ -128,9 +137,14 @@ describe('kappungsBasis (§ 558 Abs. 3 BGB)', () => {
     expect(kappungsBasis(550, '2027-01-01', null, [{ wirksam_ab: '2026-06-01', alte_kaltmiete: 500, status: 'verlangt' }])).toEqual({ betrag: 550, sicher: true });
   });
 
-  it('speichert als letzte Erhöhung das Wirksamwerden', () => {
-    const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
-    expect(modal).toMatch(/letzte_mieterhoehung_am: wirksamIso,/);
+  it('zählt eine zugestimmte, noch nicht übernommene Erhöhung mit (28.10.2026)', () => {
+    // Sonst wäre die Basis die heutige Miete, obwohl eine Erhöhung schon vereinbart ist
+    expect(kappungsBasis(500, '2027-04-01', null, [{ wirksam_ab: '2027-01-01', alte_kaltmiete: 480, status: 'zugestimmt' }])).toEqual({ betrag: 480, sicher: true });
+    expect(kappungsBasis(500, '2027-04-01', null, [{ wirksam_ab: '2027-01-01', alte_kaltmiete: 480, status: 'zurueckgezogen' }])).toEqual({ betrag: 500, sicher: true });
+  });
+
+  it('speichert als letzte Erhöhung das Wirksamwerden — jetzt in der Datenbank', () => {
+    expect(migration).toContain('letzte_mieterhoehung_am = greatest(coalesce(letzte_mieterhoehung_am, v_mh.wirksam_ab), v_mh.wirksam_ab)');
   });
 });
 
@@ -151,26 +165,55 @@ describe('Zustimmung zu einem offenen Verlangen', () => {
 
   const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
 
-  it('setzt den vorhandenen Vorgang wirksam — kein neues Schreiben, kein zweiter Vorgang', () => {
+  it('erfasst die Zustimmung am vorhandenen Vorgang — kein neues Schreiben, kein zweiter Vorgang', () => {
     const start = modal.indexOf('const handleZustimmungErfassen = async');
-    const ende = modal.indexOf('if (!contractData) return null;', start);
+    const ende = modal.indexOf('const handleTrotzdemUebernehmen = async', start);
     const zweig = modal.slice(start, ende);
-    expect(zweig).toContain(".update({ status: 'wirksam'");
-    expect(zweig).toContain(".eq('status', 'verlangt')");
-    expect(zweig).toContain('const wirksamIso = vorgang.wirksam_ab.slice(0, 10);');
-    expect(zweig).not.toMatch(/\.insert\(|\.upload\(|generateMieterhoehungPdf/);
+    // Seit 28.10.2026 ein Aufruf: die Datenbank sperrt, prüft 'verlangt' und übernimmt bei Bedarf sofort
+    expect(zweig).toContain("erhoehungsRpc('mieterhoehung_zustimmen', {");
+    expect(zweig).toContain('p_mieterhoehung_id: vorgang.id,');
+    expect(zweig).not.toMatch(/\.insert\(|\.upload\(|generateMieterhoehungPdf|\.update\(/);
   });
 
-  it('schreibt die Vertragsmiete an genau einer Stelle, und die verlangt die Zustimmung', () => {
-    // Ergänzt den Wächter in mieterhoehungPdfGenerator.test.ts: der prüft nur die erste Schreibstelle
-    const schreibstellen = modal.match(/from\(['"]mietvertrag['"]\)[\s\S]{0,40}\.update\(/g) ?? [];
-    expect(schreibstellen).toHaveLength(1);
-    const funktion = modal.slice(modal.indexOf('const mieteNachZustimmungSetzen = async'), modal.indexOf('const handleSaveAndUpload = async'));
-    expect(funktion).toMatch(/if \(mieterHatZugestimmt\) \{\s*const \{ data: geschrieben, error: mieteError \} = await supabase\.from\('mietvertrag'\)\.update\(/);
-    // Aufrufer: der Haken beim Speichern, die bestätigte Zustimmung zum Verlangen
-    expect(modal).toContain('await mieteNachZustimmungSetzen(mieterHatZugestimmt, neueMiete, wirksamIso)');
-    expect(modal).toContain('await mieteNachZustimmungSetzen(true, miete, wirksamIso)');
-    expect(modal.match(/mieteNachZustimmungSetzen\(/g)).toHaveLength(2);
+  it('die Datenbank übernimmt die Miete an genau einer Stelle, nur zugestimmt und nur ab wirksam_ab', () => {
+    // Die einzige Schreibstelle der Vertragsmiete für Mieterhöhungen ist mieterhoehung_anwenden_intern
+    expect(migration.match(/update public\.mietvertrag\b/g)).toHaveLength(1);
+    const kern = migration.slice(migration.indexOf('create or replace function public.mieterhoehung_anwenden_intern'), migration.indexOf('create or replace function public.mieterhoehungen_anwenden()'));
+    expect(kern).toContain('update public.mietvertrag');
+    expect(kern).toMatch(/if v_mh\.status <> 'zugestimmt' then/);
+    expect(kern).toMatch(/if v_mh\.wirksam_ab > current_date then/);
+    expect(kern.indexOf("hint = 'NOCH_NICHT_WIRKSAM'")).toBeLessThan(kern.indexOf('update public.mietvertrag'));
+    expect(kern.indexOf("hint = 'MIETE_GEAENDERT'")).toBeLessThan(kern.indexOf('update public.mietvertrag'));
+    // 'wirksam' nur mit der transaktionslokalen Freigabe, die der Wächter-Trigger verlangt
+    expect(kern).toMatch(/set_config\('niimmo\.mieterhoehung_anwenden', 'an', true\);\s*update public\.mieterhoehungen set status = 'wirksam'/);
+  });
+
+  it('der Nachtlauf läuft in der Sollstellung nach den Staffelmieten und vor dem Anlegen', () => {
+    const soll = migration.slice(migration.indexOf('CREATE OR REPLACE FUNCTION public.generate_monthly_mietforderungen()'));
+    const staffel = soll.indexOf('perform public.staffelmieten_anwenden();');
+    const erhoehung = soll.indexOf('perform public.mieterhoehungen_anwenden();');
+    expect(staffel).toBeGreaterThan(-1);
+    expect(erhoehung).toBeGreaterThan(staffel);
+    expect(erhoehung).toBeLessThan(soll.indexOf('insert into mietforderungen'));
+    // In eigenem Block: die Sollstellung darf an der Mieterhöhung nie hängen
+    expect(soll.slice(erhoehung)).toMatch(/^perform public\.mieterhoehungen_anwenden\(\);\s*exception when others then/);
+    // Bricht ab, statt eine inzwischen geänderte Sollstellung still zu überschreiben
+    expect(migration).toContain("md5(pg_get_functiondef('public.generate_monthly_mietforderungen()'::regprocedure))");
+  });
+
+  it('sperrt Nachtlauf und Kern für Nutzer, die Aufrufe der Oberfläche nur für Admins', () => {
+    expect(migration).toContain('revoke execute on function public.mieterhoehungen_anwenden() from public, anon, authenticated, service_role;');
+    expect(migration).toContain('revoke execute on function public.mieterhoehung_zustimmung_pruefen(uuid, date, uuid) from public, anon, authenticated, service_role;');
+    expect(migration).toContain('revoke execute on function public.mieterhoehung_zustimmung_zuruecknehmen(uuid) from public, anon;');
+    expect(migration).toContain('revoke execute on function public.mieterhoehung_anwenden_intern(uuid, boolean) from public, anon, authenticated, service_role;');
+    expect(migration).toContain('revoke execute on function public.mieterhoehung_zustimmen(uuid, boolean) from public, anon;');
+    expect(migration).toContain('revoke execute on function public.mieterhoehung_anwenden(uuid, boolean) from public, anon;');
+    for (const kopf of ['public.mieterhoehung_zustimmen(', 'public.mieterhoehung_anwenden(', 'public.mieterhoehung_zustimmung_zuruecknehmen(']) {
+      const start = migration.indexOf(`create or replace function ${kopf}`);
+      expect(migration.slice(start, start + 600)).toContain('if not public.is_admin((select auth.uid())) then');
+    }
+    // Zurückliegende Monate: nur Monatsmieten, keine Rücklastschrift-Gebühren (20261028140000)
+    expect(migration).toContain('and f.ruecklastschrift_am is null');
   });
 });
 
@@ -192,7 +235,7 @@ describe('Mieterhöhung: neue Kaltmiete und Aufräumen nach Fehlern', () => {
     expect(modal).toContain("if (dokumentEingetragen) await supabase.from('dokumente').delete().eq('pfad', filePath);");
     expect(modal).toContain("await supabase.storage.from('dokumente').remove([filePath]);");
     expect(modal).toMatch(/if \(dokumentError\) await zurueckrollen\(\);/);
-    expect(modal).toMatch(/if \(vorgangError\) \{\s*await zurueckrollen\(\);\s*throw vorgangError;/);
+    expect(modal).toMatch(/if \(vorgangError\) \{\s*await zurueckrollen\(\);[\s\S]{0,140}throw new Error\(uebernahmeMeldung\(vorgangError\.hint, vorgangError\.message\)\);/);
     expect(modal).toContain('neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten, contractData?.current_kaltmiete)');
   });
 });
@@ -200,7 +243,8 @@ describe('Mieterhöhung: neue Kaltmiete und Aufräumen nach Fehlern', () => {
 /**
  * Review 28.10.2026: Scheiterte nach „wirksam“ das Update der Miete, blieb der Vorgang wirksam, die Miete
  * alt, und ein zweiter Versuch war unmöglich. BK null setzte die Vorauszahlung auf 0 €. Der Haken neben
- * einem offenen Verlangen legte weiter einen zweiten Vorgang an.
+ * einem offenen Verlangen legte weiter einen zweiten Vorgang an. Seit der Übernahme in der Datenbank
+ * (ebenfalls 28.10.2026) ist die Zustimmung atomar; die Tests prüfen jetzt Fehlerweg und Sperren.
  */
 describe('Zustimmung: Rückbau, Betriebskosten, Haken und Rückzug', () => {
   const basis = { id: 'a', verlangt_am: '2026-10-01', wirksam_ab: '2027-01-01', status: 'verlangt', alte_kaltmiete: 500, alte_betriebskosten: 120, neue_kaltmiete: 550, neue_betriebskosten: 130 };
@@ -229,31 +273,154 @@ describe('Zustimmung: Rückbau, Betriebskosten, Haken und Rückzug', () => {
   });
 
   const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
-  const zweig = modal.slice(modal.indexOf('const handleZustimmungErfassen = async'), modal.indexOf('if (!contractData) return null;', modal.indexOf('const handleZustimmungErfassen = async')));
+  const zweig = modal.slice(modal.indexOf('const handleZustimmungErfassen = async'), modal.indexOf('const handleTrotzdemUebernehmen = async'));
 
-  it('setzt den Vorgang zurück, wenn die Miete nicht geschrieben wird, und schließt dann nicht', () => {
-    expect(zweig.indexOf(".eq('status', 'verlangt')")).toBeLessThan(zweig.indexOf('await mieteNachZustimmungSetzen(true, miete, wirksamIso)'));
-    const rueckbau = zweig.slice(zweig.indexOf('if (mieteError) {'));
-    expect(rueckbau).toMatch(/\.update\(\{ status: 'verlangt', zugestimmt_am: null[\s\S]*?\.eq\('status', 'wirksam'\)/);
-    expect(rueckbau.indexOf('throw new Error(')).toBeLessThan(rueckbau.indexOf('onClose();'));
+  it('schließt nur im Erfolgsweg und bietet nach MIETE_GEAENDERT „Trotzdem übernehmen“ an', () => {
+    // Die Zustimmung rollt in der Datenbank mit zurück, wenn die Übernahme scheitert (28.10.2026)
+    const fehler = zweig.slice(zweig.indexOf('if (error) {'));
+    expect(fehler.indexOf("if (error.hint === 'MIETE_GEAENDERT') setTrotzAbweichungAngeboten(true);")).toBeGreaterThan(-1);
+    expect(fehler.indexOf('throw new Error(uebernahmeMeldung(error.hint, error.message));')).toBeLessThan(fehler.indexOf('onClose();'));
     // onClose nur im Erfolgsweg, nicht im catch
     expect(zweig.slice(zweig.indexOf('} catch')).includes('onClose()')).toBe(false);
+    expect(modal).toContain('onClick={() => handleZustimmungErfassen(trotzAbweichungAngeboten)}');
   });
 
-  it('schreibt BK nur, wenn das Verlangen sie nennt, und prüft, ob eine Zeile getroffen wurde', () => {
-    expect(modal).toContain('...(miete.betriebskosten !== null ? { betriebskosten: miete.betriebskosten } : {}),');
-    expect(modal).toContain("if (!geschrieben || geschrieben.length === 0) return { message:");
+  it('schreibt BK nur, wenn das Verlangen sie ändert (§ 560-Anpassungen seither bleiben)', () => {
+    expect(migration).toMatch(/v_bk := case when v_mh\.neue_betriebskosten <> v_mh\.alte_betriebskosten\s*then v_mh\.neue_betriebskosten\s*else v_mv\.betriebskosten end;/);
+  });
+
+  it('sperrt ein neues Schreiben, solange eine Erhöhung vereinbart ist oder die Vorgänge fehlen', () => {
+    expect(modal).toContain("const speichernGesperrt = !!vereinbart || erhoehungenGeladen !== 'ok';");
+    expect(modal).toContain('disabled={!pdfBlob || isSubmitting || speichernGesperrt}');
+    expect(modal).toMatch(/if \(speichernGesperrt\) \{/);
   });
 
   it('sperrt den Haken neben einem offenen Verlangen und zieht es bei einem neuen Schreiben zurück', () => {
-    expect(modal).toContain('disabled={!!verlangen}');
+    expect(modal).toContain('disabled={!!verlangen || !!hakenHindernis}');
     expect(modal).toMatch(/if \(mieterHatZugestimmt && verlangen\) \{/);
     expect(modal).toMatch(/\.update\(\{ status: 'zurueckgezogen'[\s\S]{0,120}\.in\('id', zurueckzuziehen\)\s*\.eq\('status', 'verlangt'\)/);
     expect(modal).toContain('wird danach als zurückgezogen markiert');
   });
 
-  it('sagt vor der Zustimmung, dass die Miete sofort gilt und um wie viel die Forderung zu hoch ist', () => {
-    expect(modal).toContain('wirksam ist die Erhöhung erst ab {verlangenWirksamText}. Bis dahin ist die Monatsforderung um');
+  it('sagt vor der Zustimmung, ab wann die Miete gilt, und bei später Zustimmung die Nachforderung', () => {
+    expect(modal).toContain('Die Vertragsmiete bleibt bis zum {verlangenWirksamText} unverändert und wird dann automatisch auf');
     expect(modal).toContain('mehrforderungProMonat(verlangenMiete, contractData.current_kaltmiete, contractData.current_betriebskosten)');
+    expect(modal).toContain('nachzuberechnendeMonate(verlangen.wirksam_ab, new Date())');
+  });
+});
+
+/**
+ * 28.10.2026: Die Miete gilt erst ab wirksam_ab. Eine Zustimmung macht den Vorgang 'zugestimmt'; die
+ * Datenbank übernimmt zum Wirksamwerden. Diese Regeln zeigen den Zustand im Dialog und in der Liste an.
+ */
+describe('Vereinbarte, noch nicht übernommene Erhöhung', () => {
+  const v = { id: 'z', verlangt_am: '2026-10-01', wirksam_ab: '2027-01-01', status: 'zugestimmt', zugestimmt_am: '2026-10-10', alte_kaltmiete: 500, alte_betriebskosten: 100, neue_kaltmiete: 550, neue_betriebskosten: 100 };
+
+  it('findet die vereinbarte Erhöhung und übergeht offene, übernommene und zurückgezogene', () => {
+    expect(vereinbarteErhoehung([v])?.id).toBe('z');
+    expect(vereinbarteErhoehung([{ ...v, status: 'verlangt' }, { ...v, status: 'wirksam' }, { ...v, status: 'zurueckgezogen' }])).toBeNull();
+    expect(vereinbarteErhoehung([{ ...v, id: 'alt', wirksam_ab: '2026-01-01' }, v])?.id).toBe('z');
+  });
+
+  it('ist erst ab dem Tag nach dem Wirksamwerden überfällig, solange sie nicht übernommen ist', () => {
+    expect(erhoehungUeberfaellig(v, '2026-12-31')).toBe(false);
+    // Am Monatsersten bis 2 Uhr rechnet die Datenbank (UTC) noch mit dem Vortag, übernommen wird um 05:00 UTC
+    expect(erhoehungUeberfaellig(v, '2027-01-01')).toBe(false);
+    expect(erhoehungUeberfaellig(v, '2027-01-02')).toBe(true);
+    expect(erhoehungUeberfaellig({ ...v, status: 'wirksam' }, '2027-02-01')).toBe(false);
+  });
+
+  it('kennt die Hindernisse einer Zustimmung wie die Datenbank (mieterhoehung_zustimmung_pruefen)', () => {
+    expect(zustimmungHindernis({ wirksamAbIso: '2027-01-01' })).toBeNull();
+    expect(zustimmungHindernis({ mietanpassungArt: 'keine', vertragsende: '2027-01-01', wirksamAbIso: '2027-01-01' })).toBeNull();
+    expect(zustimmungHindernis({ mietanpassungArt: 'staffel', wirksamAbIso: '2027-01-01' })).toBe('STAFFEL_ODER_INDEX');
+    expect(zustimmungHindernis({ mietanpassungArt: 'index', wirksamAbIso: '2027-01-01' })).toBe('STAFFEL_ODER_INDEX');
+    expect(zustimmungHindernis({ vertragsende: '2026-12-31', wirksamAbIso: '2027-01-01' })).toBe('VERTRAG_ENDET_VORHER');
+  });
+
+  it('nennt den Grund einer überfälligen Erhöhung', () => {
+    expect(ueberfaelligGrund(v, 510, 100)).toMatch(/seit dem Verlangen geändert/);
+    expect(ueberfaelligGrund(v, 500, 100, { vertragsende: '2026-12-15' })).toMatch(/endet vor dem Wirksamwerden/);
+    expect(ueberfaelligGrund(v, 500, 100, { mietanpassungArt: 'staffel' })).toMatch(/Staffel- oder Indexmiete/);
+    expect(ueberfaelligGrund(v, 500, 100)).toMatch(/nicht übernommen/);
+  });
+
+  it('erkennt einen Konflikt wie die Datenbank (MIETE_GEAENDERT)', () => {
+    expect(uebernahmeKonflikt(v, 500, 100)).toBe(false);
+    // Kaltmiete seither geändert
+    expect(uebernahmeKonflikt(v, 510, 100)).toBe(true);
+    // schon von Hand übernommen
+    expect(uebernahmeKonflikt(v, 550, 100)).toBe(false);
+    // Vorauszahlung nach § 560 angepasst, das Verlangen ändert die BK nicht: kein Konflikt
+    expect(uebernahmeKonflikt(v, 500, 130)).toBe(false);
+    expect(uebernahmeKonflikt(v, 550, 130)).toBe(false);
+    // Das Verlangen ändert die BK, die am Vertrag sind nicht mehr die alten: Konflikt
+    expect(uebernahmeKonflikt({ ...v, neue_betriebskosten: 120 }, 500, 110)).toBe(true);
+    expect(uebernahmeKonflikt({ ...v, neue_betriebskosten: 120 }, 500, 100)).toBe(false);
+  });
+
+  it('zählt die höchstens nachzuberechnenden Monate bis einschließlich des laufenden', () => {
+    expect(nachzuberechnendeMonate('2026-09-01', new Date(2026, 9, 28))).toBe(2);
+    expect(nachzuberechnendeMonate('2026-10-01', new Date(2026, 9, 1))).toBe(1);
+    expect(nachzuberechnendeMonate('2025-12-01', new Date(2026, 1, 5))).toBe(3);
+    expect(nachzuberechnendeMonate('2027-01-01', new Date(2026, 9, 28))).toBe(0);
+  });
+
+  it('übersetzt die Hinweise der Datenbank in feste Meldungen', () => {
+    expect(uebernahmeMeldung('MIETE_GEAENDERT')).toMatch(/seit dem Verlangen geändert/);
+    expect(uebernahmeMeldung('NICHT_OFFEN')).toMatch(/nicht mehr offen/);
+    expect(uebernahmeMeldung('SCHON_VEREINBART')).toMatch(/schon eine Erhöhung vereinbart/);
+    expect(uebernahmeMeldung('NOCH_NICHT_WIRKSAM')).toBe('Die Erhöhung wird heute früh automatisch übernommen.');
+    expect(uebernahmeMeldung('VERTRAG_ENDET_VORHER')).toMatch(/endet vor dem Wirksamwerden/);
+    expect(uebernahmeMeldung('NUR_UEBER_ZURUECKNEHMEN')).toMatch(/Zustimmung zurücknehmen/);
+    expect(uebernahmeMeldung(undefined, 'Netzwerkfehler')).toBe('Netzwerkfehler');
+    expect(uebernahmeMeldung(null)).toBe('Die Mieterhöhung konnte nicht gespeichert werden.');
+  });
+});
+
+/**
+ * Review 28.10.2026: Eine irrtümlich erfasste Zustimmung ließ sich nicht zurücknehmen; Hindernisse
+ * (Staffel/Index, Vertragsende, schon vereinbart) zeigten sich erst beim Übernehmen oder als roher
+ * Unique-Verstoß; eine fehlende Kaltmiete übersprang die Konfliktprüfung.
+ */
+describe('Zustimmung: Zurücknehmen und Prüfung beim Zustimmen', () => {
+  const modal = readFileSync('src/components/dashboard/rent-increase/RentIncreaseModal.tsx', 'utf-8');
+  const abschnitt = (kopf: string, bis: string) => migration.slice(migration.indexOf(kopf), migration.indexOf(bis, migration.indexOf(kopf)));
+
+  it('nimmt eine Zustimmung nur über die Datenbankfunktion zurück, vorher bestätigt', () => {
+    const fn = abschnitt('create or replace function public.mieterhoehung_zustimmung_zuruecknehmen', '$function$;');
+    expect(fn).toMatch(/if v_mh\.status <> 'zugestimmt' then/);
+    expect(fn).toMatch(/set_config\('niimmo\.mieterhoehung_zuruecknehmen', 'an', true\);\s*update public\.mieterhoehungen\s*set status = 'verlangt',\s*zugestimmt_am = null/);
+    const handler = modal.slice(modal.indexOf('const handleZustimmungZuruecknehmen = async'), modal.indexOf('\n  };\n', modal.indexOf('const handleZustimmungZuruecknehmen = async')));
+    expect(handler).toContain("erhoehungsRpc('mieterhoehung_zustimmung_zuruecknehmen', { p_mieterhoehung_id: vorgang.id })");
+    expect(modal).toContain('<AlertDialogAction onClick={handleZustimmungZuruecknehmen}>');
+    expect(modal).toContain('onClick={() => setShowConfirmZuruecknehmen(true)}');
+  });
+
+  it('der Wächter lässt „zugestimmt“ nur durch Übernahme oder Zurücknehmen enden und prüft jede neue Zustimmung', () => {
+    const waechter = abschnitt('create or replace function public.mieterhoehung_status_waechter()', '$function$;');
+    expect(waechter).toContain("old.status = 'zugestimmt' and new.status not in ('zugestimmt', 'wirksam')");
+    expect(waechter).toContain("current_setting('niimmo.mieterhoehung_zuruecknehmen', true)");
+    expect(waechter).toMatch(/if new\.status = 'zugestimmt' and \(tg_op = 'INSERT' or old\.status is distinct from 'zugestimmt'\) then\s*perform public\.mieterhoehung_zustimmung_pruefen\(new\.mietvertrag_id, new\.wirksam_ab, new\.id\);/);
+    // SECURITY DEFINER: die Prüfung ist für authenticated gesperrt, läuft aber auch beim Haken aus dem Browser
+    expect(waechter).toContain('security definer');
+  });
+
+  it('prüft Staffel/Index, Vertragsende und schon vereinbarte Erhöhung — in der Zustimmung vor dem Update', () => {
+    const pruefen = abschnitt('create or replace function public.mieterhoehung_zustimmung_pruefen', '$function$;');
+    for (const hinweis of ['STAFFEL_ODER_INDEX', 'VERTRAG_ENDET_VORHER', 'SCHON_VEREINBART']) expect(pruefen).toContain(`hint = '${hinweis}'`);
+    const zustimmen = abschnitt('create or replace function public.mieterhoehung_zustimmen', '$function$;');
+    expect(zustimmen.indexOf('perform public.mieterhoehung_zustimmung_pruefen(')).toBeGreaterThan(-1);
+    expect(zustimmen.indexOf('perform public.mieterhoehung_zustimmung_pruefen(')).toBeLessThan(zustimmen.indexOf("set status = 'zugestimmt'"));
+  });
+
+  it('prüft auch der Dialog beim Haken, mit denselben Hinweisen', () => {
+    expect(modal).toContain('zustimmungHindernis({ mietanpassungArt: contractData.mietanpassung_art, vertragsende: contractData.vertragsende, wirksamAbIso: wirksamAbTag(new Date()) })');
+    expect(modal).toMatch(/if \(mieterHatZugestimmt && hakenHindernis\) \{\s*toast\(\{ title: "Zustimmung nicht möglich", description: uebernahmeMeldung\(hakenHindernis\)/);
+  });
+
+  it('fehlende Kaltmiete überspringt die Konfliktprüfung nicht mehr', () => {
+    expect(migration).toMatch(/v_schon := v_mv\.kaltmiete is not distinct from v_mh\.neue_kaltmiete/);
+    expect(migration).toContain('v_mv.kaltmiete is distinct from v_mh.alte_kaltmiete');
   });
 });
