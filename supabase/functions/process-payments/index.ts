@@ -586,6 +586,13 @@ function selectBestContractByDate(payment: Payment, matchingContracts: ContractI
  * Reihenfolge, in der die Datenbank die Vertraege lieferte -- die Abfrage hat kein ORDER BY,
  * und jede Aenderung an einer Vertragszeile verschiebt sie. Die Buchung ging mit 95 %
  * vorausgewaehlt an einen beliebigen der Vertraege. Jetzt deterministisch und als unsicher markiert.
+ *
+ * Bis zum 28.10.2026 gewann danach der juengere Vertrag, bei gleichem Beginn die kleinere id.
+ * Juenger ist fast immer die spaeter dazugemietete Garage, und ein Stellplatz, der in der
+ * Wohnungsmiete steckt, beginnt mit der Wohnung. Live gingen so in 9 von 13 Gruppen mit
+ * gemeinsamer IBAN alle nicht passenden Betraege an den Nebenvertrag, auch an Vertraege mit
+ * 0 € Soll. Jetzt traegt ein Vertrag ohne Soll keine Zahlung, solange ein anderer eines hat,
+ * und sonst gewinnt der Vertrag, dessen Soll dem Betrag am naechsten liegt.
  */
 function waehleVertrag(payment: Payment, treffer: ContractInfo[]): { vertrag: ContractInfo | null; eindeutig: boolean } {
   // Derselbe Vertrag kann zweimal kommen (IBAN als Hauptkonto und unter weitere Bankkonten)
@@ -599,16 +606,22 @@ function waehleVertrag(payment: Payment, treffer: ContractInfo[]): { vertrag: Co
   // Filter by date range
   const validByDate = matchingContracts.filter(c => isPaymentInContractPeriod(buchungsDatum, c));
   
-  if (validByDate.length === 1) {
+  // Ein Vertrag ohne Soll ist nie allein ueber die Laufzeit begruendet: Endet die Wohnung, laeuft der
+  // Stellplatz aus ihrer Miete womoeglich weiter und bekaeme jede Nachzahlung mit 95 % (Review 28.10.2026)
+  const traegtKeineMiete = (c: ContractInfo) => c.gesamtmiete <= 0 && matchingContracts.some(d => d.gesamtmiete > 0);
+  if (validByDate.length === 1 && !traegtKeineMiete(validByDate[0])) {
     console.log(`Selected contract ${validByDate[0].id} (${validByDate[0].mieter}) based on date range`);
     return { vertrag: validByDate[0], eindeutig: true };
   }
   
   // Multiple contracts valid for this date - try amount matching first
   const candidates = validByDate.length > 1 ? validByDate : matchingContracts;
-  
+  // Ein Vertrag ohne Soll (Stellplatz, der in der Wohnungsmiete steckt) kann keine Miete tragen
+  const mitSoll = candidates.filter(c => c.gesamtmiete > 0);
+  const tragfaehig = mitSoll.length > 0 ? mitSoll : candidates;
+
   // BETRAG-MATCH: Bei gleicher IBAN, schaue welcher Vertrag zum Betrag passt
-  const amountMatches = candidates.filter(c => 
+  const amountMatches = tragfaehig.filter(c =>
     Math.abs(c.gesamtmiete - payment.betrag) <= BETRAG_TOLERANZ && payment.betrag > 0
   );
   
@@ -627,21 +640,29 @@ function waehleVertrag(payment: Payment, treffer: ContractInfo[]): { vertrag: Co
   }
   
   // Passt der Betrag zu mehreren, kommen nur diese in Frage
-  const engere = amountMatches.length > 1 ? amountMatches : candidates;
+  const engere = amountMatches.length > 1 ? amountMatches : tragfaehig;
 
-  // Fall back to status priority, bei Gleichstand juengerer Vertrag, dann id -- nie die DB-Reihenfolge
+  // Laufende vor beendeten, dann der naechstliegende Sollbetrag (auch fuer Ruecklastschriften),
+  // dann aktiv vor gekuendigt, dann das hoehere Soll, dann id -- nie die DB-Reihenfolge
   const statusPriority: Record<string, number> = { "aktiv": 0, "gekuendigt": 1, "beendet": 2 };
   const rang = (c: ContractInfo) => statusPriority[c.status] ?? 99;
+  const laeuft = (c: ContractInfo) => (rang(c) <= 1 ? 0 : 1);
+  const abstandCent = (c: ContractInfo) => Math.round(Math.abs(c.gesamtmiete - Math.abs(payment.betrag)) * 100);
   const sortiert = [...engere].sort((a, b) =>
+    laeuft(a) - laeuft(b) ||
+    abstandCent(a) - abstandCent(b) ||
     rang(a) - rang(b) ||
-    (b.start_datum ?? "").localeCompare(a.start_datum ?? "") ||
+    b.gesamtmiete - a.gesamtmiete ||
     a.id.localeCompare(b.id)
   );
-  // Begruendet nur, wenn genau ein Kandidat noch laeuft (aktiv oder gekuendigt gegen beendet).
+  // Begruendet nur, wenn genau ein Kandidat noch laeuft (aktiv oder gekuendigt gegen beendet) und gewaehlt ist.
   // Ein gekuendigter Vertrag laeuft bis zum Ende weiter und kann die Zahlung genauso tragen.
   // Liegt die Buchung in keiner Laufzeit, sagt der Status nichts ueber sie (27.10.2026).
-  const eindeutig = validByDate.length > 0 && sortiert.filter(c => c.status !== "beendet").length === 1;
-  console.log(`Selected contract ${sortiert[0].id} (${sortiert[0].mieter}) - status: ${sortiert[0].status} (no unique amount match${eindeutig ? '' : ', unsicher'})`);
+  // Ein laufender Vertrag ohne Soll zaehlt mit: 0 € kann auch heissen, dass die Miete noch nicht
+  // erfasst ist. Die Wohnung wird dann vorgeschlagen, aber nicht vorausgewaehlt (Review 28.10.2026).
+  const laufende = (amountMatches.length > 1 ? amountMatches : candidates).filter(c => c.status !== "beendet");
+  const eindeutig = validByDate.length > 0 && laufende.length === 1 && laufende[0].id === sortiert[0].id;
+  console.log(`Selected contract ${sortiert[0].id} (${sortiert[0].mieter}) - status: ${sortiert[0].status}, nearest Soll ${sortiert[0].gesamtmiete} (no unique amount match${eindeutig ? '' : ', unsicher'})`);
   return { vertrag: sortiert[0], eindeutig };
 }
 
@@ -804,7 +825,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
       const anzahlVertraege = new Set(matchingContracts.map(c => c.id)).size;
       const multiInfo = anzahlVertraege > 1
         ? eindeutig
-          ? ` (1 von ${anzahlVertraege} Verträgen, ausgewählt nach Datum/Betrag)`
+          ? ` (1 von ${anzahlVertraege} Verträgen, ausgewählt nach Laufzeit, Betrag oder Soll)`
           : ` (${anzahlVertraege} Verträge mit dieser IBAN, Betrag passt zu keinem eindeutig — bitte prüfen)`
         : '';
       const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";

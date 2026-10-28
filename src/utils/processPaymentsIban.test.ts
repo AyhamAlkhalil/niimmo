@@ -192,6 +192,66 @@ describe('process-payments vergleicht IBANs ohne Leerzeichen', () => {
   });
 });
 
+describe('process-payments Vertragswahl bei Wohnung und Nebenvertrag', () => {
+  // 28.10.2026: Ohne passenden Betrag gewann der jüngere Vertrag, bei gleichem Beginn die kleinere id —
+  // die Miete landete bei der Garage oder beim Stellplatz mit 0 € Soll, die Garage zeigte ein Guthaben
+  const mit = (id: string, kaltmiete: number, aenderung: Record<string, unknown> = {}) => ({ ...vertrag(id, kaltmiete, KONTO), ...aenderung });
+  const beideReihenfolgen = async (zeilen: unknown[]) => [
+    await fn.getContractContext(client(zeilen)),
+    await fn.getContractContext(client([...zeilen].reverse())),
+  ];
+
+  it('gibt einem Vertrag ohne Soll keine Zahlung, solange ein anderer eines hat', async () => {
+    // Stellplatz mit kleinerer id und gleichem Beginn — früher sein Gewinn
+    for (const vertraege of await beideReihenfolgen([mit('a-stellplatz', 0), mit('b-wohnung', 574)])) {
+      for (const betrag of [1150, 300, 20, -574]) {
+        expect(fn.matchPaymentByRules(zahlung(betrag), vertraege, []).mietvertrag_id).toBe('b-wohnung');
+      }
+      // 0 € kann auch „Miete noch nicht erfasst“ heißen: vorgeschlagen, aber nur bei passendem Betrag vorausgewählt
+      expect(fn.matchPaymentByRules(zahlung(1150), vertraege, [])).toMatchObject({ selected: false });
+      expect(fn.matchPaymentByRules(zahlung(576), vertraege, [])).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: true, confidence: 95 });
+    }
+  });
+
+  it('wählt einen Vertrag ohne Soll auch dann nicht vor, wenn nur er noch läuft', async () => {
+    // Review 28.10.2026: Wohnung beendet, Stellplatz aus ihrer Miete läuft weiter — er war der einzige in der Laufzeit
+    const zeilen = [
+      mit('a-stellplatz', 0),
+      mit('b-wohnung', 574, { status: 'beendet', ende_datum: '2026-06-30' }),
+    ];
+    for (const vertraege of await beideReihenfolgen(zeilen)) {
+      expect(fn.matchPaymentByRules(zahlung(300), vertraege, [])).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: false });
+    }
+  });
+
+  it('wählt ohne passenden Betrag den nächstliegenden Sollbetrag statt des jüngeren Vertrags', async () => {
+    const zeilen = [mit('wohnung', 490, { start_datum: '2023-06-01' }), mit('garage', 65, { start_datum: '2026-03-01' })];
+    for (const vertraege of await beideReihenfolgen(zeilen)) {
+      // Wohnung und Garage in einer Summe, Nachzahlung, Teilzahlung, Rücklastschrift der Wohnungsmiete
+      for (const betrag of [555, 295.27, 300, -490]) {
+        expect(fn.matchPaymentByRules(zahlung(betrag), vertraege, [])).toMatchObject({ mietvertrag_id: 'wohnung', selected: false });
+      }
+      expect(fn.matchPaymentByRules(zahlung(100), vertraege, [])).toMatchObject({ mietvertrag_id: 'garage', selected: false });
+      // Passt der Betrag, entscheidet er wie bisher
+      expect(fn.matchPaymentByRules(zahlung(65), vertraege, [])).toMatchObject({ mietvertrag_id: 'garage', selected: true });
+    }
+  });
+
+  it('zieht einen gekündigten, noch laufenden Vertrag mit passenderem Soll der aktiven Garage vor', async () => {
+    for (const vertraege of await beideReihenfolgen([mit('wohnung', 1095, { status: 'gekuendigt' }), mit('garage', 35)])) {
+      expect(fn.matchPaymentByRules(zahlung(1000), vertraege, [])).toMatchObject({ mietvertrag_id: 'wohnung', selected: false });
+    }
+  });
+
+  it('löst auch den Namensabgleich ohne IBAN nicht zugunsten des Vertrags ohne Soll auf', async () => {
+    const ohneKonto = (id: string, kaltmiete: number) => vertrag(id, kaltmiete, null);
+    for (const vertraege of await beideReihenfolgen([ohneKonto('a-stellplatz', 0), ohneKonto('b-wohnung', 574)])) {
+      const z = { ...zahlung(1000, ''), verwendungszweck: 'Miete Anna Beispiel', empfaengername: 'Anna Beispiel' };
+      expect(fn.matchPaymentByRules(z, vertraege, [])).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: false });
+    }
+  });
+});
+
 describe('process-payments Jobcenter-Abgleich', () => {
   it('wählt einen nur ähnlichen Namen nicht vor und lässt die Laufzeit nicht über die Namensgüte entscheiden', () => {
     // 27.10.2026
