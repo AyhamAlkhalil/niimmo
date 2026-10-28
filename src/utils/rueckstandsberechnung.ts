@@ -102,7 +102,7 @@ export const calculateMietvertragRueckstand = (
 };
 
 export interface Mietkontostand extends RueckstandsBerechnung {
-  /** Überzahlung, die noch nicht fällige Miete deckt — weder Rückstand noch Guthaben */
+  /** Überzahlung, die mit noch nicht fälligen Forderungen verrechnet ist — weder Rückstand noch Guthaben */
   vorauszahlung: number;
   /** Summe der Forderungen, die am Stichtag noch nicht fällig sind */
   nichtFaellig: number;
@@ -118,9 +118,9 @@ export interface Mietkontostand extends RueckstandsBerechnung {
  * die Datenbank schon dem Folgemonat zuordnet (calculate_zugeordneter_monat), bevor die Sollstellung
  * am 1. dessen Forderung anlegt.
  *
- * Jetzt deckt eine Überzahlung zuerst die noch nicht fälligen Forderungen und die Zahlungen auf
- * künftige Monate (Vorauszahlung); Guthaben ist nur, was darüber hinausgeht. Der Rückstand bleibt
- * unverändert: Zahlungen tilgen zuerst die fällige Schuld (§ 366 Abs. 2 BGB).
+ * Jetzt wird eine Überzahlung zuerst mit den angelegten, noch nicht fälligen Forderungen verrechnet
+ * (Vorauszahlung); Guthaben ist nur, was darüber hinausgeht. Der Rückstand bleibt unverändert: Zahlungen tilgen zuerst
+ * die fällige Schuld (§ 366 Abs. 2 BGB).
  */
 export function berechneMietkontostand(
   mietvertrag: unknown,
@@ -147,22 +147,27 @@ export function berechneMietkontostand(
     return { ...basis, vorauszahlung: 0, nichtFaellig };
   }
 
-  // Zahlungen auf Monate ohne angelegte Miete: nach dem laufenden Monat, und der laufende bis zum 7.,
-  // solange die Sollstellung (05:00 UTC am 1.) ihn noch nicht angelegt hat. Nie nach Vertragsende —
-  // dort ist eine Überzahlung echtes Guthaben.
+  // Eine Überzahlung deckt zuerst, was angelegt, aber noch nicht fällig ist, und Zahlungen auf Monate,
+  // die die Sollstellung (05:00 UTC am 1.) noch nicht angelegt hat: ab dem 28. für den Folgemonat, am 1.
+  // vor dem Lauf für den laufenden — nie nach Vertragsende und nie doppelt zu einer schon angelegten
+  // Forderung. Bewusst nicht je zugeordnetem Monat: Wer am 26. oder 27. für den Folgemonat zahlt, steht
+  // in der DB beim laufenden Monat (calculate_zugeordneter_monat).
+  // Auch eine Gutschrift wird so mit der nächsten, noch nicht fälligen Miete verrechnet: Ob sie schon
+  // ausgezahlt oder mit einer niedrigeren Zahlung verbraucht ist, lässt sich aus den Summen nicht
+  // ablesen — eine Begrenzung auf „selbst überzahlt“ erzeugte dann jeden Monat Scheinguthaben (28.10.2026).
   const monat = heute.slice(0, 7);
   const vertrag = mietvertrag as { status?: string | null; ende_datum?: string | null; kuendigungsdatum?: string | null };
   const endeMonat = getVertragsende(vertrag)?.slice(0, 7);
   const forderungsmonate = new Set(mitMonat.map((f) => (f.sollmonat as string).slice(0, 7)));
-  const istKuenftig = (m: string) =>
+  const nochNichtAngelegt = (m: string) =>
     (endeMonat ? m <= endeMonat : vertrag.status !== 'beendet') &&
-    (m > monat || (m === monat && stichtag.getDate() < FAELLIGKEITSTAG && !forderungsmonate.has(m)));
-  const aufKuenftigeMonate = zahlungen
-    .filter((z) => zaehltImMietkonto(z) && typeof z.zugeordneter_monat === 'string' && istKuenftig(z.zugeordneter_monat.slice(0, 7)))
+    !forderungsmonate.has(m) &&
+    (m > monat || (m === monat && stichtag.getDate() < FAELLIGKEITSTAG));
+  const aufNichtAngelegteMonate = zahlungen
+    .filter((z) => zaehltImMietkonto(z) && typeof z.zugeordneter_monat === 'string' && nochNichtAngelegt(z.zugeordneter_monat.slice(0, 7)))
     .reduce((s, z) => s + (Number(z.betrag) || 0), 0);
-
-  const offen = Math.max(0, summeNichtFaellig) + Math.max(0, aufKuenftigeMonate);
-  const vorauszahlung = aufCent(Math.min(-basis.rueckstand, offen));
+  const deckung = Math.max(0, summeNichtFaellig) + Math.max(0, aufNichtAngelegteMonate);
+  const vorauszahlung = aufCent(Math.min(-basis.rueckstand, deckung));
 
   return { ...basis, rueckstand: aufCent(basis.rueckstand + vorauszahlung), vorauszahlung, nichtFaellig };
 }

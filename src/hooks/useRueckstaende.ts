@@ -26,7 +26,7 @@ export interface FehlendeMietzahlung {
   fehlend_betrag: number;
   gesamt_forderungen: number;
   gesamt_zahlungen: number;
-  /** Teil der Zahlungen, der noch nicht fällige Miete deckt (weder Rückstand noch Guthaben) */
+  /** Überzahlung, die mit noch nicht fälligen Forderungen verrechnet ist (weder Rückstand noch Guthaben) */
   vorauszahlung: number;
   miete_zahlungen: number;
   immobilie_name: string;

@@ -402,7 +402,11 @@ describe('Vertragsdetail und Rückstandsliste', () => {
     expect(liste).not.toMatch(/calculateMietvertragRueckstand\(/);
     expect(liste).not.toMatch(/=== 0 && \(mietvertrag\.betriebskosten \|\| 0\) === 0\) continue;/);
     expect(liste).not.toMatch(/from\('dokumente'\)/);
+    // Review 28.10.2026: Beim Laden zeigte die Übersicht alle Zahlungen als Guthaben
+    expect(detail).toMatch(/\) : finanzLaedt \? \(/);
+    expect(readFileSync('src/components/dashboard/mietvertrag-details/MietvertragOverviewTab.tsx', 'utf-8')).toMatch(/finanzLaedt=\{finanzLaedt\}/);
     const mahnung = readFileSync('src/components/dashboard/MietvertragDetailsModal.tsx', 'utf-8');
+    expect(mahnung).toMatch(/finanzLaedt=\{finanzLaedt\}/);
     expect(mahnung).toMatch(/rueckstand=\{Math\.max\(0, berechneMietkontostand\(vertrag, forderungen \|\| \[\], zahlungen \|\| \[\]\)\.rueckstand\)\}/);
   });
 
@@ -413,6 +417,7 @@ describe('Vertragsdetail und Rückstandsliste', () => {
     expect(ansicht).toMatch(/<p className="eyebrow">Rückstände<\/p>\s*<p[^>]*>\s*\{formatBetrag\(kopfRueckstand\)\}/);
     expect(ansicht).toMatch(/<p className="eyebrow">Guthaben<\/p>\s*<p[^>]*>\s*\{formatBetrag\(kopfGuthaben\)\}/);
     expect(ansicht).not.toMatch(/4\. Werktag/);
+    expect(ansicht).not.toMatch(/Vertrag\{[a-zA-Z.]+ !== 1 \? 'e' : ''\}/);
   });
 });
 
@@ -567,6 +572,64 @@ describe('berechneMietkontostand', () => {
     ];
     const stand = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 8, 30));
     expect(stand).toMatchObject({ rueckstand: -50, vorauszahlung: 0 });
+  });
+
+  it('verrechnet eine BKA-Gutschrift vom 1. bis 7. mit der noch nicht fälligen Miete', () => {
+    const gutschrift = { id: 'g', sollmonat: '2025-12-01', sollbetrag: -300, faelligkeitsdatum: '2026-10-20', typ: 'BKA' };
+    const am20Sept = berechneMietkontostand(mockMietvertrag, [sept, gutschrift], [septBezahlt], new Date(2026, 8, 20));
+    expect(am20Sept).toMatchObject({ rueckstand: -300, vorauszahlung: 0 });
+    const am3 = berechneMietkontostand(mockMietvertrag, [sept, okt, gutschrift], [septBezahlt], new Date(2026, 9, 3));
+    expect(am3).toMatchObject({ rueckstand: 0, vorauszahlung: 300 });
+    expect(berechneMietkontostand(mockMietvertrag, [sept, okt, gutschrift], [septBezahlt], new Date(2026, 9, 8)).rueckstand).toBe(500);
+  });
+
+  it('erzeugt nach einer verbrauchten Gutschrift kein Scheinguthaben', () => {
+    // Review 28.10.2026: Eine Begrenzung auf „selbst überzahlt“ ließ nach Auszahlung eines BKA-Guthabens
+    // jeden Monat vom 1. bis 7. 300 € Guthaben stehen
+    const gutschrift = { id: 'g', sollmonat: '2025-12-01', sollbetrag: -300, faelligkeitsdatum: '2026-09-20', typ: 'BKA' };
+    const auszahlung = zahlung('a', -300, '2026-09-22', '2026-09', 'Betriebskostenabrechnung');
+    const zahlungen = [septBezahlt, auszahlung, zahlung('z10', 800, '2026-10-01', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, okt, gutschrift], zahlungen, new Date(2026, 9, 3));
+    expect(stand).toMatchObject({ rueckstand: 0, vorauszahlung: 800 });
+
+    // Minderung schon mit niedrigerer Zahlung verbraucht
+    const minderungSept = { id: 'm9', sollmonat: '2026-09-01', sollbetrag: -200, faelligkeitsdatum: '2026-09-08', typ: 'Miete' };
+    const gemindert = [zahlung('z9', 600, '2026-09-01', '2026-09'), zahlung('z10', 800, '2026-10-01', '2026-10')];
+    expect(berechneMietkontostand(mockMietvertrag, [sept, minderungSept, okt], gemindert, new Date(2026, 9, 3)))
+      .toMatchObject({ rueckstand: 0, vorauszahlung: 800 });
+  });
+
+  it('zählt Forderung und Zahlung desselben künftigen Monats nicht doppelt', () => {
+    // Review 28.10.2026: Novemberforderung (vorab angelegt) und Novemberzahlung deckten 2.000 statt 1.000 €
+    const nov = { id: 'f11', sollmonat: '2026-11-01', sollbetrag: 1000, faelligkeitsdatum: '2026-11-08' };
+    const zahlungen = [septBezahlt, zahlung('z11', 1000, '2026-10-20', '2026-11'), zahlung('x', 500, '2026-10-20', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, nov], zahlungen, new Date(2026, 9, 20));
+    expect(stand).toMatchObject({ rueckstand: -500, vorauszahlung: 1000 });
+  });
+
+  it('wertet die erste Miete vor einem Mietbeginn nach dem 8. als Vorauszahlung', () => {
+    const anteilig = { id: 'a', sollmonat: '2026-10-01', sollbetrag: 438.71, faelligkeitsdatum: '2026-10-15' };
+    const stand = berechneMietkontostand(mockMietvertrag, [anteilig], [zahlung('z', 438.71, '2026-10-10', '2026-10')], new Date(2026, 9, 12));
+    expect(stand).toMatchObject({ rueckstand: 0, vorauszahlung: 438.71 });
+  });
+
+  it('wertet eine vor ihrer Fälligkeit bezahlte BKA-Nachzahlung als Vorauszahlung', () => {
+    const bka = { id: 'b', sollmonat: '2025-12-01', sollbetrag: 200, faelligkeitsdatum: '2026-11-20', typ: 'BKA' };
+    const zahlungen = [septBezahlt, zahlung('b', 200, '2026-10-25', '2026-10', 'Betriebskostenabrechnung')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, bka], zahlungen, new Date(2026, 9, 25));
+    expect(stand).toMatchObject({ rueckstand: 0, vorauszahlung: 200 });
+  });
+
+  it('erkennt die am 26. für den Folgemonat gezahlte Miete ab dem 1. als Vorauszahlung', () => {
+    // Review 28.10.2026: Die DB ordnet Zahlungen erst ab dem 28. dem Folgemonat zu. Ein Modell je
+    // zugeordnetem Monat zeigte diese Zahler bis zum 7. mit einer Monatsmiete Guthaben.
+    const zahlungen = [zahlung('z8', 800, '2026-08-26', '2026-08'), zahlung('z9', 800, '2026-09-26', '2026-09')];
+    const am3 = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 3));
+    expect(am3).toMatchObject({ rueckstand: 0, vorauszahlung: 800 });
+    // Vom 26. bis zum Monatsende fehlt die Oktoberforderung noch: so lange ist es nicht von einer
+    // Überzahlung zu unterscheiden und erscheint als Guthaben
+    const am27 = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 8, 27));
+    expect(am27).toMatchObject({ rueckstand: -800, vorauszahlung: 0 });
   });
 
   it('liefert für fehlende Daten Nullen', () => {

@@ -181,6 +181,7 @@ export default function MietvertragDetailsModal({
                   mutations.setShowMahnungModal(true);
                 }}
                 finanzFehler={finanzFehler}
+                finanzLaedt={finanzLaedt}
                 onShowKuendigung={() => mutations.setShowTerminationDialog(true)}
                 onShowKuendigungsbestaetigung={() => { setBestaetigungVorbelegung(null); setShowBestaetigung(true); }}
                 onShowVertragPdf={() => setShowVertragPdfModal(true)}

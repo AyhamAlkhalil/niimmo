@@ -197,7 +197,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                       ? 'nicht geladen'
                       : isLoading
                       ? 'wird geladen …'
-                      : `${fehlendeMietzahlungen?.length || 0} Vertrag${(fehlendeMietzahlungen?.length || 0) !== 1 ? 'e' : ''}`}
+                      : `${fehlendeMietzahlungen?.length || 0} ${(fehlendeMietzahlungen?.length || 0) === 1 ? 'Vertrag' : 'Verträge'}`}
                   </p>
                   <TooltipProvider>
                     <Tooltip>
@@ -205,7 +205,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                         <span className="ml-1 mt-1 cursor-help text-xs text-warning">ⓘ</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="max-w-xs text-xs">
-                        <p>Eine Monatsmiete zählt hier ab ihrer Fälligkeit am <strong>8. des Monats</strong>. Was vorher eingeht, gilt bis dahin als Vorauszahlung, nicht als Guthaben.</p>
+                        <p>Eine Monatsmiete zählt hier ab ihrer Fälligkeit am <strong>8. des Monats</strong>. Was vorher eingeht, wird bis dahin mit ihr verrechnet und erscheint nicht als Guthaben.</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -400,7 +400,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                       <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
                       <h3 className="font-semibold text-red-900 text-sm sm:text-base">Rückstände</h3>
                       <Badge variant="destructive" className="text-xs">
-                        {allRueckstaende.length} Vertrag{allRueckstaende.length !== 1 ? 'e' : ''}
+                        {allRueckstaende.length} {allRueckstaende.length === 1 ? 'Vertrag' : 'Verträge'}
                       </Badge>
                     </div>
                     <p className="font-bold text-red-600 text-sm sm:text-base">
@@ -440,7 +440,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                       <Euro className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                       <h3 className="font-semibold text-green-900 text-sm sm:text-base">Guthaben</h3>
                       <Badge className="text-xs bg-green-600">
-                        {allGuthaben.length} Vertrag{allGuthaben.length !== 1 ? 'e' : ''}
+                        {allGuthaben.length} {allGuthaben.length === 1 ? 'Vertrag' : 'Verträge'}
                       </Badge>
                     </div>
                     <p className="font-bold text-green-600 text-sm sm:text-base">
@@ -479,7 +479,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               <div className="pt-4 border-t border-gray-300">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                   <p className="text-xs sm:text-sm text-gray-600">
-                    {sortedFehlendeMietzahlungen.length} Mietvertrag{sortedFehlendeMietzahlungen.length !== 1 ? 'e' : ''} mit Rückständen oder Guthaben
+                    {sortedFehlendeMietzahlungen.length} {sortedFehlendeMietzahlungen.length === 1 ? 'Mietvertrag' : 'Mietverträge'} mit Rückständen oder Guthaben
                   </p>
                   <div className="flex flex-wrap gap-2 sm:gap-4">
                     {allRueckstaende.length > 0 && (

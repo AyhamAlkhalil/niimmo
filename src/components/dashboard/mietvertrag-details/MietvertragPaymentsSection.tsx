@@ -20,6 +20,8 @@ interface MietvertragPaymentsSectionProps {
   zahlungen: any[];
   /** Zahlungen oder Forderungen nicht geladen */
   finanzFehler?: boolean;
+  /** Zahlungen oder Forderungen laden noch */
+  finanzLaedt?: boolean;
   allMietvertraege?: any[];
   vertragId: string;
   mieterIds?: string[];
@@ -36,6 +38,7 @@ export function MietvertragPaymentsSection({
   forderungen,
   zahlungen,
   finanzFehler,
+  finanzLaedt,
   allMietvertraege,
   vertragId,
   mieterIds = [],
@@ -111,6 +114,10 @@ export function MietvertragPaymentsSection({
             <p role="alert" className="text-sm text-destructive">
               Zahlungen oder Forderungen konnten nicht geladen werden. Rückstand und Summen werden deshalb nicht angezeigt — bitte das Fenster neu öffnen.
             </p>
+          ) : finanzLaedt ? (
+            /* Bis zum 28.10.2026 rechnete die Übersicht mit den schon geladenen Zahlungen gegen noch
+               leere Forderungen und zeigte kurz alle Zahlungen als Guthaben */
+            <p className="text-sm text-muted-foreground">Zahlungen und Forderungen werden geladen …</p>
           ) : (<>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Fällige Forderungen */}
@@ -188,7 +195,7 @@ export function MietvertragPaymentsSection({
                 )}
                 {vorauszahlung > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Vorauszahlung (nicht im Guthaben): {formatBetrag(vorauszahlung)}
+                    Mit noch nicht Fälligem verrechnet: {formatBetrag(vorauszahlung)}
                   </p>
                 )}
               </div>
@@ -213,7 +220,7 @@ export function MietvertragPaymentsSection({
                 </div>
               )}
               <p className="text-xs text-muted-foreground self-center">
-                BKA-Salden sind bereits im Rückstand eingerechnet.
+                Fällige BKA-Salden sind im Rückstand eingerechnet.
               </p>
             </div>
           )}

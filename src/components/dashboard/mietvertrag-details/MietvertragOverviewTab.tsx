@@ -6,6 +6,8 @@ import { MietvertragMeterReadings } from "./MietvertragMeterReadings";
 interface MietvertragOverviewTabProps {
   /** Zahlungen oder Forderungen nicht geladen: Finanzübersicht zeigt einen Fehler statt Zahlen */
   finanzFehler?: boolean;
+  /** Zahlungen oder Forderungen laden noch: Finanzübersicht zeigt keine Zahlen */
+  finanzLaedt?: boolean;
   vertrag: any;
   mieter: any[];
   forderungen: any[];
@@ -49,6 +51,7 @@ export function MietvertragOverviewTab({
   forderungen,
   zahlungen,
   finanzFehler,
+  finanzLaedt,
   allMietvertraege,
   vertragId,
   immobilie,
@@ -140,6 +143,7 @@ export function MietvertragOverviewTab({
         forderungen={forderungen}
         zahlungen={zahlungen}
         finanzFehler={finanzFehler}
+        finanzLaedt={finanzLaedt}
         allMietvertraege={allMietvertraege}
         vertragId={vertragId}
         mieterIds={mieter?.map((m: any) => m.id).filter(Boolean) || []}
