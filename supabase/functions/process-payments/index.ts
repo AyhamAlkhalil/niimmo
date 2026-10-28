@@ -130,6 +130,9 @@ interface ContractInfo {
   status: string;
   start_datum: string | null;
   ende_datum: string | null;
+  // Je Mieter die id und die Schreibweisen von Vor- und Nachname (namensVarianten, erste = Original).
+  // Dient nur dem Abgleich (verbundene Vertraege, voller Name im Text) und geht nicht an die KI.
+  mieterPersonen: { id: string | null; vornamen: string[]; nachnamen: string[] }[];
 }
 
 interface NichtmieteRegel {
@@ -246,9 +249,13 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<any> {
             parameters: {
               type: "object",
               properties: {
-                mietvertrag_id: { 
-                  type: "string", 
-                  description: "UUID des zugeordneten Mietvertrags oder null wenn nicht zuordenbar" 
+                // Bis zum 28.10.2026 Typ string mit „… oder null“: Die KI schrieb dann den Text "null",
+                // der als Vertrag galt, vorausgewaehlt wurde und beim Speichern scheiterte (live 37
+                // Buchungen in 4 Importen). Die Antwort wird zusaetzlich in kiZuordnung geprueft. Kein
+                // „nullable“: am KI-Gateway ungetestet; das Feld ist ohnehin nicht Pflicht.
+                mietvertrag_id: {
+                  type: "string",
+                  description: "Die id eines Mietvertrags aus dem KONTEXT, Zeichen für Zeichen wie dort angegeben. Passt kein Vertrag sicher: Feld weglassen – nie den Text \"null\", nie eine erfundene oder gekürzte id."
                 },
                 kategorie: {
                   type: "string",
@@ -261,7 +268,7 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<any> {
                 },
                 confidence: {
                   type: "number",
-                  description: "Konfidenz der Zuordnung (0-100)"
+                  description: "Konfidenz der Zuordnung in Prozent, eine Zahl von 0 bis 100 (z. B. 85) – kein Anteil wie 0.85"
                 }
               },
               required: ["kategorie", "zuordnungsgrund", "confidence"],
@@ -288,6 +295,35 @@ async function callAI(systemPrompt: string, userPrompt: string): Promise<any> {
   }
   
   throw new Error("Keine gültige AI-Antwort erhalten");
+}
+
+// Ab dieser Konfidenz waehlt ein KI-Vorschlag vor -- wie KONFIDENZ_SICHER der Pruefmaske und die
+// Regeltreffer hier, die unter 80 nie vorauswaehlen.
+const KI_KONFIDENZ_VORAUSWAHL = 80;
+
+// Steht im KONTEXT bei einem Vertrag dieselbe IBAN, ordnete die KI sonst danach zu -- bei einem
+// Sammel- oder Bankkonto (nichtIdentifizierendeIbans) genau der Fehler, den der Regelabgleich meidet.
+const SAMMELKONTO_HINWEIS = " (Sammel- oder Bankkonto, zahlt für verschiedene Mieter — nicht nach der IBAN zuordnen, nur nach Namen oder Objekt im Text)";
+
+/**
+ * Prueft die Antwort der KI, bevor sie als Vorschlag gilt.
+ *
+ * Bis zum 28.10.2026 galt `result.mietvertrag_id || null`: Der Text "null" war wahr, die Zeile kam
+ * vorausgewaehlt als „Zugeordnet“ in die Pruefmaske, und das Speichern scheiterte an der UUID
+ * (live 37 Buchungen in 4 Importen). Ausserdem waehlte jeder KI-Vorschlag vor, gleich mit welcher
+ * Konfidenz und ob die id ueberhaupt einen geladenen Vertrag bezeichnete.
+ */
+function kiZuordnung(result: any, contracts: ContractInfo[]): { mietvertrag_id: string | null; confidence: number; selected: boolean; hinweis: string } {
+  const roh = typeof result?.mietvertrag_id === "string" ? result.mietvertrag_id.trim() : "";
+  const vertrag = roh ? contracts.find(c => c.id.toLowerCase() === roh.toLowerCase()) : undefined;
+  const roheZahl = typeof result?.confidence === "number" ? result.confidence : Number(result?.confidence);
+  // Ein Anteil (0.85) statt Prozent laege immer unter der Schwelle. Genau 1 bleibt 1: als Anteil
+  // hiesse es 100 %, als Prozent 1 % -- im Zweifel nicht vorauswaehlen (28.10.2026).
+  const zahl = roheZahl > 0 && roheZahl < 1 ? roheZahl * 100 : roheZahl;
+  const confidence = Number.isFinite(zahl) ? Math.min(100, Math.max(0, Math.round(zahl * 10) / 10)) : 0;
+  const mietvertrag_id = vertrag?.id ?? null;
+  const hinweis = !vertrag && roh && roh.toLowerCase() !== "null" ? " (KI nannte keinen bekannten Vertrag)" : "";
+  return { mietvertrag_id, confidence, selected: mietvertrag_id !== null && confidence >= KI_KONFIDENZ_VORAUSWAHL, hinweis };
 }
 
 // ============= DB CONTEXT LOADING =============
@@ -354,7 +390,11 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
         )
       )
     `)
-    .in("status", ["aktiv", "gekuendigt", "beendet"]);
+    .in("status", ["aktiv", "gekuendigt", "beendet"])
+    // Feste Reihenfolge: Wo ein Abgleich noch den ersten Treffer nimmt, entschied sonst die
+    // zufaellige Reihenfolge der Datenbank -- live stand bei einem Jobcenter-Mieter die Garage
+    // vor der Wohnung (28.10.2026)
+    .order("id");
 
   // Bis zum 27.10.2026 lieferten alle drei Ladefunktionen bei einem Fehler still [] -- dann
   // kam jede Buchung als "nicht zugeordnet" bzw. ohne Regel in die Pruefmaske, als waere das
@@ -367,11 +407,13 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
   return contracts.map((c: any) => {
     const mieterNamesSet = new Set<string>();
     const mieterDisplay: string[] = [];
+    const mieterPersonen: ContractInfo["mieterPersonen"] = [];
 
     c.mietvertrag_mieter?.forEach((mm: any) => {
       const vorname = mm.mieter?.vorname || "";
       const nachname = mm.mieter?.nachname || "";
       const fullName = `${vorname} ${nachname}`.trim();
+      mieterPersonen.push({ id: mm.mieter?.id ?? null, vornamen: namensVarianten(vorname), nachnamen: namensVarianten(nachname) });
       if (fullName) {
         mieterDisplay.push(fullName);
         // Add individual parts for fuzzy matching — deduped, damit z.B. zwei
@@ -401,9 +443,83 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
       etage: c.einheiten?.etage,
       status: c.status,
       start_datum: c.start_datum,
-      ende_datum: c.ende_datum
+      ende_datum: c.ende_datum,
+      mieterPersonen
     };
   });
+}
+
+/**
+ * Schreibweisen, in denen eine IBAN in zahlungen.iban stehen kann -- .in() vergleicht exakt. Live
+ * (28.10.2026) stehen 3.597 Buchungen kompakt in Grossbuchstaben und eine Altzeile mit Zeilenumbruch
+ * dahinter (vor dem Trimmen beim Import); manche Banken liefern 4er-Gruppen. Dazu die Form der Bank
+ * aus dem Upload selbst. Die Jobcenter-IBAN entfaellt, sie wird nie als Mieterkonto gewertet.
+ */
+function ibanSchreibweisen(iban: string | null | undefined): string[] {
+  const kompakt = normalisiereIban(iban);
+  if (!/^[A-Z0-9]+$/.test(kompakt) || kompakt === BG_ZAHLUNG_IBAN) return [];
+  const roh = (iban ?? "").trim();
+  return [...new Set([
+    kompakt,
+    kompakt.replace(/(.{4})(?=.)/g, "$1 "),
+    `${kompakt}\r\n`,
+    ...(/^[A-Za-z0-9 ]+$/.test(roh) ? [roh] : []),
+  ])];
+}
+
+/**
+ * Welche Vertraege die IBANs dieses Uploads bisher bezahlt haben (nur zugeordnete Buchungen), je
+ * normalisierter IBAN. Grundlage fuer nichtIdentifizierendeIbans (28.10.2026). Seitenweise, weil
+ * PostgREST still nach 1000 Zeilen abschneidet; die IBANs in Bloecken, damit die Adresse kurz bleibt,
+ * hoechstens 4 Bloecke gleichzeitig. Jede Seite wird einmal wiederholt; scheitert sie erneut, wirft
+ * die Funktion, und der Aufrufer arbeitet ohne Sammelkonto-Erkennung weiter.
+ */
+async function ladeZahlungsverlauf(supabase: any, ibans: string[], warteMs = 300): Promise<Map<string, Set<string>>> {
+  const verlauf = new Map<string, Set<string>>();
+  const SEITE = 1000;
+  const BLOCK = 30;
+  const GLEICHZEITIG = 4;
+  const bloecke: string[][] = [];
+  for (let i = 0; i < ibans.length; i += BLOCK) bloecke.push(ibans.slice(i, i + BLOCK));
+
+  const ladeSeite = async (block: string[], von: number): Promise<any[]> => {
+    for (let versuch = 1; ; versuch++) {
+      // Werte in Anfuehrungszeichen (PostgREST-Syntax fuer reservierte Zeichen): Leerzeichen und
+      // Zeilenumbruch der Schreibweisen gehoeren zum Wert
+      const { data, error } = await supabase
+        .from("zahlungen")
+        .select("id, iban, mietvertrag_id")
+        .filter("iban", "in", `(${block.map(w => `"${w}"`).join(",")})`)
+        .not("mietvertrag_id", "is", null)
+        .order("id")
+        .range(von, von + SEITE - 1);
+      if (!error) return (data as any[]) ?? [];
+      console.error(`Zahlungsverlauf: Seite ab ${von} fehlgeschlagen (Versuch ${versuch}):`, error.message);
+      if (versuch >= 2) throw new Error("Zahlungsverlauf konnte nicht geladen werden");
+      await new Promise(resolve => setTimeout(resolve, warteMs));
+    }
+  };
+
+  const ladeBlock = async (block: string[]) => {
+    for (let von = 0; ; von += SEITE) {
+      const zeilen = await ladeSeite(block, von);
+      for (const zeile of zeilen) {
+        const iban = normalisiereIban(zeile.iban);
+        if (!iban || !zeile.mietvertrag_id) continue;
+        const vertraege = verlauf.get(iban) ?? new Set<string>();
+        vertraege.add(zeile.mietvertrag_id);
+        verlauf.set(iban, vertraege);
+      }
+      if (zeilen.length < SEITE) break;
+    }
+  };
+
+  let naechster = 0;
+  const arbeiter = async () => {
+    while (naechster < bloecke.length) await ladeBlock(bloecke[naechster++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(GLEICHZEITIG, bloecke.length) }, arbeiter));
+  return verlauf;
 }
 
 // ============= CATEGORIZATION WITH DB RULES =============
@@ -518,7 +634,8 @@ function checkSonderfallRegeln(
 
 /** Kleingeschriebene Schreibweisen eines Namens ohne Umlaute: ä→ae und ä→a, ß→ss. */
 function namensVarianten(name: string): string[] {
-  const klein = (name || "").trim().toLowerCase();
+  // NFC: Ein als u + Trema gespeichertes „ü“ verfehlte sonst die Ersetzungen und den Vergleich (28.10.2026)
+  const klein = (name || "").normalize("NFC").trim().toLowerCase();
   if (!klein) return [];
   const mitE = klein.replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
   const ohneE = klein.replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u").replace(/ß/g, "ss");
@@ -778,7 +895,73 @@ function matchRuecklastschriftByVerwendungszweckIban(
   };
 }
 
-function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonderfallRegeln?: SonderfallRegel[]): ProcessedPayment | null {
+/** Alle am Vertrag hinterlegten IBANs (Hauptkonto und weitere), normalisiert. */
+function kontenVon(c: ContractInfo): string[] {
+  return [c.iban, ...(c.weitere_iban ? c.weitere_iban.split(",") : [])].map(normalisiereIban).filter(Boolean);
+}
+
+/**
+ * Verbunden sind Vertraege derselben Mieter (Wohnung und Garage): gemeinsame Mieter-id oder derselbe
+ * volle Name, denn manche Mieter stehen mit zwei Datensaetzen im Bestand (live 3 IBANs, 28.10.2026).
+ */
+function vertraegeVerbunden(a: ContractInfo, b: ContractInfo): boolean {
+  return a.mieterPersonen.some(p => b.mieterPersonen.some(q =>
+    (p.id !== null && p.id === q.id) ||
+    (p.vornamen.length > 0 && p.nachnamen.length > 0 && p.vornamen[0] === q.vornamen[0] && p.nachnamen[0] === q.nachnamen[0])
+  ));
+}
+
+/**
+ * IBANs, die nicht fuer einen Mieter stehen: Sie haben fuer mindestens zwei fremde Vertraege gezahlt
+ * -- an denen sie nicht hinterlegt sind, die mit keinem solchen verbunden sind und auch untereinander
+ * nicht. Sie gelten wie die Jobcenter-IBAN nicht fuer den IBAN-Abgleich.
+ *
+ * Anlass 28.10.2026: Ein Konto der Bank fuer Retouren und Kautionsuebertraege stand als Hauptkonto
+ * an einem Vertrag. Jede Buchung von dort ging mit 95 % vorausgewaehlt an diesen Vertrag, live ein
+ * Kautionsuebertrag ueber 3.780 € fuer einen anderen Mieter. Das Konto hatte zuvor fuer 15 fremde
+ * Vertraege gezahlt. Ein einzelner fremder Vertrag reicht nicht: Eine alte Fehlzuordnung, ein
+ * Angehoeriger mit eigenem Mieterdatensatz oder eine neue Namensschreibweise haette das richtige
+ * Mieterkonto sonst fuer immer gesperrt (Review 28.10.2026); nennt der Text dann den fremden Mieter,
+ * greift nenntAnderenMieter. Teilen sich nicht verbundene Vertraege eine IBAN ueber das Bankkonto am
+ * Vertrag, sind alle moeglichen Ziele Kandidaten; dort entscheidet waehleVertrag.
+ */
+function nichtIdentifizierendeIbans(contracts: ContractInfo[], verlauf: Map<string, Set<string>>): Set<string> {
+  const nachId = new Map(contracts.map(c => [c.id, c]));
+  const ergebnis = new Set<string>();
+  for (const [iban, bezahlt] of verlauf) {
+    if (!iban || iban === BG_ZAHLUNG_IBAN) continue;
+    const hinterlegt = contracts.filter(c => kontenVon(c).includes(iban));
+    const fremd = [...bezahlt]
+      .map(id => nachId.get(id))
+      .filter((c): c is ContractInfo => !!c)
+      .filter(c => !hinterlegt.some(h => h.id === c.id || vertraegeVerbunden(h, c)));
+    if (fremd.some((f, i) => fremd.slice(i + 1).some(g => !vertraegeVerbunden(f, g)))) {
+      ergebnis.add(iban);
+    }
+  }
+  return ergebnis;
+}
+
+/**
+ * Ein Vertrag ausserhalb der IBAN-Treffer, dessen Mieter der Verwendungszweck mit Vor- und Nachnamen
+ * nennt, waehrend er keinen Mieter der IBAN-Treffer so nennt -- sonst null. Ganze Woerter, damit
+ * kurze Namen nicht in anderen Woertern treffen (28.10.2026).
+ */
+function nenntAnderenMieter(verwendungszweck: string, ibanVertraege: ContractInfo[], contracts: ContractInfo[]): ContractInfo | null {
+  // NFC und Zeichen mit Akzent (\p{M}) als Teil des Wortes, wie in namensVarianten
+  const woerter = new Set((verwendungszweck || "").normalize("NFC").toLowerCase().split(/[^\p{L}\p{M}]+/u).filter(w => w.length >= 2));
+  const teilGenannt = (varianten: string[]) => varianten.some(v => {
+    const teile = v.split(/[^\p{L}\p{M}]+/u).filter(w => w.length >= 2);
+    return teile.length > 0 && teile.every(t => woerter.has(t));
+  });
+  const nenntVoll = (c: ContractInfo) => c.mieterPersonen.some(p => teilGenannt(p.vornamen) && teilGenannt(p.nachnamen));
+  if (ibanVertraege.some(nenntVoll)) return null;
+  return contracts.find(c =>
+    !ibanVertraege.some(t => t.id === c.id || vertraegeVerbunden(t, c)) && nenntVoll(c)
+  ) ?? null;
+}
+
+function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonderfallRegeln?: SonderfallRegel[], nichtIdentifizierend: Set<string> = new Set()): ProcessedPayment | null {
   const verwendungszweck = payment.verwendungszweck?.toLowerCase() || "";
   const empfaenger = payment.empfaengername?.toLowerCase() || "";
 
@@ -797,8 +980,11 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
   // WICHTIG: BG-IBAN ausschließen — Verträge mit der staatlichen BG-IBAN dürfen nicht per IBAN gematcht werden
   const ibanMatchedContracts: { contract: ContractInfo; matchType: 'primary' | 'weitere' }[] = [];
   const zahlungsIban = normalisiereIban(payment.iban);
+  // Sammel- und Bankkonten nennen keinen Mieter -- wie die BG-IBAN (nichtIdentifizierendeIbans, 28.10.2026)
+  const ibanIdentifiziert = !nichtIdentifizierend.has(zahlungsIban);
+  if (!ibanIdentifiziert) console.log("IBAN zahlt für mehrere nicht verbundene Verträge — kein IBAN-Abgleich");
 
-  for (const contract of contracts) {
+  for (const contract of ibanIdentifiziert ? contracts : []) {
     // Primary IBAN — skip if it's the BG-IBAN (staatliche Zahlung, nicht mieter-spezifisch)
     if (contract.iban && zahlungsIban === contract.iban && contract.iban !== BG_ZAHLUNG_IBAN) {
       ibanMatchedContracts.push({ contract, matchType: 'primary' });
@@ -829,15 +1015,22 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
           : ` (${anzahlVertraege} Verträge mit dieser IBAN, Betrag passt zu keinem eindeutig — bitte prüfen)`
         : '';
       const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
+      // Nennt der Text einen anderen Mieter mit vollem Namen und keinen der IBAN-Vertraege, zahlt das
+      // Konto womoeglich fuer jemand anderen (Kautionsuebertrag, Sammelkonto, Angehoerige) -- dann nur
+      // Vorschlag. Bis zum 28.10.2026 schlug die IBAN den Namen immer.
+      const andererMieter = nenntAnderenMieter(verwendungszweck, matchingContracts, contracts);
+      const vorauswahl = eindeutig && !andererMieter;
+      if (andererMieter) console.log(`IBAN-Match ${bestContract.id}: Verwendungszweck nennt Mieter von ${andererMieter.id} — nicht vorausgewählt`);
+      const namensHinweis = andererMieter ? ` — Verwendungszweck nennt ${andererMieter.mieter}, bitte prüfen` : '';
       return {
         ...payment,
         mietvertrag_id: bestContract.id,
         kategorie,
-        zuordnungsgrund: `${matchType}-Match: ${bestContract.mieter}${multiInfo}`,
+        zuordnungsgrund: `${matchType}-Match: ${bestContract.mieter}${multiInfo}${namensHinweis}`,
         // Geraten ist nicht sicher: unter KONFIDENZ_SICHER (80) und nicht vorausgewählt,
         // wie im Rücklastschrift-Pfad
-        confidence: eindeutig ? (matchInfo?.matchType === 'weitere' ? 90 : 95) : 60,
-        selected: eindeutig
+        confidence: vorauswahl ? (matchInfo?.matchType === 'weitere' ? 90 : 95) : 60,
+        selected: vorauswahl
       };
     }
   }
@@ -1134,7 +1327,9 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
       if (scoreB !== scoreA) return scoreB - scoreA;
       // Tiebreak by contract status (aktiv > gekündigt > beendet)
       const statusPriority: Record<string, number> = { "aktiv": 0, "gekuendigt": 1, "beendet": 2 };
-      return (statusPriority[a.contract.status] ?? 99) - (statusPriority[b.contract.status] ?? 99);
+      // id als letzter Schluessel: sonst entschied bei Gleichstand die Reihenfolge der Datenbank (28.10.2026)
+      return (statusPriority[a.contract.status] ?? 99) - (statusPriority[b.contract.status] ?? 99) ||
+        a.contract.id.localeCompare(b.contract.id);
     });
     bestMatch = matches[0];
     console.log(`BG-Match: ${matches.length} Kandidaten, gewählt: ${bestMatch.contract.mieter} (exactCount=${bestMatch.exactMatchCount}, address=${bestMatch.hasAddressMatch})`);
@@ -1156,7 +1351,8 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
       const scoreB = (b.isExact ? 2 : 0) + (b.hasAddressMatch ? 1 : 0);
       if (scoreB !== scoreA) return scoreB - scoreA;
       const statusPriority: Record<string, number> = { "aktiv": 0, "gekuendigt": 1, "beendet": 2 };
-      return (statusPriority[a.contract.status] ?? 99) - (statusPriority[b.contract.status] ?? 99);
+      return (statusPriority[a.contract.status] ?? 99) - (statusPriority[b.contract.status] ?? 99) ||
+        a.contract.id.localeCompare(b.contract.id);
     });
     bestMatch = dateValidMatches[0];
   }
@@ -1180,6 +1376,26 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     return null;
   }
 
+  // Gleichstand bei vollem Namen: meist Wohnung und Garage derselben Mieter. Bis zum 28.10.2026 griff
+  // der Schutz oben nur bei einem Namensteil; bei Vor- und Nachnamen entschied die Reihenfolge der
+  // Datenbank mit 90 % vorausgewaehlt, live stand die Garage zuerst. Jetzt waehlt waehleVertrag wie
+  // beim IBAN-Abgleich (Vertrag ohne Soll faellt weg, sonst das naechstliegende Soll), und die Zeile
+  // bleibt ein Vorschlag. Gekuendigt zaehlt wie aktiv, denn beide laufen noch.
+  const laeuftRang = (status: string) => (status === "aktiv" || status === "gekuendigt" ? 0 : status === "beendet" ? 1 : 2);
+  const gleichauf = finalPool.filter(m =>
+    m.contract.id !== bestMatch.contract.id &&
+    m.exactMatchCount === bestMatch.exactMatchCount &&
+    ((m.isExact ? 2 : 0) + (m.hasAddressMatch ? 1 : 0)) === bestScore &&
+    laeuftRang(m.contract.status) === laeuftRang(bestMatch.contract.status)
+  );
+  const gleichstand = gleichauf.length > 0;
+  if (gleichstand) {
+    const pool = [bestMatch, ...gleichauf];
+    const wahl = waehleVertrag(payment, pool.map(m => m.contract));
+    bestMatch = pool.find(m => m.contract.id === wahl.vertrag?.id) ?? bestMatch;
+    console.log(`BG-Match: ${pool.length} gleichwertige Treffer bei vollem Namen, Vorschlag ${bestMatch.contract.id} nach Soll und Betrag — nicht vorausgewählt`);
+  }
+
   // Determine category: Kaution or Miete
   let kategorie = "Miete";
   if (istKautionsbuchung(verwendungszweck, payment.betrag, bestMatch.contract.kaution)) {
@@ -1188,7 +1404,7 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
   
   // Nur ein ähnlicher Name, kein exakter Namensteil: Vorschlag, nicht vorausgewählt (27.10.2026)
   const nurUnscharf = bestMatch.exactMatchCount === 0;
-  const confidence = nurUnscharf ? 60 : bestMatch.isExact ? 90 : 80;
+  const confidence = nurUnscharf ? 60 : gleichstand ? 70 : bestMatch.isExact ? 90 : 80;
   const matchDetail = bestMatch.isExact ? "Exakter Namens-Match" : "Fuzzy-Namens-Match";
   const addressDetail = bestMatch.hasAddressMatch ? " + Adress-Match" : "";
   
@@ -1198,9 +1414,9 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
     ...payment,
     mietvertrag_id: bestMatch.contract.id,
     kategorie,
-    zuordnungsgrund: `BG-Zahlung ${matchDetail}${addressDetail}: "${bestMatch.matchedName}" → ${bestMatch.contract.mieter}${nurUnscharf ? " (nur ähnlicher Name, bitte prüfen)" : ""}`,
+    zuordnungsgrund: `BG-Zahlung ${matchDetail}${addressDetail}: "${bestMatch.matchedName}" → ${bestMatch.contract.mieter}${nurUnscharf ? " (nur ähnlicher Name, bitte prüfen)" : gleichstand ? ` (1 von ${gleichauf.length + 1} Verträgen mit diesem Namen, nach Soll und Betrag ausgewählt — bitte prüfen)` : ""}`,
     confidence,
-    selected: !nurUnscharf
+    selected: !nurUnscharf && !gleichstand
   };
 }
 
@@ -1208,7 +1424,8 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
 
 async function processBGZahlung(
   payment: Payment, 
-  contractContext: string
+  contractContext: string,
+  contracts: ContractInfo[]
 ): Promise<ProcessedPayment> {
   const systemPrompt = `Du bist ein Experte für die Zuordnung von BG-Zahlungen (Bürgergeld/Jobcenter) in einer Immobilienverwaltung.
 
@@ -1239,13 +1456,14 @@ Finde den passenden Mieter und kategorisiere die Zahlung. Dies ist IMMER eine Mi
       kategorie = "Miete";
       console.log(`BG-Zahlung AI override: Kategorie "${result.kategorie}" → "Miete" (BG-Zahlungen sind immer Miete)`);
     }
+    const ki = kiZuordnung(result, contracts);
     return {
       ...payment,
-      mietvertrag_id: result.mietvertrag_id || null,
+      mietvertrag_id: ki.mietvertrag_id,
       kategorie,
-      zuordnungsgrund: result.zuordnungsgrund,
-      confidence: result.confidence,
-      selected: true
+      zuordnungsgrund: `${result.zuordnungsgrund ?? "KI-Zuordnung"}${ki.hinweis}`,
+      confidence: ki.confidence,
+      selected: ki.selected
     };
   } catch (error) {
     console.error("BG-Zahlung AI Error:", error);
@@ -1262,7 +1480,9 @@ Finde den passenden Mieter und kategorisiere die Zahlung. Dies ist IMMER eine Mi
 
 async function processRuecklastschrift(
   payment: Payment, 
-  contractContext: string
+  contractContext: string,
+  contracts: ContractInfo[],
+  ibanNichtIdentifizierend: boolean = false
 ): Promise<ProcessedPayment> {
   const systemPrompt = `Du bist ein Experte für die Zuordnung von Rücklastschriften in einer Immobilienverwaltung.
 
@@ -1277,20 +1497,21 @@ Analysiere die Rücklastschrift und finde den zugehörigen Mietvertrag.
 
   const userPrompt = `Rücklastschrift analysieren:
 - Betrag: ${payment.betrag} €
-- IBAN: ${payment.iban}
+- IBAN: ${payment.iban}${ibanNichtIdentifizierend ? SAMMELKONTO_HINWEIS : ""}
 - Verwendungszweck: ${payment.verwendungszweck}
 - Empfänger: ${payment.empfaengername || "N/A"}
 - Datum: ${payment.buchungsdatum}`;
 
   try {
     const result = await callAI(systemPrompt, userPrompt);
+    const ki = kiZuordnung(result, contracts);
     return {
       ...payment,
-      mietvertrag_id: result.mietvertrag_id || null,
+      mietvertrag_id: ki.mietvertrag_id,
       kategorie: "Rücklastschrift",
-      zuordnungsgrund: result.zuordnungsgrund,
-      confidence: result.confidence,
-      selected: true
+      zuordnungsgrund: `${result.zuordnungsgrund ?? "KI-Zuordnung"}${ki.hinweis}${ibanNichtIdentifizierend ? " (Sammelkonto, bitte prüfen)" : ""}`,
+      confidence: ki.confidence,
+      selected: ki.selected && !ibanNichtIdentifizierend
     };
   } catch (error) {
     console.error("Rücklastschrift AI Error:", error);
@@ -1310,7 +1531,9 @@ Analysiere die Rücklastschrift und finde den zugehörigen Mietvertrag.
 async function processStandardPayment(
   payment: Payment, 
   contractContext: string,
-  nichtmieteVerdacht: boolean = false
+  contracts: ContractInfo[],
+  nichtmieteVerdacht: boolean = false,
+  ibanNichtIdentifizierend: boolean = false
 ): Promise<ProcessedPayment> {
   const verwendungszweck = (payment.verwendungszweck || "").toLowerCase();
   
@@ -1353,7 +1576,7 @@ Analysiere diese Zahlung und ordne sie dem richtigen Mieter zu.
 
   const userPrompt = `Zahlung analysieren:
 - Betrag: ${payment.betrag} €
-- IBAN: ${payment.iban}
+- IBAN: ${payment.iban}${ibanNichtIdentifizierend ? SAMMELKONTO_HINWEIS : ""}
 - Verwendungszweck: ${payment.verwendungszweck}
 - Empfänger: ${payment.empfaengername || "N/A"}
 - Datum: ${payment.buchungsdatum}
@@ -1369,13 +1592,14 @@ Finde den passenden Mieter. Wenn "Miete" im Text steht, kategorisiere als "Miete
       kategorie = "Miete";
     }
     
+    const ki = kiZuordnung(result, contracts);
     return {
       ...payment,
-      mietvertrag_id: result.mietvertrag_id || null,
+      mietvertrag_id: ki.mietvertrag_id,
       kategorie: kategorie,
-      zuordnungsgrund: result.zuordnungsgrund,
-      confidence: result.confidence,
-      selected: result.mietvertrag_id ? true : false
+      zuordnungsgrund: `${result.zuordnungsgrund ?? "KI-Zuordnung"}${ki.hinweis}${ibanNichtIdentifizierend ? " (Sammelkonto, bitte prüfen)" : ""}`,
+      confidence: ki.confidence,
+      selected: ki.selected && !ibanNichtIdentifizierend
     };
   } catch (error) {
     console.error("Standard Payment AI Error:", error);
@@ -1456,7 +1680,8 @@ serve(async (req) => {
     ]);
     
     console.log(`Loaded ${nichtmieteRegeln.length} Nichtmiete-Regeln, ${sonderfallRegeln.length} Sonderfall-Regeln, ${contracts.length} contracts`);
-    const contractContextString = JSON.stringify(contracts, null, 2);
+    // mieterPersonen dient nur dem Abgleich hier; Mieter-ids und Namensvarianten gehoeren nicht an die KI
+    const contractContextString = JSON.stringify(contracts, (k, v) => (k === "mieterPersonen" ? undefined : v), 2);
     
     // Build Nichtmiete-Regeln context for AI
     const nichtmieteRegelnContext = nichtmieteRegeln.length > 0
@@ -1626,6 +1851,22 @@ serve(async (req) => {
       );
     }
 
+    // IBANs, die fuer mehrere fremde, nicht verbundene Vertraege gezahlt haben, zaehlen nicht als
+    // Mieterkonto (28.10.2026). Scheitert der Verlauf auch nach Wiederholung, laeuft der Import ohne
+    // diese Erkennung weiter; die App zeigt die Warnung und traegt dann keine Bankkonten nach.
+    const warnungen: string[] = [];
+    let verlauf = new Map<string, Set<string>>();
+    let sammelkontenGeprueft = true;
+    try {
+      verlauf = await ladeZahlungsverlauf(supabase, [...new Set(newPayments.flatMap((p: Payment) => ibanSchreibweisen(p.iban)))]);
+    } catch (e) {
+      console.error("Sammelkonto-Erkennung entfällt:", e instanceof Error ? e.message : e);
+      sammelkontenGeprueft = false;
+      warnungen.push("Sammel- und Bankkonten konnten diesmal nicht erkannt werden (Zahlungsverlauf nicht geladen). IBAN-Treffer bitte besonders prüfen; Bankverbindungen werden bei dieser Übernahme nicht am Vertrag nachgetragen.");
+    }
+    const nichtIdentifizierend = nichtIdentifizierendeIbans(contracts, verlauf);
+    console.log(`${nichtIdentifizierend.size} IBAN(s) im Upload zahlen für mehrere fremde Verträge`);
+
     const results: ProcessedPayment[] = [];
     const needsAI: { payment: Payment; type: string }[] = [];
 
@@ -1648,7 +1889,7 @@ serve(async (req) => {
         if (ibanTextMatch) {
           results.push(ibanTextMatch);
         } else {
-          const ruleMatch = matchPaymentByRules(payment, contracts, sonderfallRegeln);
+          const ruleMatch = matchPaymentByRules(payment, contracts, sonderfallRegeln, nichtIdentifizierend);
           if (ruleMatch) {
             results.push({
               ...ruleMatch,
@@ -1669,7 +1910,7 @@ serve(async (req) => {
           needsAI.push({ payment, type: "bg_zahlung" });
         }
       } else {
-        const ruleMatch = matchPaymentByRules(payment, contracts, sonderfallRegeln);
+        const ruleMatch = matchPaymentByRules(payment, contracts, sonderfallRegeln, nichtIdentifizierend);
         if (ruleMatch) {
           results.push(ruleMatch);
         } else {
@@ -1701,15 +1942,16 @@ serve(async (req) => {
       
       console.log(`AI Processing: ${payment.betrag}€, Type: ${type}`);
       
+      const sammelkonto = nichtIdentifizierend.has(normalisiereIban(payment.iban));
       if (type === "bg_zahlung") {
-        processed = await processBGZahlung(payment, contractContextString + nichtmieteRegelnContext);
+        processed = await processBGZahlung(payment, contractContextString + nichtmieteRegelnContext, contracts);
       } else if (type === "retoure") {
-        processed = await processRuecklastschrift(payment, contractContextString + nichtmieteRegelnContext);
+        processed = await processRuecklastschrift(payment, contractContextString + nichtmieteRegelnContext, contracts, sammelkonto);
       } else if (type === "nichtmiete_verdacht") {
         // Regelbasiert als Nichtmiete erkannt, KI soll final entscheiden
-        processed = await processStandardPayment(payment, contractContextString + nichtmieteRegelnContext, true);
+        processed = await processStandardPayment(payment, contractContextString + nichtmieteRegelnContext, contracts, true, sammelkonto);
       } else if (type === "standard") {
-        processed = await processStandardPayment(payment, contractContextString + nichtmieteRegelnContext);
+        processed = await processStandardPayment(payment, contractContextString + nichtmieteRegelnContext, contracts, false, sammelkonto);
       } else {
         processed = {
           ...payment,
@@ -1765,7 +2007,11 @@ serve(async (req) => {
         dryRun,
         stats,
         results,
-        duplicates
+        duplicates,
+        // Die App traegt diese IBANs nach der Uebernahme nicht als Bankkonto am Vertrag nach
+        // (ibanFuerNachtrag, 28.10.2026); null = nicht geprueft, dann gar kein Nachtrag
+        nicht_identifizierende_ibans: sammelkontenGeprueft ? [...nichtIdentifizierend] : null,
+        warnungen
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

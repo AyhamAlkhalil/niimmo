@@ -114,6 +114,17 @@ export function PaymentSplitModal({
   );
   const [isLoading, setIsLoading] = useState(false);
 
+  // Nach jeder Änderung an den Zahlungen. Bis zum 28.10.2026 fehlte ['rueckstaende']: Die
+  // Rückstandsübersicht zeigte nach dem Aufteilen oder Aufheben noch den alten Stand.
+  const zahlungsAnsichtenNeuLaden = () =>
+    Promise.allSettled([
+      queryClient.invalidateQueries({ queryKey: ["zahlungen-detail", vertragId] }),
+      queryClient.invalidateQueries({ queryKey: ["mietvertrag-details", vertragId] }),
+      queryClient.invalidateQueries({ queryKey: ["mietforderungen", vertragId] }),
+      queryClient.invalidateQueries({ queryKey: ["zahlungen"] }),
+      queryClient.invalidateQueries({ queryKey: ["rueckstaende"] }),
+    ]);
+
   useEffect(() => {
     if (!isOpen) return;
     setSplits(buildInitialSplits(payment, editMode, existingSplitPayments));
@@ -271,10 +282,21 @@ export function PaymentSplitModal({
 
       if (deleteError) {
         if (insertedPayments?.length) {
-          await supabase
+          // Bis zum 28.10.2026 ungeprueft: Scheiterte auch das Zuruecknehmen, standen Original und
+          // Teilzahlungen nebeneinander, die Zahlung zaehlte doppelt -- und die Meldung sagte nur
+          // „Fehler beim Aktualisieren“.
+          const { error: rueckError } = await supabase
             .from("zahlungen")
             .delete()
             .in("id", insertedPayments.map((p) => p.id));
+          if (rueckError) {
+            console.error("[Aufteilen] Teilzahlungen nicht zurückgenommen:", rueckError.message);
+            await zahlungsAnsichtenNeuLaden();
+            throw new Error(
+              `Die Zahlung ist jetzt doppelt gebucht: Das Original ließ sich nicht entfernen (${deleteError.message}), ` +
+                `und die ${insertedPayments.length} neuen Teilzahlungen ließen sich nicht zurücknehmen. Bitte die Teilzahlungen von Hand löschen.`
+            );
+          }
         }
         throw new Error(`Fehler beim Aktualisieren: ${deleteError.message}`);
       }
@@ -284,12 +306,7 @@ export function PaymentSplitModal({
         description: `Zahlung in ${splits.length} Teilzahlungen aufgeteilt.`,
       });
 
-      await Promise.allSettled([
-        queryClient.invalidateQueries({ queryKey: ["zahlungen-detail", vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ["mietvertrag-details", vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ["mietforderungen", vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ["zahlungen"] }),
-      ]);
+      await zahlungsAnsichtenNeuLaden();
 
       onClose();
     } catch (error: any) {
@@ -297,6 +314,8 @@ export function PaymentSplitModal({
         title: "Fehler",
         description: error.message || "Unbekannter Fehler.",
         variant: "destructive",
+        // Eine Doppelbuchung muss gelesen werden können, nicht nach 5 Sekunden weg sein (28.10.2026)
+        duration: 60000,
       });
     } finally {
       setIsLoading(false);
@@ -350,8 +369,17 @@ export function PaymentSplitModal({
         .delete()
         .in("id", existingSplitPayments.map((p) => p.id));
       if (deleteError) {
-        // Kompensierender Rollback: neu eingefügte Zahlung wieder löschen
-        await supabase.from("zahlungen").delete().eq("id", insertedRow.id);
+        // Kompensierender Rollback: neu eingefügte Zahlung wieder löschen. Bis zum 28.10.2026
+        // ungeprüft — scheiterte er, zählte die Zahlung doppelt, ohne dass es jemand erfuhr.
+        const { error: rueckError } = await supabase.from("zahlungen").delete().eq("id", insertedRow.id);
+        if (rueckError) {
+          console.error("[Aufteilung aufheben] Zusammengeführte Zahlung nicht zurückgenommen:", rueckError.message);
+          await zahlungsAnsichtenNeuLaden();
+          throw new Error(
+            `Die Zahlung ist jetzt doppelt gebucht: Die Teilzahlungen ließen sich nicht entfernen (${deleteError.message}), ` +
+              `und die zusammengeführte Zahlung über ${formatBetrag(totalAmount)} ließ sich nicht zurücknehmen. Bitte eine der beiden Buchungen von Hand löschen.`
+          );
+        }
         throw new Error(`Fehler beim Löschen der Teilzahlungen: ${deleteError.message}`);
       }
 
@@ -360,12 +388,7 @@ export function PaymentSplitModal({
         description: `${existingSplitPayments.length} Teilzahlungen wurden zu einer Zahlung von ${formatBetrag(totalAmount)} zusammengeführt.`,
       });
 
-      await Promise.allSettled([
-        queryClient.invalidateQueries({ queryKey: ["zahlungen-detail", vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ["mietvertrag-details", vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ["mietforderungen", vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ["zahlungen"] }),
-      ]);
+      await zahlungsAnsichtenNeuLaden();
 
       onClose();
     } catch (error: any) {
@@ -373,6 +396,8 @@ export function PaymentSplitModal({
         title: "Fehler",
         description: error.message || "Unbekannter Fehler.",
         variant: "destructive",
+        // Eine Doppelbuchung muss gelesen werden können, nicht nach 5 Sekunden weg sein (28.10.2026)
+        duration: 60000,
       });
     } finally {
       setIsLoading(false);

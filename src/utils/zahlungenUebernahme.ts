@@ -112,6 +112,46 @@ export function vertragsIdsMitIban(zeilen: ReadonlyArray<{ mietvertrag_id?: stri
 /** IBAN der Bundesagentur (Bürgergeld): zahlt für viele Mieter, ist nie das Konto eines Mieters. */
 export const JOBCENTER_IBAN = 'DE94760000000076001601';
 
+/** Ohne Leerraum, in Großbuchstaben — so vergleicht auch process-payments (normalisiereIban). */
+export function normalisiereIban(iban: string | null | undefined): string {
+  return (iban ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
+/** Bankverbindungen und Mieter eines Vertrags, soweit der IBAN-Nachtrag sie braucht. */
+export interface VertragsKonten {
+  id: string;
+  bankkonto_mieter: string | null;
+  weitere_bankkonten: string | null;
+  /** `id:<mieter_id>` und `name:<vorname>|<nachname>` — Verträge, die eine Kennung teilen, sind verbunden. */
+  mieterKennungen: string[];
+}
+
+/**
+ * Kennungen der Mieter eines Vertrags. Verbunden sind Verträge derselben Mieter (Wohnung und Garage),
+ * auch wenn ein Mieter mit zwei Datensätzen im Bestand steht — dann über den vollen Namen. Vergleicht
+ * wie vertraegeVerbunden in process-payments: Vor- und Nachname je für sich, NFC, getrimmt, klein
+ * (28.10.2026). Ein zerlegt gespeichertes „ü“ (u + Trema) gleicht so dem zusammengesetzten.
+ */
+export function mieterKennungen(
+  eintraege: ReadonlyArray<{ mieter_id?: string | null; mieter?: { vorname?: string | null; nachname?: string | null } | null }> | null | undefined
+): string[] {
+  const kennungen = new Set<string>();
+  for (const e of eintraege ?? []) {
+    if (e.mieter_id) kennungen.add(`id:${e.mieter_id}`);
+    const vorname = (e.mieter?.vorname ?? '').normalize('NFC').trim().toLowerCase();
+    const nachname = (e.mieter?.nachname ?? '').normalize('NFC').trim().toLowerCase();
+    if (vorname && nachname) kennungen.add(`name:${vorname}|${nachname}`);
+  }
+  return [...kennungen];
+}
+
+export interface NachtragKontext {
+  /** Alle Verträge mit ihren Bankverbindungen; nach jedem Nachtrag fortgeschrieben. */
+  vertraege: ReadonlyArray<VertragsKonten>;
+  /** IBANs, die laut process-payments für mehrere nicht verbundene Verträge zahlen (normalisiert). */
+  nichtIdentifizierend: ReadonlySet<string>;
+}
+
 /**
  * IBAN, die nach der Übernahme als Bankverbindung am Vertrag nachgetragen werden darf, sonst null.
  *
@@ -119,10 +159,52 @@ export const JOBCENTER_IBAN = 'DE94760000000076001601';
  * Rücklastschriften, Kautionsstellen, Sammelkonten und dem Jobcenter. Weil der IBAN-Abgleich vor dem
  * Namensabgleich läuft, schlug das falsche Konto danach den richtigen Namen: live waren zwei
  * Sammelkonten Hauptkonto von drei Verträgen, 16 Verträge trugen die Jobcenter-IBAN.
+ *
+ * Seit dem 28.10.2026 auch nicht, wenn die IBAN schon an einem anderen, nicht verbundenen Vertrag
+ * steht oder für mehrere nicht verbundene Verträge zahlt: So wurde ein Konto der Bank für Retouren
+ * und Kautionsüberträge zum Hauptkonto eines Vertrags, und jede Buchung von dort ging vorausgewählt
+ * an ihn. An Wohnung und Garage derselben Mieter darf dieselbe IBAN stehen.
  */
-export function ibanFuerNachtrag(kategorie: string | null | undefined, iban: string | null | undefined): string | null {
+export function ibanFuerNachtrag(
+  kategorie: string | null | undefined,
+  iban: string | null | undefined,
+  mietvertragId: string,
+  kontext: NachtragKontext
+): string | null {
   if (kategorie !== 'Miete') return null;
-  const normalisiert = (iban ?? '').replace(/\s+/g, '').toUpperCase();
+  const normalisiert = normalisiereIban(iban);
   if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(normalisiert) || normalisiert === JOBCENTER_IBAN) return null;
-  return normalisiert;
+  if (kontext.nichtIdentifizierend.has(normalisiert)) return null;
+  const ziel = new Set(kontext.vertraege.find((v) => v.id === mietvertragId)?.mieterKennungen ?? []);
+  const anFremdemVertrag = kontext.vertraege.some(
+    (v) =>
+      v.id !== mietvertragId &&
+      [v.bankkonto_mieter, ...(v.weitere_bankkonten ?? '').split(',')].some((k) => normalisiereIban(k) === normalisiert) &&
+      !v.mieterKennungen.some((k) => ziel.has(k))
+  );
+  return anFremdemVertrag ? null : normalisiert;
+}
+
+const UUID_FORM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Vertrags- und Objektbezug einer Zeile vor dem Speichern: nur in UUID-Form, sonst null.
+ * `verworfen` sagt, ob ein nicht leerer Bezug dabei wegfiel.
+ *
+ * Bis zum 28.10.2026 kam der Text "null" aus der KI als Vertrag durch, und jede solche Zeile
+ * scheiterte beim Speichern an der UUID (live 37 Buchungen in 4 Importen) — die Buchung fehlte.
+ * Jetzt wird sie ohne Bezug gespeichert und als nicht zuordenbar gemeldet.
+ */
+export function bezugPruefen(zeile: { mietvertrag_id?: string | null; immobilie_id?: string | null }): {
+  mietvertrag_id: string | null;
+  immobilie_id: string | null;
+  verworfen: boolean;
+} {
+  const pruefe = (wert: string | null | undefined) => {
+    const getrimmt = typeof wert === 'string' ? wert.trim() : '';
+    return { id: UUID_FORM.test(getrimmt) ? getrimmt : null, verworfen: getrimmt !== '' && !UUID_FORM.test(getrimmt) };
+  };
+  const vertrag = pruefe(zeile.mietvertrag_id);
+  const objekt = pruefe(zeile.immobilie_id);
+  return { mietvertrag_id: vertrag.id, immobilie_id: objekt.id, verworfen: vertrag.verworfen || objekt.verworfen };
 }

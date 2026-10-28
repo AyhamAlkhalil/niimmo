@@ -89,8 +89,9 @@ interface PaymentAssignmentResultsModalProps {
   dateiname?: string;
   /** Liefert zurueck, wie viele Zeilen tatsaechlich gespeichert wurden. */
   /** auswahl: Positionen der gewählten Zeilen in `results` — die übrigen werden ohne Vertrag gespeichert. */
+  /** hinweise: gespeichert, aber zu prüfen (z. B. ohne Vertrag gespeichert, Upload nicht protokolliert). */
   onApply: (selectedResults: Zuordnungsvorschlag[], auswahl: ReadonlySet<number>) => Promise<
-    { gesamt: number; gespeichert: number; fehler: Array<{ zeile: string; grund: string }> } | void
+    { gesamt: number; gespeichert: number; fehler: Array<{ zeile: string; grund: string }>; hinweise?: string[] } | void
   >;
 }
 
@@ -401,10 +402,15 @@ export function PaymentAssignmentResultsModal({ open, onOpenChange, results, dup
       // Erfolg stehen, wenn wirklich alles gespeichert wurde.
       const fehlgeschlagen = ergebnis && "fehler" in ergebnis ? ergebnis.fehler.length : 0;
       if (fehlgeschlagen === 0) {
-        toast({
-          title: "Zuordnungen übernommen",
-          description: `${ergebnis && "gespeichert" in ergebnis ? ergebnis.gespeichert : mitZuordnung} Zahlungen wurden gespeichert.`,
-        });
+        // Hinweise stehen in derselben Meldung: Es steht immer nur ein Toast (TOAST_LIMIT 1), ein
+        // zweiter hätte diesen ersetzt oder wäre von ihm ersetzt worden (28.10.2026)
+        const hinweise = ergebnis && "hinweise" in ergebnis ? ergebnis.hinweise ?? [] : [];
+        const gespeichert = `${ergebnis && "gespeichert" in ergebnis ? ergebnis.gespeichert : mitZuordnung} Zahlungen wurden gespeichert.`;
+        toast(
+          hinweise.length > 0
+            ? { title: "Zuordnungen übernommen — bitte prüfen", description: `${gespeichert} ${hinweise.join(" ")}`, duration: 60000 }
+            : { title: "Zuordnungen übernommen", description: gespeichert }
+        );
       }
       onOpenChange(false);
     } catch {

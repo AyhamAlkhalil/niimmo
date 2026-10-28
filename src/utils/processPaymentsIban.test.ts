@@ -28,8 +28,13 @@ function konstante(name: string): string {
 const code = [
   konstante('BG_ZAHLUNG_IBAN'),
   konstante('BETRAG_TOLERANZ'),
+  konstante('KI_KONFIDENZ_VORAUSWAHL'),
   ausschnitt('function normalisiereIban('),
+  ausschnitt('function levenshteinDistance('),
+  ausschnitt('function kiZuordnung('),
   ausschnitt('async function getContractContext('),
+  ausschnitt('function ibanSchreibweisen('),
+  ausschnitt('async function ladeZahlungsverlauf('),
   ausschnitt('function categorizePaymentType('),
   ausschnitt('function checkSonderfallRegeln('),
   ausschnitt('function namensVarianten('),
@@ -39,14 +44,19 @@ const code = [
   ausschnitt('function selectBestContractByDate('),
   ausschnitt('function waehleVertrag('),
   ausschnitt('function isBetriebskostenabrechnung('),
+  ausschnitt('function kontenVon('),
+  ausschnitt('function vertraegeVerbunden('),
+  ausschnitt('function nichtIdentifizierendeIbans('),
+  ausschnitt('function nenntAnderenMieter('),
   ausschnitt('function matchPaymentByRules('),
+  ausschnitt('function matchBGPaymentByName('),
 ].join('\n');
 
 const js = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fn: any = new Function(
   'console',
-  `${js}\nreturn { normalisiereIban, getContractContext, categorizePaymentType, matchPaymentByRules, checkSonderfallRegeln, teileNachBestand };`,
+  `${js}\nreturn { normalisiereIban, getContractContext, categorizePaymentType, matchPaymentByRules, checkSonderfallRegeln, teileNachBestand, kiZuordnung, ladeZahlungsverlauf, ibanSchreibweisen, nichtIdentifizierendeIbans, matchBGPaymentByName };`,
 )({ log: () => {}, error: () => {} });
 
 function vertrag(id: string, kaltmiete: number, bankkonto: string | null, weitere: string | null = null) {
@@ -59,8 +69,20 @@ function vertrag(id: string, kaltmiete: number, bankkonto: string | null, weiter
   };
 }
 
-function client(zeilen: unknown[]) {
-  return { from: () => ({ select: () => ({ in: async () => ({ data: zeilen, error: null }) }) }) };
+/** Nachgebauter Supabase-Client für getContractContext; merkt sich die Aufrufe der Kette. */
+function client(zeilen: unknown[], fehler: { message: string } | null = null) {
+  const aufrufe: string[] = [];
+  const antwort = { data: fehler ? null : zeilen, error: fehler };
+  const kette: Record<string, unknown> = {
+    then: (ok: (w: unknown) => unknown, nein: (e: unknown) => unknown) => Promise.resolve(antwort).then(ok, nein),
+  };
+  for (const methode of ['select', 'in', 'order']) {
+    kette[methode] = (spalte: unknown) => {
+      aufrufe.push(`${methode}:${typeof spalte === 'string' ? spalte.trim().split(/\s/)[0] : ''}`);
+      return kette;
+    };
+  }
+  return { from: () => kette, aufrufe };
 }
 
 const KONTO = 'DE00111122223333444455';
@@ -259,6 +281,306 @@ describe('process-payments Jobcenter-Abgleich', () => {
     expect(quelle).toMatch(/selected: !nurUnscharf/);
     expect(quelle).toMatch(/m\.exactMatchCount === besteExakt && isPaymentInContractPeriod/);
   });
+
+  // 28.10.2026: Bei vollem Namen auf Wohnung und Garage desselben Mieters entschied die Reihenfolge der
+  // Datenbank mit 90 % vorausgewählt; live stand die Garage zuerst
+  const BG = 'DE94760000000076001601';
+  const bg = (betrag: number) => ({ buchungsdatum: '2026-10-01', betrag, iban: BG, verwendungszweck: 'KDU 10/2026 Anna Beispiel BG-Nr 123', empfaengername: 'Jobcenter' });
+  const beideReihenfolgen = async (zeilen: unknown[]) => [
+    await fn.getContractContext(client(zeilen)),
+    await fn.getContractContext(client([...zeilen].reverse())),
+  ];
+
+  it('lässt bei Wohnung und Garage nicht die Datenbank entscheiden und wählt nicht vor', async () => {
+    const zeilen = [vertrag('a-garage', 65, null), vertrag('b-wohnung', 490, null)];
+    for (const vertraege of await beideReihenfolgen(zeilen)) {
+      for (const betrag of [400, 490, 555]) {
+        const e = fn.matchBGPaymentByName(bg(betrag), vertraege);
+        expect(e).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: false, confidence: 70 });
+        expect(e.zuordnungsgrund).toMatch(/1 von 2 Verträgen mit diesem Namen/);
+      }
+      // Passt der Betrag zur Garage, wird sie vorgeschlagen — aber auch sie nicht vorausgewählt
+      expect(fn.matchBGPaymentByName(bg(65), vertraege)).toMatchObject({ mietvertrag_id: 'a-garage', selected: false });
+    }
+  });
+
+  it('schlägt einen Stellplatz ohne Soll nie vor und zählt gekündigt wie aktiv', async () => {
+    for (const vertraege of await beideReihenfolgen([vertrag('a-stellplatz', 0, null), vertrag('b-wohnung', 574, null)])) {
+      expect(fn.matchBGPaymentByName(bg(20), vertraege)).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: false });
+    }
+    for (const vertraege of await beideReihenfolgen([vertrag('a-garage', 65, null), { ...vertrag('b-wohnung', 490, null), status: 'gekuendigt' }])) {
+      expect(fn.matchBGPaymentByName(bg(450), vertraege)).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: false });
+    }
+  });
+
+  it('wählt einen eindeutigen Treffer weiter vor', async () => {
+    const vertraege = await fn.getContractContext(client([vertrag('b-wohnung', 490, null), mitMieter(vertrag('x', 500, null), 'm2', 'Max', 'Muster')]));
+    expect(fn.matchBGPaymentByName(bg(400), vertraege)).toMatchObject({ mietvertrag_id: 'b-wohnung', selected: true, confidence: 90 });
+    // Wohnung beendet und außerhalb der Laufzeit, Garage läuft: die Laufzeit entscheidet wie bisher
+    const zeilen = [vertrag('a-garage', 65, null), { ...vertrag('b-wohnung', 490, null), status: 'beendet', ende_datum: '2025-06-30' }];
+    for (const v of await beideReihenfolgen(zeilen)) {
+      expect(fn.matchBGPaymentByName(bg(65), v)).toMatchObject({ mietvertrag_id: 'a-garage', selected: true });
+    }
+  });
+
+  it('lädt die Verträge in fester Reihenfolge', async () => {
+    const db = client([vertrag('a', 1, null)]);
+    await fn.getContractContext(db);
+    expect(db.aufrufe).toContain('order:id');
+  });
+});
+
+describe('process-payments prüft die Antwort der KI', () => {
+  // 28.10.2026: Die KI antwortete mit dem Text "null" als Vertrags-ID. Er galt als Vertrag, die Zeile kam
+  // vorausgewählt als „Zugeordnet“, das Speichern scheiterte an der UUID (live 37 Buchungen in 4 Importen)
+  const ID = '0b6f1c9e-2a3d-4e5f-8a9b-0c1d2e3f4a5b';
+  const vertraege = [{ id: ID }];
+
+  it('übernimmt keinen Text "null" und keine unbekannte ID', () => {
+    expect(fn.kiZuordnung({ mietvertrag_id: 'null', confidence: 95 }, vertraege)).toEqual({ mietvertrag_id: null, confidence: 95, selected: false, hinweis: '' });
+    expect(fn.kiZuordnung({ mietvertrag_id: 'NULL ', confidence: 95 }, vertraege)).toMatchObject({ mietvertrag_id: null, selected: false });
+    const erfunden = fn.kiZuordnung({ mietvertrag_id: '0b6f1c9e-2a3d-4e5f-8a9b-000000000000', confidence: 99 }, vertraege);
+    expect(erfunden).toMatchObject({ mietvertrag_id: null, selected: false });
+    expect(erfunden.hinweis).toMatch(/keinen bekannten Vertrag/);
+    expect(fn.kiZuordnung({ mietvertrag_id: null, confidence: 90 }, vertraege)).toMatchObject({ mietvertrag_id: null, selected: false, hinweis: '' });
+    expect(fn.kiZuordnung({ confidence: 90 }, vertraege)).toMatchObject({ mietvertrag_id: null, selected: false });
+  });
+
+  it('wählt nur einen bekannten Vertrag mit hoher Konfidenz vor', () => {
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 79 }, vertraege)).toMatchObject({ mietvertrag_id: ID, selected: false });
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 80 }, vertraege)).toMatchObject({ mietvertrag_id: ID, selected: true });
+    // Groß geschrieben oder mit Leerraum: dieselbe ID, gespeichert wird die aus dem Bestand
+    expect(fn.kiZuordnung({ mietvertrag_id: ` ${ID.toUpperCase()} `, confidence: 90 }, vertraege)).toMatchObject({ mietvertrag_id: ID, selected: true });
+    // Konfidenz als Text, fehlend oder unsinnig
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: '85' }, vertraege)).toMatchObject({ confidence: 85, selected: true });
+    expect(fn.kiZuordnung({ mietvertrag_id: ID }, vertraege)).toMatchObject({ confidence: 0, selected: false });
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 900 }, vertraege)).toMatchObject({ confidence: 100 });
+  });
+
+  it('deutet eine Konfidenz unter 1 als Anteil, genau 1 aber nicht als 100 %', () => {
+    // Review 28.10.2026: Mit 0.85 statt 85 wäre nie etwas vorausgewählt worden
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 0.85 }, vertraege)).toMatchObject({ confidence: 85, selected: true });
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 0.5 }, vertraege)).toMatchObject({ confidence: 50, selected: false });
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 1 }, vertraege)).toMatchObject({ confidence: 1, selected: false });
+    expect(fn.kiZuordnung({ mietvertrag_id: ID, confidence: 0 }, vertraege)).toMatchObject({ confidence: 0, selected: false });
+    expect(quelle).toMatch(/description: "Konfidenz der Zuordnung in Prozent, eine Zahl von 0 bis 100/);
+  });
+
+  it('nutzt die Prüfung in allen drei KI-Pfaden und verbietet den Text "null" im Schema', () => {
+    expect(quelle).not.toMatch(/mietvertrag_id: result\.mietvertrag_id \|\| null/);
+    expect(quelle.match(/const ki = kiZuordnung\(result, contracts\);/g)).toHaveLength(3);
+    expect(quelle).not.toMatch(/selected: result\.mietvertrag_id \?/);
+    expect(quelle).toMatch(/mietvertrag_id: \{\s*type: "string",\s*description: "[^"]*nie den Text \\"null\\"/);
+  });
+});
+
+/** Vertragszeile mit eigenem Mieter (vertrag() gibt allen denselben). */
+function mitMieter(zeile: ReturnType<typeof vertrag>, mieterId: string, vorname: string, nachname: string) {
+  return { ...zeile, mietvertrag_mieter: [{ mieter: { id: mieterId, vorname, nachname } }] };
+}
+
+const BANKKONTO = 'DE00999988887777666655';
+
+describe('process-payments erkennt Sammel- und Bankkonten', () => {
+  // 28.10.2026: Ein Konto der Bank für Retouren und Kautionsüberträge stand als Hauptkonto an einem Vertrag.
+  // Jede Buchung von dort ging mit 95 % vorausgewählt an diesen Vertrag, live ein Kautionsübertrag über
+  // 3.780 € für einen anderen Mieter. Das Konto hatte vorher für 15 weitere Verträge gezahlt.
+  const zeilen = () => [
+    mitMieter(vertrag('a', 900, BANKKONTO), 'm1', 'Anna', 'Beispiel'),
+    mitMieter(vertrag('b', 700, 'DE00222233334444555566'), 'm2', 'Max', 'Muster'),
+    mitMieter(vertrag('c', 650, null), 'm3', 'Erika', 'Probe'),
+    // Garage von Anna Beispiel: verbunden mit a
+    mitMieter(vertrag('a-garage', 60, null), 'm1', 'Anna', 'Beispiel'),
+    // Derselbe Mensch mit zweitem Mieterdatensatz: verbunden über den vollen Namen
+    mitMieter(vertrag('a-zweit', 300, null), 'm9', 'Anna', 'Beispiel'),
+  ];
+  const verlauf = (eintraege: Record<string, string[]>) => new Map(Object.entries(eintraege).map(([iban, ids]) => [iban, new Set(ids)]));
+
+  it('gilt als nicht identifizierend, wenn es für zwei fremde, nicht verbundene Verträge gezahlt hat', async () => {
+    const vertraege = await fn.getContractContext(client(zeilen()));
+    expect([...fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [BANKKONTO]: ['a', 'b', 'c'] }))]).toEqual([BANKKONTO]);
+    expect([...fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [BANKKONTO]: ['b', 'c'] }))]).toEqual([BANKKONTO]);
+  });
+
+  it('sperrt ein hinterlegtes Mieterkonto nicht wegen einer einzigen fremden Buchung', async () => {
+    // Review 28.10.2026: Eine alte Fehlzuordnung oder ein Angehöriger mit eigenem Datensatz sperrte das
+    // richtige Konto für immer. Zwei fremde Verträge, die untereinander verbunden sind, zählen als einer.
+    const vertraege = await fn.getContractContext(client(zeilen()));
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [BANKKONTO]: ['a', 'b'] })).size).toBe(0);
+    const mitZweitvertrag = await fn.getContractContext(client([...zeilen(), mitMieter(vertrag('b-garage', 40, null), 'm2', 'Max', 'Muster')]));
+    expect(fn.nichtIdentifizierendeIbans(mitZweitvertrag, verlauf({ [BANKKONTO]: ['a', 'b', 'b-garage'] })).size).toBe(0);
+    // Der IBAN-Abgleich bleibt aktiv; nennt der Text den fremden Mieter, greift der Namenshinweis
+    expect(fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Miete' }, vertraege, [], new Set())).toMatchObject({ mietvertrag_id: 'a', selected: true });
+    expect(fn.matchPaymentByRules({ ...zahlung(700, BANKKONTO), verwendungszweck: 'Miete Max Muster' }, vertraege, [], new Set())).toMatchObject({ mietvertrag_id: 'a', selected: false });
+  });
+
+  it('lässt das gemeinsame Konto von Ehepartnern mit getrennten Verträgen als Mieterkonto gelten', async () => {
+    const GEMEINSAM = 'DE00454545454545454545';
+    const vertraege = await fn.getContractContext(client([
+      mitMieter(vertrag('mann', 600, GEMEINSAM), 'm1', 'Paul', 'Beispiel'),
+      mitMieter(vertrag('frau', 450, 'DE00676767676767676767', `DE99000000000000000000, ${GEMEINSAM}`), 'm2', 'Petra', 'Probe'),
+    ]));
+    // Konto an beiden Verträgen (bei ihr unter weitere Bankkonten): beide hinterlegt, keiner fremd
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [GEMEINSAM]: ['mann', 'frau'] })).size).toBe(0);
+    expect(fn.matchPaymentByRules({ ...zahlung(450, GEMEINSAM), verwendungszweck: 'Miete' }, vertraege, [])).toMatchObject({ mietvertrag_id: 'frau', selected: true });
+    // Steht es nur bei ihm und hat einmal für sie gezahlt: ein fremder Vertrag, nicht gesperrt
+    const nurBeiIhm = await fn.getContractContext(client([
+      mitMieter(vertrag('mann', 600, GEMEINSAM), 'm1', 'Paul', 'Beispiel'),
+      mitMieter(vertrag('frau', 450, null), 'm2', 'Petra', 'Probe'),
+    ]));
+    expect(fn.nichtIdentifizierendeIbans(nurBeiIhm, verlauf({ [GEMEINSAM]: ['mann', 'frau'] })).size).toBe(0);
+  });
+
+  it('zählt Wohnung und Garage derselben Mieter nicht als fremd, auch bei zweitem Mieterdatensatz', async () => {
+    const vertraege = await fn.getContractContext(client(zeilen()));
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [BANKKONTO]: ['a', 'a-garage', 'a-zweit'] })).size).toBe(0);
+  });
+
+  it('überlässt eine IBAN an zwei nicht verbundenen Verträgen der Vertragswahl, solange sie nur für diese zahlte', async () => {
+    const vertraege = await fn.getContractContext(client([
+      mitMieter(vertrag('a', 900, BANKKONTO), 'm1', 'Anna', 'Beispiel'),
+      mitMieter(vertrag('b', 700, BANKKONTO), 'm2', 'Max', 'Muster'),
+    ]));
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [BANKKONTO]: ['a', 'b'] })).size).toBe(0);
+  });
+
+  it('meldet eine nirgends hinterlegte IBAN, die für zwei nicht verbundene Verträge zahlte (für den Nachtrag)', async () => {
+    const vertraege = await fn.getContractContext(client(zeilen()));
+    const fremd = 'DE00121212121212121212';
+    expect([...fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [fremd]: ['b', 'c'] }))]).toEqual([fremd]);
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [fremd]: ['c'], DE94760000000076001601: ['a', 'b'] })).size).toBe(0);
+    // Unbekannte Verträge im Verlauf zählen nicht
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlauf({ [fremd]: ['c', 'geloescht'] })).size).toBe(0);
+  });
+
+  it('ordnet eine Buchung von dort nicht mehr über die IBAN zu, sondern über den Namen', async () => {
+    const vertraege = await fn.getContractContext(client(zeilen()));
+    const uebertrag = { ...zahlung(3780, BANKKONTO), verwendungszweck: 'Kautionsuebertrag Erika Probe', empfaengername: 'Bank' };
+    // Ohne Kenntnis des Kontos: IBAN schlägt den Namen, vorausgewählt — der Fehler vom 26.10.2026 …
+    expect(fn.matchPaymentByRules({ ...uebertrag, verwendungszweck: 'Kautionsuebertrag' }, vertraege, [])).toMatchObject({ mietvertrag_id: 'a', selected: true });
+    // … mit Kenntnis: kein IBAN-Abgleich, der genannte Mieter gewinnt
+    const sammel = new Set([BANKKONTO]);
+    const ergebnis = fn.matchPaymentByRules(uebertrag, vertraege, [], sammel);
+    expect(ergebnis.mietvertrag_id).toBe('c');
+    expect(ergebnis.zuordnungsgrund).not.toMatch(/IBAN-Match/);
+    expect(fn.matchPaymentByRules({ ...uebertrag, verwendungszweck: 'Kautionsuebertrag' }, vertraege, [], sammel)?.zuordnungsgrund ?? '').not.toMatch(/IBAN-Match/);
+  });
+
+  it('wählt einen IBAN-Treffer nicht vor, wenn der Text einen anderen Mieter mit vollem Namen nennt', async () => {
+    const vertraege = await fn.getContractContext(client(zeilen()));
+    const fuerAndere = fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Miete 10/2026 MAX MUSTER' }, vertraege, []);
+    expect(fuerAndere).toMatchObject({ mietvertrag_id: 'a', selected: false, confidence: 60 });
+    expect(fuerAndere.zuordnungsgrund).toMatch(/nennt Max Muster, bitte prüfen/);
+    // Nennt er auch den Mieter des IBAN-Vertrags, oder nur einen Vornamen, bleibt es beim IBAN-Treffer
+    expect(fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Miete Anna Beispiel und Max Muster' }, vertraege, [])).toMatchObject({ mietvertrag_id: 'a', selected: true });
+    expect(fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Miete fuer Max' }, vertraege, [])).toMatchObject({ mietvertrag_id: 'a', selected: true });
+    // Nachname als Teil eines anderen Wortes ist kein Name
+    expect(fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Max Mustervertrag' }, vertraege, [])).toMatchObject({ selected: true });
+    // Der Mieter der verbundenen Garage ist kein anderer Mieter
+    expect(fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Miete Anna Beispiel' }, vertraege, [])).toMatchObject({ mietvertrag_id: 'a', selected: true });
+  });
+
+  /** Nachgebaute Kette für ladeZahlungsverlauf; liest die Werte aus dem gequoteten in-Filter. */
+  function verlaufDb(zeilenDb: Array<{ id: string; iban: string; mietvertrag_id: string }>, fehlschlaege: (block: string[], von: number, versuch: number) => boolean = () => false) {
+    const abrufe: Array<{ block: string[]; von: number }> = [];
+    const versuche = new Map<string, number>();
+    let laufend = 0;
+    let hoechstens = 0;
+    const db = {
+      from: () => ({
+        select: () => ({
+          filter: (_s: string, op: string, wert: string) => {
+            expect(op).toBe('in');
+            const block = [...wert.matchAll(/"([^"]*)"/g)].map(m => m[1]);
+            return {
+              not: () => ({
+                order: () => ({
+                  range: async (von: number, bis: number) => {
+                    laufend++;
+                    hoechstens = Math.max(hoechstens, laufend);
+                    await new Promise(r => setTimeout(r, 1));
+                    laufend--;
+                    const schluessel = `${block[0]}|${von}`;
+                    const versuch = (versuche.get(schluessel) ?? 0) + 1;
+                    versuche.set(schluessel, versuch);
+                    if (fehlschlaege(block, von, versuch)) return { data: null, error: { message: 'timeout' } };
+                    abrufe.push({ block, von });
+                    return { data: zeilenDb.filter(z => block.includes(z.iban)).slice(von, bis + 1), error: null };
+                  },
+                }),
+              }),
+            };
+          },
+        }),
+      }),
+    };
+    return { db, abrufe, hoechstens: () => hoechstens };
+  }
+
+  it('lädt den Zahlungsverlauf seitenweise, in IBAN-Blöcken und höchstens vier Blöcke gleichzeitig', async () => {
+    const zeilenDb = Array.from({ length: 1500 }, (_, i) => ({ id: `z${String(i).padStart(5, '0')}`, iban: i < 1200 ? 'DE00 1111' : 'DE002222', mietvertrag_id: `v${i % 3}` }));
+    const { db, abrufe } = verlaufDb(zeilenDb);
+    const ibans = ['DE00 1111', 'DE002222', ...Array.from({ length: 45 }, (_, i) => `DE99${i}`)];
+    const verlauf = await fn.ladeZahlungsverlauf(db, ibans, 0);
+    expect([...verlauf.get('DE001111')].sort()).toEqual(['v0', 'v1', 'v2']);
+    expect(verlauf.get('DE002222').size).toBe(3);
+    // Erster Block (30 IBANs) braucht zwei Seiten, der zweite eine
+    expect(abrufe.map(a => [a.block.length, a.von]).sort()).toEqual([[17, 0], [30, 0], [30, 1000]]);
+
+    const viele = verlaufDb([]);
+    await fn.ladeZahlungsverlauf(viele.db, Array.from({ length: 300 }, (_, i) => `DE${i}`), 0);
+    expect(viele.abrufe).toHaveLength(10);
+    expect(viele.hoechstens()).toBe(4);
+  });
+
+  it('wiederholt eine gescheiterte Seite einmal und wirft erst, wenn auch das scheitert', async () => {
+    const zeilenDb = [{ id: 'z1', iban: 'DE001111', mietvertrag_id: 'v1' }];
+    const einmal = verlaufDb(zeilenDb, (_b, _v, versuch) => versuch === 1);
+    expect([...(await fn.ladeZahlungsverlauf(einmal.db, ['DE001111'], 0)).get('DE001111')]).toEqual(['v1']);
+    const immer = verlaufDb(zeilenDb, () => true);
+    await expect(fn.ladeZahlungsverlauf(immer.db, ['DE001111'], 0)).rejects.toThrow(/nicht geladen/);
+  });
+
+  it('fragt jede gespeicherte Schreibweise einer IBAN ab, nie die Jobcenter-IBAN', () => {
+    // Live 28.10.2026: kompakt groß und eine Altzeile mit Zeilenumbruch; manche Banken liefern 4er-Gruppen
+    expect(fn.ibanSchreibweisen(' de00 1111 2222 3333 4444 55 ')).toEqual([
+      'DE00111122223333444455', 'DE00 1111 2222 3333 4444 55', 'DE00111122223333444455\r\n', 'de00 1111 2222 3333 4444 55',
+    ]);
+    expect(fn.ibanSchreibweisen('DE00111122223333444455')).toEqual(['DE00111122223333444455', 'DE00 1111 2222 3333 4444 55', 'DE00111122223333444455\r\n']);
+    expect(fn.ibanSchreibweisen('DE94 7600 0000 0076 0016 01')).toEqual([]);
+    expect(fn.ibanSchreibweisen('DE00"1111')).toEqual([]);
+    expect(fn.ibanSchreibweisen(null)).toEqual([]);
+  });
+
+  it('arbeitet ohne Sammelkonto-Erkennung weiter, wenn der Verlauf nicht lädt, und sagt es der App', () => {
+    const handler = quelle.slice(quelle.indexOf('serve(async (req)'));
+    expect(handler).toMatch(/try \{\s*verlauf = await ladeZahlungsverlauf\(supabase, \[\.\.\.new Set\(newPayments\.flatMap\(\(p: Payment\) => ibanSchreibweisen\(p\.iban\)\)\)\]\);\s*\} catch/);
+    expect(handler).toMatch(/sammelkontenGeprueft = false;\s*warnungen\.push\(/);
+    expect(handler).toMatch(/nicht_identifizierende_ibans: sammelkontenGeprueft \? \[\.\.\.nichtIdentifizierend\] : null,\s*warnungen/);
+  });
+
+  it('meldet die Konten an die App und gibt der KI weder Mieter-IDs noch die Konten als Mieterkonto', () => {
+    const handler = quelle.slice(quelle.indexOf('serve(async (req)'));
+    expect(handler.match(/matchPaymentByRules\(payment, contracts, sonderfallRegeln, nichtIdentifizierend\)/g)).toHaveLength(2);
+    expect(handler).toMatch(/k === "mieterPersonen" \? undefined : v/);
+    expect(quelle).toMatch(/selected: ki\.selected && !ibanNichtIdentifizierend/);
+  });
+
+  it('vergleicht Namen nach Unicode-Normalform, auch zerlegte Umlaute', async () => {
+    // Review 28.10.2026: „ü“ als u + Trema gespeichert verfehlte Varianten und Wortvergleich
+    const zerlegt = 'Müller';
+    const vertraege = await fn.getContractContext(client([
+      mitMieter(vertrag('a', 900, BANKKONTO), 'm1', 'Anna', 'Beispiel'),
+      mitMieter(vertrag('j', 700, null), 'm2', 'Jörg', zerlegt),
+      mitMieter(vertrag('j-zweit', 50, null), 'm3', 'Jörg', 'Müller'),
+    ]));
+    expect(vertraege.find((v: { id: string }) => v.id === 'j').mieterNamen).toEqual(expect.arrayContaining(['müller', 'mueller']));
+    const e = fn.matchPaymentByRules({ ...zahlung(900, BANKKONTO), verwendungszweck: 'Miete JÖRG MÜLLER' }, vertraege, []);
+    expect(e).toMatchObject({ mietvertrag_id: 'a', selected: false });
+    // Zerlegt und zusammengesetzt gespeichert: derselbe Mensch, also verbunden
+    const verlaufJ = new Map([['DE00121212121212121212', new Set(['j', 'j-zweit'])]]);
+    expect(fn.nichtIdentifizierendeIbans(vertraege, verlaufJ).size).toBe(0);
+  });
 });
 
 describe('process-payments Zugriff', () => {
@@ -275,8 +597,7 @@ describe('process-payments Zugriff', () => {
 
   it('bricht ab, wenn Verträge, Regeln oder der Bestand nicht geladen werden', async () => {
     // 27.10.2026: Ein Ladefehler ergab still [] und damit „alles nicht zugeordnet" bzw. „alles neu"
-    const kaputt = { from: () => ({ select: () => ({ in: async () => ({ data: null, error: { message: 'timeout' } }) }) }) };
-    await expect(fn.getContractContext(kaputt)).rejects.toThrow(/nicht geladen/);
+    await expect(fn.getContractContext(client([], { message: 'timeout' }))).rejects.toThrow(/nicht geladen/);
     expect(quelle).not.toMatch(/console\.error\("Error fetching[^"]*", error\);\s*return \[\];/);
     expect(handler.match(/const \{ data, error \} = await supabase\s*\.from\("zahlungen"\)/g)).toHaveLength(2);
   });

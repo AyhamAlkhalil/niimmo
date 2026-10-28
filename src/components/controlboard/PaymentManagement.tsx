@@ -25,11 +25,16 @@ import { Zuordnungsvorschlag, abgewaehlteVorschlaege } from "@/utils/zuordnungsv
 import {
   BestehendeIndex,
   BestehendeZahlung,
+  NachtragKontext,
+  VertragsKonten,
   bestehendeIndexieren,
   bestehendeAusschliessen,
+  bezugPruefen,
   buchungstageVon,
   ibanFuerNachtrag,
+  mieterKennungen,
   nimmBestehende,
+  normalisiereIban,
   normalisiereWert,
   vertragsIdsMitIban,
 } from "@/utils/zahlungenUebernahme";
@@ -89,6 +94,14 @@ interface ZahlungRoh {
   } | null;
 }
 
+/** Bankverbindungen und Mieter eines Vertrags für den IBAN-Nachtrag (Rohform der Abfrage). */
+interface VertragKontoRoh {
+  id: string;
+  bankkonto_mieter: string | null;
+  weitere_bankkonten: string | null;
+  mietvertrag_mieter: Array<{ mieter_id: string | null; mieter: { vorname: string | null; nachname: string | null } | null }> | null;
+}
+
 /** Eine offene Mietzahlung im Reiter „Nicht zugeordnet" — nur die Felder, die dort gezeigt werden. */
 interface ZahlungOffen {
   id: string;
@@ -133,6 +146,9 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
   // AI Assignment Results State
   const [aiResults, setAiResults] = useState<Zuordnungsvorschlag[]>([]);
   const [aiDuplicates, setAiDuplicates] = useState<DuplicatePayment[]>([]);
+  // IBANs, die process-payments als Sammel- oder Bankkonto erkannt hat; werden nie nachgetragen.
+  // null = die Erkennung ist gescheitert, dann wird bei dieser Übernahme gar nichts nachgetragen.
+  const [aiSammelkonten, setAiSammelkonten] = useState<string[] | null>([]);
   const [aiStats, setAiStats] = useState<AIAssignmentStats | null>(null);
   const [resultsModalOpen, setResultsModalOpen] = useState(false);
   const [lastUploadReviewOpen, setLastUploadReviewOpen] = useState(false);
@@ -351,16 +367,23 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
       setAiResults(enrichedResults);
       setAiDuplicates(result.duplicates || []);
+      // Vor dem Deploy vom 28.10.2026 fehlt das Feld (undefined): dann wie bisher ohne Sammelkonten
+      setAiSammelkonten(
+        result.nicht_identifizierende_ibans === null ? null : Array.isArray(result.nicht_identifizierende_ibans) ? result.nicht_identifizierende_ibans : []
+      );
+      const warnungen: string[] = Array.isArray(result.warnungen) ? result.warnungen : [];
       setAiStats(result.stats);
       setResultsModalOpen(true);
 
-      // Fehlende Zeilen sind fehlende Buchungen: als Warnung und lange sichtbar, nicht nach 4 s weg
+      // Fehlende Zeilen sind fehlende Buchungen: als Warnung und lange sichtbar, nicht nach 4 s weg.
+      // Warnungen von process-payments (z. B. Sammelkonto-Erkennung entfallen) ebenso (28.10.2026).
       const fehlen = uebersprungenRef.current;
+      const achtung = fehlen > 0 || warnungen.length > 0;
       toast({
-        title: fehlen > 0 ? `Achtung: ${fehlen} Zeile(n) der CSV fehlen` : "CSV verarbeitet",
-        description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.${fehlen > 0 ? ` ${fehlen} Zeile(n) der Datei waren nicht lesbar und sind nicht in der Prüfung — diese Buchungen bitte von Hand nachtragen.` : ''}`,
-        variant: fehlen > 0 ? "destructive" : undefined,
-        duration: fehlen > 0 ? 60000 : 4000
+        title: fehlen > 0 ? `Achtung: ${fehlen} Zeile(n) der CSV fehlen` : warnungen.length > 0 ? "CSV verarbeitet — bitte prüfen" : "CSV verarbeitet",
+        description: `${result.stats.neue} neue Zahlungen, ${result.stats.zugeordnet} zugeordnet.${fehlen > 0 ? ` ${fehlen} Zeile(n) der Datei waren nicht lesbar und sind nicht in der Prüfung — diese Buchungen bitte von Hand nachtragen.` : ''}${warnungen.length > 0 ? ` ${warnungen.join(' ')}` : ''}`,
+        variant: achtung ? "destructive" : undefined,
+        duration: achtung ? 60000 : 4000
       });
 
     } catch (error: unknown) {
@@ -431,35 +454,74 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
       }
     }
 
-    // Bankverbindungen der Vertraege, die eine bekommen koennten. Liefert die
-    // Abfrage nichts, unterbleibt der Nachtrag -- wie frueher bei leerer Einzelabfrage.
-    const bankkonten = new Map<string, string | null>();
-    if (vorabfrageOk) {
-      const vertragsIds = vertragsIdsMitIban(allResultsToSave);
-      if (vertragsIds.length > 0) {
-        const { data: vertraege } = await supabase.from('mietvertrag').select('id, bankkonto_mieter').in('id', vertragsIds);
-        vertraege?.forEach((v) => bankkonten.set(v.id, v.bankkonto_mieter));
+    // Bankverbindungen aller Vertraege samt Mietern: Seit dem 28.10.2026 prueft der Nachtrag auch,
+    // ob die IBAN schon an einem anderen, nicht verbundenen Vertrag steht (ibanFuerNachtrag).
+    // Scheitert die Abfrage, unterbleibt der Nachtrag -- wie frueher bei leerer Einzelabfrage.
+    const kontenListe: VertragsKonten[] = [];
+    // Ohne Sammelkonto-Erkennung (aiSammelkonten null) bleibt kontenListe leer: kein Nachtrag
+    if (vorabfrageOk && aiSammelkonten !== null && vertragsIdsMitIban(allResultsToSave).length > 0) {
+      try {
+        const zeilen = await alleSeiten<VertragKontoRoh>((von, bis, mitZaehlung) =>
+          supabase
+            .from('mietvertrag')
+            .select('id, bankkonto_mieter, weitere_bankkonten, mietvertrag_mieter (mieter_id, mieter:mieter_id (vorname, nachname))', {
+              count: mitZaehlung ? 'exact' : undefined,
+            })
+            .order('id')
+            .range(von, bis)
+            .then((antwort) => ({ data: antwort.data as unknown as VertragKontoRoh[] | null, error: antwort.error, count: antwort.count }))
+        );
+        for (const v of zeilen) {
+          kontenListe.push({
+            id: v.id,
+            bankkonto_mieter: v.bankkonto_mieter,
+            weitere_bankkonten: v.weitere_bankkonten,
+            mieterKennungen: mieterKennungen(v.mietvertrag_mieter),
+          });
+        }
+      } catch (e: unknown) {
+        console.error('[CSV-Import] Bankverbindungen nicht geladen, kein IBAN-Nachtrag:', e instanceof Error ? e.message : e);
       }
     }
+    const kontoVon = new Map(kontenListe.map((v) => [v.id, v]));
+    const nachtragKontext: NachtragKontext = {
+      vertraege: kontenListe,
+      nichtIdentifizierend: new Set((aiSammelkonten ?? []).map(normalisiereIban)),
+    };
 
     // Entweder Vertrag oder Objekt, nie beides (docs/datenmodell.md): Die Prüfmaske sorgt dafür,
     // abgewählte Zeilen kommen aber roh aus process-payments. Live standen am 27.10.2026 fünf
     // Altbuchungen mit beiden Bezügen, die doppelt zählten.
     const objektBezug = (r: Zuordnungsvorschlag) => (r.mietvertrag_id ? null : r.immobilie_id || null);
 
-    // Auto-fill IBAN on contract if empty — nur aus Mietzahlungen, nie die Jobcenter-IBAN, und als
-    // ungeprüft markiert (ibanFuerNachtrag)
+    // Auto-fill IBAN on contract if empty — nur aus Mietzahlungen, nie die Jobcenter-IBAN, kein Sammel-
+    // konto, keine IBAN eines fremden Vertrags, und als ungeprüft markiert (ibanFuerNachtrag)
     const ibanNachtragen = async (mietvertragId: string, kategorie: string | null | undefined, roheIban: string) => {
-      const iban = ibanFuerNachtrag(kategorie, roheIban);
-      if (!iban || !bankkonten.has(mietvertragId) || bankkonten.get(mietvertragId)) return;
+      const vertrag = kontoVon.get(mietvertragId);
+      if (!vertrag || vertrag.bankkonto_mieter) return;
+      const iban = ibanFuerNachtrag(kategorie, roheIban, mietvertragId, nachtragKontext);
+      if (!iban) return;
       const { error } = await supabase
         .from('mietvertrag')
         .update({ bankkonto_mieter: iban, bankkonto_mieter_geprueft: false })
         .eq('id', mietvertragId);
-      if (!error) bankkonten.set(mietvertragId, iban);
+      // Fortschreiben: Dieselbe IBAN darf im selben Import keinem fremden Vertrag mehr zufallen
+      if (!error) vertrag.bankkonto_mieter = iban;
     };
 
-    for (const result of vorabfrageOk ? allResultsToSave : []) {
+    // Der Insert laeuft je Zeile, eine kaputte Zeile riss also nie den ganzen Import mit -- sie selbst
+    // fehlte aber: Bis zum 28.10.2026 kam der Text "null" aus der KI als Vertrag an, das Speichern
+    // scheiterte an der UUID (live 37 Buchungen in 4 Importen). Jetzt geht die Zeile ohne den
+    // kaputten Bezug in den Bestand („Nicht zugeordnet“) und wird gemeldet.
+    const nichtZuordenbar: string[] = [];
+    for (const roh of vorabfrageOk ? allResultsToSave : []) {
+      const bezug = bezugPruefen(roh);
+      const result: Zuordnungsvorschlag = { ...roh, mietvertrag_id: bezug.mietvertrag_id, immobilie_id: bezug.immobilie_id };
+      // Gemeldet wird erst nach dem Schreiben und nur, wenn gar kein Bezug übrig blieb (Review 28.10.2026)
+      const ohneBezugGespeichert = () => {
+        if (bezug.verworfen && !result.mietvertrag_id && !objektBezug(result)) nichtZuordenbar.push(bezeichne(roh));
+      };
+
       // First, check if this payment already exists
       // Use buchungsdatum + betrag + iban + verwendungszweck for reliable matching
       const ibanValue = normalisiereWert(result.iban);
@@ -497,6 +559,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           fehler.push({ zeile: bezeichne(result), grund: `Aktualisieren fehlgeschlagen: ${error.message}` });
           continue;
         }
+        ohneBezugGespeichert();
 
         if (result.mietvertrag_id && result.iban) {
           await ibanNachtragen(result.mietvertrag_id, result.kategorie, result.iban);
@@ -521,6 +584,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           fehler.push({ zeile: bezeichne(result), grund: `Speichern fehlgeschlagen: ${error.message}` });
           continue;
         }
+        ohneBezugGespeichert();
 
         // Eine eben eingefuegte Buchung ist kein Bestand fuer die naechste gleiche Zeile:
         // zwei gleiche Ueberweisungen am selben Tag sind zwei Zahlungen (27.10.2026).
@@ -533,12 +597,22 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
     const gespeichert = allResultsToSave.length - fehler.length;
 
+    const hinweise: string[] = [];
+    if (nichtZuordenbar.length > 0) {
+      hinweise.push(
+        `${nichtZuordenbar.length} Zahlung(en) ohne Vertrag gespeichert, weil die Zuordnung keinen gültigen Vertrag nannte: ` +
+          nichtZuordenbar.slice(0, 3).join(' · ') +
+          (nichtZuordenbar.length > 3 ? ` und ${nichtZuordenbar.length - 3} weitere` : '') +
+          '. Bitte unter „Nicht zugeordnet“ zuordnen.'
+      );
+    }
+
     if (csvFile) {
       const buchungsdaten = allResultsToSave
         .map(r => r.buchungsdatum)
         .filter(Boolean)
         .sort();
-      await supabase.from('csv_uploads').insert({
+      const { error: protokollFehler } = await supabase.from('csv_uploads').insert({
         dateiname: csvFile.name,
         dateigroe_bytes: csvFile.size,
         // Nur zaehlen, was wirklich in der Datenbank steht.
@@ -547,6 +621,12 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
         zeitraum_von: buchungsdaten[0] ?? null,
         zeitraum_bis: buchungsdaten.at(-1) ?? null,
       });
+      // Bis zum 28.10.2026 ungeprueft: Der Import fehlte dann still im Upload-Verlauf und in der
+      // Pruefung des letzten Uploads. Die Zahlungen selbst sind gespeichert, daher nur ein Hinweis.
+      if (protokollFehler) {
+        console.error('[CSV-Import] Upload-Protokoll nicht gespeichert:', protokollFehler.message);
+        hinweise.push('Der Import fehlt im Upload-Verlauf; die Zahlungen selbst sind gespeichert.');
+      }
     }
 
     if (fehler.length > 0) {
@@ -557,14 +637,20 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
           `${gespeichert} Zahlungen wurden übernommen. Nicht gespeichert wurden: ` +
           fehler.slice(0, 3).map((f) => f.zeile).join(' · ') +
           (fehler.length > 3 ? ` und ${fehler.length - 3} weitere` : '') +
-          '. Diese Zahlungen fehlen im Bestand — der Rückstand der betroffenen Mieter ist dadurch zu hoch.',
+          '. Diese Zahlungen fehlen im Bestand — der Rückstand der betroffenen Mieter ist dadurch zu hoch.' +
+          (hinweise.length > 0 ? ` ${hinweise.join(' ')}` : ''),
         variant: 'destructive',
+        // Fehlende Buchungen und die Hinweise müssen gelesen werden können, nicht nach 5 s weg sein
+        duration: 60000,
       });
     }
+    // Ohne Fehler meldet die Prüfmaske das Ergebnis in ihrer einen Meldung, mit diesen Hinweisen
+    // (es steht immer nur ein Toast, TOAST_LIMIT 1); mit Fehlern stehen sie oben in der Fehlermeldung.
 
     setCsvFile(null);
     setAiResults([]);
     setAiDuplicates([]);
+    setAiSammelkonten([]);
     setAiStats(null);
 
     // Refresh queries
@@ -578,7 +664,7 @@ export function PaymentManagement({ onBack }: PaymentManagementProps) {
 
     // Der Aufrufer meldete bisher unabhaengig vom Ergebnis Erfolg. Er braucht
     // die tatsaechlichen Zahlen.
-    return { gesamt: allResultsToSave.length, gespeichert, fehler };
+    return { gesamt: allResultsToSave.length, gespeichert, fehler, hinweise };
   };
 
   const oeffneZuordnung = useCallback((zahlung: ZahlungZeile | ZuordnungsZahlung) => {
