@@ -214,6 +214,26 @@ export function mailadressenDerMieter(
 }
 
 /**
+ * Vorauswahl im Versand der Kündigungsbestätigung: die Hauptadressen, zerlegt wie die
+ * angezeigte Liste. Bis zum 28.10.2026 stand der rohe hauptmail-Text in der Auswahl — bei
+ * „a@x.de, b@y.de“ war in der Liste nichts angehakt, gesendet wurde trotzdem an beide.
+ */
+export function vorausgewaehlteEmpfaenger(
+  mieter: { hauptmail?: string | null }[]
+): string[] {
+  return mailadressenDerMieter(mieter.map(m => ({ hauptmail: m.hauptmail })));
+}
+
+/**
+ * Was tatsächlich versendet wird: nur ausgewählte Adressen, die auch in der Liste stehen.
+ * Ein Eintrag, den der Nutzer nicht sehen und abwählen kann, bekommt keine Mail (28.10.2026).
+ */
+export function empfaengerDerAuswahl(ausgewaehlt: string[], adressen: string[]): string[] {
+  const erlaubt = new Set(adressen);
+  return [...new Set(ausgewaehlt)].filter(a => erlaubt.has(a));
+}
+
+/**
  * Anschriftzeile und Briefanrede für Erhöhungs- und Kündigungsschreiben.
  *
  * Bis zum 27.10.2026 stand fest „Sehr geehrter ${anrede} …“ (Erhöhung) bzw. „Sehr geehrte/r ${anrede} …“
@@ -242,4 +262,36 @@ export function anredeFuerSchreiben(
     anschrift: art === 'herr' || art === 'frau' ? '' : anrede.trim(),
     gruss: briefanrede(personen.map((m) => ({ ...m, anrede: 'ohne' as const }))),
   };
+}
+
+/**
+ * Auszugs- bzw. Räumungsdatum im Reiter „Wir kündigen“, wenn sich das Kündigungsdatum ändert.
+ *
+ * Bis zum 28.10.2026 wurde es nur übernommen, solange es leer war. Ein zuerst gewähltes Datum oder
+ * ein Zwischenwert, den Chrome beim Tippen der Jahreszahl meldet („0002-…“), blieb stehen. Jetzt zieht
+ * es nach, solange es leer ist oder noch dem bisherigen Kündigungsdatum entspricht; ein eigens
+ * eingetragenes Datum bleibt.
+ */
+export function auszugNachKuendigungsdatum(
+  auszug: string,
+  bisherigesKuendigungsdatum: string,
+  neuesKuendigungsdatum: string
+): string {
+  return !auszug || auszug === bisherigesKuendigungsdatum ? neuesKuendigungsdatum : auszug;
+}
+
+/**
+ * Fristlose Kündigung mit Räumung vor dem Kündigungsdatum: Das Schreiben nannte eine Räumung vor
+ * der Kündigung, der Vertrag endete trotzdem am Kündigungstag (vertragsendeDerKuendigung). Ein
+ * solcher Stand wird abgelehnt (28.10.2026); null heißt in Ordnung.
+ */
+export function raeumungVorKuendigung(
+  typ: string | null | undefined,
+  kuendigungsdatum: string,
+  raeumungBis: string
+): string | null {
+  if (typ !== 'ausserordentlich_fristlos' || !kuendigungsdatum || !raeumungBis) return null;
+  return raeumungBis.slice(0, 10) < kuendigungsdatum.slice(0, 10)
+    ? 'Die Räumungsfrist endet vor dem Kündigungsdatum. Bitte ein Räumungsdatum ab dem Kündigungsdatum wählen.'
+    : null;
 }

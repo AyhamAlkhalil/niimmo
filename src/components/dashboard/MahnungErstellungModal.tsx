@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from '@tanstack/react-query';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -20,7 +20,11 @@ import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRuecksta
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
-import { fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
+import { alsIsoTag, fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
+import { leseKautionsbetrag } from "@/utils/vertragKaution";
+import { leseAnzahlSchreiben, leseMahnungBetraege, mahnkostenGesamtText, mahnungBetragsMeldung } from "@/utils/mahnungEingaben";
+
+const ANZAHL_MELDUNG = 'Die Anzahl der Schreiben muss eine ganze Zahl ab 0 sein.';
 
 interface MahnungErstellungModalProps {
   isOpen: boolean;
@@ -64,9 +68,25 @@ export function MahnungErstellungModal({
   const [showConfirmSend, setShowConfirmSend] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
-  const [pdfPath, setPdfPath] = useState<string | null>(null);
+  // Eingaben, aus denen pdfBlob entstand (wie RentIncreaseModal). Die Vorschau läuft 500 ms plus
+  // Erzeugungszeit hinter dem Formular her; bis zum 28.10.2026 wurde in dieser Zeit das alte PDF
+  // abgelegt und versendet, während Betrag und Frist der Mail schon aus dem neuen Stand kamen.
+  const [pdfStand, setPdfStand] = useState<string | null>(null);
+  // Abgelegtes Schreiben samt den Daten, aus denen es entstand — die Mail nennt genau diese Werte.
+  // Zahlungsfrist und Räumungsende als Tage des Schreibens: Am Versandtag neu gerechnet, wichen sie
+  // ab, wenn Speichern und Senden auf verschiedenen Tagen lagen (Review 28.10.2026).
+  const [gespeichert, setGespeichert] = useState<{
+    pfad: string;
+    daten: MahnungPdfData;
+    fristIso: string;
+    kuendigung: { status: 'gekuendigt'; kuendigungsdatum: string; ende_datum: string } | null;
+  } | null>(null);
+  // Aktuelle Vorschau-URL; der Wert im Closure von regeneratePreview war veraltet (Review 28.10.2026)
+  const pdfUrlRef = useRef<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ein älterer Vorschaulauf, der später fertig wird, darf den neueren nicht überschreiben
+  const vorschauLauf = useRef(0);
   
   // Email fields
   const [emailRecipient, setEmailRecipient] = useState<string>('');
@@ -108,7 +128,9 @@ export function MahnungErstellungModal({
   useEffect(() => {
     if (isOpen && contractData) {
       setStep('edit');
-      setPdfPath(null);
+      setGespeichert(null);
+      setPdfBlob(null);
+      setPdfStand(null);
       setGesamtRueckstand(rueckstand.toFixed(2));
       setEmailCc('');
       
@@ -149,14 +171,21 @@ export function MahnungErstellungModal({
 
   // Recalculate Mahnkosten when sub-values change
   useEffect(() => {
-    const preis = parseFloat(mahnkostenProSchreiben) || 0;
-    const anzahl = parseInt(anzahlMahnschreiben) || 0;
-    setMahnkostenGesamt((preis * anzahl).toFixed(2));
+    setMahnkostenGesamt(mahnkostenGesamtText(mahnkostenProSchreiben, anzahlMahnschreiben));
   }, [mahnkostenProSchreiben, anzahlMahnschreiben]);
+
+  // „1.250“ ist kein Betrag (leseKautionsbetrag) — parseFloat machte daraus bis zum 28.10.2026 still 1,25 €
+  const betraege = useMemo(
+    () => leseMahnungBetraege({ rueckstand: gesamtRueckstand, mahnkostenProSchreiben, verzugszinsen: verzugszinsenGesamt }),
+    [gesamtRueckstand, mahnkostenProSchreiben, verzugszinsenGesamt]
+  );
+  const betragsMeldung = mahnungBetragsMeldung(betraege.ungueltig);
+  // „-2“ Schreiben ergab negative Mahnkosten (QA 28.10.2026)
+  const anzahlUngueltig = leseAnzahlSchreiben(anzahlMahnschreiben) === undefined;
 
   // Generate the standard Mahnungstext for the current Mahnstufe
   const buildStandardText = useCallback((): string => {
-    const rueckstandFormatted = (parseFloat(gesamtRueckstand) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const rueckstandFormatted = betraege.werte.rueckstand.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const vertragStart = contractData?.start_datum
       ? new Date(contractData.start_datum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
       : 'N/A';
@@ -168,7 +197,7 @@ export function MahnungErstellungModal({
     } else {
       return `wir möchten Sie darauf hinweisen, dass folgende Mietzahlungen noch nicht bei uns eingegangen sind:\nDer Mietrückstand beläuft sich auf insgesamt ${rueckstandFormatted} €.`;
     }
-  }, [contractData, mahnstufe, gesamtRueckstand, anzahlMonatsmieten]);
+  }, [contractData, mahnstufe, betraege, anzahlMonatsmieten]);
 
   // Build PDF data from state
   const buildPdfData = useCallback((): MahnungPdfData | null => {
@@ -206,13 +235,13 @@ export function MahnungErstellungModal({
       mahnstufe,
       datum: datumStr,
       offeneForderungen: [],
-      gesamtRueckstand: parseFloat(gesamtRueckstand) || 0,
+      gesamtRueckstand: betraege.werte.rueckstand,
       anzahlMonatsmieten: parseFloat(anzahlMonatsmieten) || 0,
       verzugszinsenDetails,
-      verzugszinsenGesamt: parseFloat(verzugszinsenGesamt) || 0,
-      mahnkostenProSchreiben: parseFloat(mahnkostenProSchreiben) || 0,
-      anzahlMahnschreiben: parseInt(anzahlMahnschreiben) || 0,
-      mahnkostenGesamt: parseFloat(mahnkostenGesamt) || 0,
+      verzugszinsenGesamt: betraege.werte.verzugszinsen,
+      mahnkostenProSchreiben: betraege.werte.mahnkostenProSchreiben,
+      anzahlMahnschreiben: leseAnzahlSchreiben(anzahlMahnschreiben) ?? 0,
+      mahnkostenGesamt: leseKautionsbetrag(mahnkostenGesamt) ?? 0,
       zahlungsfristDatum: zahlungsfristStr,
       zahlungsfristTage: parseInt(zahlungsfristTage) || 7,
       raeumungsfristDatum: raeumungsfristStr,
@@ -222,26 +251,34 @@ export function MahnungErstellungModal({
       freitext: useFreitext ? freitext : undefined,
     };
   }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
-      gesamtRueckstand, anzahlMonatsmieten, verzugszinsenDetails, verzugszinsenGesamt,
-      mahnkostenProSchreiben, anzahlMahnschreiben, mahnkostenGesamt,
+      betraege, anzahlMonatsmieten, verzugszinsenDetails,
+      anzahlMahnschreiben, mahnkostenGesamt,
       zahlungsfristTage, raeumungsfristTage, uebergabeDatum, mahnstufe, useFreitext, freitext]);
 
   // Generate PDF preview with debounce
   const regeneratePreview = useCallback(async () => {
     const pdfData = buildPdfData();
     if (!pdfData) return;
+    const lauf = ++vorschauLauf.current;
     
     setIsGeneratingPreview(true);
     try {
       const blob = await generateMahnungPdf(pdfData);
+      if (lauf !== vorschauLauf.current) return;
       setPdfBlob(blob);
+      setPdfStand(JSON.stringify(pdfData));
       
       // Revoke old URL
-      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
       
       const url = URL.createObjectURL(blob);
+      pdfUrlRef.current = url;
       setPdfBlobUrl(url);
     } catch (err) {
+      if (lauf !== vorschauLauf.current) return;
+      // Kein altes Schreiben stehen lassen, das danach gespeichert werden könnte
+      setPdfBlob(null);
+      setPdfStand(null);
       console.error('Mahnungs-Vorschau konnte nicht erzeugt werden:', err);
       toast({
         title: "Vorschau nicht moeglich",
@@ -249,9 +286,14 @@ export function MahnungErstellungModal({
         variant: "destructive",
       });
     } finally {
-      setIsGeneratingPreview(false);
+      if (lauf === vorschauLauf.current) setIsGeneratingPreview(false);
     }
-  }, [buildPdfData, pdfBlobUrl]);
+  }, [buildPdfData]);
+
+  // Der Stand, den ein jetzt erzeugtes PDF hätte. Speichern und Senden gehen nur, wenn die Vorschau
+  // genau daraus entstand (28.10.2026).
+  const aktuellerStand = JSON.stringify(buildPdfData());
+  const vorschauAktuell = pdfBlob !== null && pdfStand === aktuellerStand;
 
   // Debounced preview regeneration on data changes
   useEffect(() => {
@@ -265,20 +307,46 @@ export function MahnungErstellungModal({
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [isOpen, step, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
-      gesamtRueckstand, anzahlMonatsmieten, verzugszinsenGesamt,
-      mahnkostenProSchreiben, anzahlMahnschreiben, mahnkostenGesamt,
-      zahlungsfristTage, raeumungsfristTage, uebergabeDatum, useFreitext, freitext, verzugszinsenDetails]);
+    // Am Stand statt an einzelnen Feldern: auch Vertragsangaben (Stufe, Vertragsende) gehören ins PDF
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, step, aktuellerStand]);
 
-  // Cleanup blob URL on unmount
+  // Cleanup blob URL on unmount; beim Wechsel gibt regeneratePreview die alte URL frei
   useEffect(() => {
     return () => {
-      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+      // Gewollt die zuletzt erzeugte URL, nicht die beim Einhängen
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
     };
-  }, [pdfBlobUrl]);
+  }, []);
 
   const handleSaveAndUpload = async () => {
     if (!contractData || !pdfBlob) return;
+    // Blob und Daten zu Beginn festhalten: beide gehören zusammen, auch wenn weiter getippt wird
+    const blob = pdfBlob;
+    const stand = pdfStand;
+    if (betraege.ungueltig.length > 0 || anzahlUngueltig) {
+      toast({ title: "Eingabe prüfen", description: betragsMeldung || ANZAHL_MELDUNG, variant: "destructive" });
+      return;
+    }
+    if (!stand || stand !== aktuellerStand) {
+      toast({ title: "Vorschau wird noch erstellt", description: "Das Schreiben entspricht noch nicht den aktuellen Eingaben. Bitte einen Moment warten." });
+      return;
+    }
+    const daten = JSON.parse(stand) as MahnungPdfData;
+    // send-mahnung nimmt höchstens 60 Tage und keine vergangene Frist an — vor dem Ablegen prüfen
+    if (!(daten.zahlungsfristTage >= 1 && daten.zahlungsfristTage <= 60)) {
+      toast({ title: "Zahlungsfrist prüfen", description: "Die Zahlungsfrist muss zwischen 1 und 60 Tagen liegen.", variant: "destructive" });
+      return;
+    }
+    // Frist und Räumungsende genau wie im Schreiben (TT.MM.JJJJ); Mail und Vertrag bekommen diese Tage
+    const fristIso = daten.zahlungsfristDatum.split('.').reverse().join('-');
+    const kuendigung = mahnstufe >= 3
+      ? { ...fristloseKuendigungFelder(parseInt(raeumungsfristTage), new Date(), contractData.vertragsende) }
+      : null;
+    if (kuendigung && kuendigung.ende_datum.split('-').reverse().join('.') !== daten.raeumungsfristDatum) {
+      toast({ title: "Vorschau wird noch erstellt", description: "Das Räumungsende im Schreiben ist nicht mehr aktuell. Bitte einen Moment warten." });
+      return;
+    }
     
     setIsSubmitting(true);
     try {
@@ -288,7 +356,7 @@ export function MahnungErstellungModal({
       const filePath = schriftstueckPfad('mahnungen', contractData.mietvertrag_id, `Mahnung_Stufe${mahnstufe}`, new Date());
       
       // Upload PDF blob to storage
-      const arrayBuffer = await pdfBlob.arrayBuffer();
+      const arrayBuffer = await blob.arrayBuffer();
       const uint8 = new Uint8Array(arrayBuffer);
       
       const { error: uploadError } = await supabase.storage
@@ -320,7 +388,7 @@ export function MahnungErstellungModal({
         throw new Error('Das Schreiben konnte nicht unter Dokumente abgelegt werden: ' + dokumentFehler.message);
       }
       
-      setPdfPath(filePath);
+      setGespeichert({ pfad: filePath, daten, fristIso, kuendigung });
       
       toast({
         title: "Mahnung erstellt",
@@ -350,13 +418,32 @@ export function MahnungErstellungModal({
   };
 
   const handleSendEmail = async () => {
-    if (!contractData || !emailRecipient) return;
+    // Betrag, Frist und Räumungsende der Mail kommen aus dem abgelegten Schreiben, nicht aus dem
+    // Formular — sonst nannte die Mail andere Werte als das angehängte PDF (28.10.2026)
+    const stand = gespeichert;
+    if (!contractData || !emailRecipient || !stand) return;
+    // Frist und Räumungsende stammen vom Tag des Speicherns. Sind sie inzwischen vorbei, passt das
+    // Schreiben nicht mehr — neu speichern statt eine abgelaufene Frist zu versenden
+    const heuteIso = alsIsoTag(new Date());
+    if (stand.fristIso < heuteIso || (stand.kuendigung && stand.kuendigung.ende_datum < heuteIso)) {
+      toast({
+        title: "Schreiben veraltet",
+        description: "Zahlungsfrist oder Räumungsende im gespeicherten Schreiben liegen schon in der Vergangenheit. Bitte zurückgehen, das Schreiben neu speichern und dann senden.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setIsSendingEmail(true);
     try {
       const recipientName = contractData.mieter?.map(m => `${m.vorname} ${m.nachname}`).join(' & ') || 'Mieter';
       // Komma, Semikolon oder Leerzeichen trennen; send-mahnung prüft jede Adresse (27.10.2026)
       const ccEmails = emailCc ? emailCc.split(/[,;\s]+/).map(e => e.trim()).filter(Boolean) : [];
+      // Stufe 3: Status und Vertragsende gehen mit, send-mahnung setzt sie im selben Update wie die
+      // Stufe (28.10.2026). Bis dahin setzte sie nur der Browser nach der Antwort — ging die verloren,
+      // blieb der Vertrag aktiv, und ein neuer Versuch bekam 409. Beide Felder auf das Räumungsende
+      // des gespeicherten Schreibens.
+      const kuendigung = stand.kuendigung ?? undefined;
 
       const { data: versand, error } = await supabase.functions.invoke('send-mahnung', {
         body: {
@@ -364,17 +451,20 @@ export function MahnungErstellungModal({
           recipientName,
           ccEmails,
           mahnstufe,
-          gesamtbetrag: (parseFloat(gesamtRueckstand) || 0) + (parseFloat(mahnkostenGesamt) || 0) + (parseFloat(verzugszinsenGesamt) || 0),
-          rueckstandBetrag: parseFloat(gesamtRueckstand) || 0,
-          mahngebuehren: parseFloat(mahnkostenGesamt) || 0,
-          verzugszinsen: parseFloat(verzugszinsenGesamt) || 0,
+          gesamtbetrag: stand.daten.gesamtRueckstand + stand.daten.mahnkostenGesamt + stand.daten.verzugszinsenGesamt,
+          rueckstandBetrag: stand.daten.gesamtRueckstand,
+          mahngebuehren: stand.daten.mahnkostenGesamt,
+          verzugszinsen: stand.daten.verzugszinsenGesamt,
           zusaetzlicheKosten: 0,
           // Gleiche Vorgabe wie im PDF -- ohne sie nannte die Mail bei leerem Feld „heute“ als Frist
-          zahlungsfristTage: parseInt(zahlungsfristTage) || 7,
+          zahlungsfristTage: stand.daten.zahlungsfristTage,
+          // Die Frist als Tag des Schreibens; ältere Fassungen der Function rechnen mit den Tagen
+          fristDatum: stand.fristIso,
           immobilieName: contractData.immobilie_name || 'N/A',
           immobilieAdresse: contractData.immobilie_adresse || 'N/A',
-          pdfPath: pdfPath || '',
+          pdfPath: stand.pfad,
           mietvertragId: contractData.mietvertrag_id,
+          kuendigung,
         }
       });
 
@@ -390,19 +480,27 @@ export function MahnungErstellungModal({
       // Vertrag danach 'aktiv': Die Sollstellung lief weiter, das Dashboard
       // zaehlte die Einheit als vermietet, und keine Auswertung kannte den
       // Vorgang. Wer kuendigt, muss den Vertrag auch beenden.
-      if (mahnstufe >= 3) {
-        // Beide Felder auf das Raeumungsende -- mit kuendigungsdatum = heute beendete der
-        // Nachtlauf den Vertrag schon in der Folgenacht (fristloseKuendigungFelder).
-        const { error: statusError } = await supabase
+      if (kuendigung && versand?.kuendigungGesetzt === true) {
+        queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
+      } else if (kuendigung) {
+        // Nur wenn die Function den Status nicht bestätigt (ältere Fassung, Stufe nicht gespeichert):
+        // wie bisher im Browser nachziehen — dieselben Werte, also unschädlich doppelt
+        // Nur einen laufenden Vertrag — ein beendeter bleibt beendet (Review 28.10.2026)
+        const { data: gesetzt, error: statusError } = await supabase
           .from('mietvertrag')
           .update({
-            ...fristloseKuendigungFelder(parseInt(raeumungsfristTage), new Date(), contractData.vertragsende),
+            ...kuendigung,
             aktualisiert_am: new Date().toISOString(),
           })
-          .eq('id', contractData.mietvertrag_id);
+          .eq('id', contractData.mietvertrag_id)
+          .in('status', ['aktiv', 'gekuendigt'])
+          .select('id');
 
         if (statusError) {
           probleme.push(`Vertragsstatus nicht gesetzt: Das Kuendigungsschreiben ist raus, der Vertrag steht aber weiter auf aktiv (${statusError.message}). Bitte den Status von Hand auf "gekuendigt" setzen.`);
+        } else if (!gesetzt || gesetzt.length === 0) {
+          probleme.push('Vertragsstatus nicht gesetzt: Der Vertrag ist weder aktiv noch gekündigt. Bitte Status und Vertragsende am Vertrag prüfen.');
         } else {
           queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
           queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
@@ -436,8 +534,13 @@ export function MahnungErstellungModal({
   };
 
   const monatsmieteDesVertrags = (contractData?.current_kaltmiete || 0) + (contractData?.current_betriebskosten || 0);
+  // Nur der Rückstand zählt: hinge die Rechnung an allen Beträgen, überschriebe sie jede Eingabe der Zinssumme
+  const rueckstandWert = betraege.werte.rueckstand;
+  const rueckstandUngueltig = betraege.ungueltig.includes('rueckstand');
   const autoBerechneVerzugszinsen = useCallback(() => {
-    const parsedBetrag = parseFloat(gesamtRueckstand) || 0;
+    // Unlesbarer Rückstand: keine Zinsen aus einem falschen Betrag rechnen
+    if (rueckstandUngueltig) return;
+    const parsedBetrag = rueckstandWert;
     const heute = new Date();
     // Offen sind die jüngsten fälligen Monate, je eine Monatsmiete; Verzug ab 4. Werktag des
     // Mietmonats, Zinssatz je Basiszins-Periode (utils/verzugszinsen.ts, seit 27.10.2026)
@@ -449,11 +552,11 @@ export function MahnungErstellungModal({
       betrag: d.zinsbetrag,
     })));
     setVerzugszinsenGesamt(ergebnis.gesamt.toFixed(2));
-  }, [gesamtRueckstand, monatsmieteDesVertrags, perioden]);
+  }, [rueckstandWert, rueckstandUngueltig, monatsmieteDesVertrags, perioden]);
 
   // Verzugszinsen automatisch berechnen wenn Modal öffnet oder Rückstand/Monate ändern
   useEffect(() => {
-    if (!isOpen || parseFloat(gesamtRueckstand) <= 0) return;
+    if (!isOpen || rueckstandWert <= 0) return;
     autoBerechneVerzugszinsen();
   }, [isOpen, autoBerechneVerzugszinsen]);
 
@@ -473,10 +576,15 @@ export function MahnungErstellungModal({
 
   if (!contractData) return null;
 
-  const parsedRueckstand = parseFloat(gesamtRueckstand) || 0;
-  const parsedMahnkosten = parseFloat(mahnkostenGesamt) || 0;
-  const parsedVerzugszinsen = parseFloat(verzugszinsenGesamt) || 0;
+  const parsedRueckstand = betraege.werte.rueckstand;
+  const parsedMahnkosten = leseKautionsbetrag(mahnkostenGesamt) ?? 0;
+  const parsedVerzugszinsen = betraege.werte.verzugszinsen;
   const gesamtkosten = parsedRueckstand + parsedMahnkosten + parsedVerzugszinsen;
+  // Im Versandschritt zählt das abgelegte Schreiben
+  const versandGesamt = gespeichert
+    ? gespeichert.daten.gesamtRueckstand + gespeichert.daten.mahnkostenGesamt + gespeichert.daten.verzugszinsenGesamt
+    : gesamtkosten;
+  const speichernGesperrt = isSubmitting || parsedRueckstand <= 0 || betraege.ungueltig.length > 0 || anzahlUngueltig || !vorschauAktuell;
 
   const getMahnstufeColor = (stufe: number) => {
     if (stufe === 1) return "bg-yellow-100 text-yellow-800 border-yellow-300";
@@ -506,7 +614,7 @@ export function MahnungErstellungModal({
                 <Button
                   size="sm"
                   onClick={() => setShowConfirmSave(true)}
-                  disabled={isSubmitting || parsedRueckstand <= 0}
+                  disabled={speichernGesperrt}
                   variant="destructive"
                 >
                   {isSubmitting ? (
@@ -594,6 +702,9 @@ export function MahnungErstellungModal({
                           className="mt-1 h-9"
                         />
                       </div>
+                      {betraege.ungueltig.includes('rueckstand') && (
+                        <p className="text-xs text-destructive" role="alert">{betragsMeldung}</p>
+                      )}
                     </div>
                   </div>
 
@@ -608,7 +719,7 @@ export function MahnungErstellungModal({
                         size="sm"
                         className="h-7 text-xs"
                         onClick={autoBerechneVerzugszinsen}
-                        disabled={parseFloat(gesamtRueckstand) <= 0}
+                        disabled={parsedRueckstand <= 0 || betraege.ungueltig.includes('rueckstand')}
                       >
                         <RefreshCw className="h-3 w-3 mr-1" />
                         Auto berechnen
@@ -657,6 +768,9 @@ export function MahnungErstellungModal({
                           onChange={(e) => setVerzugszinsenGesamt(e.target.value)} 
                           className="mt-1 h-9"
                         />
+                        {betraege.ungueltig.includes('verzugszinsen') && (
+                          <p className="text-xs text-destructive mt-1" role="alert">{betragsMeldung}</p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -689,6 +803,12 @@ export function MahnungErstellungModal({
                     <p className="text-xs text-muted-foreground mt-1">
                       Gesamt: {parsedMahnkosten.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
                     </p>
+                    {betraege.ungueltig.includes('mahnkostenProSchreiben') && (
+                      <p className="text-xs text-destructive mt-1" role="alert">{betragsMeldung}</p>
+                    )}
+                    {anzahlUngueltig && (
+                      <p className="text-xs text-destructive mt-1" role="alert">{ANZAHL_MELDUNG}</p>
+                    )}
                   </div>
 
                   <Separator />
@@ -813,6 +933,9 @@ export function MahnungErstellungModal({
                     <Eye className="h-4 w-4" />
                     <span>PDF-Vorschau</span>
                     {isGeneratingPreview && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    {!isGeneratingPreview && pdfBlob && !vorschauAktuell && (
+                      <span className="text-xs">wird aktualisiert …</span>
+                    )}
                   </div>
                   <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={regeneratePreview}>
                     <RefreshCw className="h-3.5 w-3.5 mr-1" />
@@ -855,7 +978,7 @@ export function MahnungErstellungModal({
                 <Button 
                   size="sm" 
                   onClick={() => setShowConfirmSend(true)} 
-                  disabled={isSendingEmail || !emailRecipient}
+                  disabled={isSendingEmail || !emailRecipient || !gespeichert}
                   variant="destructive"
                 >
                   {isSendingEmail ? (
@@ -875,7 +998,7 @@ export function MahnungErstellungModal({
                   <p>
                     <span className="text-muted-foreground">Gesamtbetrag:</span>{' '}
                     <span className="font-bold text-destructive">
-                      {gesamtkosten.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
+                      {versandGesamt.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })}
                     </span>
                   </p>
                   <p><span className="text-muted-foreground">PDF:</span> ✅ wird als Anhang versendet</p>
@@ -984,7 +1107,9 @@ export function MahnungErstellungModal({
                   Dieses Schreiben kündigt das Mietverhältnis <strong>außerordentlich fristlos</strong>
                   {' '}(§§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB). Mit dem Versand wird der Vertrag
                   auf „gekündigt" gesetzt und das Vertragsende auf das Ende der Räumungsfrist
-                  ({raeumungsfristInTagen(parseInt(raeumungsfristTage))} Tage) datiert. Der Versand an {emailRecipient} kann nicht
+                  ({gespeichert?.kuendigung
+                    ? gespeichert.kuendigung.ende_datum.split('-').reverse().join('.')
+                    : `${raeumungsfristInTagen(parseInt(raeumungsfristTage))} Tage`}) datiert. Der Versand an {emailRecipient} kann nicht
                   rückgängig gemacht werden.
                 </>
               ) : (

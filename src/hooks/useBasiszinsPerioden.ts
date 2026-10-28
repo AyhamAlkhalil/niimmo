@@ -2,13 +2,18 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { BASISZINSSATZ_PERIODEN_FALLBACK, mitAelterenPerioden } from "@/utils/verzugszinsen";
 
+// Query-Keys zum Invalidieren nach einer manuellen Korrektur (DashboardStats). Bis zum 28.10.2026
+// lud nur die Startseite neu; Mahnung und Mieterhöhung rechneten bis zu 30 Minuten mit dem alten Wert.
+export const BASISZINS_PERIODEN_KEY = ["basiszins-perioden"] as const;
+export const AKTUELLER_VPI_KEY = ["aktueller-vpi"] as const;
+
 /**
  * Liefert alle Basiszinssatz-Perioden aus der marktdaten-Tabelle.
  * Faellt auf BASISZINSSATZ_PERIODEN_FALLBACK zurueck wenn DB nicht verfuegbar.
  */
 export function useBasiszinsPerioden() {
   const { data, isLoading } = useQuery({
-    queryKey: ["basiszins-perioden"],
+    queryKey: BASISZINS_PERIODEN_KEY,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("marktdaten")
@@ -42,7 +47,7 @@ export function useBasiszinsPerioden() {
  */
 export function useAktuellerVpi() {
   const { data, isLoading } = useQuery({
-    queryKey: ["aktueller-vpi"],
+    queryKey: AKTUELLER_VPI_KEY,
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from("aktuelle_marktdaten")

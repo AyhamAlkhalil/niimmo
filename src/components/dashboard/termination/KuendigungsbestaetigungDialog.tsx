@@ -22,7 +22,9 @@ import {
   anredeAusDatenbank,
   bestaetigungsAbsaetze,
   briefanrede,
+  empfaengerDerAuswahl,
   mailadressenDerMieter,
+  vorausgewaehlteEmpfaenger,
   type Anrede,
   type BestaetigungsDaten,
 } from "@/utils/kuendigungsbestaetigung";
@@ -189,12 +191,13 @@ export const KuendigungsbestaetigungDialog = ({
     setUseFreitext(false);
     setFreitext("");
     setBemerkungen("");
-    setAusgewaehlt(vertrag.mieter.map(m => m.hauptmail?.trim().toLowerCase()).filter((m): m is string => Boolean(m?.includes("@"))));
+    setAusgewaehlt(vorausgewaehlteEmpfaenger(vertrag.mieter));
     setGespeichert(null);
     setVersendetAn(null);
   }, [isOpen, vertrag, vorbelegung]);
 
   const adressen = useMemo(() => mailadressenDerMieter(vertrag?.mieter ?? []), [vertrag]);
+  const versandEmpfaenger = useMemo(() => empfaengerDerAuswahl(ausgewaehlt, adressen), [ausgewaehlt, adressen]);
 
   const pdfDaten = useMemo((): BestaetigungsDaten | null => {
     if (!vertrag?.vertragsende) return null;
@@ -342,11 +345,13 @@ export const KuendigungsbestaetigungDialog = ({
   };
 
   const handleSenden = async () => {
-    if (!pdfDaten || ausgewaehlt.length === 0 || vorgangLaeuft.current) return;
+    // Nach erfolgreichem Versand verschickt ein zweiter Klick dieselbe Bestätigung nicht erneut
+    // (28.10.2026); wer wirklich noch einmal senden will, öffnet den Dialog neu.
+    if (!pdfDaten || versandEmpfaenger.length === 0 || versendetAn !== null || vorgangLaeuft.current) return;
     vorgangLaeuft.current = true;
     // Anrede und Empfänger zum Zeitpunkt des Klicks — passend zum gespeicherten PDF.
     const anrede = briefanrede(pdfDaten.mieter);
-    const empfaenger = [...ausgewaehlt];
+    const empfaenger = [...versandEmpfaenger];
     setIsSending(true);
     try {
       const pfad = await speichern();
@@ -594,10 +599,10 @@ export const KuendigungsbestaetigungDialog = ({
                     size="sm"
                     className="flex-1"
                     onClick={handleSenden}
-                    disabled={!vorschauAktuell || beschaeftigt || ausgewaehlt.length === 0}
+                    disabled={!vorschauAktuell || beschaeftigt || versandEmpfaenger.length === 0 || versendetAn !== null}
                   >
-                    {isSending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Mail className="h-4 w-4 mr-1.5" />}
-                    Speichern &amp; senden
+                    {isSending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : versendetAn !== null ? <CheckCircle2 className="h-4 w-4 mr-1.5" /> : <Mail className="h-4 w-4 mr-1.5" />}
+                    {versendetAn !== null ? "Versendet" : <>Speichern &amp; senden</>}
                   </Button>
                 </div>
                 <Button variant="ghost" size="sm" className="w-full" onClick={onClose} disabled={beschaeftigt}>

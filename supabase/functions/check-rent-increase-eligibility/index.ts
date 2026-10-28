@@ -37,6 +37,48 @@ interface RentIncreaseEligibility {
   }>;
 }
 
+/** Heutiger Kalendertag in deutscher Zeit als JJJJ-MM-TT; die Function läuft in UTC. */
+function berlinerHeute(jetzt: Date): string {
+  const [tag, monat, jahr] = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric' })
+    .format(jetzt)
+    .split('.');
+  return `${jahr}-${monat}-${tag}`;
+}
+
+/** JJJJ-MM-TT um ganze Monate verschoben; fehlt der Tag im Zielmonat, gilt der Monatsletzte (31.01. + 1 → 28.02.). */
+function plusMonate(iso: string, monate: number): string {
+  const [jahr, monat, tag] = iso.slice(0, 10).split('-').map(Number);
+  const letzterTag = new Date(Date.UTC(jahr, monat - 1 + monate + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(jahr, monat - 1 + monate, Math.min(tag, letzterTag))).toISOString().slice(0, 10);
+}
+
+/** Wie wirksamAbTag() in src/utils/mieterhoehungRegeln.ts: Beginn des dritten Kalendermonats nach Zugang (§ 558b Abs. 1 BGB). */
+function wirksamAbTag(zugangIso: string): string {
+  const [jahr, monat] = zugangIso.slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(jahr, monat - 1 + 3, 1)).toISOString().slice(0, 10);
+}
+
+/**
+ * § 558 Abs. 1 BGB, gerechnet ab der letzten Erhöhung (letzte_mieterhoehung_am ist deren Wirksamwerden)
+ * oder dem Mietbeginn:
+ * - Satz 2: Das Verlangen darf frühestens ein Jahr danach gestellt werden.
+ * - Satz 1: Zum Wirksamwerden muss die Miete seit 15 Monaten unverändert sein.
+ * Bis zum 28.10.2026 verlangte die Liste 15 Monate bis heute und bot jede Erhöhung rund drei Monate zu
+ * spät an. moeglichAb ist der früheste Zugang, an dem beides erfüllt ist.
+ */
+function erhoehungsfrist(referenzIso: string, heuteIso: string): { zulaessig: boolean; moeglichAb: string } {
+  const jahresfrist = plusMonate(referenzIso, 12);
+  const unveraendertBis = plusMonate(referenzIso, 15);
+  // Wirksam wird ein Verlangen am Monatsersten drei Monate nach Zugang; liegt unveraendertBis nicht auf
+  // einem Monatsersten, reicht erst der Zugang im Monat danach
+  const [jahr, monat, tag] = unveraendertBis.split('-').map(Number);
+  const fruehesterZugang = new Date(Date.UTC(jahr, monat - 1 - 3 + (tag > 1 ? 1 : 0), 1)).toISOString().slice(0, 10);
+  return {
+    zulaessig: heuteIso >= jahresfrist && wirksamAbTag(heuteIso) >= unveraendertBis,
+    moeglichAb: jahresfrist > fruehesterZugang ? jahresfrist : fruehesterZugang,
+  };
+}
+
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -109,6 +151,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const eligibleContracts: RentIncreaseEligibility[] = [];
     const currentDate = new Date();
+    const heuteIso = berlinerHeute(currentDate);
 
     for (const contract of contracts || []) {
       // Staffel- und Indexmiete schließen die Erhöhung nach § 558 aus (§§ 557a Abs. 2, 557b Abs. 2
@@ -133,17 +176,18 @@ const handler = async (req: Request): Promise<Response> => {
       let isEligible = false;
       let reason = '';
 
-      // German rent increase rules:
-      // - At least 15 months since last increase
-      // - At least 15 months since move-in if never increased
-      if (monthsSinceLastIncrease >= 15) {
+      // § 558 Abs. 1 BGB: Verlangen nach 12 Monaten, 15 Monate unverändert zum Wirksamwerden (erhoehungsfrist)
+      const referenzIso = contract.letzte_mieterhoehung_am || contract.start_datum;
+      const frist = referenzIso ? erhoehungsfrist(String(referenzIso), heuteIso) : null;
+      if (frist?.zulaessig) {
         isEligible = true;
         reason = lastIncreaseDate 
           ? `${monthsSinceLastIncrease} Monate seit letzter Erhöhung`
           : `${monthsSinceStart} Monate seit Vertragsbeginn`;
+      } else if (frist) {
+        reason = `Verlangen möglich ab ${frist.moeglichAb.split('-').reverse().join('.')}`;
       } else {
-        const monthsRemaining = 15 - monthsSinceLastIncrease;
-        reason = `Noch ${monthsRemaining} Monate bis zur nächsten möglichen Erhöhung`;
+        reason = 'Ohne Mietbeginn lässt sich die Frist nicht prüfen';
       }
 
       const eligibilityInfo: RentIncreaseEligibility = {

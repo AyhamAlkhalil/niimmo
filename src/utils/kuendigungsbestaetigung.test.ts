@@ -4,10 +4,14 @@ import {
   anredeAusDatenbank,
   anredeFuerSchreiben,
   anschriftZeile,
+  auszugNachKuendigungsdatum,
   briefanrede,
   bestaetigungsAbsaetze,
+  empfaengerDerAuswahl,
   mailadressenDerMieter,
   mietobjekt,
+  raeumungVorKuendigung,
+  vorausgewaehlteEmpfaenger,
   type BestaetigungsDaten,
 } from './kuendigungsbestaetigung';
 import { generateKuendigungPdf, generateKuendigungsbestaetigungPdf } from './kuendigungPdfGenerator';
@@ -314,5 +318,74 @@ describe('anredeFuerSchreiben mit leeren Feldern aus der Datenbank', () => {
   it('stürzt bei null nicht ab', () => {
     expect(anredeFuerSchreiben(null, [{ vorname: 'Max', nachname: null }]).gruss).toBe('Guten Tag Max,');
     expect(anredeFuerSchreiben('Herr', [{ vorname: null, nachname: 'Probe' }]).gruss).toBe('Sehr geehrter Herr Probe,');
+  });
+});
+
+/**
+ * Prüfung 28.10.2026: Vorausgewählt war der rohe hauptmail-Text. Bei „a@x.de, b@y.de“ war in
+ * der Liste nichts angehakt, „Speichern & senden“ trotzdem aktiv und die Mail ging an beide —
+ * auch an a, wenn der Nutzer nur b anhakte. Ein zweiter Klick verschickte sie erneut.
+ */
+describe('Kündigungsbestätigung: Empfänger aus der sichtbaren Liste', () => {
+  it('hakt jede Adresse aus dem Hauptfeld einzeln an, weitere Adressen nicht', () => {
+    const mieter = [
+      { hauptmail: 'A@x.de, b@y.de', weitere_mails: 'c@z.de' },
+      { hauptmail: null, weitere_mails: 'd@z.de' },
+    ];
+    const vorauswahl = vorausgewaehlteEmpfaenger(mieter);
+    expect(vorauswahl).toEqual(['a@x.de', 'b@y.de']);
+    const liste = mailadressenDerMieter(mieter);
+    expect(vorauswahl.every(a => liste.includes(a))).toBe(true);
+  });
+
+  it('versendet nur, was angehakt und in der Liste sichtbar ist', () => {
+    const liste = ['a@x.de', 'b@y.de'];
+    expect(empfaengerDerAuswahl(['b@y.de'], liste)).toEqual(['b@y.de']);
+    expect(empfaengerDerAuswahl(['a@x.de, b@y.de'], liste)).toEqual([]);
+    expect(empfaengerDerAuswahl(['a@x.de', 'a@x.de'], liste)).toEqual(['a@x.de']);
+  });
+
+  it('sperrt den Versandknopf nach erfolgreichem Versand', () => {
+    const dialog = readFileSync('src/components/dashboard/termination/KuendigungsbestaetigungDialog.tsx', 'utf-8');
+    expect(dialog).toContain('setAusgewaehlt(vorausgewaehlteEmpfaenger(vertrag.mieter));');
+    expect(dialog).toContain('const empfaenger = [...versandEmpfaenger];');
+    expect(dialog).toMatch(/disabled=\{!vorschauAktuell \|\| beschaeftigt \|\| versandEmpfaenger\.length === 0 \|\| versendetAn !== null\}/);
+  });
+});
+
+/**
+ * Prüfung 28.10.2026: Im Reiter „Wir kündigen“ wurde das Auszugsdatum nur übernommen, solange es
+ * leer war — ein Chrome-Zwischenwert „0002-…“ blieb stehen; fristlos lag die Räumung dann vor der Kündigung.
+ */
+describe('Wir kündigen: Auszugs- und Räumungsdatum', () => {
+  it('zieht das Datum nach, solange es dem bisherigen Kündigungsdatum entspricht', () => {
+    // Chrome meldet beim Tippen der Jahreszahl Zwischenwerte
+    let auszug = '';
+    let kuendigung = '';
+    for (const zwischenwert of ['0002-11-30', '0020-11-30', '0202-11-30', '2026-11-30']) {
+      auszug = auszugNachKuendigungsdatum(auszug, kuendigung, zwischenwert);
+      kuendigung = zwischenwert;
+    }
+    expect(auszug).toBe('2026-11-30');
+    expect(auszugNachKuendigungsdatum('2026-11-30', '2026-11-30', '2026-12-31')).toBe('2026-12-31');
+  });
+
+  it('lässt ein eigens eingetragenes Datum stehen', () => {
+    expect(auszugNachKuendigungsdatum('2027-01-15', '2026-11-30', '2026-12-31')).toBe('2027-01-15');
+  });
+
+  it('lehnt fristlos eine Räumung vor dem Kündigungsdatum ab', () => {
+    expect(raeumungVorKuendigung('ausserordentlich_fristlos', '2026-11-10', '2026-11-01')).toMatch(/vor dem Kündigungsdatum/);
+    expect(raeumungVorKuendigung('ausserordentlich_fristlos', '2026-11-10', '2026-11-10')).toBeNull();
+    expect(raeumungVorKuendigung('ausserordentlich_fristlos', '2026-11-10', '')).toBeNull();
+    expect(raeumungVorKuendigung('ordentlich', '2026-11-10', '2026-11-01')).toBeNull();
+  });
+
+  it('der Dialog nutzt beides und sperrt die Kündigung', () => {
+    const dialog = readFileSync('src/components/dashboard/termination/TerminationDialog.tsx', 'utf-8');
+    expect(dialog).not.toContain('if (!auszugsdatum) setAuszugsdatum(e.target.value);');
+    expect(dialog).toContain('setAuszugsdatum(auszugNachKuendigungsdatum(auszugsdatum, kuendigungsdatum, e.target.value));');
+    expect(dialog).toContain('disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler}');
+    expect(dialog).toMatch(/if \(raeumungsFehler\) \{\s*toast\(/);
   });
 });

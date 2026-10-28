@@ -18,6 +18,7 @@ import { generateKuendigungPdf, type KuendigungPdfData, type KuendigungsTyp } fr
 import { terminationWebhookService } from "@/services/terminationWebhookService";
 import { schriftstueckPfad, dateiendung } from "@/utils/storagePfad";
 import { vertragsendeDerKuendigung } from "@/utils/contractUtils";
+import { auszugNachKuendigungsdatum, raeumungVorKuendigung } from "@/utils/kuendigungsbestaetigung";
 import { DocumentDragDropZone } from "../DocumentDragDropZone";
 import { Progress } from "@/components/ui/progress";
 
@@ -262,10 +263,16 @@ export const TerminationDialog = ({
     document.body.removeChild(a);
   };
 
+  const raeumungsFehler = raeumungVorKuendigung(kuendigungstyp, kuendigungsdatum, auszugsdatum);
+
   // ====== MANUAL: Save PDF + terminate ======
   const handleManualTermination = async () => {
     if (!kuendigungsdatum) {
       toast({ title: "Fehler", description: "Bitte Kündigungsdatum angeben", variant: "destructive" });
+      return;
+    }
+    if (raeumungsFehler) {
+      toast({ title: "Räumungsfrist prüfen", description: raeumungsFehler, variant: "destructive" });
       return;
     }
     if (!pdfBlob) {
@@ -578,8 +585,8 @@ export const TerminationDialog = ({
                             type="date"
                             value={kuendigungsdatum}
                             onChange={(e) => {
+                              setAuszugsdatum(auszugNachKuendigungsdatum(auszugsdatum, kuendigungsdatum, e.target.value));
                               setKuendigungsdatum(e.target.value);
-                              if (!auszugsdatum) setAuszugsdatum(e.target.value);
                             }}
                             className="mt-1 h-9"
                           />
@@ -593,7 +600,11 @@ export const TerminationDialog = ({
                             value={auszugsdatum}
                             onChange={(e) => setAuszugsdatum(e.target.value)}
                             className="mt-1 h-9"
+                            aria-invalid={!!raeumungsFehler}
                           />
+                          {raeumungsFehler && (
+                            <p className="mt-1 text-xs text-destructive" role="alert">{raeumungsFehler}</p>
+                          )}
                         </div>
                         <div>
                           <Label className="text-xs">Kündigungsgrund</Label>
@@ -690,7 +701,7 @@ export const TerminationDialog = ({
                         size="sm"
                         variant="destructive"
                         onClick={() => setShowConfirm(true)}
-                        disabled={isSubmitting || !kuendigungsdatum || !pdfBlob}
+                        disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler}
                         className="flex-1"
                       >
                         {isSubmitting ? (

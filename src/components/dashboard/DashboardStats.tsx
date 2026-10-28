@@ -6,7 +6,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatEuroKompakt } from "@/utils/betragAnzeige";
 import { useState, type ReactNode } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
-import { alsIsoTag, getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
+import { AKTUELLER_VPI_KEY, BASISZINS_PERIODEN_KEY } from "@/hooks/useBasiszinsPerioden";
+import { Input } from "@/components/ui/input";
+import { alsIsoTag, getVertragsende, istLaufenderVertrag, summiereLaufendeMieten } from "@/utils/contractUtils";
+import { basiszinsPeriodenBeginn, marktdatenKorrektur, vorgeschlagenerVpiMonat } from "@/utils/marktdatenKorrektur";
 import { alleSeiten } from "@/utils/supabaseSeiten";
 import { monatsSaldo, type MonatsForderung, type MonatsZahlung } from "@/utils/monatsSaldo";
 
@@ -20,6 +23,10 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const { isAdmin } = useUserRole();
   const [editingTyp, setEditingTyp] = useState<'basiszinssatz' | 'vpi' | null>(null);
   const [editWert, setEditWert] = useState("");
+  // Bezugsmonat einer VPI-Korrektur (JJJJ-MM) und Meldung am Feld
+  const [editMonat, setEditMonat] = useState("");
+  const [editFehler, setEditFehler] = useState<string | null>(null);
+  const [speichertMarktwert, setSpeichertMarktwert] = useState(false);
   const { data: gesamtEinheiten, isError: einheitenFehler } = useQuery({
     queryKey: ['gesamt-einheiten'],
     queryFn: async () => {
@@ -54,10 +61,10 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
         .in('status', ['aktiv', 'gekuendigt'])
         // Verträge die bereits begonnen haben
         .or(`start_datum.is.null,start_datum.lte.${heute}`)
-        // Verträge deren ende_datum noch nicht abgelaufen ist
-        .or(`ende_datum.is.null,ende_datum.gte.${heute}`)
-        // Verträge deren kuendigungsdatum noch nicht abgelaufen ist
-        .or(`kuendigungsdatum.is.null,kuendigungsdatum.gte.${heute}`);
+        // Verträge deren ende_datum noch nicht abgelaufen ist. Kein Filter auf kuendigungsdatum:
+        // Das Vertragsende kommt aus getVertragsende() (ende_datum führt); der frühere Zusatzfilter
+        // warf Verträge mit späterem ende_datum heraus (28.10.2026).
+        .or(`ende_datum.is.null,ende_datum.gte.${heute}`);
       if (error) throw error;
       return data || [];
     }
@@ -108,17 +115,31 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     staleTime: 300000,
   });
 
-  const saveMarktdaten = async (typ: 'basiszinssatz' | 'vpi', wert: number) => {
-    const heute = alsIsoTag(new Date());
-    await (supabase as any).from('marktdaten').upsert({
-      typ,
-      wert,
-      stichtag: heute,
-      quelle: 'Manuelle Korrektur',
-      abgerufen_am: new Date().toISOString(),
-    }, { onConflict: 'typ,stichtag' });
+  // Stichtag, Wertebereich und Zeilen aus utils/marktdatenKorrektur.ts (28.10.2026): bis dahin
+  // stichtag = heute, ungeprüft, ohne Fehlerauswertung und ohne Neuladen der Hooks
+  const saveMarktdaten = async (typ: 'basiszinssatz' | 'vpi') => {
+    const korrektur = marktdatenKorrektur(typ, editWert, new Date(), editMonat);
+    if ('fehler' in korrektur) {
+      setEditFehler(korrektur.fehler);
+      return;
+    }
+    setSpeichertMarktwert(true);
+    const abgerufenAm = new Date().toISOString();
+    const { error } = await (supabase as any).from('marktdaten').upsert(
+      korrektur.zeilen.map((zeile) => ({ ...zeile, quelle: 'Manuelle Korrektur', abgerufen_am: abgerufenAm })),
+      { onConflict: 'typ,stichtag' }
+    );
+    setSpeichertMarktwert(false);
+    if (error) {
+      console.error('Marktdaten-Korrektur nicht gespeichert:', error.message);
+      setEditFehler('Der Wert konnte nicht gespeichert werden. Bitte erneut versuchen.');
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ['aktuelle-marktdaten'] });
+    queryClient.invalidateQueries({ queryKey: BASISZINS_PERIODEN_KEY });
+    queryClient.invalidateQueries({ queryKey: AKTUELLER_VPI_KEY });
     setEditingTyp(null);
+    setEditFehler(null);
   };
 
   // Dieselbe Stichtagsregel wie Mietaufstellung und Mietuebersicht. Der Filter
@@ -128,8 +149,9 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const aktiveMietvertraege = relevanteVertraege.filter(mv => mv.status === 'aktiv');
   const gekuendigteMietvertraege = relevanteVertraege.filter(mv => mv.status === 'gekuendigt');
 
-  const gesamtKaltmiete = relevanteVertraege.reduce((sum, v) => sum + (v.kaltmiete || 0), 0);
-  const gesamtBetriebskosten = relevanteVertraege.reduce((sum, v) => sum + (v.betriebskosten || 0), 0);
+  // Je Einheit der laufende Vertrag (summiereLaufendeMieten): zwei laufende Verträge auf einer Einheit
+  // zählten bis zum 28.10.2026 doppelt, wie früher im Objektkopf
+  const { kaltmiete: gesamtKaltmiete, betriebskosten: gesamtBetriebskosten } = summiereLaufendeMieten(mietvertraege);
   const saldo = monatsSaldo(relevanteVertraege, monatsDaten?.forderungen ?? [], monatsDaten?.zahlungen ?? []);
   const ladeFehler = einheitenFehler || vertraegeFehler || monatsFehler;
   const monatGeladen = !!monatsDaten && !!mietvertraege;
@@ -168,32 +190,54 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const euro = formatEuroKompakt;
   const anzahlObjekte = immobilien?.length || 0;
 
-  // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin); Eingabe wie bisher
-  const marktwert = (typ: 'basiszinssatz' | 'vpi', anzeige: ReactNode, aktuell: number | undefined, schritt: string, bezeichnung: string) =>
+  // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin). ui/input statt rohem Zahlenfeld:
+  // das liest das Dezimalkomma (vorher wurde „1,52“ zu 152)
+  const marktwert = (typ: 'basiszinssatz' | 'vpi', anzeige: ReactNode, aktuell: number | undefined, schritt: string, bezeichnung: string, letzterStichtag?: string) =>
     editingTyp === typ ? (
-      <span className="flex items-center gap-1">
-        <input
+      <span className="flex flex-wrap items-center gap-1">
+        <Input
           type="number"
           step={schritt}
           value={editWert}
-          onChange={e => setEditWert(e.target.value)}
-          className="h-7 w-20 rounded-md border border-input bg-card px-2 text-xs focus:border-ring focus:outline-none focus:ring-[3px] focus:ring-ring/10"
+          onChange={e => { setEditWert(e.target.value); setEditFehler(null); }}
+          className="h-7 w-20 px-2 text-xs md:text-xs"
           aria-label={bezeichnung}
+          aria-invalid={!!editFehler}
           autoFocus
         />
-        <button onClick={() => saveMarktdaten(typ, parseFloat(editWert))} className="rounded-md p-1 text-success hover:bg-success/10" aria-label={`${bezeichnung} speichern`}>
+        {typ === 'vpi' ? (
+          <Input
+            type="month"
+            value={editMonat}
+            onChange={e => { setEditMonat(e.target.value); setEditFehler(null); }}
+            className="h-7 w-36 px-2 text-xs md:text-xs"
+            aria-label="Bezugsmonat des VPI"
+            placeholder="JJJJ-MM"
+          />
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            ab {basiszinsPeriodenBeginn(new Date()).split('-').reverse().join('.')}
+          </span>
+        )}
+        <button onClick={() => saveMarktdaten(typ)} disabled={speichertMarktwert} className="rounded-md p-1 text-success hover:bg-success/10 disabled:opacity-50" aria-label={`${bezeichnung} speichern`}>
           <Check className="h-3.5 w-3.5" />
         </button>
-        <button onClick={() => setEditingTyp(null)} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
+        <button onClick={() => { setEditingTyp(null); setEditFehler(null); }} className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Abbrechen">
           <X className="h-3.5 w-3.5" />
         </button>
+        {editFehler && <span role="alert" className="basis-full text-xs text-destructive">{editFehler}</span>}
       </span>
     ) : (
       <span className="flex items-center gap-1.5">
         {anzeige}
         {isAdmin && (
           <button
-            onClick={() => { setEditingTyp(typ); setEditWert(String(aktuell ?? '')); }}
+            onClick={() => {
+              setEditingTyp(typ);
+              setEditWert(String(aktuell ?? ''));
+              setEditMonat(vorgeschlagenerVpiMonat(letzterStichtag, new Date()));
+              setEditFehler(null);
+            }}
             className="rounded p-0.5 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 focus-visible:opacity-100"
             aria-label={`${bezeichnung} bearbeiten`}
           >
@@ -320,7 +364,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
         <div className="group">
           <dt className="eyebrow">VPI 2020 = 100</dt>
           <dd className="mt-1 tabular-nums text-foreground">
-            {marktwert('vpi', <>{marktdaten?.vpi ? marktdaten.vpi.wert.toFixed(1) : '–'}</>, marktdaten?.vpi?.wert, '0.1', 'Verbraucherpreisindex')}
+            {marktwert('vpi', <>{marktdaten?.vpi ? marktdaten.vpi.wert.toFixed(1) : '–'}</>, marktdaten?.vpi?.wert, '0.1', 'Verbraucherpreisindex', marktdaten?.vpi?.stichtag)}
           </dd>
         </div>
       </dl>

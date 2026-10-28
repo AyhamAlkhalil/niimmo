@@ -14,7 +14,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMieterhoehungPdf, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData, type BegruendungsArt } from "@/utils/mieterhoehungPdfGenerator";
 import { useAktuellerVpi } from "@/hooks/useBasiszinsPerioden";
-import { kappungsBasis, kappungsgrenzeProzent, maximaleKaltmiete, neueMieteAusEingabe, wirksamAb, wirksamAbTag } from '@/utils/mieterhoehungRegeln';
+import {
+  kappungsBasis, kappungsgrenzeProzent, maximaleKaltmiete, mehrforderungProMonat, mieteAusVerlangen, mieteSeitVerlangenGeaendert,
+  neueMieteAusEingabe, offeneVerlangenIds, offenesVerlangen, wirksamAb, wirksamAbTag, type ErhoehungsVorgang,
+} from '@/utils/mieterhoehungRegeln';
 import { format } from 'date-fns';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 
@@ -53,6 +56,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const [pdfStand, setPdfStand] = useState<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [showConfirmSave, setShowConfirmSave] = useState(false);
+  const [showConfirmZustimmung, setShowConfirmZustimmung] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Editable fields
@@ -65,7 +69,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const [einheitBezeichnung, setEinheitBezeichnung] = useState("WE");
   const [istAngespannt, setIstAngespannt] = useState(false);
   const [angespanntUnbekannt, setAngespanntUnbekannt] = useState(false);
-  const [fruehereErhoehungen, setFruehereErhoehungen] = useState<Array<{ wirksam_ab: string | null; alte_kaltmiete: number | null; status: string | null }>>([]);
+  const [fruehereErhoehungen, setFruehereErhoehungen] = useState<ErhoehungsVorgang[]>([]);
   const [erhoehungenGeladen, setErhoehungenGeladen] = useState<'laedt' | 'ok' | 'fehler'>('laedt');
   // § 558a Abs. 2 BGB: ohne Begründungsmittel ist das Verlangen unwirksam.
   const [begruendungsart, setBegruendungsart] = useState<BegruendungsArt>("mietspiegel");
@@ -92,6 +96,18 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // Zugang. Wer heute erfasst, setzt die Miete also in der Regel zu früh.
   const wirksamAbDatum = wirksamAb(new Date());
   const erhoehungGiltSpaeter = wirksamAbDatum > new Date();
+  // Offenes Verlangen: dessen Zustimmung wird erfasst, statt ein neues Schreiben anzulegen (28.10.2026)
+  const verlangen = erhoehungenGeladen === 'ok' ? offenesVerlangen(fruehereErhoehungen) : null;
+  const verlangenGiltSpaeter = !!verlangen?.wirksam_ab && verlangen.wirksam_ab.slice(0, 10) > format(new Date(), 'yyyy-MM-dd');
+  const verlangenMiete = verlangen ? mieteAusVerlangen(verlangen) : null;
+  const verlangtAmText = verlangen?.verlangt_am ? new Date(`${verlangen.verlangt_am.slice(0, 10)}T00:00:00`).toLocaleDateString('de-DE') : '–';
+  const verlangenWirksamText = verlangen?.wirksam_ab ? new Date(`${verlangen.wirksam_ab.slice(0, 10)}T00:00:00`).toLocaleDateString('de-DE') : '–';
+
+  // Neben einem offenen Verlangen gibt es keinen Haken „zugestimmt“: er legte einen zweiten Vorgang mit
+  // heutigem Datum an (Review 28.10.2026). Zugestimmt wird über „Zustimmung zum Verlangen erfassen“.
+  useEffect(() => {
+    if (verlangen) setMieterHatZugestimmt(false);
+  }, [verlangen]);
 
   // Fetch ist_angespannt from immobilien
   useEffect(() => {
@@ -119,7 +135,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     (async () => {
       const { data, error } = await supabase
         .from('mieterhoehungen')
-        .select('wirksam_ab, alte_kaltmiete, status')
+        .select('id, verlangt_am, wirksam_ab, alte_kaltmiete, alte_betriebskosten, neue_kaltmiete, neue_betriebskosten, status')
         .eq('mietvertrag_id', contractData.mietvertrag_id);
       if (abgebrochen) return;
       setFruehereErhoehungen(error ? [] : (data ?? []) as typeof fruehereErhoehungen);
@@ -239,7 +255,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
 
   /** Meldet eine leere oder ungültige neue Miete, statt ein Schreiben mit 0 € zu liefern. */
   const pruefeNeueMiete = () => {
-    const miete = neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten);
+    const miete = neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten, contractData?.current_kaltmiete);
     if ('fehler' in miete) {
       toast({ title: "Neue Miete unvollständig", description: miete.fehler, variant: "destructive" });
       return null;
@@ -264,10 +280,46 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     toast({ title: "Download erfolgreich", description: "Das Mieterhöhungsschreiben wurde heruntergeladen." });
   };
 
+  /**
+   * Die einzige Stelle, die die Vertragsmiete schreibt — nur mit erfasster Zustimmung (§ 558b Abs. 1 BGB).
+   * Seit 28.10.2026 führen zwei Wege hierher: Speichern mit gesetztem Haken und „Zustimmung zum Verlangen
+   * erfassen“. In beiden ist wirksamIso das Wirksamwerden des Verlangens, nicht der Tag der Zustimmung.
+   */
+  const mieteNachZustimmungSetzen = async (
+    mieterHatZugestimmt: boolean,
+    miete: { kaltmiete: number; betriebskosten: number | null },
+    wirksamIso: string
+  ): Promise<{ message: string } | null> => {
+    if (!contractData) return { message: 'Kein Vertrag gewählt.' };
+    if (mieterHatZugestimmt) {
+      const { data: geschrieben, error: mieteError } = await supabase.from('mietvertrag').update({
+        kaltmiete: miete.kaltmiete,
+        // Ohne Betriebskosten im Verlangen bleibt die Vorauszahlung, statt auf 0 € zu fallen (28.10.2026)
+        ...(miete.betriebskosten !== null ? { betriebskosten: miete.betriebskosten } : {}),
+        // Die Sperrfrist (§ 558 Abs. 1) zählt ab dem Wirksamwerden, nicht ab dem Tag der Zustimmung
+        letzte_mieterhoehung_am: wirksamIso,
+        aktualisiert_am: new Date().toISOString(),
+      }).eq('id', contractData.mietvertrag_id).select('id');
+      if (mieteError) return mieteError;
+      // Keine Zeile getroffen ist kein Erfolg (Vertrag weg oder nicht änderbar)
+      if (!geschrieben || geschrieben.length === 0) return { message: 'Der Vertrag wurde nicht gefunden oder ist nicht änderbar.' };
+      queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
+      queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
+      queryClient.invalidateQueries({ queryKey: ['rent-increase-eligibility'] });
+    }
+    return null;
+  };
+
   const handleSaveAndUpload = async () => {
     if (!contractData || !pdfBlob) return;
+    if (mieterHatZugestimmt && verlangen) {
+      toast({ title: "Offenes Verlangen", description: `Bitte „Zustimmung zum Verlangen vom ${verlangtAmText} erfassen“ nutzen.`, variant: "destructive" });
+      return;
+    }
     const neueMiete = pruefeNeueMiete();
     if (!neueMiete) return;
+    // Offene Verlangen, die dieses Schreiben ersetzt — nur bekannt, wenn die Vorgänge geladen sind
+    const zurueckzuziehen = erhoehungenGeladen === 'ok' ? offeneVerlangenIds(fruehereErhoehungen) : [];
     setIsSubmitting(true);
     try {
       // Pfad ohne Mieternamen: Supabase Storage lehnt Umlaute ab (InvalidKey),
@@ -282,6 +334,14 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         .upload(filePath, uint8, { contentType: 'application/pdf', upsert: false });
       if (uploadError) throw uploadError;
 
+      // Ohne Vorgang kein Schreiben: Scheitert danach etwas, verschwinden Datei und Dokumentzeile wieder.
+      // Bis zum 28.10.2026 blieben sie stehen — ein Verlangen in den Dokumenten, das es nie gab.
+      let dokumentEingetragen = false;
+      const zurueckrollen = async () => {
+        if (dokumentEingetragen) await supabase.from('dokumente').delete().eq('pfad', filePath);
+        await supabase.storage.from('dokumente').remove([filePath]);
+      };
+
       // Ohne Zeile in dokumente ist die Datei in der App unsichtbar (bis 27.10.2026 ungeprüft)
       const { error: dokumentError } = await supabase.from('dokumente').insert({
         titel: `Mieterhöhung ${new Date().toLocaleDateString('de-DE')}`,
@@ -290,7 +350,9 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         dateityp: 'application/pdf',
         mietvertrag_id: contractData.mietvertrag_id,
       });
+      if (dokumentError) await zurueckrollen();
       if (dokumentError) throw dokumentError;
+      dokumentEingetragen = true;
 
       // Ohne Zustimmung bleibt die Vertragsmiete unverändert: Nach § 558 BGB
       // erhöht der Vermieter nicht einseitig, und selbst mit Zustimmung ist die
@@ -303,7 +365,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       const wirksamDatum = wirksamAb(jetzt);
       const wirksamIso = wirksamAbTag(jetzt);
 
-      const { error: vorgangError } = await supabase.from('mieterhoehungen').insert({
+      const { data: neuerVorgang, error: vorgangError } = await supabase.from('mieterhoehungen').insert({
         mietvertrag_id: contractData.mietvertrag_id,
         verlangt_am: heuteIso,
         wirksam_ab: wirksamIso,
@@ -316,27 +378,44 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         dokument_pfad: filePath,
         status: mieterHatZugestimmt ? 'wirksam' : 'verlangt',
         zugestimmt_am: mieterHatZugestimmt ? heuteIso : null,
-      });
-      if (vorgangError) throw vorgangError;
+      }).select('id').single();
+      if (vorgangError) {
+        await zurueckrollen();
+        throw vorgangError;
+      }
+      queryClient.invalidateQueries({ queryKey: ['rent-increase-eligibility'] });
+
+      // Das neue Schreiben ersetzt offene Verlangen (im Dialog angekündigt); nur solange sie noch offen sind
+      let rueckzugFehlgeschlagen = false;
+      if (zurueckzuziehen.length > 0) {
+        const { error: rueckzugError } = await supabase.from('mieterhoehungen')
+          .update({ status: 'zurueckgezogen', aktualisiert_am: new Date().toISOString() })
+          .in('id', zurueckzuziehen)
+          .eq('status', 'verlangt');
+        rueckzugFehlgeschlagen = !!rueckzugError;
+      }
 
       if (mieterHatZugestimmt) {
-        const { error: mieteError } = await supabase.from('mietvertrag').update({
-          kaltmiete: neueMiete.kaltmiete,
-          betriebskosten: neueMiete.betriebskosten,
-          // Die Sperrfrist (§ 558 Abs. 1) zählt ab dem Wirksamwerden, nicht ab dem Tag der Zustimmung
-          letzte_mieterhoehung_am: wirksamIso,
-          aktualisiert_am: new Date().toISOString(),
-        }).eq('id', contractData.mietvertrag_id);
+        const mieteError = await mieteNachZustimmungSetzen(mieterHatZugestimmt, neueMiete, wirksamIso);
 
         if (mieteError) {
+          // Wie bei „Zustimmung erfassen“: der Vorgang wird wieder offen, damit die Zustimmung später
+          // über das offene Verlangen nachgeholt werden kann — sonst stünde er für immer auf wirksam
+          const { data: zurueck } = neuerVorgang
+            ? await supabase.from('mieterhoehungen')
+              .update({ status: 'verlangt', zugestimmt_am: null, aktualisiert_am: new Date().toISOString() })
+              .eq('id', neuerVorgang.id)
+              .eq('status', 'wirksam')
+              .select('id')
+            : { data: null };
           toast({
             title: "Schreiben gespeichert, Miete nicht geändert",
-            description: `Der Vorgang ist erfasst, die Vertragsmiete steht aber weiter auf dem alten Wert: ${mieteError.message}`,
+            description: zurueck && zurueck.length > 0
+              ? `Die Vertragsmiete steht weiter auf dem alten Wert (${mieteError.message}). Das Verlangen ist offen — die Zustimmung bitte über „Zustimmung zum Verlangen erfassen“ nachholen.`
+              : `Der Vorgang steht auf wirksam, die Vertragsmiete aber weiter auf dem alten Wert (${mieteError.message}). Bitte Vorgang und Miete am Vertrag prüfen.`,
             variant: "destructive",
           });
         } else {
-          queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', contractData.mietvertrag_id] });
-          queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
           toast({
             title: "Miete erhöht",
             description: erhoehungGiltSpaeter
@@ -344,10 +423,16 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
               : `Die Vertragsmiete steht jetzt auf ${neueMiete.kaltmiete.toFixed(2)} € kalt.`,
           });
         }
+      } else if (rueckzugFehlgeschlagen) {
+        toast({
+          title: "Verlangen gespeichert, altes nicht zurückgezogen",
+          description: "Das neue Verlangen ist gespeichert, das bisherige offene Verlangen steht aber weiter auf „verlangt“. Bitte den Vorgang prüfen.",
+          variant: "destructive",
+        });
       } else {
         toast({
           title: "Erhöhungsverlangen gespeichert",
-          description: `Die Miete am Vertrag bleibt unverändert. Sobald der Mieter zustimmt, hier erneut öffnen und den Haken setzen — frühestens geschuldet ist sie zum ${wirksamDatum.toLocaleDateString('de-DE')}.`,
+          description: `${zurueckzuziehen.length > 0 ? 'Das bisherige offene Verlangen ist zurückgezogen. ' : ''}Die Miete am Vertrag bleibt unverändert. Sobald der Mieter zustimmt, hier erneut öffnen und „Zustimmung erfassen“ wählen — frühestens geschuldet ist sie zum ${wirksamDatum.toLocaleDateString('de-DE')}.`,
         });
       }
       onClose();
@@ -358,8 +443,69 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     }
   };
 
+  /**
+   * Zustimmung zu einem offenen Verlangen (28.10.2026): derselbe Vorgang wird wirksam, kein neues
+   * Schreiben, kein zweiter Vorgang. wirksam_ab bleibt das des Verlangens; die Vertragsmiete setzt
+   * dieselbe Stelle wie beim Speichern mit Haken.
+   *
+   * Reihenfolge (Review 28.10.2026): erst der Vorgang, bedingt auf 'verlangt' — so übernimmt bei zwei
+   * offenen Fenstern nur eine Zustimmung die Miete. Scheitert danach die Miete, wird der Vorgang bedingt
+   * auf 'verlangt' zurückgesetzt, damit ein neuer Versuch möglich bleibt. Bei Fehler bleibt der Dialog offen.
+   */
+  const handleZustimmungErfassen = async () => {
+    const vorgang = verlangen;
+    if (!contractData || !vorgang?.wirksam_ab) return;
+    const miete = mieteAusVerlangen(vorgang);
+    if (!miete) {
+      toast({ title: "Verlangen unvollständig", description: "Im gespeicherten Verlangen fehlt die neue Miete. Bitte den Vorgang prüfen.", variant: "destructive" });
+      return;
+    }
+    const wirksamIso = vorgang.wirksam_ab.slice(0, 10);
+    setIsSubmitting(true);
+    try {
+      const { data: geaendert, error: vorgangError } = await supabase.from('mieterhoehungen')
+        .update({ status: 'wirksam', zugestimmt_am: format(new Date(), 'yyyy-MM-dd'), aktualisiert_am: new Date().toISOString() })
+        .eq('id', vorgang.id)
+        .eq('status', 'verlangt')
+        .select('id');
+      if (vorgangError) throw vorgangError;
+      if (!geaendert || geaendert.length === 0) {
+        throw new Error('Das Verlangen ist nicht mehr offen. Bitte den Dialog neu öffnen.');
+      }
+
+      const mieteError = await mieteNachZustimmungSetzen(true, miete, wirksamIso);
+      if (mieteError) {
+        const { data: zurueck, error: rueckError } = await supabase.from('mieterhoehungen')
+          .update({ status: 'verlangt', zugestimmt_am: null, aktualisiert_am: new Date().toISOString() })
+          .eq('id', vorgang.id)
+          .eq('status', 'wirksam')
+          .select('id');
+        const zurueckgesetzt = !rueckError && !!zurueck && zurueck.length > 0;
+        throw new Error(zurueckgesetzt
+          ? `Die Vertragsmiete wurde nicht geändert (${mieteError.message}). Das Verlangen ist weiter offen — bitte erneut versuchen.`
+          : `Die Vertragsmiete wurde nicht geändert (${mieteError.message}), der Vorgang steht aber auf „wirksam“. Bitte Vorgang und Miete am Vertrag prüfen.`);
+      }
+      queryClient.invalidateQueries({ queryKey: ['rent-increase-eligibility'] });
+
+      const ab = new Date(`${wirksamIso}T00:00:00`).toLocaleDateString('de-DE');
+      toast({
+        title: "Zustimmung erfasst",
+        description: verlangenGiltSpaeter
+          ? `Die Vertragsmiete steht jetzt auf ${miete.kaltmiete.toFixed(2)} € kalt. Achtung: Geschuldet ist sie erst ab ${ab} — bis dahin kann das System zu viel Soll ausweisen.`
+          : `Die Vertragsmiete steht jetzt auf ${miete.kaltmiete.toFixed(2)} € kalt, wirksam seit ${ab}.`,
+      });
+      onClose();
+    } catch (err: unknown) {
+      // Dialog bleibt offen: die Meldung muss gelesen werden, ein neuer Versuch bleibt möglich
+      toast({ title: "Zustimmung nicht erfasst", description: err instanceof Error ? err.message : "Zustimmung konnte nicht erfasst werden.", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (!contractData) return null;
 
+  const mieteEingabe = neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten, contractData.current_kaltmiete);
   const currentTotal = contractData.current_kaltmiete + contractData.current_betriebskosten;
   const newTotal = (parseFloat(neueKaltmiete) || 0) + (parseFloat(neueBetriebskosten) || 0);
   const increase = newTotal - currentTotal;
@@ -423,6 +569,36 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                     <p><span className="font-medium">Mieter:</span> {contractData.mieter.map(m => `${m.vorname} ${m.nachname}`).join(', ')}</p>
                   )}
                 </div>
+
+                {verlangen?.wirksam_ab && (
+                  <div className="space-y-2 rounded border border-warning/40 bg-warning/10 p-3 text-sm">
+                    <p className="font-medium">
+                      Offenes Erhöhungsverlangen vom {verlangtAmText}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Kaltmiete {Number(verlangen.alte_kaltmiete ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} →{' '}
+                      {Number(verlangen.neue_kaltmiete ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })},
+                      wirksam ab {verlangenWirksamText}.
+                      Hat der Mieter zugestimmt, hier erfassen — es entsteht kein neues Schreiben.
+                      Ein neues Schreiben unten ersetzt dieses Verlangen; es wird dann als zurückgezogen markiert.
+                    </p>
+                    {mieteSeitVerlangenGeaendert(verlangen, contractData.current_kaltmiete, contractData.current_betriebskosten) && (
+                      <p className="text-xs text-warning">
+                        Kaltmiete oder Betriebskosten am Vertrag haben sich seit dem Verlangen geändert. Bitte prüfen, ob die Zustimmung noch passt.
+                      </p>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => setShowConfirmZustimmung(true)}
+                      disabled={isSubmitting}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                      Zustimmung zum Verlangen vom {verlangtAmText} erfassen
+                    </Button>
+                  </div>
+                )}
 
                 <Separator />
 
@@ -499,6 +675,9 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                       />
                     </div>
                   </div>
+                  {'fehler' in mieteEingabe && (
+                    <p className="text-xs text-destructive" role="alert">{mieteEingabe.fehler}</p>
+                  )}
 
                   <div className="space-y-2">
                     <Label className="text-xs font-semibold">
@@ -534,11 +713,12 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                   </div>
 
                   <div className="space-y-2 rounded border border-border p-2">
-                    <label className="flex items-start gap-2 cursor-pointer">
+                    <label className={`flex items-start gap-2 ${verlangen ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                       <input
                         type="checkbox"
                         checked={mieterHatZugestimmt}
                         onChange={(e) => setMieterHatZugestimmt(e.target.checked)}
+                        disabled={!!verlangen}
                         className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                       />
                       <span className="text-xs">
@@ -547,6 +727,12 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                           Dann wird die Kaltmiete beim Speichern sofort im Vertrag geändert. Ohne Haken bleibt
                           sie stehen, bis die Zustimmung vorliegt.
                         </span>
+                        {verlangen && (
+                          <span className="block mt-1 text-warning">
+                            Gesperrt, weil ein Verlangen offen ist: Bitte oben „Zustimmung zum Verlangen vom {verlangtAmText} erfassen“ nutzen.
+                            Ein neues Schreiben ohne Haken zieht das offene Verlangen zurück.
+                          </span>
+                        )}
                       </span>
                     </label>
                     {mieterHatZugestimmt && erhoehungGiltSpaeter && (
@@ -609,9 +795,10 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                 {/* Legal info */}
                 <div className="p-2 rounded-lg border text-xs text-muted-foreground space-y-1">
                   <p className="font-medium">Hinweise:</p>
-                  <p>• Neue Miete wird 3 Monate nach Zugang wirksam</p>
-                  <p>• Frühestens 15 Monate nach Einzug/letzter Erhöhung</p>
-                  <p>• Höchstens alle 12 Monate</p>
+                  {/* § 558 Abs. 1 BGB (28.10.2026): verlangt werden darf nach 12 Monaten, die 15 Monate gelten zum Wirksamwerden */}
+                  <p>• Geschuldet ab Beginn des dritten Monats nach Zugang (§ 558b Abs. 1 BGB)</p>
+                  <p>• Verlangen frühestens 12 Monate nach Einzug bzw. letzter Erhöhung (§ 558 Abs. 1 Satz 2 BGB)</p>
+                  <p>• Beim Wirksamwerden muss die Miete seit 15 Monaten unverändert sein (§ 558 Abs. 1 Satz 1 BGB)</p>
                 </div>
               </div>
             </ScrollArea>
@@ -641,14 +828,50 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         </DialogContent>
       </Dialog>
 
+      {/* Zustimmung zu einem offenen Verlangen */}
+      <AlertDialog open={showConfirmZustimmung} onOpenChange={setShowConfirmZustimmung}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zustimmung des Mieters erfassen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Das Verlangen vom {verlangtAmText} wird wirksam, es entsteht kein neues Schreiben.{' '}
+              {verlangenMiete && (
+                <>
+                  Die Vertragsmiete wird {verlangenGiltSpaeter ? 'sofort ' : ''}auf{' '}
+                  {verlangenMiete.kaltmiete.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} kalt
+                  {verlangenMiete.betriebskosten !== null && ` und ${verlangenMiete.betriebskosten.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} Betriebskosten`} gesetzt
+                  {verlangenGiltSpaeter && contractData ? (
+                    <>
+                      , wirksam ist die Erhöhung erst ab {verlangenWirksamText}. Bis dahin ist die Monatsforderung um{' '}
+                      {mehrforderungProMonat(verlangenMiete, contractData.current_kaltmiete, contractData.current_betriebskosten)
+                        .toLocaleString('de-DE', { style: 'currency', currency: 'EUR' })} zu hoch.
+                    </>
+                  ) : '.'}
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={handleZustimmungErfassen}>
+              Ja, Zustimmung erfassen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Confirm save dialog */}
       <AlertDialog open={showConfirmSave} onOpenChange={setShowConfirmSave}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Mieterhöhung speichern?</AlertDialogTitle>
             <AlertDialogDescription>
-              Das PDF wird in den Dokumenten gespeichert und die Vertragsmiete wird auf die neuen Werte aktualisiert. 
-              Haben Sie die PDF-Vorschau geprüft?
+              Das PDF wird in den Dokumenten gespeichert.{' '}
+              {mieterHatZugestimmt
+                ? 'Die Vertragsmiete wird auf die neuen Werte aktualisiert.'
+                : 'Die Vertragsmiete bleibt unverändert, bis die Zustimmung erfasst ist.'}
+              {verlangen && ` Das offene Verlangen vom ${verlangtAmText} wird danach als zurückgezogen markiert.`}
+              {' '}Haben Sie die PDF-Vorschau geprüft?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

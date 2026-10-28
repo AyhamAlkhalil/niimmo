@@ -47,6 +47,68 @@ interface MahnungEmailRequest {
   pdfPath: string;
   mietvertragId: string;
   forderungen?: Array<{ sollmonat: string; sollbetrag: number }>;
+  /** Nur Stufe 3: Ergebnis von fristloseKuendigungFelder() im Browser */
+  kuendigung?: unknown;
+  /** Zahlungsfrist aus dem gespeicherten Schreiben (JJJJ-MM-TT); ersetzt zahlungsfristTage */
+  fristDatum?: unknown;
+}
+
+interface KuendigungsFelder {
+  status: 'gekuendigt';
+  kuendigungsdatum: string;
+  ende_datum: string;
+}
+
+/** JJJJ-MM-TT als echter Kalendertag (kein 31.02.) */
+function istKalendertag(wert: unknown): wert is string {
+  if (typeof wert !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(wert)) return false;
+  const [jahr, monat, tag] = wert.split('-').map(Number);
+  const d = new Date(Date.UTC(jahr, monat - 1, tag));
+  return d.getUTCFullYear() === jahr && d.getUTCMonth() === monat - 1 && d.getUTCDate() === tag;
+}
+
+/**
+ * Felder der fristlosen Kuendigung aus dem Request (Stufe 3). Seit 28.10.2026 setzt die Function sie
+ * im selben Update wie die Stufe: Bis dahin tat es nur der Browser nach der Antwort -- ging die
+ * verloren, blieb der Vertrag aktiv, waehrend der Mieter die Kuendigung schon hatte, und ein neuer
+ * Versuch bekam 409. Geprueft wird die Form, nicht die Rechnung: kein Tag vor heute (deutsche Zeit),
+ * Ende nicht vor der Kuendigung, hoechstens ein Jahr Raeumungsfrist (raeumungsfristInTagen).
+ */
+function pruefeKuendigungsfelder(felder: unknown, heuteIso: string): KuendigungsFelder | { fehler: string } {
+  const f = (felder ?? {}) as Record<string, unknown>;
+  if (typeof felder !== 'object' || felder === null || f.status !== 'gekuendigt') {
+    return { fehler: 'Der Vertragsstatus der Kündigung fehlt.' };
+  }
+  if (!istKalendertag(f.kuendigungsdatum) || !istKalendertag(f.ende_datum)) {
+    return { fehler: 'Kündigungsdatum oder Vertragsende ist kein gültiges Datum.' };
+  }
+  if (f.kuendigungsdatum < heuteIso) {
+    return { fehler: 'Das Kündigungsdatum liegt in der Vergangenheit.' };
+  }
+  if (f.ende_datum < f.kuendigungsdatum) {
+    return { fehler: 'Das Vertragsende liegt vor dem Kündigungsdatum.' };
+  }
+  const [jahr, monat, tag] = heuteIso.split('-').map(Number);
+  const spaetestens = new Date(Date.UTC(jahr, monat - 1, tag + 365)).toISOString().slice(0, 10);
+  if (f.ende_datum > spaetestens) {
+    return { fehler: 'Die Räumungsfrist ist länger als ein Jahr.' };
+  }
+  return { status: 'gekuendigt', kuendigungsdatum: f.kuendigungsdatum, ende_datum: f.ende_datum };
+}
+
+/**
+ * Zahlungsfrist als Datum aus dem gespeicherten Schreiben (28.10.2026). Mit zahlungsfristTage rechnete
+ * die Mail vom Versandtag aus; lagen Speichern und Senden auf verschiedenen Tagen, nannte sie eine
+ * andere Frist als das angehängte PDF. Erlaubt: echtes Datum, nicht vor heute, hoechstens 60 Tage.
+ */
+function pruefeFristDatum(wert: unknown, heuteIso: string): string | { fehler: string } {
+  if (!istKalendertag(wert)) return { fehler: 'Die Zahlungsfrist ist kein gültiges Datum.' };
+  if (wert < heuteIso) return { fehler: 'Die Zahlungsfrist im Schreiben ist schon abgelaufen. Bitte das Schreiben neu speichern.' };
+  const [jahr, monat, tag] = heuteIso.split('-').map(Number);
+  if (wert > new Date(Date.UTC(jahr, monat - 1, tag + 60)).toISOString().slice(0, 10)) {
+    return { fehler: 'Die Zahlungsfrist liegt mehr als 60 Tage in der Zukunft.' };
+  }
+  return wert;
 }
 
 /**
@@ -64,13 +126,14 @@ function berlinerTag(versatzTage: number): string {
   return new Intl.DateTimeFormat('de-DE', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }).format(ziel);
 }
 
-function generateMahnungHtml(data: MahnungEmailRequest): string {
+function generateMahnungHtml(data: MahnungEmailRequest, fristDatum: string | null): string {
   // Bei leerem Fristfeld kam null an -- die Mail nannte dann den heutigen Tag als Frist,
   // das PDF heute + 7 (27.10.2026). Gleiche Vorgabe wie im PDF.
   const fristTage = Number.isFinite(Number(data.zahlungsfristTage)) && Number(data.zahlungsfristTage) > 0
     ? Number(data.zahlungsfristTage)
     : 7;
-  const fristFormatted = berlinerTag(fristTage);
+  // Geprueftes Datum aus dem Schreiben; ohne (aeltere App-Fassung) wie bisher ab heute gerechnet
+  const fristFormatted = fristDatum ? fristDatum.split('-').reverse().join('.') : berlinerTag(fristTage);
   const heute = berlinerTag(0);
 
   let eskalationsText = '';
@@ -342,7 +405,7 @@ serve(async (req) => {
     // kam eine "4. Mahnung" heraus (27.10.2026). Die angefragte Stufe muss zur gespeicherten passen.
     const { data: vertragVorher, error: vorherFehler } = await supabase
       .from('mietvertrag')
-      .select('mahnstufe')
+      .select('mahnstufe, status')
       .eq('id', data.mietvertragId)
       .maybeSingle();
     if (vorherFehler || !vertragVorher) {
@@ -358,6 +421,36 @@ serve(async (req) => {
     if (data.mahnstufe !== bisherigeStufe + 1) {
       return new Response(JSON.stringify({ error: `Der Vertrag steht inzwischen auf Mahnstufe ${bisherigeStufe}. Bitte den Dialog neu öffnen, damit Schreiben und Mail die richtige Stufe nennen. Es wurde nichts versendet.` }),
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    // Stufe 3 kuendigt fristlos: Status und Vertragsende vor dem Versand pruefen, gesetzt werden sie
+    // unten mit der Stufe. Ohne die Felder (aeltere App-Fassung) bleibt es beim Setzen im Browser.
+    const heuteIso = berlinerTag(0).split('.').reverse().join('-');
+    let kuendigung: KuendigungsFelder | null = null;
+    if (data.kuendigung !== undefined && data.kuendigung !== null) {
+      const geprueft = data.mahnstufe === 3
+        ? pruefeKuendigungsfelder(data.kuendigung, heuteIso)
+        : { fehler: 'Eine Kündigung gehört nur zur Mahnstufe 3.' };
+      if ('fehler' in geprueft) {
+        return new Response(JSON.stringify({ error: `${geprueft.fehler} Es wurde nichts versendet.` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      // Ein beendeter Vertrag wuerde sonst auf 'gekuendigt' zurueckgeholt (Review 28.10.2026)
+      if (vertragVorher.status !== 'aktiv' && vertragVorher.status !== 'gekuendigt') {
+        return new Response(JSON.stringify({ error: 'Der Vertrag ist bereits beendet. Die Mahnung der Stufe 3 kündigt fristlos und kann deshalb nicht versendet werden. Es wurde nichts versendet.' }),
+          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      kuendigung = geprueft;
+    }
+
+    let fristDatum: string | null = null;
+    if (data.fristDatum !== undefined && data.fristDatum !== null) {
+      const geprueft = pruefeFristDatum(data.fristDatum, heuteIso);
+      if (typeof geprueft !== 'string') {
+        return new Response(JSON.stringify({ error: `${geprueft.fehler} Es wurde nichts versendet.` }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      fristDatum = geprueft;
     }
 
     let pdfBuffer: Buffer | null = null;
@@ -385,7 +478,7 @@ serve(async (req) => {
     }
 
     // Generate HTML email
-    const htmlBody = generateMahnungHtml(data);
+    const htmlBody = generateMahnungHtml(data, fristDatum);
     const betreff = data.mahnstufe === 3
       ? `${data.mahnstufe}. und letzte Mahnung — Mietrückstand | ${data.immobilieName}`
       : `${data.mahnstufe}. Mahnung — Mietrückstand | ${data.immobilieName}`;
@@ -469,13 +562,20 @@ serve(async (req) => {
     let stufenUpdate = supabase.from('mietvertrag').update({
       mahnstufe: neueMahnstufe,
       letzte_mahnung_am: new Date().toISOString(),
-      naechste_mahnung_am: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      naechste_mahnung_am: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      // Stufe 3: Kuendigung im selben Update -- Stufe und Status stehen nur gemeinsam oder gar nicht
+      ...(kuendigung ? { ...kuendigung, aktualisiert_am: new Date().toISOString() } : {}),
     }).eq('id', data.mietvertragId);
     stufenUpdate = vertragVorher.mahnstufe === null
       ? stufenUpdate.is('mahnstufe', null)
       : stufenUpdate.eq('mahnstufe', vertragVorher.mahnstufe);
+    // Mit Kuendigung nur, solange der Vertrag noch laeuft -- wurde er inzwischen beendet, bleibt er es
+    if (kuendigung) stufenUpdate = stufenUpdate.in('status', ['aktiv', 'gekuendigt']);
     const { data: aktualisiert, error: stufeFehler } = await stufenUpdate.select('id');
+    let gespeichert = true;
     if (stufeFehler || !aktualisiert || aktualisiert.length === 0) {
+      gespeichert = false;
+      // Den Status setzt dann die App nach (kuendigungGesetzt = false) und meldet selbst, falls das scheitert
       warnung = `Die Mahnung ist versendet, die Mahnstufe wurde aber nicht auf ${neueMahnstufe} erhöht. Bitte die Stufe am Vertrag prüfen.`;
       console.error('Mahnstufe nicht gespeichert:', stufeFehler?.message ?? 'Stand hat sich zwischenzeitlich geaendert');
     }
@@ -486,6 +586,8 @@ serve(async (req) => {
         message: `Mahnung Stufe ${data.mahnstufe} erfolgreich per E-Mail versendet`,
         recipient: data.recipientEmail,
         warnung,
+        // Die App setzt den Status nur noch selbst, wenn hier nicht true steht
+        kuendigungGesetzt: kuendigung !== null && gespeichert,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

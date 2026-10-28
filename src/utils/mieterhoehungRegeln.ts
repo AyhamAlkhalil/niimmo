@@ -69,15 +69,25 @@ export function wirksamAbTag(zugang: Date): string {
  * geleertes BK-Feld kam als 0 € ins Schreiben und — mit Haken „zugestimmt“ — an den Vertrag;
  * eine leere Kaltmiete wurde zu NaN. Die Kaltmiete muss ein positiver Betrag sein, die
  * Betriebskosten dürfen 0, aber nicht leer sein.
+ *
+ * Mit `bisherigeKaltmiete` muss die neue Kaltmiete darüber liegen (28.10.2026) — wie die
+ * Datenbank es verlangt (CHECK mieterhoehungen_erhoeht_tatsaechlich) und der Generator
+ * (pruefeErhoehungsdaten). Bisher sah der Nutzer bei gleicher Kaltmiete nur „Vorschau nicht
+ * möglich“; geänderte Betriebskosten allein sind kein Verlangen nach § 558 BGB (sondern § 560).
  */
 export function neueMieteAusEingabe(
   kaltmiete: string,
-  betriebskosten: string
+  betriebskosten: string,
+  bisherigeKaltmiete?: number
 ): { kaltmiete: number; betriebskosten: number } | { fehler: string } {
   const unlesbar = (feld: string) => `${feld} ist nicht lesbar – bitte ohne Tausenderpunkt eingeben, z. B. 1000,50.`;
   const kalt = leseKautionsbetrag(kaltmiete);
   if (kalt === undefined) return { fehler: unlesbar('Die neue Kaltmiete') };
   if (kalt === null || kalt <= 0) return { fehler: 'Bitte eine neue Kaltmiete über 0 € eintragen.' };
+  if (bisherigeKaltmiete !== undefined && !(kalt > bisherigeKaltmiete)) {
+    const bisher = bisherigeKaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return { fehler: `Die neue Kaltmiete muss über der bisherigen von ${bisher} € liegen. Geänderte Betriebskosten allein sind keine Mieterhöhung nach § 558 BGB.` };
+  }
   const bk = leseKautionsbetrag(betriebskosten);
   if (bk === undefined) return { fehler: unlesbar('Die Angabe zu den Betriebskosten') };
   if (bk === null) return { fehler: 'Bitte die neuen Betriebskosten eintragen (0 € ist möglich).' };
@@ -105,4 +115,74 @@ export function kappungsBasis(
   if (imFenster.length > 0) return { betrag: Number(imFenster[0].alte_kaltmiete), sicher: true };
   if (letzteErhoehungAm && letzteErhoehungAm.slice(0, 10) > fensterBeginn) return { betrag: aktuelleKaltmiete, sicher: false };
   return { betrag: aktuelleKaltmiete, sicher: true };
+}
+
+export interface ErhoehungsVorgang {
+  id: string;
+  verlangt_am: string | null;
+  wirksam_ab: string | null;
+  alte_kaltmiete: number | string | null;
+  alte_betriebskosten?: number | string | null;
+  neue_kaltmiete: number | string | null;
+  neue_betriebskosten: number | string | null;
+  status: string | null;
+}
+
+/**
+ * Das offene Erhöhungsverlangen eines Vertrags: der jüngste Vorgang mit Status `verlangt`.
+ *
+ * Bis zum 28.10.2026 hieß es nach dem Speichern „Sobald der Mieter zustimmt, hier erneut öffnen und
+ * den Haken setzen“. Das erzeugte ein zweites Schreiben mit heutigem Datum und einen zweiten Vorgang;
+ * wirksam_ab und letzte_mieterhoehung_am zählten ab der Zustimmung statt ab dem Verlangen, und der
+ * alte Vorgang blieb für immer `verlangt`. Der Dialog bietet stattdessen an, die Zustimmung zu diesem
+ * Verlangen zu erfassen.
+ */
+export function offenesVerlangen<T extends ErhoehungsVorgang>(erhoehungen: ReadonlyArray<T>): T | null {
+  const offen = erhoehungen
+    .filter((e) => e.status === 'verlangt' && e.wirksam_ab && e.neue_kaltmiete !== null)
+    .sort((a, b) => (b.verlangt_am ?? '').localeCompare(a.verlangt_am ?? ''));
+  return offen[0] ?? null;
+}
+
+/**
+ * Alle offenen Verlangen eines Vertrags. Ein neues Schreiben ohne Zustimmung ersetzt sie; sie werden
+ * nach dem Speichern auf `zurueckgezogen` gesetzt, statt für immer `verlangt` zu bleiben (28.10.2026).
+ */
+export function offeneVerlangenIds(erhoehungen: ReadonlyArray<ErhoehungsVorgang>): string[] {
+  return erhoehungen.filter((e) => e.status === 'verlangt').map((e) => e.id);
+}
+
+/**
+ * Neue Miete aus einem gespeicherten Verlangen. Betriebskosten null heißt: die Vorauszahlung des
+ * Vertrags bleibt, statt still auf 0 € zu fallen (Review 28.10.2026; die Spalte ist live NOT NULL,
+ * die Regel schützt vor Altbestand und künftigen Schreibwegen). null, wenn die Kaltmiete fehlt.
+ */
+export function mieteAusVerlangen(v: ErhoehungsVorgang): { kaltmiete: number; betriebskosten: number | null } | null {
+  const kaltmiete = Number(v.neue_kaltmiete);
+  if (v.neue_kaltmiete === null || !Number.isFinite(kaltmiete) || kaltmiete <= 0) return null;
+  if (v.neue_betriebskosten === null || v.neue_betriebskosten === undefined) return { kaltmiete, betriebskosten: null };
+  const betriebskosten = Number(v.neue_betriebskosten);
+  return Number.isFinite(betriebskosten) && betriebskosten >= 0 ? { kaltmiete, betriebskosten } : null;
+}
+
+const cent = (wert: number | string | null | undefined) => Math.round(Number(wert ?? 0) * 100);
+
+/** Hat sich die Vertragsmiete seit dem Verlangen geändert — Kaltmiete oder Betriebskosten? */
+export function mieteSeitVerlangenGeaendert(v: ErhoehungsVorgang, aktuelleKaltmiete: number, aktuelleBetriebskosten: number): boolean {
+  if (cent(v.alte_kaltmiete) !== cent(aktuelleKaltmiete)) return true;
+  return v.alte_betriebskosten !== null && v.alte_betriebskosten !== undefined && cent(v.alte_betriebskosten) !== cent(aktuelleBetriebskosten);
+}
+
+/**
+ * Um so viel ist die Monatsforderung zu hoch, wenn die Vertragsmiete vor dem Wirksamwerden gesetzt
+ * wird (§ 558b Abs. 1 BGB): neue minus heutige Miete, Betriebskosten nur, wenn sie sich ändern.
+ */
+export function mehrforderungProMonat(
+  miete: { kaltmiete: number; betriebskosten: number | null },
+  aktuelleKaltmiete: number,
+  aktuelleBetriebskosten: number
+): number {
+  const differenz = cent(miete.kaltmiete) - cent(aktuelleKaltmiete)
+    + (miete.betriebskosten === null ? 0 : cent(miete.betriebskosten) - cent(aktuelleBetriebskosten));
+  return differenz / 100;
 }
