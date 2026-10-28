@@ -700,3 +700,100 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
     });
   });
 });
+
+// 28.10.2026: Die Auslese läuft im Hintergrund. Was der Nutzer währenddessen ändert, darf sie danach
+// nicht zurücksetzen — bis dahin kam die Vorauszahlung als „Gesamt-BK − Heizkosten" zurück, ebenso
+// ein abgewählter Kündigungsverzicht.
+describe('Auslese des alten Vertragsdokuments lässt Handeingaben stehen', () => {
+  it('überschreibt eine von Hand geänderte Vorauszahlung nicht', () => {
+    const basis = baueEntwurf(grundlagen());
+    const daten = { ...basis.daten, betriebskostenVorauszahlung: 120 };
+    const herkunft = ohneHerkunft(basis.herkunft, 'betriebskostenVorauszahlung');
+    const neu = wendeVorvertragAuslese(daten, herkunft, AUSLESE, 100);
+    expect(neu.daten.betriebskostenVorauszahlung).toBe(120);
+    expect(neu.herkunft.betriebskostenVorauszahlung).toBeUndefined();
+  });
+
+  it('übernimmt die Heizkosten nicht, wenn die Vorauszahlung von Hand gesetzt ist — die Summe stiege still', () => {
+    const basis = baueEntwurf(grundlagen());
+    const daten = { ...basis.daten, betriebskostenVorauszahlung: 120 };
+    const herkunft = ohneHerkunft(basis.herkunft, 'betriebskostenVorauszahlung');
+    const summe = (x: typeof daten) => x.betriebskostenVorauszahlung + (x.heizkostenVorauszahlung ?? 0);
+
+    const ueberHerkunft = wendeVorvertragAuslese(daten, herkunft, AUSLESE, 100);
+    expect(ueberHerkunft.daten.heizkostenVorauszahlung).toBeNull();
+    expect(summe(ueberHerkunft.daten)).toBe(120);
+
+    const ueberVonHand = wendeVorvertragAuslese(daten, basis.herkunft, AUSLESE, 100, f => f === 'betriebskostenVorauszahlung');
+    expect(ueberVonHand.daten.heizkostenVorauszahlung).toBeNull();
+    expect(ueberVonHand.daten.betriebskostenVorauszahlung).toBe(120);
+    expect(ueberVonHand.herkunft.heizkostenVorauszahlung).toBeUndefined();
+  });
+
+  it('trennt die Heizkosten weiter heraus, wenn die Vorauszahlung mitgeht', () => {
+    const basis = baueEntwurf(grundlagen());
+    const vorher = basis.daten.betriebskostenVorauszahlung + (basis.daten.heizkostenVorauszahlung ?? 0);
+    const neu = wendeVorvertragAuslese(basis.daten, basis.herkunft, AUSLESE, 100, () => false);
+    expect(neu.daten.heizkostenVorauszahlung).toBe(50);
+    expect(neu.daten.betriebskostenVorauszahlung + (neu.daten.heizkostenVorauszahlung ?? 0)).toBe(vorher);
+  });
+
+  it('lässt auch eine von Hand geleerte Vorauszahlung leer', () => {
+    const basis = baueEntwurf(grundlagen());
+    const daten = { ...basis.daten, betriebskostenVorauszahlung: 0 };
+    const herkunft = ohneHerkunft(basis.herkunft, 'betriebskostenVorauszahlung');
+    const neu = wendeVorvertragAuslese(daten, herkunft, AUSLESE, 100, f => f === 'betriebskostenVorauszahlung');
+    expect(neu.daten.betriebskostenVorauszahlung).toBe(0);
+  });
+
+  it('ersetzt die Vorauszahlung, solange sie noch aus dem Vorvertrag stammt', () => {
+    const basis = baueEntwurf(grundlagen());
+    expect(basis.herkunft.betriebskostenVorauszahlung).toBe('vorvertrag');
+    const neu = wendeVorvertragAuslese(basis.daten, basis.herkunft, AUSLESE, 100, () => false);
+    expect(neu.daten.betriebskostenVorauszahlung).toBe(50);
+  });
+
+  it('bringt einen abgewählten Kündigungsverzicht nicht zurück', () => {
+    const basis = baueEntwurf(grundlagen());
+    const auslese = { ...AUSLESE, mindestlaufzeit_monate: 12 };
+    const ohneHand = wendeVorvertragAuslese(basis.daten, basis.herkunft, auslese, 100);
+    expect(ohneHand.daten.kuendigungsverzichtBis).toBeTruthy();
+
+    const abgewaehlt = wendeVorvertragAuslese(
+      { ...basis.daten, kuendigungsverzichtBis: null },
+      ohneHerkunft(basis.herkunft, 'kuendigungsverzichtBis'),
+      auslese,
+      100,
+      f => f === 'kuendigungsverzichtBis'
+    );
+    expect(abgewaehlt.daten.kuendigungsverzichtBis).toBeNull();
+    expect(abgewaehlt.herkunft.kuendigungsverzichtBis).toBeUndefined();
+  });
+
+  it('füllt ein von Hand geleertes Feld nicht wieder', () => {
+    const basis = baueEntwurf(grundlagen());
+    const neu = wendeVorvertragAuslese(basis.daten, basis.herkunft, AUSLESE, 100, f => f === 'einheit.bezeichnung');
+    expect(neu.daten.einheit.bezeichnung).toBe('');
+    expect(neu.herkunft['einheit.bezeichnung']).toBeUndefined();
+  });
+});
+
+describe('Auslese fragt vonHand mit den Schlüsseln der Formulare', () => {
+  it('nutzt dieselben Feldnamen, die MieteSchritt und Abschnitte an geaendert() melden', () => {
+    // Abschnitte: `einheit.${feld}`, 'schliessanlageArt', 'betriebskostenPositionen';
+    // MieteSchritt: setze(feld) mit dem Feldnamen des Entwurfs (28.10.2026 geprüft)
+    const formularSchluessel = new Set([
+      'einheit.bezeichnung', 'einheit.lage', 'einheit.raumaufstellung', 'einheit.wohnflaecheQm',
+      'schliessanlageArt', 'kaltmiete', 'kautionBetrag', 'betriebskostenVorauszahlung',
+      'heizkostenVorauszahlung', 'kuendigungsverzichtBis', 'betriebskostenPositionen',
+    ]);
+    const gefragt = new Set<string>();
+    const basis = baueEntwurf(grundlagen({ vorvertrag: null }));
+    wendeVorvertragAuslese(basis.daten, basis.herkunft, { ...AUSLESE, mindestlaufzeit_monate: 12 }, null, f => {
+      gefragt.add(f);
+      return false;
+    });
+    expect([...gefragt].filter(f => !formularSchluessel.has(f))).toEqual([]);
+    expect(gefragt.size).toBeGreaterThanOrEqual(8);
+  });
+});

@@ -12,6 +12,7 @@ import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from "@/constants/config";
 import { toast } from "sonner";
 import { getVertragsende } from "@/utils/contractUtils";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
+import { istUngueltigerEuroBetrag, leseEuroBetrag } from "@/utils/euroBetrag";
 
 interface MietvertragContractInfoProps {
   vertrag: any;
@@ -68,6 +69,10 @@ export function MietvertragContractInfo({
   const anzahlPersonen = isGlobalEditMode && editedValues.anzahl_personen !== undefined ? editedValues.anzahl_personen : vertrag.anzahl_personen;
   const qmValue = isGlobalEditMode && editedValues.qm !== undefined ? editedValues.qm : einheit?.qm;
   const sollMieteValue = isGlobalEditMode && editedValues.soll_miete !== undefined ? editedValues.soll_miete : einheit?.soll_miete;
+  // Die Soll-Miete kommt seit 28.10.2026 als Rohtext an und wird beim Speichern über leseEuroBetrag
+  // gelesen (useMietvertragMutations); „1.200“ wurde vorher mit parseFloat zu 1,20 €.
+  const sollMieteUngueltig = isGlobalEditMode && istUngueltigerEuroBetrag(editedValues.soll_miete);
+  const sollMieteAnzeige = leseEuroBetrag(sollMieteValue);
   const mietbeginnValue = isGlobalEditMode
     ? (editedValues.start_datum ?? (vertrag.start_datum || ''))
     : (vertrag.start_datum || '');
@@ -273,20 +278,18 @@ export function MietvertragContractInfo({
             <div className="grid grid-cols-2 gap-2">
               <MietvertragEditableField
                 label="SOLL-Miete (p.m.)"
-                value={sollMieteValue !== null && sollMieteValue !== undefined ? Number(sollMieteValue) : ''}
+                value={typeof sollMieteAnzeige === 'number' ? sollMieteAnzeige : ''}
                 isEditing={isGlobalEditMode}
                 onEdit={() => {}}
-                onValueChange={isGlobalEditMode ? (raw) => {
-                  const trimmed = raw.trim();
-                  onUpdateEditedValue?.('soll_miete', trimmed === '' ? null : parseFloat(trimmed) || null);
-                } : undefined}
+                onValueChange={isGlobalEditMode ? (raw) => onUpdateEditedValue?.('soll_miete', raw) : undefined}
                 onSave={(value) => {
-                  if (isGlobalEditMode) onUpdateEditedValue?.('soll_miete', value ? parseFloat(value) : null);
+                  if (isGlobalEditMode) onUpdateEditedValue?.('soll_miete', value);
                 }}
                 onCancel={onCancelEdit}
                 type="number"
                 step="0.01"
                 placeholder="–"
+                inputClassName={sollMieteUngueltig ? 'w-full h-8 text-sm sm:w-32 border-destructive focus-visible:border-destructive' : undefined}
                 formatter={(val) => val ? formatBetrag(Number(val)) : '–'}
                 hideEditButton={true}
                 isGlobalEditMode={isGlobalEditMode}

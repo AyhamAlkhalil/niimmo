@@ -48,16 +48,22 @@ export function useMietvertragPdfDaten(vertragId: string | null, aktiv: boolean)
         .order('position');
       if (mieterError) throw mieterError;
 
-      const { data: nebenkostenarten } = await supabase
+      // Beide Abfragen liefen bis zum 28.10.2026 ohne Fehlerprüfung: Scheiterte die erste, galten alle
+      // BetrKV-Positionen als „nicht umgelegt", und MietvertragErstellungModal speicherte diesen
+      // Schnappschuss mit dem Vertrag. Ein Fehler macht die Abfrage jetzt fehlerhaft — ohne Daten
+      // zeigt der Dialog nur die Fehlermeldung, gedruckt oder gespeichert wird nichts.
+      const { data: nebenkostenarten, error: nebenkostenError } = await supabase
         .from('nebenkostenarten')
         .select('name, verteilerschluessel_art, ist_umlagefaehig')
         .eq('immobilie_id', immobilie.id);
+      if (nebenkostenError) throw nebenkostenError;
 
-      const { data: nebenobjektRows } = await supabase
+      const { data: nebenobjektRows, error: nebenobjektError } = await supabase
         .from('mietvertrag_einheiten')
         .select('teilmiete, einheit:einheit_id (bezeichnung, etage)')
         .eq('mietvertrag_id', vertragId!)
         .eq('rolle', 'nebenobjekt');
+      if (nebenobjektError) throw nebenobjektError;
 
       return vertragsDaten({
         vertrag,

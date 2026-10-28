@@ -230,6 +230,7 @@ export function MieteSchritt({
               Kaltmiete (€)
             </Feldname>
             <ZahlFeld
+              art="betrag"
               id="kaltmiete"
               wert={entwurf.kaltmiete || null}
               onWert={n => {
@@ -272,6 +273,7 @@ export function MieteSchritt({
                 {entwurf.betriebskostenModus === 'pauschale' ? 'Pauschale (€)' : 'Vorauszahlung (€)'}
               </Feldname>
               <ZahlFeld
+                art="betrag"
                 id="bk"
                 wert={entwurf.betriebskostenVorauszahlung || null}
                 onWert={n => setze('betriebskostenVorauszahlung', n ?? 0)}
@@ -285,6 +287,7 @@ export function MieteSchritt({
               Heizkosten (€)
             </Feldname>
             <ZahlFeld
+              art="betrag"
               id="hk"
               placeholder="nicht getrennt"
               wert={entwurf.heizkostenVorauszahlung}
@@ -323,7 +326,7 @@ export function MieteSchritt({
               <Feldname htmlFor="kaution" marke={markierung?.('kautionBetrag')}>
                 Betrag (€)
               </Feldname>
-              <ZahlFeld id="kaution" wert={entwurf.kautionBetrag || null} onWert={n => setze('kautionBetrag', n ?? 0)} />
+              <ZahlFeld art="betrag" id="kaution" wert={entwurf.kautionBetrag || null} onWert={n => setze('kautionBetrag', n ?? 0)} />
             </div>
           )}
           {entwurf.kautionArt === 'barkaution' && (
@@ -434,6 +437,7 @@ export function MieteSchritt({
                     <span className="text-xs">Vormiete netto (€)</span>
                   </Feldname>
                   <ZahlFeld
+                    art="betrag"
                     id="vormiete"
                     wert={entwurf.vormieteNetto}
                     onWert={n => setze('vormieteNetto', n && n > 0 ? n : null)}

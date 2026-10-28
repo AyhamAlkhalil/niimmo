@@ -396,6 +396,22 @@ function zahl(v: Roh): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Zählerstand (28.10.2026): Ein Punkt allein bleibt Dezimalpunkt — „123.456" sind 123,456 m³, nicht
+ * 123456 wie bei zahl(). Deutsch gelesen wird nur mit Komma („1.234,5"); mehrere Punkte ohne Komma
+ * sind Tausendertrenner. Dieselben Regeln wie src/utils/decimalInput.ts. Leer ergibt null.
+ */
+function zaehlerstand(v: Roh): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const s = String(v).replace(/\s/g, '');
+  if (!s) return null;
+  const punkte = (s.match(/\./g) ?? []).length;
+  const kern = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : punkte > 1 ? s.replace(/\./g, '') : s;
+  const n = Number(kern);
+  return Number.isFinite(n) ? n : null;
+}
+
 function datum(v: Roh): string | null {
   return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
 }
@@ -414,15 +430,21 @@ function normalisiereMietvertrag(extractedData: Roh) {
       nachname: m.nachname || '',
       hauptmail: m.hauptmail || '',
       telnr: m.telnr || '',
-      geburtsdatum: m.geburtsdatum || '',
+      // Nur ein echtes ISO-Datum, wie bei Selbstauskunft und Vorvertrag (28.10.2026)
+      geburtsdatum: datum(m.geburtsdatum) ?? '',
       rolle: m.rolle === 'mitmieter' ? 'mitmieter' : 'hauptmieter',
     }));
     fieldsExtracted += validatedData.mieter.length;
   }
 
-  for (const key of ['kaltmiete', 'betriebskosten', 'kaution_betrag', 'ruecklastschrift_gebuehr', 'strom_einzug', 'gas_einzug', 'kaltwasser_einzug', 'warmwasser_einzug']) {
-    if (extractedData[key] != null && !isNaN(Number(extractedData[key]))) {
-      validatedData[key] = Number(extractedData[key]);
+  // Bis zum 28.10.2026 Number(): „1.250" wurde 1,25 und "" wurde 0 — ein leerer Einzugsstand
+  // stand danach als 0 im Formular. Beträge lesen den Tausenderpunkt (zahl), Zählerstände den
+  // Dezimalpunkt (zaehlerstand) — „123.456" m³ ist kein Tausender.
+  const zaehlerfelder = ['strom_einzug', 'gas_einzug', 'kaltwasser_einzug', 'warmwasser_einzug'];
+  for (const key of ['kaltmiete', 'betriebskosten', 'kaution_betrag', 'ruecklastschrift_gebuehr', ...zaehlerfelder]) {
+    const wert = zaehlerfelder.includes(key) ? zaehlerstand(extractedData[key]) : zahl(extractedData[key]);
+    if (wert !== null) {
+      validatedData[key] = wert;
       fieldsExtracted++;
     }
   }

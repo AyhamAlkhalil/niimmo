@@ -115,7 +115,8 @@ export function PaymentUndoSplitModal({
       try {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] }),
-          queryClient.invalidateQueries({ queryKey: ['mietvertrag-details', vertragId] }),
+          queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
+          queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
           queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
           queryClient.invalidateQueries({ queryKey: ['zahlungen'] }),
         ]);

@@ -444,71 +444,107 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
  * geschuldete (nach Erhöhungen), das Dokument zeigt den Stand bei Abschluss.
  * Aus dem Dokument kommen nur Felder, die noch leer sind, und die
  * Kostenaufstellung, solange sie noch keine Beträge trägt.
+ *
+ * Die Auslese dauert und läuft im Hintergrund. Bis zum 28.10.2026 überschrieb
+ * sie danach, was der Nutzer währenddessen eingetragen hatte: die Vorauszahlung
+ * (immer auf „Gesamt-BK des Vorvertrags − Heizkosten“) und einen abgewählten
+ * Kündigungsverzicht. Seither bleibt jedes Feld, das `vonHand` meldet, wie es
+ * ist; die Vorauszahlung wird außerdem nur ersetzt, solange sie leer ist oder
+ * noch aus dem Vorvertrag bzw. einer Berechnung stammt — wie bei der
+ * Selbstauskunft (`herkunft.mietbeginn !== 'berechnet'`).
  */
 export function wendeVorvertragAuslese(
   daten: MietvertragDaten,
   herkunft: HerkunftKarte,
   auslese: VorvertragAuslese,
-  vorvertragGesamtBetriebskosten: number | null
+  vorvertragGesamtBetriebskosten: number | null,
+  vonHand: (feld: string) => boolean = () => false
 ): { daten: MietvertragDaten; herkunft: HerkunftKarte } {
   let h = herkunft;
   const d: MietvertragDaten = { ...daten, einheit: { ...daten.einheit } };
+  const frei = (feld: string) => !vonHand(feld);
 
-  if (!d.einheit.bezeichnung && auslese.einheit_bezeichnung) {
+  if (!d.einheit.bezeichnung && auslese.einheit_bezeichnung && frei('einheit.bezeichnung')) {
     d.einheit.bezeichnung = auslese.einheit_bezeichnung;
     h = setze(h, 'einheit.bezeichnung', 'vorvertrag');
   }
-  if (!d.einheit.lage && auslese.lage) {
+  if (!d.einheit.lage && auslese.lage && frei('einheit.lage')) {
     d.einheit.lage = auslese.lage;
     h = setze(h, 'einheit.lage', 'vorvertrag');
   }
-  if (!d.einheit.raumaufstellung && auslese.raumaufstellung) {
+  if (!d.einheit.raumaufstellung && auslese.raumaufstellung && frei('einheit.raumaufstellung')) {
     d.einheit.raumaufstellung = auslese.raumaufstellung;
     h = setze(h, 'einheit.raumaufstellung', 'vorvertrag');
   }
-  if (!(d.einheit.wohnflaecheQm > 0) && auslese.wohnflaeche_qm && auslese.wohnflaeche_qm > 0) {
+  if (!(d.einheit.wohnflaecheQm > 0) && auslese.wohnflaeche_qm && auslese.wohnflaeche_qm > 0 && frei('einheit.wohnflaecheQm')) {
     d.einheit.wohnflaecheQm = auslese.wohnflaeche_qm;
     h = setze(h, 'einheit.wohnflaecheQm', 'vorvertrag');
   }
-  if (!d.schliessanlageArt && auslese.schliessanlage) {
+  if (!d.schliessanlageArt && auslese.schliessanlage && frei('schliessanlageArt')) {
     d.schliessanlageArt = auslese.schliessanlage;
     h = setze(h, 'schliessanlageArt', 'vorvertrag');
   }
-  if (!(d.kaltmiete > 0) && auslese.kaltmiete && auslese.kaltmiete > 0) {
+  if (!(d.kaltmiete > 0) && auslese.kaltmiete && auslese.kaltmiete > 0 && frei('kaltmiete')) {
     d.kaltmiete = auslese.kaltmiete;
     h = setze(h, 'kaltmiete', 'vorvertrag');
-    if (!(d.kautionBetrag > 0)) {
+    if (!(d.kautionBetrag > 0) && frei('kautionBetrag')) {
       d.kautionBetrag = kautionFuer(d.kaltmiete);
       h = setze(h, 'kautionBetrag', 'berechnet');
     }
   }
 
+  // Die Vorauszahlung darf nur ersetzt werden, solange sie niemand von Hand gesetzt hat
+  const bkHerkunft = h.betriebskostenVorauszahlung;
+  const bkErsetzbar =
+    frei('betriebskostenVorauszahlung') &&
+    (!(d.betriebskostenVorauszahlung > 0) || bkHerkunft === 'vorvertrag' || bkHerkunft === 'berechnet');
+
   // Heizkosten getrennt ausweisen, wenn der alte Vertrag das tat. Die Summe
   // aus der Datenbank bleibt maßgeblich, nur ihre Aufteilung kommt aus dem Dokument.
-  if (!(d.heizkostenVorauszahlung && d.heizkostenVorauszahlung > 0) && auslese.heizkosten_vorauszahlung && auslese.heizkosten_vorauszahlung > 0) {
-    d.heizkostenVorauszahlung = auslese.heizkosten_vorauszahlung;
+  const hkAusDokument =
+    auslese.heizkosten_vorauszahlung && auslese.heizkosten_vorauszahlung > 0 ? auslese.heizkosten_vorauszahlung : null;
+  const bkNachTrennung =
+    !bkErsetzbar || hkAusDokument === null
+      ? null
+      : vorvertragGesamtBetriebskosten !== null && vorvertragGesamtBetriebskosten > 0
+        ? rund2(vorvertragGesamtBetriebskosten - hkAusDokument)
+        : auslese.betriebskosten_vorauszahlung ?? null;
+  // Die Heizkosten kommen nur dazu, wenn die Vorauszahlung dabei ersetzt wird oder leer ist und
+  // niemand sie angefasst hat. Sonst stiege die Monatssumme still um die Heizkosten (Review 28.10.2026).
+  const hkMitVorauszahlung = bkErsetzbar && (bkNachTrennung !== null || !(d.betriebskostenVorauszahlung > 0));
+  if (
+    !(d.heizkostenVorauszahlung && d.heizkostenVorauszahlung > 0) &&
+    hkAusDokument !== null &&
+    frei('heizkostenVorauszahlung') &&
+    hkMitVorauszahlung
+  ) {
+    d.heizkostenVorauszahlung = hkAusDokument;
     h = setze(h, 'heizkostenVorauszahlung', 'vorvertrag');
-    if (vorvertragGesamtBetriebskosten !== null && vorvertragGesamtBetriebskosten > 0) {
-      d.betriebskostenVorauszahlung = rund2(vorvertragGesamtBetriebskosten - auslese.heizkosten_vorauszahlung);
-      h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
-    } else if (auslese.betriebskosten_vorauszahlung !== null) {
-      d.betriebskostenVorauszahlung = auslese.betriebskosten_vorauszahlung;
+    if (bkNachTrennung !== null) {
+      d.betriebskostenVorauszahlung = bkNachTrennung;
       h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
     }
-  } else if (!(d.betriebskostenVorauszahlung > 0) && auslese.betriebskosten_vorauszahlung) {
+  } else if (!(d.betriebskostenVorauszahlung > 0) && auslese.betriebskosten_vorauszahlung && bkErsetzbar) {
     d.betriebskostenVorauszahlung = auslese.betriebskosten_vorauszahlung;
     h = setze(h, 'betriebskostenVorauszahlung', 'vorvertrag');
   }
 
   // „mindestens jedoch 12 Monate" — im Referenzvertrag vom 01.06.2025 als
-  // beidseitiger Kündigungsverzicht bis 31.05.2026 vereinbart.
-  if (!d.kuendigungsverzichtBis && istPlausiblesDatum(d.mietbeginn) && auslese.mindestlaufzeit_monate && auslese.mindestlaufzeit_monate > 0) {
+  // beidseitiger Kündigungsverzicht bis 31.05.2026 vereinbart. Ein abgewählter
+  // Verzicht ist auch leer, darf aber nicht zurückkommen.
+  if (
+    !d.kuendigungsverzichtBis &&
+    istPlausiblesDatum(d.mietbeginn) &&
+    auslese.mindestlaufzeit_monate &&
+    auslese.mindestlaufzeit_monate > 0 &&
+    frei('kuendigungsverzichtBis')
+  ) {
     d.kuendigungsverzichtBis = kuendigungsverzichtNachMonaten(d.mietbeginn, auslese.mindestlaufzeit_monate);
     h = setze(h, 'kuendigungsverzichtBis', 'vorvertrag');
   }
 
   const ohneBetraege = d.betriebskostenPositionen.every(p => p.betrag === null);
-  if (ohneBetraege && auslese.betriebskosten_positionen.length > 0) {
+  if (ohneBetraege && auslese.betriebskosten_positionen.length > 0 && frei('betriebskostenPositionen')) {
     const ausDokument = new Map(auslese.betriebskosten_positionen.map(p => [p.nummer, p]));
     d.betriebskostenPositionen = d.betriebskostenPositionen.map(pos => {
       const p = ausDokument.get(pos.nummer);

@@ -8,7 +8,7 @@
  * Die Formularabschnitte teilt sich der Dialog mit dem Vertragsentwurf
  * (`mietvertrag-formular/`); neue Verträge entstehen seit 18.10.2026 dort.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FileText, Loader2, Save } from 'lucide-react';
 
@@ -32,7 +32,7 @@ import { AENDERUNGEN } from '@/utils/mietvertrag/wohnraumKlauseln';
 import { VORLAGE_VERSION, type MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
-import { PruefungsHinweise, VertragsVorschau } from './mietvertrag-formular/Bausteine';
+import { PruefungsHinweise, UngueltigeZahlFelder, VertragsVorschau } from './mietvertrag-formular/Bausteine';
 import {
   BetriebskostenEditor,
   KlauselFelder,
@@ -66,11 +66,24 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
 
   const befunde: Befund[] = useMemo(() => (entwurf ? pruefeVertragsdaten(entwurf) : []), [entwurf]);
   const blockiert = hatBlocker(befunde);
+  // Ungültige Eurobeträge (z. B. „1.200“) sperren das Speichern (28.10.2026) — das Feld gibt
+  // dann null weiter, und gespeichert würde eine leere Position
+  const [ungueltigeZahlen, setUngueltigeZahlen] = useState<ReadonlySet<string>>(new Set());
+  const meldeUngueltigeZahl = useCallback((schluessel: string, ungueltig: boolean) => {
+    setUngueltigeZahlen(alt => {
+      if (alt.has(schluessel) === ungueltig) return alt;
+      const neu = new Set(alt);
+      if (ungueltig) neu.add(schluessel);
+      else neu.delete(schluessel);
+      return neu;
+    });
+  }, []);
+  const zahlFehler = ungueltigeZahlen.size > 0;
   const { pdfBlob, pdfUrl, erzeugt, aktuell } = useVertragsvorschau(entwurf, isOpen, blockiert);
 
   // ─── Speichern ────────────────────────────────────────────────────────────
   async function speichern() {
-    if (!entwurf || !pdfBlob) return;
+    if (!entwurf || !pdfBlob || zahlFehler) return;
     setSpeichert(true);
     try {
       const { data: user } = await supabase.auth.getUser();
@@ -278,6 +291,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
         {entwurf && (
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(380px,32%)_1fr] overflow-hidden">
             {/* ── Formular ── */}
+            <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>
             <div className="overflow-y-auto border-r p-5 space-y-5">
               <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
 
@@ -295,20 +309,23 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
               <Separator />
               <KlauselFelder entwurf={entwurf} setEntwurf={setEntwurf} />
             </div>
+            </UngueltigeZahlFelder.Provider>
 
             {/* ── Vorschau ── */}
             <div className="flex flex-col bg-muted/30 overflow-hidden">
               <VertragsVorschau gesperrt={blockiert} pdfUrl={pdfUrl} erzeugt={erzeugt} />
 
               <div className="border-t p-4 flex items-center justify-between gap-3 bg-background">
-                <p className="text-xs text-muted-foreground">
-                  Wird als PDF in den Dokumenten des Vertrags abgelegt.
+                <p className={zahlFehler ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+                  {zahlFehler
+                    ? 'Ein Betrag ist nicht lesbar (rot markiert), z. B. „1.200“ – bitte ohne Tausenderpunkt eingeben.'
+                    : 'Wird als PDF in den Dokumenten des Vertrags abgelegt.'}
                 </p>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={onClose} disabled={speichert}>
                     Abbrechen
                   </Button>
-                  <Button onClick={speichern} disabled={blockiert || !aktuell || speichert}>
+                  <Button onClick={speichern} disabled={blockiert || zahlFehler || !aktuell || speichert}>
                     {speichert ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (

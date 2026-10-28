@@ -115,3 +115,58 @@ describe('process-contract-ocr ruft die KI mit festen Grenzen auf', () => {
     expect(quelle).not.toMatch(/\.slice\(0, MAX_BILDER\)/);
   });
 });
+
+// Normalisierung der Art „mietvertrag" (28.10.2026): Bis dahin Number() statt zahl() — „1.250" wurde
+// 1,25 € und ein leerer Wert 0, ein nicht erkannter Einzugsstand stand also als 0 im Formular.
+const normalisierung = [
+  'type Roh = any;',
+  ausschnitt('function zahl('),
+  ausschnitt('function zaehlerstand('),
+  ausschnitt('function datum('),
+  ausschnitt('function normalisiereMietvertrag('),
+].join('\n');
+const normJs = ts.transpileModule(normalisierung, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const norm: any = new Function(`${normJs}\nreturn { normalisiereMietvertrag };`)();
+
+describe('process-contract-ocr liest Beträge des Mietvertrags wie die übrigen Arten', () => {
+  it('liest den Tausenderpunkt als Tausenderpunkt', () => {
+    const { daten } = norm.normalisiereMietvertrag({ kaltmiete: '1.250', betriebskosten: '180,50', kaution_betrag: '3.750,00' });
+    expect(daten.kaltmiete).toBe(1250);
+    expect(daten.betriebskosten).toBe(180.5);
+    expect(daten.kaution_betrag).toBe(3750);
+  });
+
+  it('übernimmt Zahlen unverändert und lässt Leeres leer statt 0', () => {
+    const { daten, felder } = norm.normalisiereMietvertrag({ kaltmiete: 820, strom_einzug: '', gas_einzug: null, warmwasser_einzug: 'unleserlich' });
+    expect(daten.kaltmiete).toBe(820);
+    expect('strom_einzug' in daten).toBe(false);
+    expect('gas_einzug' in daten).toBe(false);
+    expect('warmwasser_einzug' in daten).toBe(false);
+    expect(felder).toBe(1);
+  });
+
+  it('liest Zählerstände mit Dezimalpunkt, nicht mit Tausenderpunkt', () => {
+    const { daten } = norm.normalisiereMietvertrag({
+      warmwasser_einzug: '123.456',
+      kaltwasser_einzug: '1.234,5',
+      strom_einzug: '',
+      gas_einzug: 4711.25,
+    });
+    expect(daten.warmwasser_einzug).toBe(123.456);
+    expect(daten.kaltwasser_einzug).toBe(1234.5);
+    expect('strom_einzug' in daten).toBe(false);
+    expect(daten.gas_einzug).toBe(4711.25);
+  });
+
+  it('übernimmt beim Mieter nur ein echtes ISO-Geburtsdatum', () => {
+    const { daten } = norm.normalisiereMietvertrag({
+      mieter: [
+        { vorname: 'A', nachname: 'B', geburtsdatum: '1980-04-12' },
+        { vorname: 'C', nachname: 'D', geburtsdatum: '12.04.1980' },
+      ],
+    });
+    expect(daten.mieter[0].geburtsdatum).toBe('1980-04-12');
+    expect(daten.mieter[1].geburtsdatum).toBe('');
+  });
+});

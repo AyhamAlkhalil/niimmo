@@ -504,6 +504,7 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
               <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
             </span>
             <ZahlFeld
+              art="betrag"
               className="h-8 text-right text-xs"
               placeholder="—"
               disabled={!pos.umgelegt}
@@ -606,6 +607,7 @@ export function KleinreparaturFelder({ entwurf, setEntwurf, markierung, geaender
           Kleinreparatur je Fall (€)
         </Feldname>
         <ZahlFeld
+          art="betrag"
           id="klein-einzel"
           wert={entwurf.kleinreparaturEinzelgrenze}
           onWert={n => {
@@ -691,7 +693,9 @@ export function MietanpassungFelder({
         <div className="space-y-2 rounded-md border p-3">
           <Label className="text-xs">Staffelstufen (Nettokaltmiete ab Datum, mindestens 12 Monate Abstand)</Label>
           {staffel.map((s, i) => (
-            <div key={i} className="grid grid-cols-[1fr_1fr_32px] items-center gap-2">
+            // Neu einhängen nur beim Hinzufügen/Löschen (nicht beim Tippen): Sonst erbte nach dem
+            // Löschen einer ungültigen Zeile die nächste deren rote Markierung samt Sperre (28.10.2026)
+            <div key={`${i}-${staffel.length}`} className="grid grid-cols-[1fr_1fr_32px] items-center gap-2">
               <Input
                 type="date"
                 aria-label={`Stufe ${i + 1} gültig ab`}
@@ -699,6 +703,7 @@ export function MietanpassungFelder({
                 onChange={e => setzeStaffel(staffel.map((x, j) => (j === i ? { ...x, gueltigAb: e.target.value } : x)))}
               />
               <ZahlFeld
+                art="betrag"
                 placeholder="Kaltmiete €"
                 wert={s.kaltmiete || null}
                 onWert={n => setzeStaffel(staffel.map((x, j) => (j === i ? { ...x, kaltmiete: n ?? 0 } : x)))}

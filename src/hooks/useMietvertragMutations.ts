@@ -18,6 +18,8 @@ import {
 } from "@/utils/vertragZaehlerstaende";
 import { geaenderteKaution, kautionFeldBezeichnung, leseKautionsbetrag } from "@/utils/vertragKaution";
 import { geaenderteMietbetraege, mietFeldBezeichnung, mietfeldVorbelegung } from "@/utils/vertragMiete";
+import { EURO_BETRAG_HINWEIS, leseEuroBetrag } from "@/utils/euroBetrag";
+import { istPlausiblesDatum } from "@/utils/pdf/briefLayout";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -56,9 +58,17 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   const [showTerminationDialog, setShowTerminationDialog] = useState(false);
   const [showMahnungModal, setShowMahnungModal] = useState(false);
 
+  // Objektansicht (ImmobilienDetail): Die Einheitskarten hängen an ['mietvertrag-detail', immobilieId, …],
+  // der Objektkopf an ['alle-mietvertrag-immobilie', immobilieId]. Bis zum 28.10.2026 stand hier überall
+  // der nirgends vergebene Schlüssel 'immobilie-detail' — die Objektansicht blieb nach dem Speichern alt.
+  const invalidateObjektansicht = () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail'] }),
+    queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] }),
+  ]);
+
   const invalidateAll = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
-    queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+    invalidateObjektansicht(),
     queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
     queryClient.invalidateQueries({ queryKey: ['einheiten'] }),
     queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
@@ -90,10 +100,13 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       setEditingMietvertrag(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+        invalidateObjektansicht(),
         queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
         queryClient.invalidateQueries({ queryKey: ['einheiten'] }),
         queryClient.invalidateQueries({ queryKey: ['all-mietvertraege'] }),
+        // Der Trigger update_forderungen_on_rent_change passt die Forderungen an (28.10.2026)
+        queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
       ]);
     } catch (error) {
       toast({ title: "Fehler", description: "Änderung konnte nicht gespeichert werden.", variant: "destructive" });
@@ -125,7 +138,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         toast({ title: "✅ Mahnstufe zurückgesetzt", description: `Mahnstufe wurde von ${aktuelleStufe} auf ${numValue} gesetzt.` });
         setEditingMietvertrag(null);
         await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
-        await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+        await invalidateObjektansicht();
         return;
       }
 
@@ -137,7 +150,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         toast({ title: "✅ Personenanzahl aktualisiert", description: numValue !== null ? `Personenanzahl wurde auf ${numValue} gesetzt.` : "Personenanzahl wurde entfernt." });
         setEditingMietvertrag(null);
         await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
-        await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+        await invalidateObjektansicht();
         return;
       }
 
@@ -167,12 +180,17 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
         setEditingMietvertrag(null);
         await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
-        await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+        await invalidateObjektansicht();
         return;
       }
 
       // Handle start_datum
       if (field === 'start_datum') {
+        // Wie in der Gesamtbearbeitung: kein leerer oder halber Mietbeginn (28.10.2026)
+        if (!istPlausiblesDatum(value)) {
+          toast({ title: "Mietbeginn fehlt", description: "Bitte einen vollständigen Mietbeginn eintragen.", variant: "destructive" });
+          return;
+        }
         if (!vertrag?.einheit_id) {
           toast({ title: "Fehler", description: "Einheit-ID nicht gefunden.", variant: "destructive" });
           return;
@@ -184,7 +202,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         toast({ title: "✅ Startdatum aktualisiert", description: "Startdatum wurde erfolgreich aktualisiert." });
         setEditingMietvertrag(null);
         await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
-        await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+        await invalidateObjektansicht();
         return;
       }
 
@@ -196,7 +214,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         setEditingMietvertrag(null);
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
-          queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+          invalidateObjektansicht(),
           queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
         ]);
         return;
@@ -254,7 +272,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       setEditingKaution(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+        invalidateObjektansicht(),
         queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
       ]);
     } catch (error) {
@@ -330,7 +348,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       setEditingMeter(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+        invalidateObjektansicht(),
       ]);
     } catch (error) {
       toast({ title: "Fehler", description: "Zählerstand konnte nicht aktualisiert werden.", variant: "destructive" });
@@ -351,7 +369,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['einheit-detail', einheitData.id] }),
-        queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+        invalidateObjektansicht(),
         queryClient.invalidateQueries({ queryKey: ['einheiten'] }),
       ]);
     } catch (error) {
@@ -420,6 +438,21 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       const rawEnd = (editedValues.ende_datum ?? getVertragsende(vertrag) ?? '') as string;
       const startForDb = rawStart && rawStart.trim() !== '' ? rawStart : null;
       const endForDb = rawEnd && rawEnd.trim() !== '' ? rawEnd : null;
+
+      // Ein geleerter oder halb getippter Mietbeginn wurde bis zum 28.10.2026 still zu start_datum = null:
+      // Die Sollstellung (start_datum <= current_date) übersprang den Vertrag, istLaufenderVertrag zählte
+      // ihn weiter mit, und die Überschneidungsprüfung lief nicht. Wie beim Mietende (mietendeFelder)
+      // wird das gemeldet statt gespeichert. Ein schon leer geladener Beginn, der leer bleibt, sperrt nicht.
+      if (startForDb !== (vertrag?.start_datum || null) && !istPlausiblesDatum(startForDb)) {
+        toast({ title: "Mietbeginn fehlt", description: "Der Mietbeginn darf nicht leer sein. Bitte ein vollständiges Datum eintragen.", variant: "destructive" });
+        return;
+      }
+
+      // Soll-Miete der Einheit kommt als Rohtext; „1.200“ wurde bis zum 28.10.2026 zu 1,20 €
+      if (editedValues.soll_miete !== undefined && leseEuroBetrag(editedValues.soll_miete) === undefined) {
+        toast({ title: "Ungültiger Betrag", description: `SOLL-Miete: ${EURO_BETRAG_HINWEIS}`, variant: "destructive" });
+        return;
+      }
 
       // Validation: end date must not be before start date
       if (startForDb && endForDb && new Date(endForDb) < new Date(startForDb)) {
@@ -521,9 +554,10 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       const nummern = geaenderteZaehlernummern(einheitData, editedValues);
       if (einheitData) {
         const einheitUpdates: Partial<Einheit> = { ...nummern };
-        ['qm', 'soll_miete'].forEach(field => {
-          if (editedValues[field] !== undefined) einheitUpdates[field] = editedValues[field];
-        });
+        if (editedValues.qm !== undefined) einheitUpdates.qm = editedValues.qm as number | null;
+        // Geprüft in handleSaveGlobalEdit; ein unlesbarer Wert wird nie geschrieben
+        const sollMiete = editedValues.soll_miete !== undefined ? leseEuroBetrag(editedValues.soll_miete) : undefined;
+        if (sollMiete !== undefined) einheitUpdates.soll_miete = sollMiete;
         if (Object.keys(einheitUpdates).length > 0) {
           const { error } = await supabase.from('einheiten').update(einheitUpdates).eq('id', einheitData.id);
           if (error) throw error;
@@ -556,10 +590,13 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
+        // Nach einer Änderung von Kaltmiete oder Betriebskosten passt der Trigger die Forderungen an;
+        // bis zum 28.10.2026 rechneten Detail und Mahnung danach mit dem alten Soll weiter
+        queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['mietvertrag-mieter-detail', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['einheit-detail', einheitData?.id] }),
         queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
-        queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
+        invalidateObjektansicht(),
         queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
         queryClient.invalidateQueries({ queryKey: ['einheiten'] }),
         queryClient.invalidateQueries({ queryKey: ['mietaufstellung-bank'] }),

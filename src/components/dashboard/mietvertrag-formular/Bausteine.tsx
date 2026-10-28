@@ -5,7 +5,7 @@
  * Genutzt vom Generator für bestehende Verträge (`MietvertragErstellungModal`)
  * und vom Vertragsentwurf (`mietvertrag-entwurf/`).
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, Info, Loader2 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -14,6 +14,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { Befund } from '@/utils/mietvertrag/pflichtpruefung';
+import { cn } from '@/lib/utils';
+import { EURO_BETRAG_HINWEIS, leseEuroBetrag } from '@/utils/euroBetrag';
 import { herkunftText, type Herkunft } from '@/utils/mietvertrag/entwurf';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 
@@ -44,8 +46,21 @@ function anzeige(wert: number | null): string {
 }
 
 /**
+ * Meldet ungültige Zahlenfelder an den umgebenden Dialog, damit er Weiter und Speichern sperrt
+ * (28.10.2026). Ohne Anbieter zeigt das Feld den Fehler nur an.
+ */
+export const UngueltigeZahlFelder = createContext<((schluessel: string, ungueltig: boolean) => void) | null>(null);
+
+/**
  * Zahlenfeld mit eigenem Textzustand: „68," oder „1." bleiben beim Tippen
  * stehen. `Input type="number"` macht aus dem Komma einen Punkt (ui/input.tsx).
+ *
+ * `art="betrag"` liest Euro-Beträge über `leseEuroBetrag`: Bis zum 28.10.2026 wurde „1.200" als
+ * 1,20 € übernommen, weil ui/input einen einzelnen Punkt als Dezimaltrenner stehen lässt. Jetzt
+ * ist so ein Wert ungültig — das Feld wird rot, meldet sich beim Dialog und gibt `null` weiter,
+ * damit nicht der Zwischenstand „1.20" stehen bleibt. Negative Beträge ebenso.
+ * `art="zahl"` (Vorgabe) behält das bisherige Lesen: Flächen mit drei Nachkommastellen
+ * („60,125 m²“ kommt aus ui/input als „60.125“), Prozente, Indexwerte, Anzahlen.
  */
 export function ZahlFeld({
   id,
@@ -54,6 +69,7 @@ export function ZahlFeld({
   placeholder,
   className,
   disabled,
+  art = 'zahl',
 }: {
   id?: string;
   wert: number | null;
@@ -61,32 +77,55 @@ export function ZahlFeld({
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  art?: 'betrag' | 'zahl';
 }) {
   const [text, setText] = useState(anzeige(wert));
+  const [ungueltig, setUngueltig] = useState(false);
   const fokus = useRef(false);
+  const melde = useContext(UngueltigeZahlFelder);
+  const schluessel = useId();
 
   useEffect(() => {
-    if (!fokus.current) setText(anzeige(wert));
-  }, [wert]);
+    // Ein gesperrtes Feld (z. B. Position nicht umgelegt) kann niemand korrigieren — es darf nicht blockieren
+    if (!fokus.current || disabled) {
+      setText(anzeige(wert));
+      setUngueltig(false);
+    }
+  }, [wert, disabled]);
+
+  useEffect(() => {
+    if (!melde || !ungueltig) return;
+    melde(schluessel, true);
+    return () => melde(schluessel, false);
+  }, [melde, schluessel, ungueltig]);
 
   return (
     <Input
       id={id}
       type="number"
-      className={className}
+      className={cn(className, ungueltig && 'border-destructive focus-visible:border-destructive')}
       placeholder={placeholder}
       disabled={disabled}
       value={text}
+      aria-invalid={ungueltig || undefined}
+      title={ungueltig ? EURO_BETRAG_HINWEIS : undefined}
       onFocus={() => {
         fokus.current = true;
       }}
       onBlur={() => {
         fokus.current = false;
-        setText(anzeige(wert));
+        // Ein abgelehnter Betrag bleibt sichtbar stehen, statt still zu verschwinden
+        if (!ungueltig) setText(anzeige(wert));
       }}
       onChange={e => {
         setText(e.target.value);
         const roh = e.target.value.trim();
+        if (art === 'betrag') {
+          const betrag = leseEuroBetrag(roh);
+          setUngueltig(betrag === undefined);
+          onWert(betrag ?? null);
+          return;
+        }
         const n = roh === '' || roh === '-' ? null : Number(roh);
         onWert(n !== null && Number.isFinite(n) ? n : null);
       }}

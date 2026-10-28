@@ -407,7 +407,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
         queryClient.invalidateQueries({ queryKey: ["einheiten"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag"] });
         queryClient.invalidateQueries({ queryKey: ["mieter"] });
-        queryClient.invalidateQueries({ queryKey: ["immobilie-detail"] });
+        queryClient.invalidateQueries({ queryKey: ["alle-mietvertrag-immobilie"] });
         queryClient.invalidateQueries({ queryKey: ["all-mietvertraege"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag-mit-details"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag-detail"] });

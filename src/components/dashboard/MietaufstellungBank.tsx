@@ -9,6 +9,7 @@ import { getCurrentContract, getLaufenderVertrag, getVertragsende } from "@/util
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { EURO_BETRAG_HINWEIS, istUngueltigerEuroBetrag, leseEuroBetrag } from "@/utils/euroBetrag";
 
 interface MietaufstellungBankProps {
   onBack: () => void;
@@ -138,13 +139,17 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
     },
   });
 
-  // SOLL-Miete speichern (einheiten.soll_miete)
+  // SOLL-Miete speichern (einheiten.soll_miete). Bis zum 28.10.2026 parseFloat nach replace(",", "."):
+  // „1.200,50“ wurde „1.200.50“ und damit 1,20 €, „1.200“ ebenso; ein unlesbarer Wert verschwand still.
+  // Jetzt über leseEuroBetrag — ein abgelehnter Wert bleibt rot im Feld stehen und wird gemeldet.
   const handleSave = useCallback(
     async (einheitId: string, valueStr: string) => {
-      const trimmed = valueStr.trim();
-      const value = trimmed === "" ? null : parseFloat(trimmed.replace(",", "."));
+      const value = leseEuroBetrag(valueStr);
+      if (value === undefined) {
+        toast({ title: "SOLL-Miete nicht gespeichert", description: EURO_BETRAG_HINWEIS, variant: "destructive" });
+        return;
+      }
       setEditing((prev) => { const next = { ...prev }; delete next[einheitId]; return next; });
-      if (value !== null && (isNaN(value) || value < 0)) return;
       const { error } = await supabase.from("einheiten").update({ soll_miete: value }).eq("id", einheitId);
       if (error) {
         toast({ title: "Fehler", description: "SOLL-Miete konnte nicht gespeichert werden.", variant: "destructive" });
@@ -510,7 +515,12 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                                 {isEditing ? (
                                   <div className="flex items-center gap-0.5 justify-end">
                                     <Input
-                                      className="h-5 w-[4rem] text-[10px] text-right py-0 px-1"
+                                      className={cn(
+                                        "h-5 w-[4rem] text-[10px] text-right py-0 px-1",
+                                        istUngueltigerEuroBetrag(editing[unit.einheitId]) && "border-destructive focus-visible:border-destructive",
+                                      )}
+                                      aria-invalid={istUngueltigerEuroBetrag(editing[unit.einheitId]) || undefined}
+                                      title={istUngueltigerEuroBetrag(editing[unit.einheitId]) ? EURO_BETRAG_HINWEIS : undefined}
                                       value={editing[unit.einheitId]}
                                       onChange={(e) => setEditing((prev) => ({ ...prev, [unit.einheitId]: e.target.value }))}
                                       onBlur={() => handleSave(unit.einheitId, editing[unit.einheitId])}
@@ -533,7 +543,9 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                                     onClick={() =>
                                       setEditing((prev) => ({
                                         ...prev,
-                                        [unit.einheitId]: String(unit.sollMiete ?? (unit.isVacant ? "" : istPm)),
+                                        // Auf Cent gerundet: Eine Kaltmiete wie 833.333 wäre für leseEuroBetrag mehrdeutig
+                                        // und würde ohne jede Eingabe abgelehnt (28.10.2026)
+                                        [unit.einheitId]: sollPm != null ? Number(sollPm).toFixed(2) : "",
                                       }))
                                     }
                                     title="SOLL klicken zum Bearbeiten"

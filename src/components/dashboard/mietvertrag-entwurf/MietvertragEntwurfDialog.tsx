@@ -83,6 +83,7 @@ import {
 import { hatBlocker, pruefeVertragsdaten } from '@/utils/mietvertrag/pflichtpruefung';
 import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
+import { EURO_BETRAG_HINWEIS } from '@/utils/euroBetrag';
 import {
   AnlagenFelder,
   BetriebskostenEditor,
@@ -96,7 +97,13 @@ import {
   UnterzeichnungFelder,
   ZusatzvereinbarungFeld,
 } from '../mietvertrag-formular/Abschnitte';
-import { Feldname, HerkunftHinweis, PruefungsHinweise, VertragsVorschau } from '../mietvertrag-formular/Bausteine';
+import {
+  Feldname,
+  HerkunftHinweis,
+  PruefungsHinweise,
+  UngueltigeZahlFelder,
+  VertragsVorschau,
+} from '../mietvertrag-formular/Bausteine';
 import { GrundlagenSchritt } from './GrundlagenSchritt';
 import { InteressentenAbschnitt } from './InteressentenAbschnitt';
 import { MieteSchritt } from './MieteSchritt';
@@ -209,6 +216,13 @@ export function MietvertragEntwurfDialog({
   /** Felder, die in dieser Sitzung von Hand geändert wurden — nur die gehen ans Objekt zurück. */
   /** Je Feld ein Zähler: So erkennt das Speichern, ob ein Feld währenddessen erneut geändert wurde. */
   const sitzungGeaendert = useRef(new Map<string, number>());
+  /**
+   * Was in dieser Sitzung von Hand geändert wurde — anders als `sitzungGeaendert` nicht beim Speichern
+   * geleert. Die Vorvertrags-Auslese lässt diese Felder stehen (28.10.2026).
+   */
+  const vonHandGeaendert = useRef(new Set<string>());
+  /** Zahlenfelder mit abgelehntem Betrag (z. B. „1.200") — solange eines da ist, geht es nicht weiter. */
+  const [ungueltigeZahlen, setUngueltigeZahlen] = useState<ReadonlySet<string>>(new Set());
   /** Zählt Öffnungen; eine KI-Antwort aus einer früheren Sitzung wird verworfen. */
   const sitzung = useRef(0);
   /** Zählt Eingaben; was während des Speicherns geändert wird, bleibt ungespeichert. */
@@ -224,6 +238,7 @@ export function MietvertragEntwurfDialog({
     sitzung.current += 1;
     initialisiert.current = false;
     sitzungGeaendert.current = new Map();
+    vonHandGeaendert.current = new Set();
     aenderungen.current = 0;
     setAktualisiertAm(null);
     setGespeichert(false);
@@ -260,7 +275,8 @@ export function MietvertragEntwurfDialog({
         if (!antwort.success || !antwort.extractedData) throw new Error(antwort.error ?? 'Keine Angaben erkannt.');
         const auslese = antwort.extractedData;
         const gesamt = grundlage.vorvertrag ? Number(grundlage.vorvertrag.betriebskosten ?? 0) : null;
-        setStand(s => (s ? wendeVorvertragAuslese(s.daten, s.herkunft, auslese, gesamt) : s));
+        // Was während des Lesens von Hand eingetragen wurde, bleibt stehen
+        setStand(s => (s ? wendeVorvertragAuslese(s.daten, s.herkunft, auslese, gesamt, f => vonHandGeaendert.current.has(f)) : s));
         if (vonHand) markiereUngespeichert();
 
         const gefunden = [
@@ -409,11 +425,22 @@ export function MietvertragEntwurfDialog({
   const geaendert = useCallback(
     (feld: string) => {
       sitzungGeaendert.current.set(feld, (sitzungGeaendert.current.get(feld) ?? 0) + 1);
+      vonHandGeaendert.current.add(feld);
       setStand(s => (s ? { ...s, herkunft: ohneHerkunft(s.herkunft, feld) } : s));
       markiereUngespeichert();
     },
     [markiereUngespeichert]
   );
+  const meldeUngueltigeZahl = useCallback((schluessel: string, ungueltig: boolean) => {
+    setUngueltigeZahlen(alt => {
+      if (alt.has(schluessel) === ungueltig) return alt;
+      const neu = new Set(alt);
+      if (ungueltig) neu.add(schluessel);
+      else neu.delete(schluessel);
+      return neu;
+    });
+  }, []);
+  const zahlFehler = ungueltigeZahlen.size > 0;
   const setzeHerkunft = useCallback(
     (feld: string, quelle: Herkunft) => setStand(s => (s ? { ...s, herkunft: { ...s.herkunft, [feld]: quelle } } : s)),
     []
@@ -449,10 +476,15 @@ export function MietvertragEntwurfDialog({
     (s: SchrittId) => {
       // Ohne Vorlage gibt es z. B. „Mietsache & Haus" nicht — dorthin führt kein Sprung
       if (!schritte.includes(s)) return;
+      // Ein abgelehnter Betrag ginge beim Verlassen des Schritts verloren und stünde als 0 im Entwurf
+      if (zahlFehler) {
+        toast({ title: 'Betrag prüfen', description: EURO_BETRAG_HINWEIS, variant: 'destructive' });
+        return;
+      }
       setSchritt(s);
       setBesucht(b => new Set([...b, s]));
     },
-    [schritte]
+    [schritte, zahlFehler, toast]
   );
   const index = schritte.indexOf(schritt);
 
@@ -594,6 +626,11 @@ export function MietvertragEntwurfDialog({
 
   async function speichern(opt: { naechsterSchritt?: SchrittId; danach?: () => void } = {}): Promise<boolean> {
     if (!stand || !vertrag || !g || speichert) return false;
+    // Das Feld hat für einen abgelehnten Betrag 0 bzw. leer weitergegeben — so darf nichts gespeichert werden
+    if (zahlFehler) {
+      toast({ title: 'Nicht gespeichert', description: EURO_BETRAG_HINWEIS, variant: 'destructive' });
+      return false;
+    }
     setSpeichert(true);
     const standZaehler = aenderungen.current;
     const zielSchritt = opt.naechsterSchritt ?? schritt;
@@ -917,7 +954,7 @@ export function MietvertragEntwurfDialog({
               <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(460px,42%)_1fr]">
                 {/* ── Schritt ── */}
                 <div ref={formular} className="overflow-y-auto border-r p-5">
-                  {schrittInhalt()}
+                  <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>{schrittInhalt()}</UngueltigeZahlFelder.Provider>
                 </div>
 
                 {/* ── Vorschau ── */}
@@ -986,11 +1023,16 @@ export function MietvertragEntwurfDialog({
                   <Button variant="ghost" onClick={() => versucheSchliessen()} disabled={speichert}>
                     Abbrechen
                   </Button>
-                  <Button variant="outline" onClick={() => void speichern()} disabled={speichert || blockiertWeil}>
+                  <Button variant="outline" onClick={() => void speichern()} disabled={speichert || blockiertWeil || zahlFehler}>
                     {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     Zwischenspeichern
                   </Button>
                   <span className={ungespeichert ? 'text-xs text-warning' : 'text-xs text-muted-foreground'}>{statusText}</span>
+                  {zahlFehler && (
+                    <span role="alert" className="text-xs text-destructive">
+                      {EURO_BETRAG_HINWEIS}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1006,7 +1048,7 @@ export function MietvertragEntwurfDialog({
                     </span>
                   )}
                   {index > 0 && (
-                    <Button variant="outline" onClick={() => geheZu(schritte[index - 1])} disabled={speichert}>
+                    <Button variant="outline" onClick={() => geheZu(schritte[index - 1])} disabled={speichert || zahlFehler}>
                       <ArrowLeft className="h-4 w-4" />
                       Zurück
                     </Button>
@@ -1014,7 +1056,7 @@ export function MietvertragEntwurfDialog({
                   {schritt === 'pruefen' ? (
                     <Button
                       onClick={() => void speichern({ naechsterSchritt: 'start' })}
-                      disabled={speichert || blockiertWeil || (wohnraum ? !pdfBereit : luecken.length > 0)}
+                      disabled={speichert || blockiertWeil || zahlFehler || (wohnraum ? !pdfBereit : luecken.length > 0)}
                       title={wohnraum && !pdfBereit ? 'Erst alle Pflichtangaben erfassen' : undefined}
                     >
                       {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck2 className="h-4 w-4" />}
@@ -1025,7 +1067,7 @@ export function MietvertragEntwurfDialog({
                       Schließen
                     </Button>
                   ) : (
-                    <Button onClick={() => geheZu(schritte[index + 1])} disabled={speichert}>
+                    <Button onClick={() => geheZu(schritte[index + 1])} disabled={speichert || zahlFehler}>
                       Weiter
                       <ArrowRight className="h-4 w-4" />
                     </Button>
@@ -1081,7 +1123,7 @@ export function MietvertragEntwurfDialog({
               Verwerfen
             </Button>
             <AlertDialogAction
-              disabled={blockiertWeil}
+              disabled={blockiertWeil || zahlFehler}
               onClick={ev => {
                 ev.preventDefault();
                 const ziel = frageSchliessen ?? 'schliessen';

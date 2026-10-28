@@ -21,6 +21,7 @@ import { nimmAnlageZurueck } from "@/services/mietvertragDirektService";
 import { vertragsReihenfolge, type VertragsmieterQuelle } from "@/utils/mietvertrag/vertragsmieter";
 import { sucheMieter } from "@/utils/mietvertrag/entwurf";
 import { alleSeiten } from "@/utils/supabaseSeiten";
+import { EURO_BETRAG_HINWEIS, leseEuroBetrag } from "@/utils/euroBetrag";
 import type { Tables } from "@/integrations/supabase/types";
 
 /** Eine nie ausgefüllte Karte im Reiter „Neue Mieter" — zählt nicht und sperrt nichts. */
@@ -28,6 +29,10 @@ const istLeererNeuerMieter = (t: NewTenant) =>
   !t.vorname.trim() && !t.nachname.trim() && !t.firmenname.trim() && !t.hauptmail.trim() && !t.telnr.trim() && !t.geburtsdatum;
 
 const hatPflichtnamen = (t: NewTenant) => (t.istUnternehmen ? !!t.firmenname.trim() : !!(t.vorname.trim() && t.nachname.trim()));
+
+/** Für die Zusammenfassung: „1.200,50 €“ statt des Rohtexts aus dem Feld */
+const euro = (n: number | null | undefined) =>
+  typeof n === 'number' ? n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }) : '—';
 
 interface NewTenantContractDialogProps {
   isOpen: boolean;
@@ -116,6 +121,18 @@ export const NewTenantContractDialog = ({
     kaltwasser_einzug: '',
     warmwasser_einzug: ''
   });
+
+  // Beträge über leseEuroBetrag (28.10.2026): parseFloat speicherte „1.200“ als 1,20 €. Ein
+  // mehrdeutiger oder negativer Betrag ist undefined, sperrt „Weiter“ und wird am Feld markiert.
+  const betraege = {
+    kaltmiete: leseEuroBetrag(contractData.kaltmiete),
+    betriebskosten: leseEuroBetrag(contractData.betriebskosten),
+    kaution_betrag: leseEuroBetrag(contractData.kaution_betrag),
+    ruecklastschrift_gebuehr: leseEuroBetrag(contractData.ruecklastschrift_gebuehr),
+  };
+  const betragUngueltig = (feld: keyof typeof betraege) => betraege[feld] === undefined;
+  const ungueltigKlasse = (feld: keyof typeof betraege) =>
+    betragUngueltig(feld) ? 'border-destructive focus-visible:border-destructive' : undefined;
 
   // Document upload state
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
@@ -275,9 +292,12 @@ export const NewTenantContractDialog = ({
   // Einen Hauptmieter gibt es immer, sobald ein Mieter da ist (vertragsReihenfolge)
   const validateTenantStep = () => mieterGesamt > 0 && ausgefuellteNeueMieter.every(hatPflichtnamen);
 
-  const validateContractStep = () => {
-    return contractData.kaltmiete && contractData.betriebskosten && contractData.start_datum;
-  };
+  const validateContractStep = () =>
+    typeof betraege.kaltmiete === 'number' &&
+    typeof betraege.betriebskosten === 'number' &&
+    betraege.kaution_betrag !== undefined &&
+    betraege.ruecklastschrift_gebuehr !== undefined &&
+    !!contractData.start_datum;
 
   const handleFileUpload = async (files: FileList | File[] | null) => {
     if (files && files.length > 0) {
@@ -462,7 +482,11 @@ export const NewTenantContractDialog = ({
         throw new Error('Bitte erfassen Sie einen neuen Mieter oder wählen Sie einen bestehenden aus.');
       }
       
-      if (!contractData.kaltmiete || !contractData.betriebskosten || !contractData.start_datum) {
+      const { kaltmiete, betriebskosten, kaution_betrag: kaution, ruecklastschrift_gebuehr: gebuehr } = betraege;
+      if (kaltmiete === undefined || betriebskosten === undefined || kaution === undefined || gebuehr === undefined) {
+        throw new Error(`Ein Betrag ist nicht eindeutig. ${EURO_BETRAG_HINWEIS}`);
+      }
+      if (kaltmiete === null || betriebskosten === null || !contractData.start_datum) {
         throw new Error('Bitte füllen Sie alle Pflichtfelder aus (Kaltmiete, Betriebskosten, Mietbeginn).');
       }
       
@@ -548,14 +572,14 @@ export const NewTenantContractDialog = ({
         .from('mietvertrag')
         .insert({
           einheit_id: einheitId,
-          kaltmiete: parseFloat(contractData.kaltmiete),
-          betriebskosten: parseFloat(contractData.betriebskosten),
-          kaution_betrag: contractData.kaution_betrag ? parseFloat(contractData.kaution_betrag) : null,
+          kaltmiete,
+          betriebskosten,
+          kaution_betrag: kaution,
           start_datum: contractData.start_datum,
           ende_datum: contractData.ende_datum || null,
           lastschrift: contractData.lastschrift,
           bankkonto_mieter: contractData.bankkonto_mieter?.trim() || null,
-          ruecklastschrift_gebuehr: parseFloat(contractData.ruecklastschrift_gebuehr),
+          ruecklastschrift_gebuehr: gebuehr,
           verwendungszweck: contractData.verwendungszweck?.trim() ? [contractData.verwendungszweck.trim()] : null,
           strom_einzug: contractData.strom_einzug ? parseFloat(contractData.strom_einzug) : null,
           gas_einzug: contractData.gas_einzug ? parseFloat(contractData.gas_einzug) : null,
@@ -645,10 +669,21 @@ export const NewTenantContractDialog = ({
         }
       }
       
-      // Step 7: Refresh data
-      await queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
-      await queryClient.invalidateQueries({ queryKey: ['einheiten'] });
-      await queryClient.invalidateQueries({ queryKey: ['all-tenants'] });
+      // Step 7: Refresh data. Bis zum 28.10.2026 stand hier der nirgends vergebene Schlüssel
+      // 'immobilie-detail' — Einheitskarte und Objektkopf zeigten den neuen Vertrag erst nach dem Neuladen.
+      await Promise.all([
+        // Einheitskarten (['mietvertrag-detail', immobilieId, …]) und die Vertragsansicht
+        queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail'] }),
+        // Mietsummen im Objektkopf
+        queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] }),
+        queryClient.invalidateQueries({ queryKey: ['einheiten'] }),
+        // Leerstand in Objektliste und -karten
+        queryClient.invalidateQueries({ queryKey: ['einheiten-status-all'] }),
+        queryClient.invalidateQueries({ queryKey: ['einheiten-status'] }),
+        // Nachgeholte Forderungen seit Mietbeginn
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
+        queryClient.invalidateQueries({ queryKey: ['all-tenants'] }),
+      ]);
       
       // Nur ein Toast (TOAST_LIMIT = 1): Hinweise statt der Erfolgsmeldung
       toast(hinweise.length > 0
@@ -981,15 +1016,19 @@ export const NewTenantContractDialog = ({
             value={contractData.kaltmiete}
             onChange={(e) => {
               const value = e.target.value;
+              const kalt = leseEuroBetrag(value);
               setContractData(prev => ({ 
                 ...prev, 
                 kaltmiete: value,
                 // Auto-calculate security deposit (3x rent)
-                kaution_betrag: value ? (parseFloat(value) * 3).toFixed(2) : ''
+                kaution_betrag: typeof kalt === 'number' ? (kalt * 3).toFixed(2) : ''
               }));
             }}
             placeholder="800.00"
+            aria-invalid={betragUngueltig('kaltmiete') || undefined}
+            className={ungueltigKlasse('kaltmiete')}
           />
+          {betragUngueltig('kaltmiete') && <p className="text-xs text-destructive mt-1">{EURO_BETRAG_HINWEIS}</p>}
         </div>
         <div>
           <Label htmlFor="betriebskosten">Betriebskosten (€) *</Label>
@@ -1000,7 +1039,10 @@ export const NewTenantContractDialog = ({
             value={contractData.betriebskosten}
             onChange={(e) => setContractData(prev => ({ ...prev, betriebskosten: e.target.value }))}
             placeholder="150.00"
+            aria-invalid={betragUngueltig('betriebskosten') || undefined}
+            className={ungueltigKlasse('betriebskosten')}
           />
+          {betragUngueltig('betriebskosten') && <p className="text-xs text-destructive mt-1">{EURO_BETRAG_HINWEIS}</p>}
         </div>
       </div>
       
@@ -1014,9 +1056,12 @@ export const NewTenantContractDialog = ({
             value={contractData.kaution_betrag}
             onChange={(e) => setContractData(prev => ({ ...prev, kaution_betrag: e.target.value }))}
             placeholder="Automatisch: 3x Kaltmiete"
+            aria-invalid={betragUngueltig('kaution_betrag') || undefined}
+            className={ungueltigKlasse('kaution_betrag')}
           />
+          {betragUngueltig('kaution_betrag') && <p className="text-xs text-destructive mt-1">{EURO_BETRAG_HINWEIS}</p>}
           <p className="text-xs text-muted-foreground mt-1">
-            Standard: {contractData.kaltmiete ? (parseFloat(contractData.kaltmiete) * 3).toFixed(2) : '0.00'}€
+            Standard: {typeof betraege.kaltmiete === 'number' ? (betraege.kaltmiete * 3).toFixed(2) : '0.00'}€
           </p>
         </div>
         <div>
@@ -1027,7 +1072,10 @@ export const NewTenantContractDialog = ({
             step="0.01"
             value={contractData.ruecklastschrift_gebuehr}
             onChange={(e) => setContractData(prev => ({ ...prev, ruecklastschrift_gebuehr: e.target.value }))}
+            aria-invalid={betragUngueltig('ruecklastschrift_gebuehr') || undefined}
+            className={ungueltigKlasse('ruecklastschrift_gebuehr')}
           />
+          {betragUngueltig('ruecklastschrift_gebuehr') && <p className="text-xs text-destructive mt-1">{EURO_BETRAG_HINWEIS}</p>}
         </div>
       </div>
       
@@ -1430,10 +1478,16 @@ export const NewTenantContractDialog = ({
               Mieter: {mieterGesamt} ({ausgefuellteNeueMieter.length} neu, {selectedTenantIds.length} bestehend)
             </p>
             {hauptmieterName && <p>Hauptmieter: {hauptmieterName}</p>}
-            <p>Kaltmiete: {contractData.kaltmiete}€</p>
-            <p>Betriebskosten: {contractData.betriebskosten}€</p>
-            <p>Warmmiete: {(parseFloat(contractData.kaltmiete || '0') + parseFloat(contractData.betriebskosten || '0')).toFixed(2)}€</p>
-            <p>Kaution: {contractData.kaution_betrag}€</p>
+            {/* Gelesene Beträge statt Rohtext: „1.200“ stand hier als 1.200 €, gespeichert wurden 1,20 € */}
+            <p>Kaltmiete: {euro(betraege.kaltmiete)}</p>
+            <p>Betriebskosten: {euro(betraege.betriebskosten)}</p>
+            <p>
+              Warmmiete:{' '}
+              {typeof betraege.kaltmiete === 'number' && typeof betraege.betriebskosten === 'number'
+                ? euro(betraege.kaltmiete + betraege.betriebskosten)
+                : '—'}
+            </p>
+            <p>Kaution: {euro(betraege.kaution_betrag)}</p>
             <p>Mietbeginn: {contractData.start_datum}</p>
             {contractData.ende_datum && <p>Mietende: {contractData.ende_datum}</p>}
             {uploadedFiles.length > 0 && <p>Dokumente: {uploadedFiles.length}</p>}

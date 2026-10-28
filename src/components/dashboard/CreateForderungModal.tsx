@@ -88,7 +88,11 @@ export const CreateForderungModal = ({
       });
 
       handleClose();
-      await queryClient.invalidateQueries({ queryKey: ["mietforderungen", mietvertragId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mietforderungen", mietvertragId] }),
+        // Die neue Forderung gehört sofort in Rückstandsliste und Mahnwesen (28.10.2026)
+        queryClient.invalidateQueries({ queryKey: ["rueckstaende"] }),
+      ]);
     } catch {
       toast({ title: "Fehler", description: "Forderung konnte nicht erstellt werden.", variant: "destructive" });
     } finally {

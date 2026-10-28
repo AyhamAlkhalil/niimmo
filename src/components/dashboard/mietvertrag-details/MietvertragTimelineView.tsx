@@ -109,6 +109,8 @@ export function MietvertragTimelineView({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
+        // Rückstandsliste und Mahnwesen rechnen sonst mit dem alten Stand weiter (28.10.2026)
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
       ]);
 
     } catch (error) {
@@ -143,6 +145,8 @@ export function MietvertragTimelineView({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] }),
+        // Rückstandsliste und Mahnwesen rechnen sonst mit dem alten Stand weiter (28.10.2026)
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
       ]);
 
     } catch (error) {
@@ -193,6 +197,8 @@ export function MietvertragTimelineView({
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] }),
+        // Rückstandsliste und Mahnwesen rechnen sonst mit dem alten Stand weiter (28.10.2026)
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
       ]);
 
       setEditingForderung(null);
@@ -296,8 +302,11 @@ export function MietvertragTimelineView({
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] }),
-        queryClient.invalidateQueries({ queryKey: ['mietvertrag-details', vertragId] }),
+        // Bis zum 28.10.2026 'mietvertrag-details' — so heißt keine Abfrage (useMietvertragData: 'mietvertrag-detail')
+        queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
         queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
+        // Rückstandsliste und Mahnwesen rechnen sonst mit dem alten Stand weiter (28.10.2026)
+        queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
         queryClient.invalidateQueries({ queryKey: ['immobilie-nebenkosten-zahlungen'] }),
         queryClient.invalidateQueries({ queryKey: ['unzugeordnete-nebenkosten'] }),
         queryClient.invalidateQueries({ queryKey: ['zugeordnete-nebenkosten'] }),

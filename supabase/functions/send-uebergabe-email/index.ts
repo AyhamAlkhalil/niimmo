@@ -297,8 +297,14 @@ serve(async (req) => {
     const htmlBody = htmlMaskieren(body).replace(/\n/g, "<br>");
 
     // Dateiname mit dem Übergabedatum aus der Anfrage; bis zum 27.10.2026 stand dort der UTC-Tag des
-    // Versands (zwischen 0 und 2 Uhr deutscher Zeit der Vortag)
-    const tag = /^\d{4}-\d{2}-\d{2}$/.test(String(anfrage?.uebergabeDatum ?? '')) ? String(anfrage.uebergabeDatum) : new Date().toISOString().split('T')[0];
+    // Versands (zwischen 0 und 2 Uhr deutscher Zeit der Vortag). Der Ersatz ohne Datum nahm bis zum
+    // 28.10.2026 noch denselben UTC-Tag — jetzt der Kalendertag in Berlin, auch über die Zeitumstellung.
+    const berlin = Object.fromEntries(
+      new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(new Date())
+        .map((teil) => [teil.type, teil.value]),
+    );
+    const tag = /^\d{4}-\d{2}-\d{2}$/.test(String(anfrage?.uebergabeDatum ?? '')) ? String(anfrage.uebergabeDatum) : `${berlin.year}-${berlin.month}-${berlin.day}`;
     const anhangName = `Uebergabeprotokoll_${tag}.pdf`;
     const mailId = await mailVormerken(rollenClient, {
       typ: 'uebergabe',

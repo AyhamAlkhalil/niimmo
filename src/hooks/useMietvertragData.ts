@@ -18,7 +18,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
           queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] });
           queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
           queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
-          queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+          queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] });
           queryClient.invalidateQueries({ queryKey: ['immobilien'] });
         }
       )
@@ -29,7 +29,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
           queryClient.invalidateQueries({ queryKey: ['zahlungen-detail', vertragId] });
           queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
           queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
-          queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+          queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] });
           queryClient.invalidateQueries({ queryKey: ['immobilien'] });
         }
       )
@@ -39,7 +39,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
         () => {
           queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
           queryClient.invalidateQueries({ queryKey: ['rueckstaende'] });
-          queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+          queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] });
           queryClient.invalidateQueries({ queryKey: ['immobilien'] });
           queryClient.invalidateQueries({ queryKey: ['einheiten'] });
           queryClient.invalidateQueries({ predicate: (query) =>
@@ -61,7 +61,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
             Array.isArray(query.queryKey) &&
             (query.queryKey[0] === 'mietvertrag-mieter' || query.queryKey[0] === 'mietvertrag-mieter-detail')
           });
-          queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] });
+          queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] });
         }
       )
       .subscribe();

@@ -1,4 +1,5 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// Exakte Version (28.10.2026): Ein unversionierter Import zog still jede neue 2.x und brachte so die agent-api zum Absturz
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1'
 
 // Diese Edge Function wird taeglich per Cron aufgerufen und holt:
 // 1. Basiszinssatz der Bundesbank (API, CSV-Format)

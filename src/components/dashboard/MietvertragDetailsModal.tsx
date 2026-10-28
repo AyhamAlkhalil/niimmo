@@ -251,9 +251,11 @@ export default function MietvertragDetailsModal({
           onClose={() => {
             mutations.setShowMahnungModal(false);
             Promise.all([
-              queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
+              // Objektansicht: Einheitskarten (Präfix) und Objektkopf — 'immobilie-detail' gab es nie (28.10.2026)
+              queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail'] }),
+              queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] }),
+              queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
               queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
-              queryClient.invalidateQueries({ queryKey: ['immobilie-detail'] }),
               queryClient.invalidateQueries({ queryKey: ['immobilien'] }),
             ]);
           }}

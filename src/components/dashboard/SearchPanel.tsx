@@ -8,6 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { darlehenStand } from "@/utils/darlehenBerechnung";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
+import { ilikeInSpalten, suchwoerter } from "@/utils/suchbegriff";
+
+const LEER = { mietvertraege: [], immobilien: [], einheiten: [], versicherungen: [], darlehen: [], dokumente: [] };
+
+/** Jedes Wort in einer der Spalten — mehrere `.or()` verknüpft PostgREST mit UND. */
+function jedesWort<Q extends { or: (filter: string) => Q }>(abfrage: Q, spalten: readonly string[], woerter: string[]): Q {
+  return woerter.reduce((q, wort) => q.or(ilikeInSpalten(spalten, wort)), abfrage);
+}
 
 interface SearchPanelProps {
   onImmobilieSelect: (immobilieId: string, einheitId?: string, tab?: string) => void;
@@ -18,17 +26,19 @@ interface SearchPanelProps {
 export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenSelect }: SearchPanelProps) => {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const { data: searchResults } = useQuery({
+  const { data: searchResults, isError: sucheFehler } = useQuery({
     queryKey: ['search', searchTerm],
     queryFn: async () => {
-      if (!searchTerm || searchTerm.length < 2) {
-        return { mietvertraege: [], immobilien: [], einheiten: [], versicherungen: [], darlehen: [], dokumente: [] };
-      }
+      if (!searchTerm || searchTerm.length < 2) return LEER;
 
-      const term = searchTerm;
+      // Bis zum 28.10.2026 ging der Begriff roh in die or-Filter: „Nachname, Vorname" oder eine Klammer
+      // ergab 400, und weil nur `data` gelesen wurde, hieß das „Keine Ergebnisse". Jetzt bereinigt
+      // (utils/suchbegriff.ts), und jeder Lesefehler wird geworfen und angezeigt.
+      const woerter = suchwoerter(searchTerm);
+      if (woerter.length === 0) return LEER;
 
       // Suche Mieter
-      const { data: mieter } = await supabase
+      const { data: mieter, error: mieterFehler } = await jedesWort(supabase
         .from('mieter')
         .select(`
           id, vorname, nachname, hauptmail,
@@ -42,8 +52,8 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
               )
             )
           )
-        `)
-        .or(`vorname.ilike.%${term}%,nachname.ilike.%${term}%,hauptmail.ilike.%${term}%`);
+        `), ['vorname', 'nachname', 'hauptmail'], woerter);
+      if (mieterFehler) throw mieterFehler;
 
       // Gruppiere nach Mietvertrag
       const contractMap = new Map<string, any>();
@@ -66,10 +76,11 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
       // Lade ALLE Mieter für die gefundenen Verträge
       const contractIds = Array.from(contractMap.keys());
       if (contractIds.length > 0) {
-        const { data: alleMieterVertraege } = await supabase
+        const { data: alleMieterVertraege, error: vertragsmieterFehler } = await supabase
           .from('mietvertrag_mieter')
           .select('mietvertrag_id, mieter(id, vorname, nachname)')
           .in('mietvertrag_id', contractIds);
+        if (vertragsmieterFehler) throw vertragsmieterFehler;
 
         for (const mv of alleMieterVertraege || []) {
           const entry = contractMap.get(mv.mietvertrag_id);
@@ -85,54 +96,55 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
       const mietvertraege = Array.from(contractMap.values());
 
       // Suche Immobilien
-      const { data: immobilien } = await supabase
+      const { data: immobilien, error: immobilienFehler } = await jedesWort(supabase
         .from('immobilien')
-        .select('id, name, adresse, einheiten_anzahl')
-        .or(`name.ilike.%${term}%,adresse.ilike.%${term}%`);
+        .select('id, name, adresse, einheiten_anzahl'), ['name', 'adresse'], woerter);
+      if (immobilienFehler) throw immobilienFehler;
 
       // Suche Einheiten (Zählernummern, Etage)
-      const { data: einheiten } = await supabase
+      const { data: einheiten, error: einheitenFehler } = await jedesWort(supabase
         .from('einheiten')
         .select(`
           id, zaehler, qm, etage, einheitentyp,
           strom_zaehler, gas_zaehler, kaltwasser_zaehler, warmwasser_zaehler,
           immobilie_id,
           immobilien!inner(id, name, adresse)
-        `)
-        .or(`strom_zaehler.ilike.%${term}%,gas_zaehler.ilike.%${term}%,kaltwasser_zaehler.ilike.%${term}%,warmwasser_zaehler.ilike.%${term}%,etage.ilike.%${term}%`);
+        `), ['strom_zaehler', 'gas_zaehler', 'kaltwasser_zaehler', 'warmwasser_zaehler', 'etage'], woerter);
+      if (einheitenFehler) throw einheitenFehler;
 
       // Suche Versicherungen
-      const { data: versicherungen } = await supabase
+      const { data: versicherungen, error: versicherungenFehler } = await jedesWort(supabase
         .from('versicherungen' as any)
         .select(`
           id, typ, firma, vertragsnummer, kontaktperson, email, telefon, jahresbeitrag, immobilie_id,
           immobilien!inner(id, name, adresse)
-        `)
-        .or(`firma.ilike.%${term}%,typ.ilike.%${term}%,vertragsnummer.ilike.%${term}%,kontaktperson.ilike.%${term}%,email.ilike.%${term}%,telefon.ilike.%${term}%`);
+        `), ['firma', 'typ', 'vertragsnummer', 'kontaktperson', 'email', 'telefon'], woerter);
+      if (versicherungenFehler) throw versicherungenFehler;
 
       // Suche Darlehen
       // Restschuld heute statt des Stands zum Stichtag (utils/darlehenBerechnung.ts)
       const heute = format(new Date(), 'yyyy-MM-dd');
-      const { data: darlehenRoh } = await supabase
+      const { data: darlehenRoh, error: darlehenFehler } = await jedesWort(supabase
         .from('darlehen')
-        .select('id, bezeichnung, bank, kontonummer, darlehensbetrag, restschuld, restschuld_stichtag, zinssatz_prozent, monatliche_rate, ende_datum')
-        .or(`bezeichnung.ilike.%${term}%,bank.ilike.%${term}%,kontonummer.ilike.%${term}%`);
+        .select('id, bezeichnung, bank, kontonummer, darlehensbetrag, restschuld, restschuld_stichtag, zinssatz_prozent, monatliche_rate, ende_datum'),
+        ['bezeichnung', 'bank', 'kontonummer'], woerter);
+      if (darlehenFehler) throw darlehenFehler;
       const darlehen = (darlehenRoh ?? []).map((d) => ({ ...d, restschuld: darlehenStand(d, heute).restschuld }));
 
       // Suche Dokumente. Bis zum 07.10.2026 verlangte die Abfrage mit immobilien!inner
       // einen Objektbezug -- 1.386 von 1.502 Dokumenten haengen aber nur am Vertrag
       // und blieben unauffindbar. Das Objekt kommt jetzt wahlweise ueber den Vertrag.
-      const { data: dokumente } = await supabase
+      const { data: dokumente, error: dokumenteFehler } = await jedesWort(supabase
         .from('dokumente')
         .select(`
           id, titel, kategorie, immobilie_id, mietvertrag_id,
           immobilien(id, name),
           mietvertrag(einheiten(immobilien(id, name)))
         `)
-        .eq('geloescht', false)
-        .ilike('titel', `%${term}%`)
+        .eq('geloescht', false), ['titel'], woerter)
         .order('hochgeladen_am', { ascending: false })
         .limit(6);
+      if (dokumenteFehler) throw dokumenteFehler;
 
       return {
         mietvertraege,
@@ -248,7 +260,14 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
           <Search className="pointer-events-none absolute left-0 top-1/2 h-5 w-5 -translate-y-1/2 text-foreground/70" />
         </div>
 
-        {searchResults && searchTerm.length >= 2 && (
+        {/* Ein Fehler darf nicht wie „Keine Ergebnisse“ aussehen (28.10.2026) */}
+        {sucheFehler && searchTerm.length >= 2 && (
+          <p role="alert" className="mt-4 border-t pt-4 text-sm text-destructive">
+            Die Suche ist fehlgeschlagen. Bitte erneut versuchen.
+          </p>
+        )}
+
+        {searchResults && !sucheFehler && searchTerm.length >= 2 && (
           <div className="mt-4 space-y-4 max-h-[520px] overflow-y-auto animate-fade-in border-t pt-4">
 
             {/* Mietverträge */}
