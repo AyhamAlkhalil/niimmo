@@ -84,6 +84,11 @@ export function FehlendeMietzahlungenItem({
                 </p>
               </div>
             </div>
+            {item.vorauszahlung > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Zusätzlich {formatBetrag(item.vorauszahlung)} Vorauszahlung auf noch nicht fällige Miete (nicht im Guthaben)
+              </p>
+            )}
           </div>
 
           {/* Action Section - Hidden on mobile, details accessible via card click */}

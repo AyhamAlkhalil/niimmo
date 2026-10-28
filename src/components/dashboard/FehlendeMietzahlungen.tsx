@@ -139,6 +139,12 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
   const gesamtRueckstandBetrag = activeRueckstaende.reduce((sum, item) => sum + item.fehlend_betrag, 0);
   const gesamtGuthabenBetrag = activeGuthaben.reduce((sum, item) => sum + item.fehlend_betrag, 0);
 
+  // Der Kopf zeigt den Bestand, nicht die Auswahl: Bis zum 28.10.2026 standen dort die Summen nach
+  // Suche und Filter, auch eingeklappt — mit Filter „Guthaben“ verschwand die Rückstandssumme ganz.
+  const nichtBeendet = (fehlendeMietzahlungen ?? []).filter(item => item.mietvertrag_status !== 'Beendet');
+  const kopfRueckstand = nichtBeendet.filter(item => !item.ist_guthaben).reduce((sum, item) => sum + item.fehlend_betrag, 0);
+  const kopfGuthaben = nichtBeendet.filter(item => item.ist_guthaben).reduce((sum, item) => sum + item.fehlend_betrag, 0);
+
   const gesamtRueckstand = fehlendeMietzahlungen?.filter(item => item.mietvertrag_status !== 'Beendet').reduce((sum, item) => {
     return sum + (item.ist_guthaben ? -item.fehlend_betrag : item.fehlend_betrag);
   }, 0) || 0;
@@ -199,7 +205,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                         <span className="ml-1 mt-1 cursor-help text-xs text-warning">ⓘ</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="max-w-xs text-xs">
-                        <p>Rückstände werden hier erst angezeigt, wenn der <strong>4. Werktag</strong> des jeweiligen Forderungsmonats überschritten ist.</p>
+                        <p>Eine Monatsmiete zählt hier ab ihrer Fälligkeit am <strong>8. des Monats</strong>. Was vorher eingeht, gilt bis dahin als Vorauszahlung, nicht als Guthaben.</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -208,21 +214,21 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
             </div>
             
             <div className="flex items-center gap-2">
-              {(gesamtRueckstandBetrag > 0 || gesamtGuthabenBetrag > 0) && (
+              {(kopfRueckstand > 0 || kopfGuthaben > 0) && (
                 <div className="mr-2 hidden gap-4 text-right xs:flex sm:mr-5 sm:gap-7">
-                  {gesamtRueckstandBetrag > 0 && (
+                  {kopfRueckstand > 0 && (
                     <div>
                       <p className="eyebrow">Rückstände</p>
                       <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-brand sm:text-3xl">
-                        {formatBetrag(gesamtRueckstandBetrag)}
+                        {formatBetrag(kopfRueckstand)}
                       </p>
                     </div>
                   )}
-                  {gesamtGuthabenBetrag > 0 && (
+                  {kopfGuthaben > 0 && (
                     <div>
                       <p className="eyebrow">Guthaben</p>
                       <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-success sm:text-3xl">
-                        {formatBetrag(gesamtGuthabenBetrag)}
+                        {formatBetrag(kopfGuthaben)}
                       </p>
                     </div>
                   )}
@@ -237,18 +243,18 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
 
         <CollapsibleContent className="pb-6">
           {/* Mobile Summary - Shows on small screens */}
-          {(gesamtRueckstandBetrag > 0 || gesamtGuthabenBetrag > 0) && (
+          {(kopfRueckstand > 0 || kopfGuthaben > 0) && (
             <div className="mb-3 flex gap-3 border border-border bg-muted/60 p-2 xs:hidden">
-              {gesamtRueckstandBetrag > 0 && (
+              {kopfRueckstand > 0 && (
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-600">Rückstände</p>
-                  <p className="text-sm font-bold text-red-600">{formatBetrag(gesamtRueckstandBetrag)}</p>
+                  <p className="text-sm font-bold text-red-600">{formatBetrag(kopfRueckstand)}</p>
                 </div>
               )}
-              {gesamtGuthabenBetrag > 0 && (
+              {kopfGuthaben > 0 && (
                 <div className="flex-1 text-center">
                   <p className="text-xs text-gray-600">Guthaben</p>
-                  <p className="text-sm font-bold text-green-600">{formatBetrag(gesamtGuthabenBetrag)}</p>
+                  <p className="text-sm font-bold text-green-600">{formatBetrag(kopfGuthaben)}</p>
                 </div>
               )}
             </div>

@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { calculateMietvertragRueckstand, calculateMieteZahlungen, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
+import { berechneMietkontostand, calculateMieteZahlungen } from "@/utils/rueckstandsberechnung";
 import { useEffect } from "react";
 
 // Lädt alle Seiten einer Supabase-Query (umgeht das serverseitige 1000-Zeilen-Limit)
@@ -26,6 +26,8 @@ export interface FehlendeMietzahlung {
   fehlend_betrag: number;
   gesamt_forderungen: number;
   gesamt_zahlungen: number;
+  /** Teil der Zahlungen, der noch nicht fällige Miete deckt (weder Rückstand noch Guthaben) */
+  vorauszahlung: number;
   miete_zahlungen: number;
   immobilie_name: string;
   immobilie_adresse: string;
@@ -176,14 +178,11 @@ export const useRueckstaende = () => {
         const mietvertragForderungen = alleForderungen?.filter(f => f.mietvertrag_id === mietvertrag.id) || [];
         const mietvertragZahlungen = alleZahlungen?.filter(z => z.mietvertrag_id === mietvertrag.id) || [];
 
-        // RÜCKSTANDSTABELLE: Nur Forderungen berücksichtigen, deren Fälligkeitsdatum (DB) bereits erreicht ist
-        // Dies unterscheidet sich von den Mietvertrag-Details, wo ALLE Forderungen sofort zählen.
-        // Dieselbe Regel gilt für den Mahnbetrag (MietvertragDetailsModal).
-        const faelligeForderungen = nurFaelligeForderungen(mietvertragForderungen);
-
-        const { gesamtForderungen, gesamtZahlungen, rueckstand } = calculateMietvertragRueckstand(
+        // Nur fällige Forderungen; eine Überzahlung auf noch nicht fällige Miete ist Vorauszahlung, kein
+        // Guthaben. Dieselbe Rechnung wie Vertragsdetail und Mahnbetrag (MietvertragDetailsModal).
+        const { gesamtForderungen, gesamtZahlungen, rueckstand, vorauszahlung } = berechneMietkontostand(
           mietvertrag,
-          faelligeForderungen,
+          mietvertragForderungen,
           mietvertragZahlungen
         );
 
@@ -215,6 +214,7 @@ export const useRueckstaende = () => {
             fehlend_betrag: Math.abs(rueckstand), // Betrag immer positiv anzeigen
             gesamt_forderungen: gesamtForderungen,
             gesamt_zahlungen: gesamtZahlungen,
+            vorauszahlung,
             miete_zahlungen: mieteZahlungenSumme,
             immobilie_name: immobilie?.name || 'Unbekannt',
             immobilie_adresse: immobilie?.adresse || 'Unbekannt',

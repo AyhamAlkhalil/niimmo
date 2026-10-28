@@ -14,7 +14,7 @@ import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
 import { useToast } from "@/hooks/use-toast";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
-import { calculateMietvertragRueckstand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
+import { berechneMietkontostand } from "@/utils/rueckstandsberechnung";
 import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragDetailsModalProps {
@@ -283,7 +283,7 @@ export default function MietvertragDetailsModal({
           // liess bezahlte Betriebskosten-Nachzahlungen weg (docs/offene-punkte.md C5); bis zum
           // 27.10.2026 zaehlten auch noch nicht faellige Forderungen mit -- vom 1. bis 7. war
           // der Mahnbetrag um die laufende Monatsmiete zu hoch.
-          rueckstand={Math.max(0, calculateMietvertragRueckstand(vertrag, nurFaelligeForderungen(forderungen || []), zahlungen || []).rueckstand)}
+          rueckstand={Math.max(0, berechneMietkontostand(vertrag, forderungen || [], zahlungen || []).rueckstand)}
         />
 
       </DialogContent>

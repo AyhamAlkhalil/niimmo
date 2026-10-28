@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { calculateMietvertragRueckstand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
+import { berechneMietkontostand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
 import { MietvertragTimelineView } from "./MietvertragTimelineView";
 import { LinkedContractsTimeline } from "./LinkedContractsTimeline";
 import { useLinkedContracts } from "@/hooks/useLinkedContracts";
@@ -78,18 +78,16 @@ export function MietvertragPaymentsSection({
   };
 
   // Nur fällige Forderungen, wie Rückstandsliste und Mahnung. Bis zum 27.10.2026 zeigte das Detail vom
-  // 1. bis 7. jedes Monats die noch nicht fällige Monatsmiete als Rückstand, Liste und Mahnung 0 €.
-  const rueckstandsBerechnung = calculateMietvertragRueckstand(
-    vertrag, 
-    nurFaelligeForderungen(forderungen || []), 
+  // 1. bis 7. jedes Monats die noch nicht fällige Monatsmiete als Rückstand, Liste und Mahnung 0 €;
+  // bis zum 28.10.2026 die vorab gezahlte Monatsmiete als Guthaben.
+  const { gesamtZahlungen, rueckstand, vorauszahlung, nichtFaellig } = berechneMietkontostand(
+    vertrag,
+    forderungen || [],
     zahlungen || []
   );
-  
-  const { gesamtForderungen, gesamtZahlungen, rueckstand } = rueckstandsBerechnung;
 
   const alleForderungenAbStart = (forderungen || []).filter(f => f.sollmonat);
   const faelligeForderungen = nurFaelligeForderungen(alleForderungenAbStart);
-  const nichtFaelligeForderungen = alleForderungenAbStart.filter(f => !faelligeForderungen.includes(f));
 
   // BKA-Einträge separat aufschlüsseln
   const bkaForderungen = alleForderungenAbStart.filter(f => f.typ === 'BKA');
@@ -100,7 +98,6 @@ export function MietvertragPaymentsSection({
 
   // Fällige Forderungen = alle (Miete + BKA Nachzahlungen); BKA-Guthaben mindern den Betrag
   const faelligeForderungenBetrag = faelligeForderungen.reduce((sum, f) => sum + (Number(f.sollbetrag) || 0), 0);
-  const nichtFaelligeForderungenBetrag = nichtFaelligeForderungen.reduce((sum, f) => sum + (Number(f.sollbetrag) || 0), 0);
 
   return (
     <>
@@ -184,9 +181,14 @@ export function MietvertragPaymentsSection({
                 <p className={`text-2xl font-bold ${rueckstand > 0 ? 'text-yellow-800' : 'text-green-800'}`}>
                   {formatBetrag(Math.abs(rueckstand))}
                 </p>
-                {nichtFaelligeForderungenBetrag !== 0 && (
+                {nichtFaellig !== 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Noch nicht fällig: {formatBetrag(nichtFaelligeForderungenBetrag)}
+                    Noch nicht fällig: {formatBetrag(nichtFaellig)}
+                  </p>
+                )}
+                {vorauszahlung > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Vorauszahlung (nicht im Guthaben): {formatBetrag(vorauszahlung)}
                   </p>
                 )}
               </div>

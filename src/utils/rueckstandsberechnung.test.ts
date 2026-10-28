@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  berechneMietkontostand,
   calculateMietvertragRueckstand,
   calculateMieteZahlungen,
   calculateRuecklastschriftGebuehren,
@@ -393,10 +394,201 @@ describe('Vertragsdetail und Rückstandsliste', () => {
   it('rechnen beide nur mit fälligen Forderungen und blenden Verträge mit Saldo nicht nach Miete aus', () => {
     // 27.10.2026: Das Detail zeigte vom 1. bis 7. die nicht fällige Miete als Rückstand
     const detail = readFileSync('src/components/dashboard/mietvertrag-details/MietvertragPaymentsSection.tsx', 'utf-8');
-    expect(detail).toMatch(/nurFaelligeForderungen\(forderungen \|\| \[\]\)/);
+    expect(detail).toMatch(/berechneMietkontostand\(\s*vertrag,\s*forderungen \|\| \[\],/);
+    expect(detail).not.toMatch(/calculateMietvertragRueckstand\(/);
     expect(detail).toMatch(/finanzFehler \?/);
     const liste = readFileSync('src/hooks/useRueckstaende.ts', 'utf-8');
+    expect(liste).toMatch(/berechneMietkontostand\(\s*mietvertrag,\s*mietvertragForderungen,/);
+    expect(liste).not.toMatch(/calculateMietvertragRueckstand\(/);
     expect(liste).not.toMatch(/=== 0 && \(mietvertrag\.betriebskosten \|\| 0\) === 0\) continue;/);
     expect(liste).not.toMatch(/from\('dokumente'\)/);
+    const mahnung = readFileSync('src/components/dashboard/MietvertragDetailsModal.tsx', 'utf-8');
+    expect(mahnung).toMatch(/rueckstand=\{Math\.max\(0, berechneMietkontostand\(vertrag, forderungen \|\| \[\], zahlungen \|\| \[\]\)\.rueckstand\)\}/);
+  });
+
+  it('zeigen im Kopf der Liste den Bestand, nicht die Auswahl nach Suche und Filter', () => {
+    // 28.10.2026: Mit Filter „Guthaben“ verschwand die Rückstandssumme aus dem Kopf
+    const ansicht = readFileSync('src/components/dashboard/FehlendeMietzahlungen.tsx', 'utf-8');
+    expect(ansicht).toMatch(/const nichtBeendet = \(fehlendeMietzahlungen \?\? \[\]\)/);
+    expect(ansicht).toMatch(/<p className="eyebrow">Rückstände<\/p>\s*<p[^>]*>\s*\{formatBetrag\(kopfRueckstand\)\}/);
+    expect(ansicht).toMatch(/<p className="eyebrow">Guthaben<\/p>\s*<p[^>]*>\s*\{formatBetrag\(kopfGuthaben\)\}/);
+    expect(ansicht).not.toMatch(/4\. Werktag/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rundung und Gutschriften (28.10.2026)
+// ---------------------------------------------------------------------------
+describe('calculateMietvertragRueckstand — auf Cent gerundet', () => {
+  it('lässt keinen Gleitkommarest stehen, der als „Rückstand 0,00 €“ erschiene', () => {
+    // Live am 28.10.2026: zwei Verträge mit 3,6e-12 bzw. -1,8e-12
+    const forderungen = [makeForderung('2025-01', 0.1), makeForderung('2025-02', 0.2)];
+    const zahlungen = [makeZahlung('z1', 0.3, 'Miete', '2025-02')];
+    const { rueckstand } = calculateMietvertragRueckstand(mockMietvertrag, forderungen, zahlungen);
+    expect(Object.is(rueckstand, 0)).toBe(true);
+
+    const r2 = calculateMietvertragRueckstand(mockMietvertrag, [makeForderung('2025-01', 0.3)], [
+      makeZahlung('z1', 0.1, 'Miete', '2025-01'),
+      makeZahlung('z2', 0.2, 'Miete', '2025-01'),
+    ]);
+    expect(Object.is(r2.rueckstand, 0)).toBe(true);
+  });
+});
+
+describe('nurFaelligeForderungen — Gutschriften', () => {
+  const bkaGuthaben = { id: 'g', sollmonat: '2025-12-01', sollbetrag: -150, faelligkeitsdatum: '2026-11-27', typ: 'BKA' };
+  const minderungDezember = { id: 'm', sollmonat: '2026-12-01', sollbetrag: -100, faelligkeitsdatum: '2026-12-08', typ: 'Miete' };
+
+  it('zählt ein BKA-Guthaben ab seinem Monat, nicht erst 30 Tage nach der Anlage', () => {
+    expect(nurFaelligeForderungen([bkaGuthaben], new Date(2026, 9, 28)).map((f) => f.id)).toEqual(['g']);
+  });
+
+  it('lässt eine Minderung (typ Miete) der Fälligkeit ihrer Monatsmiete folgen', () => {
+    // Review 28.10.2026: ab dem 1. gezählt, hätte sie den Mahnbetrag vom 1. bis 7. um die Minderung gesenkt
+    expect(nurFaelligeForderungen([minderungDezember], new Date(2026, 9, 28))).toEqual([]);
+    expect(nurFaelligeForderungen([minderungDezember], new Date(2026, 11, 7))).toEqual([]);
+    expect(nurFaelligeForderungen([minderungDezember], new Date(2026, 11, 8)).map((f) => f.id)).toEqual(['m']);
+  });
+
+  it('zählt ein BKA-Guthaben für einen künftigen Monat noch nicht', () => {
+    const kuenftig = { ...bkaGuthaben, id: 'k', sollmonat: '2026-12-01' };
+    expect(nurFaelligeForderungen([kuenftig], new Date(2026, 9, 28))).toEqual([]);
+  });
+
+  it('macht aus einem ausgezahlten BKA-Guthaben keinen Rückstand', () => {
+    // Auszahlung sofort im Konto, Gutschrift bis zum 28.10.2026 erst 30 Tage später
+    const auszahlung = { id: 'a', betrag: -150, buchungsdatum: '2026-10-28', kategorie: 'Betriebskostenabrechnung', zugeordneter_monat: '2026-11' };
+    const stand = berechneMietkontostand(mockMietvertrag, [bkaGuthaben], [auszahlung], new Date(2026, 9, 28));
+    expect(stand.rueckstand).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// berechneMietkontostand — Vorauszahlung ist kein Guthaben (28.10.2026)
+// ---------------------------------------------------------------------------
+describe('berechneMietkontostand', () => {
+  const sept = { id: 'f9', sollmonat: '2026-09-01', sollbetrag: 800, faelligkeitsdatum: '2026-09-08' };
+  const okt = { id: 'f10', sollmonat: '2026-10-01', sollbetrag: 800, faelligkeitsdatum: '2026-10-08' };
+  const zahlung = (id: string, betrag: number, buchungsdatum: string, zugeordneter_monat: string, kategorie = 'Miete') =>
+    ({ id, betrag, buchungsdatum, kategorie, zugeordneter_monat });
+  const septBezahlt = zahlung('z9', 800, '2026-09-01', '2026-09');
+
+  it('zeigt die vor dem 8. gezahlte Monatsmiete nicht als Guthaben', () => {
+    // Am 05.10.2026 standen so 48 Verträge mit einer Monatsmiete Guthaben in der Liste
+    const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-10-01', '2026-10')];
+    const am3 = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 3));
+    expect(am3).toEqual({ gesamtForderungen: 800, gesamtZahlungen: 1600, rueckstand: 0, vorauszahlung: 800, nichtFaellig: 800 });
+    const am8 = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 8));
+    expect(am8).toEqual({ gesamtForderungen: 1600, gesamtZahlungen: 1600, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0 });
+  });
+
+  it('zeigt eine Zahlung ab dem 28. für den Folgemonat nicht als Guthaben, bevor dessen Forderung existiert', () => {
+    const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-09-29', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 8, 30));
+    expect(stand.rueckstand).toBe(0);
+    expect(stand.vorauszahlung).toBe(800);
+  });
+
+  it('weist nur den Teil über der Vorauszahlung als Guthaben aus', () => {
+    const zahlungen = [septBezahlt, zahlung('z10', 900, '2026-10-01', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 3));
+    expect(stand.rueckstand).toBe(-100);
+    expect(stand.vorauszahlung).toBe(800);
+  });
+
+  it('lässt den Rückstand unverändert — Zahlungen tilgen zuerst die fällige Schuld', () => {
+    const zahlungen = [zahlung('z10', 500, '2026-10-02', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 3));
+    expect(stand.rueckstand).toBe(300);
+    expect(stand.vorauszahlung).toBe(0);
+
+    // Verspätete Septembermiete am 29.09., von der DB dem Oktober zugeordnet: ausgeglichen, keine Vorauszahlung
+    const spaet = berechneMietkontostand(mockMietvertrag, [sept], [zahlung('z9', 800, '2026-09-29', '2026-10')], new Date(2026, 8, 30));
+    expect(spaet).toMatchObject({ rueckstand: 0, vorauszahlung: 0 });
+  });
+
+  it('behält ein echtes Guthaben, etwa nach Vertragsende', () => {
+    const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-10-02', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 9, 28));
+    expect(stand.rueckstand).toBe(-800);
+    expect(stand.vorauszahlung).toBe(0);
+  });
+
+  it('zählt Kaution und andere Kategorien auch nicht als Vorauszahlung', () => {
+    const zahlungen = [septBezahlt, zahlung('k', 2400, '2026-09-29', '2026-10', 'Mietkaution')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 8, 30));
+    expect(stand).toMatchObject({ gesamtZahlungen: 800, rueckstand: 0, vorauszahlung: 0 });
+  });
+
+  it('senkt den Rückstand vom 1. bis 7. nicht um eine Minderung des laufenden Monats', () => {
+    const minderungOkt = { id: 'm10', sollmonat: '2026-10-01', sollbetrag: -100, faelligkeitsdatum: '2026-10-08', typ: 'Miete' };
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, okt, minderungOkt], [], new Date(2026, 9, 3));
+    expect(stand).toMatchObject({ rueckstand: 800, vorauszahlung: 0, nichtFaellig: 700 });
+  });
+
+  it('rechnet eine noch nicht fällige Minderung gegen die Vorauszahlung', () => {
+    // Review 28.10.2026: je Forderung auf 0 begrenzt, versteckte die Vorauszahlung 100 € echtes Guthaben
+    const minderungOkt = { id: 'm10', sollmonat: '2026-10-01', sollbetrag: -100, faelligkeitsdatum: '2026-10-08', typ: 'Miete' };
+    const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-10-01', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, okt, minderungOkt], zahlungen, new Date(2026, 9, 3));
+    expect(stand).toMatchObject({ rueckstand: -100, vorauszahlung: 700, nichtFaellig: 700 });
+  });
+
+  it('lässt eine Forderung ohne Fälligkeitsdatum kein Guthaben schlucken', () => {
+    const ohneDatum = { id: 'x', sollmonat: '2026-03-01', sollbetrag: 400, faelligkeitsdatum: null };
+    const zahlungen = [septBezahlt, zahlung('z', 400, '2026-10-10', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, ohneDatum], zahlungen, new Date(2026, 9, 15));
+    expect(stand).toMatchObject({ rueckstand: -400, vorauszahlung: 0, nichtFaellig: 0 });
+  });
+
+  it('zeigt am 1. vor der Sollstellung (05:00 UTC) die Zahlung vom Monatsende nicht als Guthaben', () => {
+    const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-09-30', '2026-10')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 9, 1, 2, 0));
+    expect(stand).toMatchObject({ rueckstand: 0, vorauszahlung: 800 });
+  });
+
+  it('wertet nach Vertragsende eine Zahlung auf den Folgemonat als Guthaben', () => {
+    const beendet = { ...mockMietvertrag, ende_datum: '2026-09-30' };
+    const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-09-29', '2026-10')];
+    const stand = berechneMietkontostand(beendet, [sept], zahlungen, new Date(2026, 8, 30));
+    expect(stand).toMatchObject({ rueckstand: -800, vorauszahlung: 0 });
+
+    // Review 28.10.2026: beendet, aber ohne Enddatum — ebenfalls keine Vorauszahlung
+    const ohneEnde = { ...mockMietvertrag, status: 'beendet' };
+    expect(berechneMietkontostand(ohneEnde, [sept], zahlungen, new Date(2026, 8, 30))).toMatchObject({ rueckstand: -800, vorauszahlung: 0 });
+  });
+
+  it('zählt eine zurückgebuchte Vorauszahlung nicht', () => {
+    const zahlungen = [
+      septBezahlt,
+      zahlung('z10', 800, '2026-09-29', '2026-10'),
+      zahlung('r10', -800, '2026-09-30', '2026-10', 'Rücklastschrift'),
+      zahlung('m', 50, '2026-09-15', '2026-09'),
+    ];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept], zahlungen, new Date(2026, 8, 30));
+    expect(stand).toMatchObject({ rueckstand: -50, vorauszahlung: 0 });
+  });
+
+  it('liefert für fehlende Daten Nullen', () => {
+    const nullen = { gesamtForderungen: 0, gesamtZahlungen: 0, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0 };
+    expect(berechneMietkontostand(null, [], [])).toEqual(nullen);
+    // QA 28.10.2026: nichtFaellig bzw. Zahlungen kamen trotz fehlender Daten durch
+    expect(berechneMietkontostand(null, [sept, okt], [], new Date(2026, 9, 5))).toEqual(nullen);
+    expect(berechneMietkontostand(mockMietvertrag, null as any, [septBezahlt])).toEqual(nullen);
+    expect(berechneMietkontostand(mockMietvertrag, [sept, okt], null as any, new Date(2026, 8, 20))).toEqual(nullen);
+  });
+});
+
+describe('calculateMietvertragRueckstand — Zahlungen ohne id', () => {
+  it('zählt jede Zahlung, auch ohne id und auf einen Monat ohne Forderung', () => {
+    // QA 28.10.2026: die frühere Verschiebelogik ersetzte die erste Zahlung ohne id durch die zweite
+    const forderungen = [makeForderung('2025-02', 1000)];
+    const zahlungen = [
+      { betrag: 700, kategorie: 'Miete', zugeordneter_monat: '2025-01', buchungsdatum: '2025-01-10' },
+      { betrag: 300, kategorie: 'Miete', zugeordneter_monat: '2025-01', buchungsdatum: '2025-01-20' },
+    ];
+    expect(calculateMietvertragRueckstand(mockMietvertrag, forderungen, zahlungen)).toEqual({
+      gesamtForderungen: 1000, gesamtZahlungen: 1000, rueckstand: 0,
+    });
   });
 });

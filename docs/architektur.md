@@ -38,7 +38,7 @@ die häufigste Fehlerquelle dieses Projekts.
 |---|---|---|
 | Läuft dieser Vertrag? | `istLaufenderVertrag()` / `getLaufenderVertrag()` | eigener Statusvergleich, `getCurrentContract()` für Summen |
 | Wann endet er? | `getVertragsende()` | `ende_datum` oder `kuendigungsdatum` direkt |
-| Wie hoch ist der Rückstand? | `calculateMietvertragRueckstand()` | Inline-Summen über `zahlungen`/`mietforderungen` |
+| Wie hoch ist Rückstand oder Guthaben? | `berechneMietkontostand()` (fällig, ohne Vorauszahlung) | Inline-Summen über `zahlungen`/`mietforderungen`, `calculateMietvertragRueckstand()` direkt |
 | Verzugszinsen? | `utils/verzugszinsen.ts` | eigene Zinsrechnung |
 | Betriebskosten verteilen? | `utils/nebenkostenBerechnung.ts` | Rechnen in einer Step-Komponente |
 | Zahleneingabe? | `components/ui/input.tsx` (normalisiert über `decimalInput.ts`) | rohes `<input type="number">` |
