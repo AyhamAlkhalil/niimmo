@@ -7,7 +7,7 @@ import { useState, type ReactNode } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
 import { AKTUELLER_VPI_KEY, BASISZINS_PERIODEN_KEY } from "@/hooks/useBasiszinsPerioden";
 import { Input } from "@/components/ui/input";
-import { alsIsoTag, getVertragsende, istLaufenderVertrag, summiereLaufendeMieten } from "@/utils/contractUtils";
+import { alsIsoTag, getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
 import { basiszinsPeriodenBeginn, marktdatenKorrektur, vorgeschlagenerVpiMonat } from "@/utils/marktdatenKorrektur";
 import { useMietkonto } from "@/hooks/useRueckstaende";
 import { KennzahlInfo } from "./KennzahlInfo";
@@ -121,9 +121,9 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   const aktiveMietvertraege = relevanteVertraege.filter(mv => mv.status === 'aktiv');
   const gekuendigteMietvertraege = relevanteVertraege.filter(mv => mv.status === 'gekuendigt');
 
-  // Je Einheit der laufende Vertrag (summiereLaufendeMieten): zwei laufende Verträge auf einer Einheit
-  // zählten bis zum 28.10.2026 doppelt, wie früher im Objektkopf
-  const { kaltmiete: gesamtKaltmiete, betriebskosten: gesamtBetriebskosten } = summiereLaufendeMieten(mietvertraege);
+  // Kaltmiete und Betriebskosten der Faktenzeile teilen die Soll-Miete auf (monatsSaldo → aufteilung). Bis zum
+  // 29.10.2026 standen dort die Vertragswerte (summiereLaufendeMieten), die im Monat eines Einzugs oder einer
+  // erst ab dem Folgemonat geltenden Erhöhung nicht die Soll-Miete ergaben (Kundenfrage).
   const saldo = mietkonto?.monat;
   const ladeFehler = einheitenFehler || vertraegeFehler || monatsFehler;
   const monatGeladen = !!saldo;
@@ -256,13 +256,23 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                 {saldo && (
                   <table className="mt-2 w-full text-xs tabular-nums">
                     <tbody>
-                      <tr><td>Kaltmiete + Betriebskosten dieser Verträge</td><td className="text-right">{euro(saldo.ueberleitung.vertragsmiete)}</td></tr>
-                      {saldo.ueberleitung.anteilig !== 0 && <tr><td>Einzug oder Auszug im Monat (anteilig)</td><td className="text-right">{vorzeichen(saldo.ueberleitung.anteilig)}</td></tr>}
-                      {saldo.ueberleitung.abweichend !== 0 && <tr><td>Abweichende Monatsmiete (z. B. Erhöhung erst ab Folgemonat, Minderung)</td><td className="text-right">{vorzeichen(saldo.ueberleitung.abweichend)}</td></tr>}
-                      {saldo.ueberleitung.gebuehren !== 0 && <tr><td>Rücklastschriftgebühren</td><td className="text-right">{vorzeichen(saldo.ueberleitung.gebuehren)}</td></tr>}
+                      <tr><td>Kaltmiete</td><td className="text-right">{euro(saldo.aufteilung.kaltmiete)}</td></tr>
+                      <tr><td>Betriebskosten</td><td className="text-right">{euro(saldo.aufteilung.betriebskosten)}</td></tr>
+                      {saldo.ueberleitung.gebuehren !== 0 && <tr><td>Rücklastschriftgebühren</td><td className="text-right">{euro(saldo.ueberleitung.gebuehren)}</td></tr>}
                       <tr className="border-t border-border font-medium text-foreground"><td>Soll-Miete</td><td className="text-right">{euro(saldo.soll)}</td></tr>
                     </tbody>
                   </table>
+                )}
+                {saldo && (saldo.ueberleitung.anteilig !== 0 || saldo.ueberleitung.abweichend !== 0) && (
+                  <>
+                    <p className="mt-2">Laut Verträgen sind es {euro(saldo.ueberleitung.vertragsmiete)} im Monat. Unterschied im {monat}:</p>
+                    <table className="w-full text-xs tabular-nums">
+                      <tbody>
+                        {saldo.ueberleitung.anteilig !== 0 && <tr><td>Einzug oder Auszug im Monat, nur anteilig</td><td className="text-right">{vorzeichen(saldo.ueberleitung.anteilig)}</td></tr>}
+                        {saldo.ueberleitung.abweichend !== 0 && <tr><td>Abweichende Monatsmiete (z. B. Erhöhung erst ab Folgemonat, Minderung)</td><td className="text-right">{vorzeichen(saldo.ueberleitung.abweichend)}</td></tr>}
+                      </tbody>
+                    </table>
+                  </>
                 )}
               </KennzahlInfo>
             </p>
@@ -310,22 +320,35 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
         <div>
           <dt className="eyebrow flex items-center gap-1">
             Kaltmiete
-            <KennzahlInfo titel="Kaltmiete">
-              <p>Monatliche Kaltmiete aller laufenden Verträge, aktiv und gekündigt bis zum Mietende. Je Einheit zählt der laufende Vertrag.</p>
-              <p>Laut Vertrag. Die Soll-Miete oben kann abweichen: anteilige Monate bei Ein- und Auszug, Minderungen, Rücklastschriftgebühren.</p>
+            <KennzahlInfo titel={`Kaltmiete ${monat}`}>
+              <p>Der Kaltmiete-Anteil der Soll-Miete im {monat}. Kaltmiete + Betriebskosten = Soll-Miete.</p>
+              <p>Bei Ein- oder Auszug im Monat anteilig. Gilt eine Mieterhöhung erst ab dem Folgemonat, steht hier noch die alte Kaltmiete; eine Minderung senkt sie.</p>
+              {saldo && <p>Laut Verträgen: {euro(saldo.aufteilung.vertragKaltmiete)} im Monat.</p>}
             </KennzahlInfo>
           </dt>
-          <dd className="mt-1 tabular-nums text-foreground">{vertraegeDa ? euro(gesamtKaltmiete) : '—'}</dd>
+          <dd className="mt-1 tabular-nums text-foreground">{saldo ? euro(saldo.aufteilung.kaltmiete) : '—'}</dd>
         </div>
         <div>
           <dt className="eyebrow flex items-center gap-1">
             Betriebskosten
-            <KennzahlInfo titel="Betriebskosten">
-              <p>Monatliche Betriebskostenvorauszahlungen derselben Verträge. Kaltmiete + Betriebskosten ist die volle Monatsmiete.</p>
+            <KennzahlInfo titel={`Betriebskosten ${monat}`}>
+              <p>Die Betriebskostenvorauszahlungen in der Soll-Miete im {monat}, bei Ein- oder Auszug im Monat anteilig.</p>
+              {saldo && <p>Laut Verträgen: {euro(saldo.aufteilung.vertragBetriebskosten)} im Monat.</p>}
             </KennzahlInfo>
           </dt>
-          <dd className="mt-1 tabular-nums text-foreground">{vertraegeDa ? euro(gesamtBetriebskosten) : '—'}</dd>
+          <dd className="mt-1 tabular-nums text-foreground">{saldo ? euro(saldo.aufteilung.betriebskosten) : '—'}</dd>
         </div>
+        {saldo && saldo.ueberleitung.gebuehren !== 0 && (
+          <div>
+            <dt className="eyebrow flex items-center gap-1">
+              Gebühren
+              <KennzahlInfo titel="Rücklastschriftgebühren">
+                <p>Rücklastschriftgebühren im {monat}. Sie gehören zur Soll-Miete: Kaltmiete + Betriebskosten + Gebühren = Soll-Miete.</p>
+              </KennzahlInfo>
+            </dt>
+            <dd className="mt-1 tabular-nums text-foreground">{euro(saldo.ueberleitung.gebuehren)}</dd>
+          </div>
+        )}
         <div>
           <dt className="eyebrow flex items-center gap-1">
             Leerstand

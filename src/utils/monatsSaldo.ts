@@ -54,6 +54,15 @@ export interface MonatsSaldo {
    * die nicht der Vertragsmiete entsprechen (Mieterhöhung ab Folgemonat, Minderung, erlassene Miete).
    */
   ueberleitung: { vertragsmiete: number; anteilig: number; abweichend: number; gebuehren: number };
+  /**
+   * Aufteilung der Soll-Miete für die Faktenzeile (29.10.2026, Kundenfrage „warum eine Differenz?“):
+   * kaltmiete + betriebskosten + ueberleitung.gebuehren = soll. Bis dahin zeigte die Faktenzeile die
+   * Vertragswerte (vertragKaltmiete, vertragBetriebskosten), die im Monat eines Einzugs oder einer erst ab
+   * dem Folgemonat geltenden Mieterhöhung nicht die Soll-Miete ergeben.
+   * Anteiliger Monat: beide Teile anteilig wie die Sollstellung. Sonst gelten die Betriebskosten laut Vertrag,
+   * eine abweichende Monatsmiete (Erhöhung erst ab Folgemonat, Minderung, erlassene Miete) ändert die Kaltmiete.
+   */
+  aufteilung: { kaltmiete: number; betriebskosten: number; vertragKaltmiete: number; vertragBetriebskosten: number };
   /** Zahlungen (Miete, Rücklastschrift, BKA) mit Buchungstag im laufenden Monat — 0 heißt: Kontoauszug fehlt vermutlich */
   zahlungenImMonat: number;
 }
@@ -99,6 +108,10 @@ export function monatsSaldo(
   let anteilig = 0;
   let abweichend = 0;
   let gebuehren = 0;
+  let kaltmiete = 0;
+  let betriebskosten = 0;
+  let vertragKaltmiete = 0;
+  let vertragBetriebskosten = 0;
   const letzterTag = format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 0), 'yyyy-MM-dd');
   let zahlungenImMonat = 0;
 
@@ -140,7 +153,9 @@ export function monatsSaldo(
     if (offenV > 0) vertraegeOffen += 1;
     if (aelterV > 0) vertraegeAelter += 1;
 
-    const vm = zahl(v.kaltmiete) + zahl(v.betriebskosten);
+    const kv = zahl(v.kaltmiete);
+    const bv = zahl(v.betriebskosten);
+    const vm = kv + bv;
     const gebuehrV = imMonat.filter((x) => !!x.ruecklastschrift_am).reduce((s, x) => s + zahl(x.sollbetrag), 0);
     const ende = getVertragsende(v)?.slice(0, 10);
     const teilmonat = (!!v.start_datum && v.start_datum.slice(0, 10) > `${monat}-01`) || (!!ende && ende < letzterTag);
@@ -148,6 +163,19 @@ export function monatsSaldo(
     gebuehren += gebuehrV;
     if (teilmonat) anteilig += sollPositiv - vm - gebuehrV;
     else abweichend += sollPositiv - vm - gebuehrV;
+
+    // Aufteilung der Monatsmiete (ohne Gebühren) in Kaltmiete und Betriebskosten. Der anteilige Teil in
+    // ganzen Cent: 877,42 × 200 / 1.600 ergab in Euro gerechnet 109,67 statt 109,68.
+    const mieteV = rund(sollPositiv - gebuehrV);
+    let bkV = 0;
+    if (vm > 0 && mieteV > 0) {
+      bkV = teilmonat ? Math.round((Math.round(mieteV * 100) * bv) / vm) / 100 : bv;
+      bkV = Math.min(bkV, mieteV);
+    }
+    vertragKaltmiete += kv;
+    vertragBetriebskosten += bv;
+    betriebskosten += bkV;
+    kaltmiete += mieteV - bkV;
   }
 
   return {
@@ -158,6 +186,12 @@ export function monatsSaldo(
     vertraegeOffen,
     vertraegeAelter,
     ueberleitung: { vertragsmiete: rund(vertragsmiete), anteilig: rund(anteilig), abweichend: rund(abweichend), gebuehren: rund(gebuehren) },
+    aufteilung: {
+      kaltmiete: rund(kaltmiete),
+      betriebskosten: rund(betriebskosten),
+      vertragKaltmiete: rund(vertragKaltmiete),
+      vertragBetriebskosten: rund(vertragBetriebskosten),
+    },
     zahlungenImMonat,
   };
 }

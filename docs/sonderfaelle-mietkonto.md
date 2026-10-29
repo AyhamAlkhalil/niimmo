@@ -40,7 +40,7 @@ Grundregeln: Eine Monatsmiete ist am 8. fällig, beim Einzug am Mietbeginn. Zahl
 
 | Fall | Regel | Umsetzung |
 |---|---|---|
-| Kaltmiete + Betriebskosten ≠ Soll-Miete | Die Faktenzeile zeigt die Vertragsmiete, die Soll-Miete das tatsächlich Geforderte. Der Info-Knopf der Soll-Miete zeigt die Überleitung (anteilige Monate, abweichende Monatsmiete, Gebühren) | `monatsSaldo` → `ueberleitung` |
+| Kaltmiete und Betriebskosten unter der Soll-Miete | Sie teilen die Soll-Miete des Monats auf: Kaltmiete + Betriebskosten (+ Gebühren) = Soll-Miete (seit 29.10.2026; vorher standen dort die Vertragswerte). Im anteiligen Monat sind beide anteilig, sonst trägt die Kaltmiete die Abweichung (Erhöhung erst ab Folgemonat, Minderung). Die Vertragswerte und die Überleitung stehen in den Info-Knöpfen | `monatsSaldo` → `aufteilung`, `ueberleitung` |
 | „Noch offen“ und Rückstände | Eingang + Noch offen = Soll-Miete. Ab dem Fälligkeitstag ergeben Noch offen und „ältere Rückstände“ die Rückstände der Liste (aktive und gekündigte Verträge) | `monatsSaldo`, `useMietkonto` |
 | Beendete Verträge | Stehen in der Liste, zählen nicht in den Summen | `FehlendeMietzahlungen` |
 | Ladefehler | Kennzahlen zeigen „—“, nie 0 | `DashboardStats` |

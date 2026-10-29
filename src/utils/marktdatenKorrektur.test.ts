@@ -70,9 +70,12 @@ describe('Startseite: Korrektur und Mietsummen', () => {
     expect(hook).toContain('queryKey: AKTUELLER_VPI_KEY,');
   });
 
-  it('filtert nicht nach kuendigungsdatum und summiert je Einheit den laufenden Vertrag', () => {
+  it('filtert nicht nach kuendigungsdatum; Kaltmiete und Betriebskosten teilen die Soll-Miete auf', () => {
     expect(quelle).not.toMatch(/kuendigungsdatum\.gte/);
-    expect(quelle).toContain('summiereLaufendeMieten(mietvertraege)');
+    // Seit 29.10.2026 aus demselben Mietkonto wie die Soll-Miete (monatsSaldo → aufteilung), nicht mehr die
+    // Vertragswerte (summiereLaufendeMieten), die mit der Soll-Miete nicht aufgingen (Kundenfrage)
+    expect(quelle).toContain('euro(saldo.aufteilung.kaltmiete)');
+    expect(quelle).toContain('euro(saldo.aufteilung.betriebskosten)');
     expect(quelle).not.toMatch(/relevanteVertraege\.reduce\(\(sum, v\) => sum \+ \(v\.kaltmiete/);
   });
 });
