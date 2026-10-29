@@ -1,6 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { berechneMietkontostand, calculateMieteZahlungen } from "@/utils/rueckstandsberechnung";
+import { monatsSaldo, type MonatsSaldo } from "@/utils/monatsSaldo";
+import { laeuftImMonat } from "@/utils/rueckstandsberechnung";
+import { format } from "date-fns";
 import { useEffect } from "react";
 
 // Lädt alle Seiten einer Supabase-Query (umgeht das serverseitige 1000-Zeilen-Limit)
@@ -54,6 +57,15 @@ export interface FehlendeMietzahlung {
   ist_guthaben: boolean;
 }
 
+
+/**
+ * Rückstandsliste und Monatszahlen der Startseite aus einer Abfrage und mit einem Stichtag: So passen
+ * „Noch offen“ oben und die Rückstände darunter zusammen (29.10.2026).
+ */
+export interface Mietkonto {
+  eintraege: FehlendeMietzahlung[];
+  monat: MonatsSaldo;
+}
 
 export const useRueckstaende = () => {
   const queryClient = useQueryClient();
@@ -111,11 +123,17 @@ export const useRueckstaende = () => {
     };
   }, [queryClient]);
 
-  return useQuery({
+  return useMietkonto();
+};
+
+/** Dieselben Daten ohne eigenes Echtzeit-Abo — für die Startseiten-Kennzahlen neben der Rückstandsliste. */
+export const useMietkonto = () =>
+  useQuery({
     queryKey: ['rueckstaende'],
     staleTime: 60 * 1000,
     refetchOnMount: true,
-    queryFn: async () => {
+    queryFn: async (): Promise<Mietkonto> => {
+      const stichtag = new Date();
       // Kleine Tabellen (<1000 Zeilen) normal laden, große mit Pagination
       const [
         { data: mietvertraege, error: mietvertrageError },
@@ -149,7 +167,7 @@ export const useRueckstaende = () => {
         loadAllPages<any>((from, to) =>
           supabase
             .from('mietforderungen')
-            .select('id, mietvertrag_id, sollmonat, sollbetrag, ist_faellig, faelligkeitsdatum, faellig_seit, typ')
+            .select('id, mietvertrag_id, sollmonat, sollbetrag, ist_faellig, faelligkeitsdatum, faellig_seit, typ, ruecklastschrift_am')
             // Ohne ORDER BY ist die Zeilenfolge zwischen den Seiten undefiniert (27.10.2026)
             .order('id')
             .range(from, to)
@@ -183,7 +201,8 @@ export const useRueckstaende = () => {
         const { gesamtForderungen, gesamtZahlungen, rueckstand, vorauszahlung } = berechneMietkontostand(
           mietvertrag,
           mietvertragForderungen,
-          mietvertragZahlungen
+          mietvertragZahlungen,
+          stichtag
         );
 
         // Zeige nur Nettostand (Rückstand oder Guthaben nach Aufrechnung)
@@ -246,7 +265,14 @@ export const useRueckstaende = () => {
         }
       }
       
-      return rueckstaende;
+      // Dieselben Verträge wie die Summen der Liste (aktiv und gekündigt), soweit sie in diesem Monat laufen
+      const monatKey = format(stichtag, 'yyyy-MM');
+      const monat = monatsSaldo(
+        (mietvertraege || []).filter((mv) => (mv.status === 'aktiv' || mv.status === 'gekuendigt') && laeuftImMonat(mv, monatKey)),
+        alleForderungen,
+        alleZahlungen,
+        stichtag
+      );
+      return { eintraege: rueckstaende, monat };
     }
   });
-};

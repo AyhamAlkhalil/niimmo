@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.8.1",
+    datum: "2026-10-29",
+    aenderungen: [
+      { art: "neu", titel: "Info-Knöpfe an allen Kennzahlen der Startseite: kurz erklärt, was gezählt wird" },
+    ],
+  },
+  {
     version: "1.8.0",
     datum: "2026-10-28",
     aenderungen: [

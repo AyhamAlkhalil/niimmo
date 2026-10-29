@@ -1,6 +1,5 @@
 
 import { useState, useMemo } from "react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, AlertTriangle, Euro, ChevronDown, ChevronUp, ArrowUpDown, ArrowUp, ArrowDown, Filter, Search, X } from "lucide-react";
 import { useRueckstaende } from "@/hooks/useRueckstaende";
@@ -9,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FehlendeMietzahlungenStatusGroup } from "./FehlendeMietzahlungenStatusGroup";
+import { KennzahlInfo } from "./KennzahlInfo";
 
 interface FehlendeMietzahlungenProps {
   onMietvertragClick?: (mietvertragId: string) => void;
@@ -33,7 +33,8 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
   const [minAmountFilter, setMinAmountFilter] = useState<MinAmountFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchTerm, setSearchTerm] = useState("");
-  const { data: fehlendeMietzahlungen, isLoading, error } = useRueckstaende();
+  const { data, isLoading, error } = useRueckstaende();
+  const fehlendeMietzahlungen = data?.eintraege;
 
   const { rueckstaende, guthaben, sortedFehlendeMietzahlungen, statusCounts } = useMemo(() => {
     if (!fehlendeMietzahlungen) return { rueckstaende: { aktiv: [], gekuendigt: [], beendet: [] }, guthaben: { aktiv: [], gekuendigt: [], beendet: [] }, sortedFehlendeMietzahlungen: [], statusCounts: { aktiv: 0, gekuendigt: 0, beendet: 0 } };
@@ -145,10 +146,6 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
   const kopfRueckstand = nichtBeendet.filter(item => !item.ist_guthaben).reduce((sum, item) => sum + item.fehlend_betrag, 0);
   const kopfGuthaben = nichtBeendet.filter(item => item.ist_guthaben).reduce((sum, item) => sum + item.fehlend_betrag, 0);
 
-  const gesamtRueckstand = fehlendeMietzahlungen?.filter(item => item.mietvertrag_status !== 'Beendet').reduce((sum, item) => {
-    return sum + (item.ist_guthaben ? -item.fehlend_betrag : item.fehlend_betrag);
-  }, 0) || 0;
-
   const formatBetrag = (betrag: number) => {
     return new Intl.NumberFormat('de-DE', {
       style: 'currency',
@@ -182,64 +179,75 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       {/* Zeile unter „Handlungsbedarf“ auf der Startseite (27.10.2026): Haarlinie statt Karte */}
       <div id="rueckstaende-section" className="group/zeile relative border-b border-border">
-        <CollapsibleTrigger className="w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
-          {/* Header */}
-          <div className="flex cursor-pointer items-center justify-between gap-4 py-5 sm:py-6" onClick={() => setIsOpen(!isOpen)}>
-            <div className="flex items-center gap-3 sm:gap-4">
-              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center bg-brand-soft sm:h-11 sm:w-11">
-                <AlertTriangle className="h-4 w-4 text-brand sm:h-5 sm:w-5" />
-              </div>
-              <div className="text-left min-w-0">
-                <h2 className="text-xl font-normal leading-tight text-foreground transition-colors group-hover/zeile:text-brand sm:text-2xl">Rückstände & Guthaben</h2>
-                <div className="flex items-center gap-1">
-                  <p className="mt-1 truncate text-xs text-muted-foreground sm:text-sm">
-                    {error
-                      ? 'nicht geladen'
-                      : isLoading
-                      ? 'wird geladen …'
-                      : `${fehlendeMietzahlungen?.length || 0} ${(fehlendeMietzahlungen?.length || 0) === 1 ? 'Vertrag' : 'Verträge'}`}
-                  </p>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="ml-1 mt-1 cursor-help text-xs text-warning">ⓘ</span>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="max-w-xs text-xs">
-                        <p>Eine Monatsmiete zählt hier ab ihrer Fälligkeit am <strong>8. des Monats</strong>. Was vorher eingeht, wird bis dahin mit ihr verrechnet und erscheint nicht als Guthaben.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {(kopfRueckstand > 0 || kopfGuthaben > 0) && (
-                <div className="mr-2 hidden gap-4 text-right xs:flex sm:mr-5 sm:gap-7">
-                  {kopfRueckstand > 0 && (
-                    <div>
-                      <p className="eyebrow">Rückstände</p>
-                      <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-brand sm:text-3xl">
-                        {formatBetrag(kopfRueckstand)}
-                      </p>
-                    </div>
-                  )}
-                  {kopfGuthaben > 0 && (
-                    <div>
-                      <p className="eyebrow">Guthaben</p>
-                      <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-success sm:text-3xl">
-                        {formatBetrag(kopfGuthaben)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-border text-muted-foreground transition-colors group-hover/zeile:border-foreground group-hover/zeile:text-foreground" aria-hidden="true">
-                {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        {/* Kopf: Titel und Pfeil klappen auf; die Summen tragen eigene Info-Knöpfe (29.10.2026).
+            Bis dahin lag die ganze Zeile in einem Knopf, ein Info-Knopf darin wäre Knopf in Knopf. */}
+        <div className="flex items-center justify-between gap-4 py-5 sm:py-6">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <CollapsibleTrigger className="flex min-w-0 items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 sm:gap-4">
+              <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center bg-brand-soft sm:h-11 sm:w-11">
+                <AlertTriangle className="h-4 w-4 text-brand sm:h-5 sm:w-5" aria-hidden="true" />
               </span>
-            </div>
+              <span className="min-w-0">
+                <span className="block text-xl font-normal leading-tight text-foreground transition-colors group-hover/zeile:text-brand sm:text-2xl">Rückstände & Guthaben</span>
+                <span className="mt-1 block truncate text-xs text-muted-foreground sm:text-sm">
+                  {error
+                    ? 'nicht geladen'
+                    : isLoading
+                    ? 'wird geladen …'
+                    : `${fehlendeMietzahlungen?.length || 0} ${(fehlendeMietzahlungen?.length || 0) === 1 ? 'Vertrag' : 'Verträge'}`}
+                </span>
+              </span>
+            </CollapsibleTrigger>
+            <span className="mt-1 self-start sm:mt-1.5">
+              <KennzahlInfo titel="Rückstände & Guthaben">
+                <p>Stand des Mietkontos je Vertrag über alle Monate: fällige Forderungen gegen alle Zahlungen.</p>
+                <p>Eine Monatsmiete zählt ab ihrer Fälligkeit am 8. Was vorher für die kommende Miete eingeht, ist Vorauszahlung und kein Guthaben.</p>
+                <p>Beendete Verträge stehen in der Liste, zählen aber nicht in den Summen.</p>
+              </KennzahlInfo>
+            </span>
           </div>
-        </CollapsibleTrigger>
+
+          <div className="flex items-center gap-2">
+            {(kopfRueckstand > 0 || kopfGuthaben > 0) && (
+              <div className="mr-2 hidden gap-4 text-right xs:flex sm:mr-5 sm:gap-7">
+                {kopfRueckstand > 0 && (
+                  <div>
+                    <p className="eyebrow flex items-center justify-end gap-1">
+                      Rückstände
+                      <KennzahlInfo titel="Rückstände">
+                        <p>Fällige, unbezahlte Beträge der aktiven und gekündigten Verträge: Monatsmieten ab dem 8., Betriebskostennachzahlungen ab Fälligkeit, Rücklastschriftgebühren.</p>
+                        <p>Zahlungen tilgen zuerst die älteste Schuld. Ab dem 8. ist das oben „Noch offen“ plus ältere Rückstände.</p>
+                      </KennzahlInfo>
+                    </p>
+                    <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-brand sm:text-3xl">
+                      {formatBetrag(kopfRueckstand)}
+                    </p>
+                  </div>
+                )}
+                {kopfGuthaben > 0 && (
+                  <div>
+                    <p className="eyebrow flex items-center justify-end gap-1">
+                      Guthaben
+                      <KennzahlInfo titel="Guthaben">
+                        <p>Überzahlungen der aktiven und gekündigten Verträge, auch BKA-Guthaben.</p>
+                        <p>Eine Vorauszahlung auf die kommende Miete zählt nicht dazu. Ein Guthaben bleibt stehen, bis es mit einer fälligen Miete verrechnet oder ausgezahlt ist.</p>
+                      </KennzahlInfo>
+                    </p>
+                    <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-success sm:text-3xl">
+                      {formatBetrag(kopfGuthaben)}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            <CollapsibleTrigger
+              className="flex h-9 w-9 shrink-0 items-center justify-center border border-border text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 group-hover/zeile:border-foreground group-hover/zeile:text-foreground"
+              aria-label={isOpen ? 'Rückstände zuklappen' : 'Rückstände aufklappen'}
+            >
+              {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </CollapsibleTrigger>
+          </div>
+        </div>
 
         <CollapsibleContent className="pb-6">
           {/* Mobile Summary - Shows on small screens */}
@@ -247,13 +255,25 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
             <div className="mb-3 flex gap-3 border border-border bg-muted/60 p-2 xs:hidden">
               {kopfRueckstand > 0 && (
                 <div className="flex-1 text-center">
-                  <p className="text-xs text-gray-600">Rückstände</p>
+                  <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                    Rückstände
+                    <KennzahlInfo titel="Rückstände">
+                      <p>Fällige, unbezahlte Beträge der aktiven und gekündigten Verträge: Monatsmieten ab dem 8., Betriebskostennachzahlungen ab Fälligkeit, Rücklastschriftgebühren.</p>
+                      <p>Zahlungen tilgen zuerst die älteste Schuld. Ab dem 8. ist das oben „Noch offen“ plus ältere Rückstände.</p>
+                    </KennzahlInfo>
+                  </p>
                   <p className="text-sm font-bold text-red-600">{formatBetrag(kopfRueckstand)}</p>
                 </div>
               )}
               {kopfGuthaben > 0 && (
                 <div className="flex-1 text-center">
-                  <p className="text-xs text-gray-600">Guthaben</p>
+                  <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                    Guthaben
+                    <KennzahlInfo titel="Guthaben">
+                      <p>Überzahlungen der aktiven und gekündigten Verträge, auch BKA-Guthaben.</p>
+                      <p>Eine Vorauszahlung auf die kommende Miete zählt nicht dazu. Ein Guthaben bleibt stehen, bis es mit einer fälligen Miete verrechnet oder ausgezahlt ist.</p>
+                    </KennzahlInfo>
+                  </p>
                   <p className="text-sm font-bold text-green-600">{formatBetrag(kopfGuthaben)}</p>
                 </div>
               )}
@@ -520,6 +540,9 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">Rückstände werden geladen …</p>
             </div>
+          ) : (fehlendeMietzahlungen?.length ?? 0) > 0 ? (
+            /* Suche oder Filter ohne Treffer: bis zum 29.10.2026 stand hier „Alle Mietverträge sind ausgeglichen“ */
+            <p className="py-8 text-center text-sm text-muted-foreground">Keine Treffer für Suche oder Filter.</p>
           ) : (
             <div className="text-center py-8 animate-fade-in">
               <div className="p-6 bg-green-50 rounded-lg border border-green-200 inline-block">

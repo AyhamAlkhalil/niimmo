@@ -1,41 +1,53 @@
+import { format } from 'date-fns';
+import {
+  bkaVorauszahlung,
+  istMonatsmiete,
+  nurFaelligeForderungen,
+  sollMonatsmiete,
+  zaehltImMietkonto,
+  type KontoForderung,
+  type KontoZahlung,
+  type SollVertrag,
+} from './rueckstandsberechnung';
+
 /**
- * Soll, Eingang und Offenes des laufenden Monats für die Startseite (DashboardStats).
+ * Soll-Miete, Eingang und Noch offen des laufenden Monats für die Startseite (DashboardStats).
  *
- * Bis zum 27.10.2026 rechnete die Startseite „Noch offen“ als Gesamt-Soll minus Gesamt-Eingang.
- * Überzahlungen einzelner Mieter verdeckten so die Rückstände anderer: Im Oktober 2026 stand grün
- * „Mehr eingegangen +12 €“, obwohl 19 laufende Verträge zusammen 6.695,58 € zu wenig gezahlt hatten.
- * Jetzt je Vertrag: offen ist, was dort fehlt; ein Mehr wird getrennt ausgewiesen.
+ * Seit dem 29.10.2026 auf demselben Mietkonto wie die Rückstandsliste (berechneMietkontostand):
+ * - Soll-Miete: die Monatsforderungen (Typ Miete: Monatsmiete, anteiliger Monat, Minderung, Gebühren),
+ *   solange die Sollstellung den Monat nicht angelegt hat (am 1. vor 05:00 UTC) die Vertragsmiete.
+ * - Eingang: der Teil davon, den Zahlungen decken. Zahlungen tilgen zuerst ältere Rückstände
+ *   (§ 366 Abs. 2 BGB), eine im Vormonat vorausgezahlte Miete zählt mit.
+ * - Noch offen = Soll-Miete − Eingang. Was aus früheren Monaten fällig und unbezahlt ist, steht
+ *   getrennt in `aelter`; ab dem 8. ergeben Noch offen und `aelter` zusammen den Rückstand der Liste.
  *
- * Soll eines Vertrags sind seine Forderungen des Monats (Typ Miete: Monatsmiete, anteiliger
- * Einzugsmonat, Minderung, Gebühren) — so wie die Sollstellung sie angelegt hat. Hat sie den Monat
- * noch nicht angelegt (am Ersten vor dem Lauf um 05:00 UTC), gilt die Vertragsmiete.
- * Eingang sind Miete und Rücklastschriften des Monats (zugeordneter_monat); Zahlungen auf eine
- * Betriebskostenabrechnung gehören nicht zur Monatsmiete und würden einen Mietrückstand verdecken.
+ * Bis zum 28.10.2026 zählte der Eingang die Zahlungen mit zugeordnetem Monat. Die DB ordnet erst ab dem
+ * 28. dem Folgemonat zu: Wer die Oktobermiete am 26.09. zahlte, stand im Oktober als offen, obwohl die
+ * Rückstandsliste ihn ausgeglichen zeigte; eine Nachzahlung für September zählte als Oktober-Eingang.
+ * Die Zeile „X € mehr eingegangen“ war kein Guthaben im Sinne der Liste und entfällt.
  */
-export interface MonatsVertrag {
+export interface MonatsVertrag extends SollVertrag {
   id: string;
-  kaltmiete?: number | null;
-  betriebskosten?: number | null;
 }
 
-export interface MonatsForderung {
+export interface MonatsForderung extends KontoForderung {
   mietvertrag_id: string | null;
-  sollbetrag: number | string | null;
-  typ?: string | null;
 }
 
-export interface MonatsZahlung {
+export interface MonatsZahlung extends KontoZahlung {
   mietvertrag_id: string | null;
-  betrag: number | string | null;
-  kategorie?: string | null;
 }
 
 export interface MonatsSaldo {
   soll: number;
   eingang: number;
   offen: number;
-  mehr: number;
-  vertraegeMitRueckstand: number;
+  /** Fällige, unbezahlte Beträge aus früheren Monaten (und sonstige fällige Forderungen wie BKA) */
+  aelter: number;
+  vertraegeOffen: number;
+  vertraegeAelter: number;
+  /** Zahlungen (Miete, Rücklastschrift, BKA) mit Buchungstag im laufenden Monat — 0 heißt: Kontoauszug fehlt vermutlich */
+  zahlungenImMonat: number;
 }
 
 const zahl = (wert: unknown): number => {
@@ -43,41 +55,85 @@ const zahl = (wert: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const rund = (betrag: number): number => Math.round(betrag * 100) / 100;
+const rund = (betrag: number): number => {
+  const r = Math.round(betrag * 100) / 100;
+  return r === 0 ? 0 : r;
+};
+
+const nachVertrag = <T extends { mietvertrag_id: string | null }>(zeilen: readonly T[]): Map<string, T[]> => {
+  const je = new Map<string, T[]>();
+  for (const z of zeilen) {
+    if (!z.mietvertrag_id) continue;
+    const liste = je.get(z.mietvertrag_id);
+    if (liste) liste.push(z);
+    else je.set(z.mietvertrag_id, [z]);
+  }
+  return je;
+};
 
 export function monatsSaldo(
   vertraege: readonly MonatsVertrag[],
   forderungen: readonly MonatsForderung[],
-  zahlungen: readonly MonatsZahlung[]
+  zahlungen: readonly MonatsZahlung[],
+  stichtag: Date = new Date()
 ): MonatsSaldo {
-  const sollJe = new Map<string, number>();
-  for (const f of forderungen) {
-    if (!f.mietvertrag_id || (f.typ ?? 'Miete') !== 'Miete') continue;
-    sollJe.set(f.mietvertrag_id, (sollJe.get(f.mietvertrag_id) ?? 0) + zahl(f.sollbetrag));
-  }
-  const eingangJe = new Map<string, number>();
-  for (const z of zahlungen) {
-    if (!z.mietvertrag_id || (z.kategorie !== 'Miete' && z.kategorie !== 'Rücklastschrift')) continue;
-    eingangJe.set(z.mietvertrag_id, (eingangJe.get(z.mietvertrag_id) ?? 0) + zahl(z.betrag));
-  }
+  const monat = format(stichtag, 'yyyy-MM');
+  const forderungenJe = nachVertrag(forderungen);
+  const zahlungenJe = nachVertrag(zahlungen);
 
   let soll = 0;
   let eingang = 0;
   let offen = 0;
-  let mehr = 0;
-  let vertraegeMitRueckstand = 0;
+  let aelter = 0;
+  let vertraegeOffen = 0;
+  let vertraegeAelter = 0;
+  let zahlungenImMonat = 0;
+
   for (const v of vertraege) {
-    const s = sollJe.has(v.id) ? (sollJe.get(v.id) as number) : zahl(v.kaltmiete) + zahl(v.betriebskosten);
-    const e = eingangJe.get(v.id) ?? 0;
-    const differenz = rund(s - e);
-    soll += s;
-    eingang += e;
-    if (differenz > 0) {
-      offen += differenz;
-      vertraegeMitRueckstand += 1;
-    } else if (differenz < 0) {
-      mehr -= differenz;
-    }
+    const f = (forderungenJe.get(v.id) ?? []).filter((x) => x.sollmonat);
+    const z = (zahlungenJe.get(v.id) ?? []).filter(zaehltImMietkonto);
+    zahlungenImMonat += z.filter((x) => (x.buchungsdatum as string).slice(0, 7) === monat).length;
+
+    // Forderungen des Monats ohne BKA: Monatsmiete, anteiliger Monat, Minderung, Gebühren. Fehlt die
+    // Monatsmiete noch (am 1. vor 05:00 UTC), kommt sie aus der Nachbildung der Sollstellung dazu.
+    const imMonat = f.filter((x) => (x.sollmonat as string).slice(0, 7) === monat && (x.typ ?? 'Miete') !== 'BKA');
+    const fehlendeMiete = imMonat.some(istMonatsmiete) ? 0 : sollMonatsmiete(v, monat);
+    const sollV = imMonat.reduce((s, x) => s + zahl(x.sollbetrag), 0) + fehlendeMiete;
+    const sollPositiv = Math.max(0, rund(sollV));
+
+    // Mietkonto bis einschließlich dieses Monats: alles Fällige, dazu die Monatsmiete auch vor dem 8.
+    // Eine vorab bezahlte BKA-Nachzahlung zählt nicht als Eingang auf die Miete.
+    const faellig = nurFaelligeForderungen(f, stichtag);
+    const schonFaellig = new Set(faellig);
+    const heute = format(stichtag, 'yyyy-MM-dd');
+    const nichtFaelligeBka = f.filter(
+      (x) => x.typ === 'BKA' && !schonFaellig.has(x) && !!x.faelligkeitsdatum && x.faelligkeitsdatum.slice(0, 10) > heute
+    );
+    const nochNichtFaellig = imMonat.filter((x) => !schonFaellig.has(x)).reduce((s, x) => s + zahl(x.sollbetrag), 0) + fehlendeMiete;
+    const konto = rund(
+      faellig.reduce((s, x) => s + zahl(x.sollbetrag), 0) +
+        nochNichtFaellig -
+        z.reduce((s, x) => s + zahl(x.betrag), 0) +
+        bkaVorauszahlung(faellig, nichtFaelligeBka, z)
+    );
+
+    const offenV = Math.min(sollPositiv, Math.max(0, konto));
+    const aelterV = rund(Math.max(0, konto - sollPositiv));
+    soll += sollPositiv;
+    offen += offenV;
+    eingang += sollPositiv - offenV;
+    aelter += aelterV;
+    if (offenV > 0) vertraegeOffen += 1;
+    if (aelterV > 0) vertraegeAelter += 1;
   }
-  return { soll: rund(soll), eingang: rund(eingang), offen: rund(offen), mehr: rund(mehr), vertraegeMitRueckstand };
+
+  return {
+    soll: rund(soll),
+    eingang: rund(eingang),
+    offen: rund(offen),
+    aelter: rund(aelter),
+    vertraegeOffen,
+    vertraegeAelter,
+    zahlungenImMonat,
+  };
 }

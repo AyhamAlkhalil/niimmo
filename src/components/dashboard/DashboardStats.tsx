@@ -1,6 +1,5 @@
 
-import { Pencil, Check, X, AlertTriangle } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Pencil, Check, X } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatEuroKompakt } from "@/utils/betragAnzeige";
@@ -10,8 +9,8 @@ import { AKTUELLER_VPI_KEY, BASISZINS_PERIODEN_KEY } from "@/hooks/useBasiszinsP
 import { Input } from "@/components/ui/input";
 import { alsIsoTag, getVertragsende, istLaufenderVertrag, summiereLaufendeMieten } from "@/utils/contractUtils";
 import { basiszinsPeriodenBeginn, marktdatenKorrektur, vorgeschlagenerVpiMonat } from "@/utils/marktdatenKorrektur";
-import { alleSeiten } from "@/utils/supabaseSeiten";
-import { monatsSaldo, type MonatsForderung, type MonatsZahlung } from "@/utils/monatsSaldo";
+import { useMietkonto } from "@/hooks/useRueckstaende";
+import { KennzahlInfo } from "./KennzahlInfo";
 
 interface DashboardStatsProps {
   immobilien: any[] | undefined;
@@ -70,36 +69,9 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
     }
   });
 
-  // Forderungen und Zahlungen des laufenden Monats; die Rechnung je Vertrag steht in
-  // utils/monatsSaldo.ts. Ein Ladefehler lieferte bis zum 27.10.2026 still 0 € Eingang
-  // („Noch keine Zahlungen erfasst“) — jetzt wird er angezeigt.
-  const { data: monatsDaten, isError: monatsFehler } = useQuery({
-    queryKey: ['erfasste-miete'],
-    queryFn: async () => {
-      const aktuellerMonat = alsIsoTag(new Date()).slice(0, 7);
-      const [zahlungen, forderungen] = await Promise.all([
-        alleSeiten<MonatsZahlung>((von, bis, mitZaehlung) =>
-          supabase
-            .from('zahlungen')
-            .select('mietvertrag_id, betrag, kategorie', { count: mitZaehlung ? 'exact' : undefined })
-            .in('kategorie', ['Miete', 'Rücklastschrift'])
-            .eq('zugeordneter_monat', aktuellerMonat)
-            .not('mietvertrag_id', 'is', null)
-            .order('id')
-            .range(von, bis)
-        ),
-        alleSeiten<MonatsForderung>((von, bis, mitZaehlung) =>
-          supabase
-            .from('mietforderungen')
-            .select('mietvertrag_id, sollbetrag, typ', { count: mitZaehlung ? 'exact' : undefined })
-            .eq('sollmonat', `${aktuellerMonat}-01`)
-            .order('id')
-            .range(von, bis)
-        ),
-      ]);
-      return { zahlungen, forderungen };
-    }
-  });
+  // Soll-Miete, Eingang und Noch offen kommen aus derselben Abfrage und demselben Mietkonto wie die
+  // Rückstandsliste darunter (utils/monatsSaldo.ts, 29.10.2026). Ein Ladefehler zeigt „—“, nie 0 €.
+  const { data: mietkonto, isError: monatsFehler } = useMietkonto();
 
   const { data: marktdaten } = useQuery({
     queryKey: ['aktuelle-marktdaten'],
@@ -152,13 +124,17 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   // Je Einheit der laufende Vertrag (summiereLaufendeMieten): zwei laufende Verträge auf einer Einheit
   // zählten bis zum 28.10.2026 doppelt, wie früher im Objektkopf
   const { kaltmiete: gesamtKaltmiete, betriebskosten: gesamtBetriebskosten } = summiereLaufendeMieten(mietvertraege);
-  const saldo = monatsSaldo(relevanteVertraege, monatsDaten?.forderungen ?? [], monatsDaten?.zahlungen ?? []);
+  const saldo = mietkonto?.monat;
   const ladeFehler = einheitenFehler || vertraegeFehler || monatsFehler;
-  const monatGeladen = !!monatsDaten && !!mietvertraege;
+  const monatGeladen = !!saldo;
 
   // Einheiten statt Verträge zählen: zwei laufende Verträge auf einer Einheit sind eine vermietete Einheit
   const vermieteteEinheiten = new Set(relevanteVertraege.map((mv) => mv.einheit_id ?? mv.id)).size;
   const leerstände = gesamtEinheiten ? gesamtEinheiten - vermieteteEinheiten : 0;
+  // Ladefehler und Laden zeigen „—“, nie 0: Bis zum 29.10.2026 stand bei fehlgeschlagener Abfrage ein
+  // grünes „0“ beim Leerstand und „0 €“ Kaltmiete (Review)
+  const vertraegeDa = !!mietvertraege && !vertraegeFehler;
+  const bestandDa = vertraegeDa && gesamtEinheiten !== undefined && !einheitenFehler;
 
   // Berechne das nächste Kündigungs- oder Auslaufdatum. Kalendertage als Text vergleichen: Mit
   // `new Date(ende) > heute` fiel ein Vertrag, der heute endet, ab 1 bzw. 2 Uhr heraus (27.10.2026).
@@ -258,8 +234,9 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
             Ihr Portfolio im <span className="font-normal text-brand">{monat}</span>
           </h1>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            {anzahlObjekte} {anzahlObjekte === 1 ? 'Objekt' : 'Objekte'} mit {gesamtEinheiten || 0} Einheiten, davon {vermieteteEinheiten} vermietet
-            {leerstände > 0 ? ` und ${leerstände} frei` : ''}.
+            {bestandDa
+              ? <>{anzahlObjekte} {anzahlObjekte === 1 ? 'Objekt' : 'Objekte'} mit {gesamtEinheiten} Einheiten, davon {vermieteteEinheiten} vermietet{leerstände > 0 ? ` und ${leerstände} frei` : ''}.</>
+              : ladeFehler ? 'Bestand nicht geladen.' : 'Bestand wird geladen …'}
           </p>
           {ladeFehler && (
             <p role="alert" className="mt-3 text-sm text-destructive">
@@ -270,37 +247,46 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
 
         <div className="grid grid-cols-1 border-t border-foreground sm:grid-cols-3">
           <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:py-0 sm:pr-5 sm:pt-4">
-            <p className="eyebrow">Soll-Miete</p>
-            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{monatGeladen ? euro(saldo.soll) : '—'}</p>
+            <p className="eyebrow flex items-center gap-1">
+              Soll-Miete
+              <KennzahlInfo titel={`Soll-Miete ${monat}`}>
+                <p>Die Monatsmieten im {monat} aller aktiven und gekündigten Verträge, die in diesem Monat laufen — auch bei Einzug im Laufe des Monats. So, wie die Sollstellung sie anlegt: Kaltmiete + Betriebskosten, bei Ein- oder Auszug taggenau anteilig, mit Minderungen und Rücklastschriftgebühren.</p>
+                <p>Fällig am 8. des Monats, beim Einzug am Mietbeginn.</p>
+              </KennzahlInfo>
+            </p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{saldo ? euro(saldo.soll) : '—'}</p>
           </div>
           <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:border-l sm:px-5 sm:py-0 sm:pt-4">
-            <p className="eyebrow flex items-center gap-1.5">
+            <p className="eyebrow flex items-center gap-1">
               Eingang
-              {monatGeladen && saldo.eingang === 0 && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 cursor-help text-warning" aria-label="Noch keine Zahlungen erfasst" />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs">
-                      <p className="text-xs">Noch keine Zahlungen für diesen Monat erfasst. Bitte laden Sie einen Kontoauszug (CSV) im Controlboard hoch.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+              <KennzahlInfo titel={`Eingang ${monat}`}>
+                <p>Der Teil der Soll-Miete, den Zahlungen und Gutschriften decken. Eingang + Noch offen = Soll-Miete.</p>
+                <p>Zahlungen tilgen zuerst ältere Rückstände (§ 366 BGB). Eine schon im Vormonat gezahlte Miete zählt hier mit, eine Zahlung auf eine noch nicht fällige Betriebskostennachzahlung nicht.</p>
+              </KennzahlInfo>
+              {saldo && saldo.zahlungenImMonat === 0 && (
+                <KennzahlInfo titel="Noch keine Zahlungen erfasst" warnung>
+                  <p>Für diesen Monat ist noch keine Zahlung eines Mieters gebucht. Bitte einen Kontoauszug (CSV) im Controlboard hochladen.</p>
+                </KennzahlInfo>
               )}
             </p>
-            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{monatGeladen ? euro(saldo.eingang) : '—'}</p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{saldo ? euro(saldo.eingang) : '—'}</p>
           </div>
-          <div className="flex min-w-0 items-baseline justify-between gap-4 py-3.5 sm:block sm:border-l sm:border-border sm:py-0 sm:pl-5 sm:pt-4">
-            <p className="eyebrow">Noch offen</p>
-            <p className={`whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums sm:text-[1.75rem] xl:text-[2rem] ${monatGeladen && saldo.offen > 0 ? 'text-brand' : 'text-foreground'}`}>
-              {monatGeladen ? euro(saldo.offen) : '—'}
+          <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-4 py-3.5 sm:block sm:border-l sm:border-border sm:py-0 sm:pl-5 sm:pt-4">
+            <p className="eyebrow flex items-center gap-1">
+              Noch offen
+              <KennzahlInfo titel={`Noch offen ${monat}`}>
+                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
+                <p>Ältere Rückstände stehen darunter getrennt. Ab dem 8. ergeben beide zusammen die Rückstände unter „Handlungsbedarf“. Guthaben stehen ebenfalls dort.</p>
+              </KennzahlInfo>
             </p>
-            {monatGeladen && (saldo.vertraegeMitRueckstand > 0 || saldo.mehr > 0) && (
-              <p className="mt-1 text-xs text-muted-foreground sm:mt-2">
-                {saldo.vertraegeMitRueckstand > 0 && `${saldo.vertraegeMitRueckstand} ${saldo.vertraegeMitRueckstand === 1 ? 'Vertrag' : 'Verträge'}`}
-                {saldo.vertraegeMitRueckstand > 0 && saldo.mehr > 0 && ' · '}
-                {saldo.mehr > 0 && `${euro(saldo.mehr)} mehr eingegangen`}
+            <p className={`whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums sm:text-[1.75rem] xl:text-[2rem] ${saldo && saldo.offen > 0 ? 'text-brand' : 'text-foreground'}`}>
+              {saldo ? euro(saldo.offen) : '—'}
+            </p>
+            {saldo && (saldo.vertraegeOffen > 0 || saldo.aelter > 0) && (
+              <p className="mt-1 basis-full text-right text-xs text-muted-foreground sm:mt-2 sm:text-left">
+                {saldo.vertraegeOffen > 0 && `${saldo.vertraegeOffen} ${saldo.vertraegeOffen === 1 ? 'Vertrag' : 'Verträge'}`}
+                {saldo.vertraegeOffen > 0 && saldo.aelter > 0 && ' · '}
+                {saldo.aelter > 0 && `dazu ${euro(saldo.aelter)} ältere Rückstände`}
               </p>
             )}
           </div>
@@ -310,23 +296,49 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
       {/* Faktenzeile */}
       <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-border py-4 text-sm sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-10">
         <div>
-          <dt className="eyebrow">Kaltmiete</dt>
-          <dd className="mt-1 tabular-nums text-foreground">{euro(gesamtKaltmiete)}</dd>
+          <dt className="eyebrow flex items-center gap-1">
+            Kaltmiete
+            <KennzahlInfo titel="Kaltmiete">
+              <p>Monatliche Kaltmiete aller laufenden Verträge, aktiv und gekündigt bis zum Mietende. Je Einheit zählt der laufende Vertrag.</p>
+              <p>Laut Vertrag. Die Soll-Miete oben kann abweichen: anteilige Monate bei Ein- und Auszug, Minderungen, Rücklastschriftgebühren.</p>
+            </KennzahlInfo>
+          </dt>
+          <dd className="mt-1 tabular-nums text-foreground">{vertraegeDa ? euro(gesamtKaltmiete) : '—'}</dd>
         </div>
         <div>
-          <dt className="eyebrow">Betriebskosten</dt>
-          <dd className="mt-1 tabular-nums text-foreground">{euro(gesamtBetriebskosten)}</dd>
+          <dt className="eyebrow flex items-center gap-1">
+            Betriebskosten
+            <KennzahlInfo titel="Betriebskosten">
+              <p>Monatliche Betriebskostenvorauszahlungen derselben Verträge. Kaltmiete + Betriebskosten ist die volle Monatsmiete.</p>
+            </KennzahlInfo>
+          </dt>
+          <dd className="mt-1 tabular-nums text-foreground">{vertraegeDa ? euro(gesamtBetriebskosten) : '—'}</dd>
         </div>
         <div>
-          <dt className="eyebrow">Leerstand</dt>
-          <dd className={`mt-1 tabular-nums ${leerstände > 0 ? 'text-brand' : 'text-success'}`}>{leerstände}</dd>
+          <dt className="eyebrow flex items-center gap-1">
+            Leerstand
+            <KennzahlInfo titel="Leerstand">
+              <p>Einheiten ohne laufenden Mietvertrag. Ein unterschriebener Vertrag, der erst später beginnt, zählt noch als Leerstand.</p>
+            </KennzahlInfo>
+          </dt>
+          <dd className={`mt-1 tabular-nums ${!bestandDa ? 'text-foreground' : leerstände > 0 ? 'text-brand' : 'text-success'}`}>{bestandDa ? leerstände : '—'}</dd>
         </div>
         <div>
-          <dt className="eyebrow">Gekündigt</dt>
-          <dd className="mt-1 tabular-nums text-foreground">{gekuendigteMietvertraege.length}</dd>
+          <dt className="eyebrow flex items-center gap-1">
+            Gekündigt
+            <KennzahlInfo titel="Gekündigt">
+              <p>Laufende Verträge mit Kündigung, deren Mietende noch nicht erreicht ist. Sie zählen bis dahin in Miete und Soll-Miete mit.</p>
+            </KennzahlInfo>
+          </dt>
+          <dd className="mt-1 tabular-nums text-foreground">{vertraegeDa ? gekuendigteMietvertraege.length : '—'}</dd>
         </div>
         <div>
-          <dt className="eyebrow">Nächstes Vertragsende</dt>
+          <dt className="eyebrow flex items-center gap-1">
+            Nächstes Vertragsende
+            <KennzahlInfo titel="Nächstes Vertragsende">
+              <p>Das früheste Mietende ab heute, aus Kündigung oder befristetem Vertrag. Ein Klick auf das Datum öffnet den Vertrag.</p>
+            </KennzahlInfo>
+          </dt>
           <dd className="mt-1">
             <button
               type="button"
@@ -342,12 +354,17 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                 }
               }}
             >
-              {formatDatum(naechstesDatum)}
+              {vertraegeDa ? formatDatum(naechstesDatum) : '—'}
             </button>
           </dd>
         </div>
         <div className="group">
-          <dt className="eyebrow">Basiszins / Verzug</dt>
+          <dt className="eyebrow flex items-center gap-1">
+            Basiszins / Verzug
+            <KennzahlInfo titel="Basiszins / Verzug">
+              <p>Basiszinssatz der Bundesbank und daraus der Verzugszins für Wohnraummieter: Basiszins + 5 Prozentpunkte (§ 288 Abs. 1 BGB). Die Mahnung rechnet damit. Bei Gewerbe wären es 9 Prozentpunkte (Abs. 2).</p>
+            </KennzahlInfo>
+          </dt>
           <dd className="mt-1 tabular-nums text-foreground">
             {marktwert(
               'basiszinssatz',
@@ -362,7 +379,12 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
           </dd>
         </div>
         <div className="group">
-          <dt className="eyebrow">VPI 2020 = 100</dt>
+          <dt className="eyebrow flex items-center gap-1">
+            VPI 2020 = 100
+            <KennzahlInfo titel="Verbraucherpreisindex">
+              <p>Verbraucherpreisindex des Statistischen Bundesamts, Basisjahr 2020 = 100. Grundlage für Indexmieten.</p>
+            </KennzahlInfo>
+          </dt>
           <dd className="mt-1 tabular-nums text-foreground">
             {marktwert('vpi', <>{marktdaten?.vpi ? marktdaten.vpi.wert.toFixed(1) : '–'}</>, marktdaten?.vpi?.wert, '0.1', 'Verbraucherpreisindex', marktdaten?.vpi?.stichtag)}
           </dd>

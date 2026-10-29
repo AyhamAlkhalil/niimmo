@@ -195,7 +195,7 @@ export function MietvertragPaymentsSection({
                 )}
                 {vorauszahlung > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    Mit noch nicht Fälligem verrechnet: {formatBetrag(vorauszahlung)}
+                    Mit noch nicht Fälligem verrechnet, nicht enthalten: {formatBetrag(vorauszahlung)}
                   </p>
                 )}
               </div>

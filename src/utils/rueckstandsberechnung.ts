@@ -41,17 +41,28 @@ const aufCent = (betrag: number): number => {
   return gerundet === 0 ? 0 : gerundet; // kein „-0“
 };
 
-interface KontoForderung {
+export interface KontoForderung {
   sollmonat?: string | null;
   sollbetrag?: number | string | null;
   faelligkeitsdatum?: string | null;
   typ?: string | null;
+  /** Gesetzt bei Rücklastschrift-Gebühren (DB-Trigger create_ruecklastschrift_forderung) */
+  ruecklastschrift_am?: string | null;
 }
+
+/**
+ * Die reguläre Monatsmiete der Sollstellung — nicht BKA, keine Rücklastschrift-Gebühr, nicht negativ (eine
+ * erlassene Miete über 0 € zählt, eine eigene Gutschrift nicht). Nur sie zeigt an, dass ein Monat angelegt
+ * ist: Eine Gebühr mit sollmonat im Folgemonat (Rücklastschrift ab dem 28.) hätte sonst die erwartete
+ * Folgemiete auf 0 gesetzt (Review 29.10.2026).
+ */
+export const istMonatsmiete = (f: KontoForderung): boolean =>
+  (f.typ ?? 'Miete') !== 'BKA' && !f.ruecklastschrift_am && (Number(f.sollbetrag) || 0) >= 0;
 
 /** Die Monatsmiete ist am 8. fällig: sollmonat + 7 Tage (DB-Trigger set_faelligkeitsdatum_trigger). */
 const FAELLIGKEITSTAG = 8;
 
-interface KontoZahlung {
+export interface KontoZahlung {
   betrag?: number | string | null;
   buchungsdatum?: string | null;
   kategorie?: string | null;
@@ -59,9 +70,95 @@ interface KontoZahlung {
 }
 
 /** Zahlungen, die das Mietkonto ausgleichen: Miete, Rücklastschrift und BKA-Zahlungen. */
-const zaehltImMietkonto = (z: KontoZahlung): boolean =>
+export const zaehltImMietkonto = (z: KontoZahlung): boolean =>
   !!z.buchungsdatum &&
   (z.kategorie === 'Miete' || z.kategorie === 'Rücklastschrift' || z.kategorie === 'Betriebskostenabrechnung');
+
+/**
+ * Als Betriebskostenabrechnung gebuchte Zahlungen sind für die BKA bestimmt (§ 366 Abs. 1 BGB): Was sie
+ * über die fälligen BKA-Nachzahlungen hinaus zahlen, deckt zuerst noch nicht fällige BKA-Nachzahlungen;
+ * erst was auch darüber hinausgeht, steht dem Mietkonto zur Verfügung. Bis zum 29.10.2026 senkte eine
+ * vorab bezahlte BKA-Nachzahlung den Mietrückstand und den Mahnbetrag (Review). Ein fälliges BKA-Guthaben
+ * ist keine Zahlung und zählt hier nicht mit.
+ */
+export function bkaVorauszahlung(
+  faellig: readonly KontoForderung[],
+  nichtFaellig: readonly KontoForderung[],
+  zahlungen: readonly KontoZahlung[]
+): number {
+  const istBka = (f: KontoForderung) => f.typ === 'BKA';
+  const bkaGezahlt = zahlungen
+    .filter((z) => zaehltImMietkonto(z) && z.kategorie === 'Betriebskostenabrechnung')
+    .reduce((s, z) => s + (Number(z.betrag) || 0), 0);
+  const bkaFaellig = faellig.filter(istBka).reduce((s, f) => s + Math.max(0, Number(f.sollbetrag) || 0), 0);
+  const bkaOffen = nichtFaellig.filter(istBka).reduce((s, f) => s + Math.max(0, Number(f.sollbetrag) || 0), 0);
+  return aufCent(Math.min(Math.max(0, bkaGezahlt - bkaFaellig), bkaOffen));
+}
+
+export interface SollVertrag {
+  status?: string | null;
+  start_datum?: string | null;
+  ende_datum?: string | null;
+  kuendigungsdatum?: string | null;
+  kaltmiete?: number | string | null;
+  betriebskosten?: number | string | null;
+}
+
+/** Läuft der Vertrag in irgendeinem Teil des Monats (JJJJ-MM)? Ohne Ende gilt der Status. */
+export function laeuftImMonat(vertrag: SollVertrag | null | undefined, monat: string): boolean {
+  if (!vertrag) return false;
+  const endeMonat = getVertragsende(vertrag)?.slice(0, 7);
+  return (!vertrag.start_datum || vertrag.start_datum.slice(0, 7) <= monat) &&
+    (endeMonat ? monat <= endeMonat : vertrag.status !== 'beendet');
+}
+
+/**
+ * Monatsmiete, wie die Sollstellung sie für den Monat (JJJJ-MM) anlegt: Kaltmiete + Betriebskosten, im
+ * Monat von Mietbeginn oder -ende taggenau anteilig, auf Cent gerundet; außerhalb der Laufzeit 0.
+ * Nachbildung von generate_monthly_mietforderungen (SQL) für Monate, die sie noch nicht angelegt hat.
+ */
+export function sollMonatsmiete(vertrag: SollVertrag | null | undefined, monat: string): number {
+  if (!vertrag) return 0;
+  const jahr = Number(monat.slice(0, 4));
+  const mon = Number(monat.slice(5, 7));
+  const tage = new Date(jahr, mon, 0).getDate();
+  const ende = getVertragsende(vertrag)?.slice(0, 10);
+  if (!ende && vertrag.status === 'beendet') return 0;
+  const start = vertrag.start_datum?.slice(0, 10);
+  if ((start && start.slice(0, 7) > monat) || (ende && ende.slice(0, 7) < monat)) return 0;
+  const von = start && start.slice(0, 7) === monat ? Number(start.slice(8, 10)) : 1;
+  const bis = ende && ende.slice(0, 7) === monat ? Number(ende.slice(8, 10)) : tage;
+  const betrag = (Number(vertrag.kaltmiete) || 0) + (Number(vertrag.betriebskosten) || 0);
+  if (von === 1 && bis === tage) return aufCent(betrag);
+  return anteilWiePostgres(betrag, tage, Math.max(bis - von + 1, 0));
+}
+
+const hochZehn = (n: number): bigint => BigInt(10) ** BigInt(n);
+/** Ganzzahlige Division, halb vom Nullpunkt weg gerundet (beide Werte ≥ 0) */
+const teileGerundet = (zaehler: bigint, nenner: bigint): bigint => {
+  const q = zaehler / nenner;
+  return (zaehler % nenner) * BigInt(2) >= nenner ? q + BigInt(1) : q;
+};
+
+/**
+ * round((betrag / tage) * n, 2) genau wie Postgres numeric (monatsanteil, generate_monthly_mietforderungen):
+ * Die Division rundet auf die Stellenzahl aus select_div_scale (16 signifikante Stellen, Basis 10000),
+ * das Produkt ist exakt, round() rundet halb vom Nullpunkt weg. Mit Gleitkomma wichen genaue
+ * Halbcent-Fälle um 1 Cent ab (QA 29.10.2026: 3.231,65 € · 15/30 ergibt 1.615,83 €, nicht 1.615,82 €).
+ */
+function anteilWiePostgres(betrag: number, tage: number, n: number): number {
+  const cent = BigInt(Math.round(Math.abs(betrag) * 100));
+  if (cent === BigInt(0) || n <= 0) return 0;
+  const ganz = cent / BigInt(100);
+  const gewicht = ganz > BigInt(0) ? Math.floor((ganz.toString().length - 1) / 4) : -1;
+  const ersteZiffer = ganz > BigInt(0) ? ganz / hochZehn(gewicht * 4) : (cent % BigInt(100)) * BigInt(100);
+  const qGewicht = gewicht - (ersteZiffer <= BigInt(tage) ? 1 : 0);
+  const stellen = Math.max(16 - qGewicht * 4, 2);
+  const quotient = teileGerundet(cent * hochZehn(stellen), BigInt(100) * BigInt(tage));
+  const ergebnisCent = teileGerundet(quotient * BigInt(n), hochZehn(stellen - 2));
+  const wert = Number(ergebnisCent) / 100;
+  return betrag < 0 ? -wert : wert;
+}
 
 export interface RueckstandsBerechnung {
   gesamtForderungen: number;
@@ -118,9 +215,9 @@ export interface Mietkontostand extends RueckstandsBerechnung {
  * die Datenbank schon dem Folgemonat zuordnet (calculate_zugeordneter_monat), bevor die Sollstellung
  * am 1. dessen Forderung anlegt.
  *
- * Jetzt wird eine Überzahlung zuerst mit den angelegten, noch nicht fälligen Forderungen verrechnet
- * (Vorauszahlung); Guthaben ist nur, was darüber hinausgeht. Der Rückstand bleibt unverändert: Zahlungen tilgen zuerst
- * die fällige Schuld (§ 366 Abs. 2 BGB).
+ * Jetzt gilt als Vorauszahlung, was seit dem letzten Fälligkeitstag eingezahlt wurde und die kommende
+ * Miete deckt; Guthaben ist, was darüber hinausgeht oder schon vorher bestand. Der Rückstand bleibt
+ * unverändert: Zahlungen tilgen zuerst die fällige Schuld (§ 366 Abs. 2 BGB).
  */
 export function berechneMietkontostand(
   mietvertrag: unknown,
@@ -143,33 +240,64 @@ export function berechneMietkontostand(
   );
   const summeNichtFaellig = nichtFaellige.reduce((s, f) => s + (Number(f.sollbetrag) || 0), 0);
   const nichtFaellig = aufCent(summeNichtFaellig);
-  if (basis.rueckstand >= 0) {
-    return { ...basis, vorauszahlung: 0, nichtFaellig };
+
+  // Eine vorab bezahlte BKA-Nachzahlung steht für die BKA bereit und mindert den Mietrückstand nicht
+  const vorausBka = bkaVorauszahlung(faellig, nichtFaellige, zahlungen);
+  const saldo = aufCent(basis.rueckstand + vorausBka);
+  if (saldo >= 0) {
+    return { ...basis, rueckstand: saldo, vorauszahlung: vorausBka, nichtFaellig };
   }
 
-  // Eine Überzahlung deckt zuerst, was angelegt, aber noch nicht fällig ist, und Zahlungen auf Monate,
-  // die die Sollstellung (05:00 UTC am 1.) noch nicht angelegt hat: ab dem 28. für den Folgemonat, am 1.
-  // vor dem Lauf für den laufenden — nie nach Vertragsende und nie doppelt zu einer schon angelegten
-  // Forderung. Bewusst nicht je zugeordnetem Monat: Wer am 26. oder 27. für den Folgemonat zahlt, steht
-  // in der DB beim laufenden Monat (calculate_zugeordneter_monat).
-  // Auch eine Gutschrift wird so mit der nächsten, noch nicht fälligen Miete verrechnet: Ob sie schon
-  // ausgezahlt oder mit einer niedrigeren Zahlung verbraucht ist, lässt sich aus den Summen nicht
-  // ablesen — eine Begrenzung auf „selbst überzahlt“ erzeugte dann jeden Monat Scheinguthaben (28.10.2026).
+  // Vorauszahlung auf die Miete ist nur, was nach dem letzten Fälligkeitstag eingezahlt oder ausdrücklich
+  // einem kommenden Monat zugeordnet wurde und die kommende Miete deckt; was davor schon zu viel war,
+  // bleibt Guthaben. Der Zahltag entscheidet, nicht der Trigger-Monat: Die DB ordnet erst ab dem 28. dem
+  // Folgemonat zu, gezahlt wird die Folgemiete aber ab etwa dem 16. (28.10.2026 live: 320 € am 25.,
+  // 725 € am 25., 100 € am 21.). BKA-Zahlungen sind oben schon verrechnet.
   const monat = heute.slice(0, 7);
-  const vertrag = mietvertrag as { status?: string | null; ende_datum?: string | null; kuendigungsdatum?: string | null };
-  const endeMonat = getVertragsende(vertrag)?.slice(0, 7);
-  const forderungsmonate = new Set(mitMonat.map((f) => (f.sollmonat as string).slice(0, 7)));
-  const nochNichtAngelegt = (m: string) =>
-    (endeMonat ? m <= endeMonat : vertrag.status !== 'beendet') &&
-    !forderungsmonate.has(m) &&
-    (m > monat || (m === monat && stichtag.getDate() < FAELLIGKEITSTAG));
-  const aufNichtAngelegteMonate = zahlungen
-    .filter((z) => zaehltImMietkonto(z) && typeof z.zugeordneter_monat === 'string' && nochNichtAngelegt(z.zugeordneter_monat.slice(0, 7)))
-    .reduce((s, z) => s + (Number(z.betrag) || 0), 0);
-  const deckung = Math.max(0, summeNichtFaellig) + Math.max(0, aufNichtAngelegteMonate);
-  const vorauszahlung = aufCent(Math.min(-basis.rueckstand, deckung));
+  const kommenderMonat = stichtag.getDate() >= FAELLIGKEITSTAG
+    ? format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 1), 'yyyy-MM')
+    : monat;
+  const letzterFaelligkeitstag = format(
+    new Date(stichtag.getFullYear(), stichtag.getMonth() - (stichtag.getDate() >= FAELLIGKEITSTAG ? 0 : 1), FAELLIGKEITSTAG),
+    'yyyy-MM-dd'
+  );
+  // Rücklastschriften heben eine Zahlung auf; Auszahlungen und Erstattungen sind keine Vorauszahlung
+  const seitherGezahlt = Math.max(
+    0,
+    zahlungen
+      .filter((z) =>
+        zaehltImMietkonto(z) &&
+        z.kategorie !== 'Betriebskostenabrechnung' &&
+        ((z.buchungsdatum as string).slice(0, 10) > letzterFaelligkeitstag ||
+          (typeof z.zugeordneter_monat === 'string' && z.zugeordneter_monat.slice(0, 7) >= kommenderMonat))
+      )
+      .reduce((s, z) => {
+        const betrag = Number(z.betrag) || 0;
+        return s + (betrag > 0 || z.kategorie === 'Rücklastschrift' ? betrag : 0);
+      }, 0)
+  );
 
-  return { ...basis, rueckstand: aufCent(basis.rueckstand + vorauszahlung), vorauszahlung, nichtFaellig };
+  // Gedeckt wird, was angelegt und noch nicht fällig ist, und die kommende Monatsmiete, solange die
+  // Sollstellung (05:00 UTC am 1.) sie noch nicht angelegt hat: ab dem 8. die des Folgemonats, davor die
+  // des laufenden. Dazu Zahlungen auf spätere Monate ohne Monatsmiete. Nie außerhalb der Laufzeit.
+  const vertrag = mietvertrag as SollVertrag;
+  const laeuftIm = (m: string) => laeuftImMonat(vertrag, m);
+  const mietmonate = new Set(mitMonat.filter(istMonatsmiete).map((f) => (f.sollmonat as string).slice(0, 7)));
+  // Erwartet wird genau, was die Sollstellung anlegen wird (Vertragsmiete, anteilig bei Beginn/Ende)
+  const kommendeMiete = mietmonate.has(kommenderMonat) ? 0 : Math.max(0, sollMonatsmiete(vertrag, kommenderMonat));
+  const aufSpaetereMonate = zahlungen
+    .filter((z) => {
+      if (!zaehltImMietkonto(z) || z.kategorie === 'Betriebskostenabrechnung' || typeof z.zugeordneter_monat !== 'string') return false;
+      const m = z.zugeordneter_monat.slice(0, 7);
+      return m > kommenderMonat && !mietmonate.has(m) && laeuftIm(m);
+    })
+    .reduce((s, z) => s + (Number(z.betrag) || 0), 0);
+  const deckung = Math.max(0, summeNichtFaellig - vorausBka) + kommendeMiete + Math.max(0, aufSpaetereMonate);
+
+  const vorausMiete = aufCent(Math.min(-saldo, deckung, seitherGezahlt));
+  const vorauszahlung = aufCent(vorausBka + vorausMiete);
+
+  return { ...basis, rueckstand: aufCent(saldo + vorausMiete), vorauszahlung, nichtFaellig };
 }
 
 // Einfache Berechnung für Miete-Zahlungen (alle mit Kategorie "Miete")
