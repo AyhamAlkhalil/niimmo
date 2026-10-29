@@ -42,7 +42,8 @@ interface BetrKVNebenkostenTabProps {
 
 export function BetrKVNebenkostenTab({ immobilieId }: BetrKVNebenkostenTabProps) {
   const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  // Vorjahr voreingestellt: Das laufende Jahr ist noch nicht abrechenbar (istAbrechnungsjahrAbgelaufen, 29.10.2026)
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear - 1);
   const [activeStep, setActiveStep] = useState<string>("step1");
 
   // Die Statistik braucht id und betrag — vorher wurde nur buchungsdatum selektiert,

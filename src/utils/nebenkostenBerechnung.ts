@@ -401,6 +401,24 @@ export function abrechnungsfristEnde(abrechnungsjahr: number): Date {
   return new Date(abrechnungsjahr + 1, 11, 31);
 }
 
+/**
+ * Abgerechnet wird erst nach Ablauf des Jahres (Prüfung 29.10.2026): Für das laufende Jahr rechnete die Abrechnung
+ * die Vorauszahlungen aller zwölf Monate an, auch die noch nicht fälligen, bei erst teilweise gebuchten Kosten —
+ * jeder Mieter hatte ein Scheinguthaben (live Wolfsburg 11 × −8.939,61 €), und „Alle BKA-Salden eintragen“ war frei.
+ */
+export function istAbrechnungsjahrAbgelaufen(abrechnungsjahr: number, heute: Date = new Date()): boolean {
+  return heute.getFullYear() > abrechnungsjahr;
+}
+
+/**
+ * Garagen und Stellplätze tragen keine Betriebskosten des Hauses (live hat keiner der 23 Verträge eine Vorauszahlung)
+ * und zählen weder als Einheit noch mit Fläche oder Personen (Prüfung 29.10.2026: Sarstedt war gesperrt, weil sechs
+ * Stellplätze keine Wohnfläche haben; in Wolfsburg trugen zwei Garagen je 17,36 € Heiz- und Grundsteuerkosten).
+ */
+export function traegtBetriebskosten(einheitentyp: string | null | undefined): boolean {
+  return einheitentyp !== 'Garage' && einheitentyp !== 'Stellplatz';
+}
+
 export function istAbrechnungsfristAbgelaufen(
   abrechnungsjahr: number,
   heute: Date = new Date()

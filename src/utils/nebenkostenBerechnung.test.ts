@@ -18,6 +18,8 @@ import {
   nachsendeAdresseZeilen,
   type Nutzungsperiode,
   type VerteilerSchluessel,
+  istAbrechnungsjahrAbgelaufen,
+  traegtBetriebskosten,
 } from './nebenkostenBerechnung';
 
 // ---------------------------------------------------------------------------
@@ -537,5 +539,22 @@ describe('aufCentVerteilen', () => {
     expect(aufCentVerteilen([0.6, 99.4])).toEqual([1, 99]);
     expect(aufCentVerteilen([0, 50.5, 49.5])).toEqual([0, 51, 49]);
     expect(aufCentVerteilen([Number.NaN, 10])).toEqual([0, 10]);
+  });
+});
+
+describe('Betriebskostenabrechnung — Prüfung des Rechenmodells 29.10.2026', () => {
+  it('rechnet erst nach Ablauf des Jahres ab', () => {
+    expect(istAbrechnungsjahrAbgelaufen(2026, new Date(2026, 9, 29))).toBe(false);
+    expect(istAbrechnungsjahrAbgelaufen(2026, new Date(2026, 11, 31, 23))).toBe(false);
+    expect(istAbrechnungsjahrAbgelaufen(2026, new Date(2027, 0, 1))).toBe(true);
+    expect(istAbrechnungsjahrAbgelaufen(2025, new Date(2026, 9, 29))).toBe(true);
+  });
+
+  it('nimmt Garagen und Stellplätze aus der Abrechnung, alles andere nicht', () => {
+    expect(traegtBetriebskosten('Garage')).toBe(false);
+    expect(traegtBetriebskosten('Stellplatz')).toBe(false);
+    for (const typ of ['Wohnung', 'Gewerbe', 'Haus (Doppelhaushälfte, Reihenhaus)', 'Lager', 'Sonstiges', null]) {
+      expect(traegtBetriebskosten(typ)).toBe(true);
+    }
   });
 });

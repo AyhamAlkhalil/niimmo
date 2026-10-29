@@ -620,8 +620,10 @@ function seite3(
     const zahl = (w: number, max: number) => w.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: max });
     doc.text(einh > 0 ? `${zahl(einh, 2)}${einheitSuffix}` : '–', cx[3] + cW[3], y, { align: 'right' });
     doc.text(
+      // Unter 1 € je Einheit (Personentage) sechs Stellen: mit vier ergab 0,1945 × 5.475 nicht die gedruckten
+      // 1.065,00 € (Prüfung 29.10.2026, Celle 2025)
       preisProE > 0
-        ? preisProE.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+        ? preisProE.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: preisProE < 1 ? 6 : 4 })
         : '–',
       cx[4] + cW[4], y, { align: 'right' }
     );

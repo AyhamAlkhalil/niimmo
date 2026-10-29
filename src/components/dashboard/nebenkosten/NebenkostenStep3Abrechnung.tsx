@@ -62,6 +62,8 @@ import {
   personenzahlErforderlich,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
+  istAbrechnungsjahrAbgelaufen,
+  traegtBetriebskosten,
   kostenAnteilImZeitraum,
   tageInZeitraum,
   objektAdresseEinzeilig,
@@ -166,7 +168,8 @@ export function NebenkostenStep3Abrechnung({
         .select("id, zaehler, qm, einheitentyp")
         .eq("immobilie_id", immobilieId);
       if (error) throw error;
-      return data || [];
+      // Garagen und Stellplätze tragen keine Betriebskosten des Hauses (traegtBetriebskosten)
+      return (data || []).filter((e) => traegtBetriebskosten(e.einheitentyp));
     },
   });
 
@@ -484,6 +487,11 @@ export function NebenkostenStep3Abrechnung({
     personenSchluesselAktiv && personenzahlErforderlich(bezugsgroessen);
 
   const sperrgruende: string[] = [];
+  if (!istAbrechnungsjahrAbgelaufen(selectedYear)) {
+    sperrgruende.push(
+      `Das Jahr ${selectedYear} läuft noch. Abgerechnet wird nach dem 31.12.; bis dahin sind Kosten und Vorauszahlungen nicht vollständig.`
+    );
+  }
   if (personenzahlNoetig && ohnePersonenzahl.length > 0) {
     sperrgruende.push(
       `Personenzahl fehlt bei ${ohnePersonenzahl.length} Vertrag/Verträgen: ` +
@@ -836,8 +844,10 @@ export function NebenkostenStep3Abrechnung({
 
   const createForderungenMutation = useMutation({
     mutationFn: async () => {
+      // Nach Ablauf der Abrechnungsfrist ist eine Nachforderung ausgeschlossen (§ 556 Abs. 3 S. 3 BGB), ein Guthaben
+      // bleibt geschuldet. Bis zum 29.10.2026 wurde auch dann eine Nachzahlung angelegt (Prüfung 29.10.2026).
       const kandidaten = mieterAbrechnungen.filter(
-        (a) => Math.abs(a.saldo) > 0.01 && a.mietvertragId
+        (a) => Math.abs(a.saldo) > 0.01 && a.mietvertragId && !(fristAbgelaufen && a.saldo > 0)
       );
       // Schon eingetragene nicht noch einmal: Bis zum 27.10.2026 legten „Als Forderung anlegen“ und
       // „Alle BKA-Salden eintragen“ dieselbe Nachzahlung zweimal an, der Rückstand verdoppelte sich
@@ -1475,7 +1485,8 @@ export function NebenkostenStep3Abrechnung({
                                     size="sm"
                                     variant="outline"
                                     className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
-                                    disabled={einzelForderungMutation.isPending || abrechnungGesperrt}
+                                    disabled={einzelForderungMutation.isPending || abrechnungGesperrt || fristAbgelaufen}
+                                    title={fristAbgelaufen ? "Abrechnungsfrist abgelaufen: Nachforderung ausgeschlossen (§ 556 Abs. 3 BGB)" : undefined}
                                     onClick={() => einzelForderungMutation.mutate(abrechnung)}
                                   >
                                     <Receipt className="h-4 w-4" />
