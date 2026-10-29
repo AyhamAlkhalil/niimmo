@@ -40,7 +40,9 @@ export function kappungsgrenzeProzent(istAngespannterMarkt: boolean): number {
 /** Höchstbetrag, auf den die Kaltmiete angehoben werden darf. */
 export function maximaleKaltmiete(aktuelleKaltmiete: number, istAngespannterMarkt: boolean): number {
   const grenze = kappungsgrenzeProzent(istAngespannterMarkt);
-  return aktuelleKaltmiete * (1 + grenze / 100);
+  // Auf den Cent abgerundet: kaufmännisch gerundet lag die angezeigte Grenze bei 446,13 € (→ 535,36 statt 535,35 €)
+  // einen Cent darüber, und ein Verlangen in dieser Höhe wäre insoweit unwirksam (Prüfung 29.10.2026)
+  return Math.floor((Math.round(aktuelleKaltmiete * 100) * (100 + grenze)) / 100 + 1e-9) / 100;
 }
 
 /**

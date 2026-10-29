@@ -627,8 +627,9 @@ export function MietvertragContractInfo({
               </div>
             )}
 
-            {/* Action Buttons - below tenant list */}
-            {vertrag.status === 'aktiv' && !isGlobalEditMode && (
+            {/* Action Buttons - below tenant list. Mahnen auch nach einer Kündigung: Bis zum Auszug läuft die Miete,
+                send-mahnung nimmt gekündigte Verträge an (bis zum 29.10.2026 fehlte der Knopf, Prüfung 29.10.2026) */}
+            {(vertrag.status === 'aktiv' || vertrag.status === 'gekuendigt') && !isGlobalEditMode && (
               <div className="flex gap-2 pt-1">
                 {onShowMahnung && (
                   <Button variant="outline" size="sm" onClick={onShowMahnung} className="h-8 text-xs flex-1 gap-1.5">
@@ -636,7 +637,7 @@ export function MietvertragContractInfo({
                     Mahnung
                   </Button>
                 )}
-                {onShowKuendigung && (
+                {onShowKuendigung && vertrag.status === 'aktiv' && (
                   <Button variant="destructive" size="sm" onClick={onShowKuendigung} className="h-8 text-xs flex-1 gap-1.5">
                     <XCircle className="h-3.5 w-3.5" />
                     Kündigung

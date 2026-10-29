@@ -40,7 +40,10 @@ export function MietvertragKautionSection({
     : aufteilung.vonHand;
   const kautionSoll = leseKautionsbetrag(sollRoh) ?? 0;
   const kautionIst = (isGlobalEditMode ? kautionIstVorschau(aufteilung, vonHandRoh) : aufteilung.ist) ?? 0;
-  const kautionDifferenz = kautionSoll - kautionIst;
+  // Ohne erfasstes Soll gibt es keine Differenz: bis zum 29.10.2026 stand dann „Vollständig“ oder „Überzahlung“
+  // (live 10 aktive Verträge, Prüfung 29.10.2026)
+  const sollErfasst = leseKautionsbetrag(sollRoh) !== null;
+  const kautionDifferenz = sollErfasst ? kautionSoll - kautionIst : 0;
 
   // Ohne onValueChange ging eine Eingabe im Bearbeitungsmodus verloren,
   // wenn nicht zuerst der Haken am Feld geklickt wurde
@@ -176,7 +179,7 @@ export function MietvertragKautionSection({
                   ? 'text-ochre-800'
                   : 'text-foreground'
             }`}>
-              {formatBetrag(Math.abs(kautionDifferenz))}
+              {sollErfasst ? formatBetrag(Math.abs(kautionDifferenz)) : '—'}
             </p>
             <p className={`mt-2 text-xs md:text-sm ${
               kautionDifferenz > 0
@@ -185,7 +188,7 @@ export function MietvertragKautionSection({
                   ? 'text-ochre-700'
                   : 'text-muted-foreground'
             }`}>
-              {kautionDifferenz > 0 ? 'noch offen' : kautionDifferenz < 0 ? 'Überzahlung' : 'Vollständig'}
+              {!sollErfasst ? 'Soll nicht erfasst' : kautionDifferenz > 0 ? 'noch offen' : kautionDifferenz < 0 ? 'Überzahlung' : 'Vollständig'}
             </p>
           </div>
         </div>

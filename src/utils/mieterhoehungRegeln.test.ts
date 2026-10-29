@@ -48,6 +48,13 @@ describe('Kappungsgrenze § 558 Abs. 3 BGB', () => {
     expect(maximaleKaltmiete(0, false)).toBe(0);
   });
 
+  it('rundet die Höchstmiete auf den Cent ab, nie über die Kappungsgrenze (Prüfung 29.10.2026)', () => {
+    expect(maximaleKaltmiete(446.13, false)).toBe(535.35);
+    expect(maximaleKaltmiete(477.73, false)).toBe(573.27);
+    expect(maximaleKaltmiete(1000, false)).toBe(1200);
+    expect(maximaleKaltmiete(333.33, true)).toBe(383.32);
+  });
+
   it('lässt die früher verwendeten 30 Prozent nicht mehr zu', () => {
     // Der Dialog rechnete bis 06.09.2026 mit 20/30 statt 15/20 Prozent.
     expect(maximaleKaltmiete(1000, false)).toBeLessThan(1300);

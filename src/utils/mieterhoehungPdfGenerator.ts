@@ -251,7 +251,11 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   const aktuelleGesamtmiete = data.aktuelleKaltmiete + data.aktuelleBetriebskosten;
   const neueGesamtmiete = data.neueKaltmiete + data.neueBetriebskosten;
   const erhoehung = neueGesamtmiete - aktuelleGesamtmiete;
-  const erhoehungProzent = aktuelleGesamtmiete > 0 ? ((erhoehung / aktuelleGesamtmiete) * 100) : 0;
+  // Das Verlangen nach § 558 BGB betrifft die Nettokaltmiete; der Prozentwert bezieht sich darauf wie im Dialog.
+  // Bis zum 29.10.2026 stand hier die Erhöhung der Gesamtmiete (500 → 575 € kalt bei 150 € BK: 11,54 % statt 15 %).
+  const erhoehungProzent = data.aktuelleKaltmiete > 0
+    ? ((data.neueKaltmiete - data.aktuelleKaltmiete) / data.aktuelleKaltmiete) * 100
+    : 0;
   
   const colX = [marginLeft, marginLeft + 55, marginLeft + 90, marginLeft + 125];
   const tableWidth = contentWidth;
@@ -301,7 +305,7 @@ export async function generateMieterhoehungPdf(data: MieterhoehungPdfData): Prom
   // Percentage row
   doc.setFillColor(255, 248, 220);
   doc.rect(marginLeft, y - 4, tableWidth, 7, 'FD');
-  doc.text('Erhöhung in %', colX[0] + 2, y);
+  doc.text('Erhöhung der Kaltmiete in %', colX[0] + 2, y);
   doc.text(`${erhoehungProzent.toFixed(2)}%`, colX[3] + 2, y);
   y += 12;
   

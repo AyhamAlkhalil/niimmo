@@ -33,9 +33,12 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
   const { data: gesamtEinheiten, isError: einheitenFehler } = useQuery({
     queryKey: ['gesamt-einheiten'],
     queryFn: async () => {
+      // Nur Einheiten eines Objekts, wie Objektkacheln und Mietaufstellung: zwei leere Datensätze ohne Objekt
+      // machten aus 111 Einheiten 113 und aus 15 freien 17 (Prüfung 29.10.2026)
       const { data, error } = await supabase
         .from('einheiten')
-        .select('id');
+        .select('id')
+        .not('immobilie_id', 'is', null);
       if (error) throw error;
       return data?.length || 0;
     }
