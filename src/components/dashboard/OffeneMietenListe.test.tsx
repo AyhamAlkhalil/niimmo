@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OFFENE_MIETEN_SICHTBAR, OffeneMietenListe } from './OffeneMietenListe';
-import { anzahlMieter } from '@/utils/offeneMieten';
+import { OffeneMietenListe, OffeneMietenZeilen } from './OffeneMietenListe';
+import { anzahlMieter, nachMieter } from '@/utils/offeneMieten';
 import type { OffeneMiete } from '@/hooks/useRueckstaende';
 
 const eintrag = (n: number, teilweise = false): OffeneMiete => ({
@@ -11,53 +11,69 @@ const eintrag = (n: number, teilweise = false): OffeneMiete => ({
   einheit: 'Wohnung · EG',
   offen: 500 - n,
   teilweise_bezahlt: teilweise,
-  mieter_schluessel: `mieter-${n}`,
+  mieter_ids: [`mieter-${n}`],
+  mieter_namen: [`Mieter ${n}`],
+});
+const garageVon = (n: number, nr: number): OffeneMiete => ({
+  ...eintrag(nr), mieter_name: `Mieter ${n}`, mieter_ids: [`mieter-${n}`], mieter_namen: [`Mieter ${n}`], einheit: 'Garage',
 });
 
 describe('OffeneMietenListe', () => {
-  it('sagt in einem Satz, wie viele Mieter noch nicht bezahlt haben, und öffnet Verträge im neuen Tab', () => {
+  it('ist zugeklappt: nur der Satz und die älteren Rückstände, die Liste erst nach Klick (Kundenmeldung 29.10.2026)', () => {
     const html = renderToStaticMarkup(
-      <OffeneMietenListe eintraege={[eintrag(1), eintrag(2, true)]} monat="Oktober" aelter={0} vertraegeAelter={0} />
+      <OffeneMietenListe eintraege={[eintrag(1), eintrag(2, true)]} monat="Oktober" aelter={500} onRueckstaendeZeigen={() => {}} />
     );
-    expect(html).toContain('2 Mieter</span> haben die Oktobermiete noch nicht bezahlt:');
-    expect(html).toContain('href="/?vertrag=00000000-0000-4000-8000-000000000001"');
-    expect(html.match(/target="_blank"/g)).toHaveLength(2);
-    expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain('Objekt 2 · Wohnung · EG · teilweise bezahlt');
-    expect(html).toContain('öffnet den Vertrag in einem neuen Tab');
-    expect(html).not.toContain('Rückstände aus früheren Monaten');
-  });
-
-  it('nutzt die Einzahl und meldet, wenn alle bezahlt haben', () => {
-    expect(renderToStaticMarkup(<OffeneMietenListe eintraege={[eintrag(1)]} monat="Oktober" aelter={0} vertraegeAelter={0} />))
-      .toContain('1 Mieter</span> hat die Oktobermiete noch nicht bezahlt:');
-    const alle = renderToStaticMarkup(<OffeneMietenListe eintraege={[]} monat="Oktober" aelter={0} vertraegeAelter={0} />);
-    expect(alle).toContain('Alle Mieter haben die Oktobermiete bezahlt.');
-    expect(alle).not.toContain('<ul');
-  });
-
-  it('zeigt zuerst nur die ersten Zeilen und bietet „Alle anzeigen“ an', () => {
-    const viele = Array.from({ length: OFFENE_MIETEN_SICHTBAR + 3 }, (_, i) => eintrag(i + 1));
-    const html = renderToStaticMarkup(<OffeneMietenListe eintraege={viele} monat="Oktober" aelter={0} vertraegeAelter={0} />);
-    expect(html.match(/<li>/g)).toHaveLength(OFFENE_MIETEN_SICHTBAR);
-    expect(html).toContain(`Alle ${viele.length} anzeigen`);
+    expect(html).toContain('2 Mieter</span> haben die Oktobermiete noch nicht bezahlt');
     expect(html).toContain('aria-expanded="false"');
-  });
-
-  it('nennt ältere Rückstände getrennt mit Sprung zur Rückstandsliste', () => {
-    const html = renderToStaticMarkup(
-      <OffeneMietenListe eintraege={[eintrag(1)]} monat="Oktober" aelter={7872.28} vertraegeAelter={9} onRueckstaendeZeigen={() => {}} />
-    );
-    expect(html).toContain('Dazu 7.872,28 € Rückstände aus früheren Monaten (9 Mieter).');
+    expect(html).toContain('Anzeigen');
+    expect(html).not.toContain('<ul');
+    expect(html).not.toContain('href="/?vertrag=');
+    expect(html).toContain('Dazu 500 € Rückstände aus früheren Monaten.');
     expect(html).toContain('Zu den Rückständen');
   });
 
-  it('zählt einen Mieter mit Wohnung und Garage einmal, zeigt aber beide Verträge', () => {
-    const garage = { ...eintrag(9), mieter_name: 'Mieter 1', mieter_schluessel: 'mieter-1', einheit: 'Garage' };
-    const eintraege = [eintrag(1), garage, eintrag(2)];
+  it('nutzt die Einzahl und meldet, wenn alle bezahlt haben', () => {
+    expect(renderToStaticMarkup(<OffeneMietenListe eintraege={[eintrag(1)]} monat="Oktober" aelter={0} />))
+      .toContain('1 Mieter</span> hat die Oktobermiete noch nicht bezahlt');
+    const alle = renderToStaticMarkup(<OffeneMietenListe eintraege={[]} monat="Oktober" aelter={7872.28} onRueckstaendeZeigen={() => {}} />);
+    expect(alle).toContain('Alle Mieter haben die Oktobermiete bezahlt.');
+    expect(alle).not.toContain('aria-expanded');
+    expect(alle).toContain('Dazu 7.872,28 € Rückstände aus früheren Monaten.');
+    expect(alle).toContain('Zu den Rückständen');
+  });
+
+  it('zählt in der Überschrift so viele Mieter, wie die Liste Zeilen hat — Wohnung und Garage sind ein Mieter', () => {
+    const eintraege = [eintrag(1), garageVon(1, 9), eintrag(2)];
     expect(anzahlMieter(eintraege)).toBe(2);
-    const html = renderToStaticMarkup(<OffeneMietenListe eintraege={eintraege} monat="Oktober" aelter={0} vertraegeAelter={0} />);
-    expect(html).toContain('2 Mieter</span> haben die Oktobermiete noch nicht bezahlt:');
-    expect(html.match(/<li>/g)).toHaveLength(3);
+    expect(renderToStaticMarkup(<OffeneMietenListe eintraege={eintraege} monat="Oktober" aelter={0} />))
+      .toContain('2 Mieter</span> haben die Oktobermiete noch nicht bezahlt');
+    const zeilen = renderToStaticMarkup(<OffeneMietenZeilen mieter={nachMieter(eintraege)} />);
+    // Zwei Mieterzeilen, die erste mit zwei Verträgen darunter
+    expect(zeilen.match(/<li>/g)).toHaveLength(2 + 2);
+    expect(zeilen.indexOf('Mieter 1')).toBeLessThan(zeilen.indexOf('Mieter 2'));
+    expect(zeilen).toContain('990 € offen');
+    expect(zeilen).toContain('2 Verträge');
+    expect(zeilen).toContain('Objekt 9 · Garage');
+  });
+});
+
+describe('OffeneMietenZeilen', () => {
+  it('öffnet jeden Vertrag im neuen Tab, auch beide Verträge eines Mieters', () => {
+    const html = renderToStaticMarkup(<OffeneMietenZeilen mieter={nachMieter([eintrag(1), eintrag(2, true), garageVon(1, 9)])} />);
+    expect(html).toContain('href="/?vertrag=00000000-0000-4000-8000-000000000001"');
+    expect(html).toContain('href="/?vertrag=00000000-0000-4000-8000-000000000009"');
+    expect(html.match(/target="_blank"/g)).toHaveLength(3);
+    expect(html.match(/rel="noopener noreferrer"/g)).toHaveLength(3);
+    expect(html).toContain('Objekt 2 · Wohnung · EG · teilweise bezahlt');
+    expect(html).toContain('öffnet den Vertrag in einem neuen Tab');
+  });
+
+  it('nennt bei zusammengefassten Verträgen die Mieter, die der Name der Zeile nicht nennt (Gegenprüfung)', () => {
+    const v4: OffeneMiete = { ...eintrag(4), mieter_name: 'Ben Bauer und Carla Clausen', mieter_ids: ['b', 'c'], mieter_namen: ['Ben Bauer', 'Carla Clausen'] };
+    const v5: OffeneMiete = { ...eintrag(5), mieter_name: 'Carla Clausen und Dora Dorn', mieter_ids: ['c', 'd'], mieter_namen: ['Carla Clausen', 'Dora Dorn'] };
+    const html = renderToStaticMarkup(<OffeneMietenZeilen mieter={nachMieter([v4, v5])} />);
+    expect(html).toContain('Ben Bauer u. a.');
+    expect(html).toContain('Objekt 5 · Wohnung · EG · Carla Clausen und Dora Dorn');
+    expect(html).toContain('(Carla Clausen und Dora Dorn, öffnet den Vertrag in einem neuen Tab)');
   });
 });

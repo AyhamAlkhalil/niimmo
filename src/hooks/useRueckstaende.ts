@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { berechneMietkontostand, calculateMieteZahlungen, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
 import { mietrueckstand, rueckstandInMonatsmieten, rueckstandSeit } from "@/utils/rueckstandSeit";
+import { mieterNamenText } from "@/utils/offeneMieten";
 import { monatsSaldo, type MonatsSaldo } from "@/utils/monatsSaldo";
 import { laeuftImMonat } from "@/utils/rueckstandsberechnung";
 import { format } from "date-fns";
@@ -95,11 +96,10 @@ export interface OffeneMiete {
   offen: number;
   /** Ein Teil der Monatsmiete ist schon bezahlt */
   teilweise_bezahlt: boolean;
-  /**
-   * Dieselben Mieter, derselbe Schlüssel: Wohnung und Garage eines Mieters sind zwei Zeilen, aber ein Mieter
-   * in der Überschrift „N Mieter haben … nicht bezahlt“ (Review 29.10.2026)
-   */
-  mieter_schluessel: string;
+  /** Die Mieter des Vertrags; Verträge mit einem gemeinsamen Mieter sind eine Zeile (utils/offeneMieten.ts) */
+  mieter_ids: string[];
+  /** Ihre Namen, nach Nachname sortiert */
+  mieter_namen: string[];
 }
 
 export interface Mietkonto {
@@ -363,12 +363,13 @@ export const useMietkonto = () =>
         const namen = mieter.map((m) => `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()).filter(Boolean);
         return {
           mietvertrag_id: o.mietvertragId,
-          mieter_name: namen.length === 0 ? 'Unbekannt' : namen.length <= 2 ? namen.join(' und ') : `${namen[0]} u. a.`,
+          mieter_name: mieterNamenText(namen),
           immobilie_name: immobilien?.find((i) => i.id === einheit?.immobilie_id)?.name || 'Unbekannt',
           einheit: [einheit?.einheitentyp, einheit?.etage].filter(Boolean).join(' · '),
           offen: o.offen,
           teilweise_bezahlt: o.offen < o.soll,
-          mieter_schluessel: mieter.length > 0 ? mieter.map((m) => m.id).sort().join('|') : o.mietvertragId,
+          mieter_ids: mieter.map((m) => m.id),
+          mieter_namen: namen,
         };
       });
       return { eintraege: rueckstaende, monat, offenImMonat, bkaOhneForderung: bkaHinweise };

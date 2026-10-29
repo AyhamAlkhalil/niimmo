@@ -312,7 +312,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
             <p className="eyebrow flex items-center gap-1">
               Noch offen
               <KennzahlInfo titel={`Noch offen ${monat}`}>
-                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Die Liste darunter zeigt, wer. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
+                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Wer noch zahlen muss, zeigt die Zeile darunter per Klick. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
                 <p>Rückstände aus früheren Monaten stehen getrennt. Ab dem 8. ergeben beide zusammen die Rückstände unter „Handlungsbedarf“. Guthaben stehen ebenfalls dort.</p>
               </KennzahlInfo>
             </p>
@@ -334,7 +334,6 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
           eintraege={mietkonto.offenImMonat}
           monat={monat}
           aelter={saldo.aelter}
-          vertraegeAelter={saldo.vertraegeAelter}
           onRueckstaendeZeigen={onRueckstaendeZeigen}
         />
       )}
