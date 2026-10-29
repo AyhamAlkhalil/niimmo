@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.8.3",
+    datum: "2026-10-29",
+    aenderungen: [
+      { art: "neu", titel: "Startseite: Liste der Mieter, die die Monatsmiete noch nicht bezahlt haben – jeder Vertrag öffnet in einem neuen Tab" },
+      { art: "verbessert", titel: "Rückstandsliste zeigt, seit wann ein Rückstand offen ist und wie viele Monatsmieten er ausmacht" },
+    ],
+  },
+  {
     version: "1.8.2",
     datum: "2026-10-29",
     aenderungen: [

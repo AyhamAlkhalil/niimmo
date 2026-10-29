@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { berechneMietkontostand, calculateMieteZahlungen } from "@/utils/rueckstandsberechnung";
+import { berechneMietkontostand, calculateMieteZahlungen, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
+import { mietrueckstand, rueckstandInMonatsmieten, rueckstandSeit } from "@/utils/rueckstandSeit";
 import { monatsSaldo, type MonatsSaldo } from "@/utils/monatsSaldo";
 import { laeuftImMonat } from "@/utils/rueckstandsberechnung";
 import { format } from "date-fns";
@@ -62,6 +63,12 @@ export interface FehlendeMietzahlung {
   naechste_faelligkeit?: string;
   // Guthaben-Information
   ist_guthaben: boolean;
+  /** Ältester offener Monat (JJJJ-MM) eines Rückstands, null bei Guthaben (utils/rueckstandSeit.ts) */
+  rueckstand_seit: string | null;
+  /** Kaltmiete + Betriebskosten laut Vertrag */
+  monatsmiete: number;
+  /** Mietanteil des Rückstands in Monatsmieten, abgerundet; ohne BKA-Nachzahlungen und Gebühren (utils/rueckstandSeit.ts) */
+  rueckstand_monatsmieten: number | null;
 }
 
 
@@ -79,9 +86,27 @@ export interface BkaHinweis {
   mietvertrag_status: string;
 }
 
+/** Ein Vertrag hinter „Noch offen“ auf der Startseite (29.10.2026) */
+export interface OffeneMiete {
+  mietvertrag_id: string;
+  mieter_name: string;
+  immobilie_name: string;
+  einheit: string;
+  offen: number;
+  /** Ein Teil der Monatsmiete ist schon bezahlt */
+  teilweise_bezahlt: boolean;
+  /**
+   * Dieselben Mieter, derselbe Schlüssel: Wohnung und Garage eines Mieters sind zwei Zeilen, aber ein Mieter
+   * in der Überschrift „N Mieter haben … nicht bezahlt“ (Review 29.10.2026)
+   */
+  mieter_schluessel: string;
+}
+
 export interface Mietkonto {
   eintraege: FehlendeMietzahlung[];
   monat: MonatsSaldo;
+  /** Wer die Miete des laufenden Monats noch nicht (ganz) bezahlt hat, größter Betrag zuerst */
+  offenImMonat: OffeneMiete[];
   /** Auch Verträge mit ausgeglichenem Saldo: Die BKA-Zahlung steht dort sonst nirgends in der Liste */
   bkaOhneForderung: BkaHinweis[];
 }
@@ -260,6 +285,9 @@ export const useMietkonto = () =>
         
         const faelligeForderungenBetrag = faelligeForderungen.reduce((sum, f) => sum + (Number(f.sollbetrag) || 0), 0);
         const nichtFaelligeForderungenBetrag = nichtFaelligeForderungen.reduce((sum, f) => sum + (Number(f.sollbetrag) || 0), 0);
+        // Seit wann und wie viele Monatsmieten (29.10.2026): nach derselben Fälligkeitsregel wie der Saldo
+        const faelligBisHeute = nurFaelligeForderungen(mietvertragForderungen, stichtag);
+        const monatsmiete = (Number(mietvertrag.kaltmiete) || 0) + (Number(mietvertrag.betriebskosten) || 0);
           
           rueckstaende.push({
             mietvertrag_id: mietvertrag.id,
@@ -296,6 +324,9 @@ export const useMietkonto = () =>
             noch_nicht_faellige_forderungen_betrag: nichtFaelligeForderungenBetrag,
             // Guthaben-Information
             ist_guthaben: rueckstand < 0,
+            rueckstand_seit: rueckstandSeit(faelligBisHeute, mietvertragZahlungen, rueckstand),
+            monatsmiete,
+            rueckstand_monatsmieten: rueckstandInMonatsmieten(mietrueckstand(faelligBisHeute, rueckstand), monatsmiete),
           });
         }
       }
@@ -319,6 +350,27 @@ export const useMietkonto = () =>
         alleZahlungen,
         stichtag
       );
-      return { eintraege: rueckstaende, monat, bkaOhneForderung: bkaHinweise };
+
+      // Arbeitsliste unter „Noch offen“: Mieter, Objekt und Einheit je offenem Vertrag
+      const offenImMonat: OffeneMiete[] = monat.offeneVertraege.map((o) => {
+        const mv = mietvertraege?.find((m) => m.id === o.mietvertragId);
+        const einheit = einheiten?.find((e) => e.id === mv?.einheit_id);
+        // Feste Reihenfolge (nach Nachname): Die Abfrage hat kein ORDER BY, „A und B“ sprang sonst zu „B und A“
+        const mieter = (mietvertragMieter || [])
+          .filter((mm) => mm.mietvertrag_id === o.mietvertragId && mm.mieter)
+          .map((mm) => mm.mieter)
+          .sort((a, b) => `${a.nachname ?? ''} ${a.vorname ?? ''}`.localeCompare(`${b.nachname ?? ''} ${b.vorname ?? ''}`, 'de'));
+        const namen = mieter.map((m) => `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()).filter(Boolean);
+        return {
+          mietvertrag_id: o.mietvertragId,
+          mieter_name: namen.length === 0 ? 'Unbekannt' : namen.length <= 2 ? namen.join(' und ') : `${namen[0]} u. a.`,
+          immobilie_name: immobilien?.find((i) => i.id === einheit?.immobilie_id)?.name || 'Unbekannt',
+          einheit: [einheit?.einheitentyp, einheit?.etage].filter(Boolean).join(' · '),
+          offen: o.offen,
+          teilweise_bezahlt: o.offen < o.soll,
+          mieter_schluessel: mieter.length > 0 ? mieter.map((m) => m.id).sort().join('|') : o.mietvertragId,
+        };
+      });
+      return { eintraege: rueckstaende, monat, offenImMonat, bkaOhneForderung: bkaHinweise };
     }
   });

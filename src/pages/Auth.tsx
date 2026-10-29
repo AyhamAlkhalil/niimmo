@@ -1,19 +1,25 @@
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthForm } from '@/components/auth/AuthForm';
+import { vertragAusAdresse, vertragsLink } from '@/utils/vertragsLink';
 
 const Auth = () => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const navigate = useNavigate();
+  const location = useLocation();
+  // Nach der Anmeldung zurück zum Vertrag, der in einem neuen Tab geöffnet werden sollte (ProtectedRoute)
+  const zurueck = (location.state as { zurueck?: unknown } | null)?.zurueck;
+  const vertragId = typeof zurueck === 'string' ? vertragAusAdresse(zurueck) : null;
+  const ziel = vertragId ? vertragsLink(vertragId) : '/';
 
   useEffect(() => {
     // Check if user is already logged in
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        navigate('/');
+        navigate(ziel);
       }
     };
 
@@ -22,12 +28,12 @@ const Auth = () => {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
-        navigate('/');
+        navigate(ziel);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, ziel]);
 
   const toggleMode = () => {
     setMode(mode === 'login' ? 'signup' : 'login');

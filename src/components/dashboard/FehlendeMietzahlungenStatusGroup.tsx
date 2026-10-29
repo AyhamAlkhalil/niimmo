@@ -11,30 +11,32 @@ interface StatusGroupProps {
   formatBetrag: (betrag: number) => string;
 }
 
+// Rollen-Tokens statt fester Farben (Regel 9, 29.10.2026). „Aktiv“ war grün — mitten in den Rückständen las
+// sich das wie „in Ordnung“; jetzt neutral, gekündigt als Hinweis, beendet zurückgenommen.
 const statusConfig = {
   aktiv: {
     label: 'Aktive Verträge',
     icon: CheckCircle2,
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    textColor: 'text-green-700',
-    iconColor: 'text-green-600'
+    bgColor: 'bg-muted/60',
+    borderColor: 'border-border',
+    textColor: 'text-foreground',
+    iconColor: 'text-muted-foreground'
   },
   gekuendigt: {
     label: 'Gekündigte Verträge',
     icon: Clock,
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    textColor: 'text-orange-700',
-    iconColor: 'text-orange-600'
+    bgColor: 'bg-warning/10',
+    borderColor: 'border-warning/30',
+    textColor: 'text-foreground',
+    iconColor: 'text-warning'
   },
   beendet: {
     label: 'Beendete Verträge',
     icon: XCircle,
-    bgColor: 'bg-gray-50',
-    borderColor: 'border-gray-200',
-    textColor: 'text-gray-700',
-    iconColor: 'text-gray-600'
+    bgColor: 'bg-muted/40',
+    borderColor: 'border-border',
+    textColor: 'text-muted-foreground',
+    iconColor: 'text-muted-foreground'
   }
 };
 
@@ -52,26 +54,26 @@ export function FehlendeMietzahlungenStatusGroup({
   const totalAmount = items.reduce((sum, item) => sum + item.fehlend_betrag, 0);
 
   return (
-    <div className={`space-y-2 ${status === 'beendet' ? 'opacity-50' : ''}`}>
+    <div className={`space-y-2 ${status === 'beendet' ? 'opacity-70' : ''}`}>
       {/* Status Header */}
       <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${config.bgColor} ${config.borderColor} border rounded-md`}>
         <div className="flex items-center gap-2">
-          <Icon className={`h-4 w-4 ${config.iconColor}`} />
+          <Icon className={`h-4 w-4 ${config.iconColor}`} aria-hidden="true" />
           <span className={`text-sm font-medium ${config.textColor}`}>{config.label}</span>
           <Badge variant="outline" className={`text-xs ${config.textColor} ${config.borderColor}`}>
             {items.length}
           </Badge>
           {status === 'beendet' && (
-            <span className="text-xs text-gray-400 italic">nicht in Summe</span>
+            <span className="text-xs italic text-muted-foreground">nicht in Summe</span>
           )}
         </div>
-        <span className={`text-sm font-semibold ${isGuthaben ? 'text-green-600' : 'text-red-600'}`}>
+        <span className={`text-sm font-semibold ${isGuthaben ? 'text-success' : 'text-brand'}`}>
           {formatBetrag(totalAmount)}
         </span>
       </div>
 
       {/* Items */}
-      <div className="space-y-2 pl-2 sm:pl-4 border-l-2 border-gray-200">
+      <div className="space-y-2 pl-2 sm:pl-4 border-l-2 border-border">
         {items.map((item) => (
           <FehlendeMietzahlungenItem
             key={item.mietvertrag_id}

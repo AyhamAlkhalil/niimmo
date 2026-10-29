@@ -217,7 +217,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                       Rückstände
                       <KennzahlInfo titel="Rückstände">
                         <p>Fällige, unbezahlte Beträge der aktiven und gekündigten Verträge: Monatsmieten ab dem 8., Betriebskostennachzahlungen ab Fälligkeit, Rücklastschriftgebühren.</p>
-                        <p>Zahlungen tilgen zuerst die älteste Schuld. Ab dem 8. ist das oben „Noch offen“ plus ältere Rückstände.</p>
+                        <p>Zahlungen werden mit der ältesten Schuld zuerst verrechnet. Ab dem 8. ist das oben „Noch offen“ plus ältere Rückstände.</p>
                       </KennzahlInfo>
                     </p>
                     <p className="mt-1 whitespace-nowrap text-xl font-light leading-none tabular-nums text-brand sm:text-3xl">
@@ -260,10 +260,10 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                     Rückstände
                     <KennzahlInfo titel="Rückstände">
                       <p>Fällige, unbezahlte Beträge der aktiven und gekündigten Verträge: Monatsmieten ab dem 8., Betriebskostennachzahlungen ab Fälligkeit, Rücklastschriftgebühren.</p>
-                      <p>Zahlungen tilgen zuerst die älteste Schuld. Ab dem 8. ist das oben „Noch offen“ plus ältere Rückstände.</p>
+                      <p>Zahlungen werden mit der ältesten Schuld zuerst verrechnet. Ab dem 8. ist das oben „Noch offen“ plus ältere Rückstände.</p>
                     </KennzahlInfo>
                   </p>
-                  <p className="text-sm font-bold text-red-600">{formatBetrag(kopfRueckstand)}</p>
+                  <p className="text-sm font-bold text-brand">{formatBetrag(kopfRueckstand)}</p>
                 </div>
               )}
               {kopfGuthaben > 0 && (
@@ -275,7 +275,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                       <p>Eine Vorauszahlung auf die kommende Miete zählt nicht dazu. Ein Guthaben bleibt stehen, bis es mit einer fälligen Miete verrechnet oder ausgezahlt ist.</p>
                     </KennzahlInfo>
                   </p>
-                  <p className="text-sm font-bold text-green-600">{formatBetrag(kopfGuthaben)}</p>
+                  <p className="text-sm font-bold text-success">{formatBetrag(kopfGuthaben)}</p>
                 </div>
               )}
             </div>
@@ -320,10 +320,12 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => setSearchTerm("")}
+                aria-label="Suche leeren"
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -369,7 +371,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               
               {/* Filter Controls */}
               <div className="flex gap-2 items-center overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
-                <div className="flex items-center gap-1 text-xs sm:text-sm text-gray-600 flex-shrink-0">
+                <div className="flex items-center gap-1 text-xs sm:text-sm text-muted-foreground flex-shrink-0">
                   <Filter className="h-3 w-3 sm:h-4 sm:w-4" />
                 </div>
                 
@@ -408,7 +410,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               </div>
               
               <div className="flex justify-between items-center mt-2">
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                   {sortedFehlendeMietzahlungen.length} Einträge {amountFilter !== 'all' || minAmountFilter !== 'all' || statusFilter !== 'all' || searchTerm ? '(gefiltert) ' : ''}sortiert nach{' '}
                   {sortBy === 'object' && 'Objekt'}
                   {sortBy === 'amount' && 'Betrag'}
@@ -443,15 +445,15 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               {/* Rückstände Section */}
               {allRueckstaende.length > 0 && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border border-brand/30 bg-brand-soft p-2 sm:p-3">
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
-                      <h3 className="font-semibold text-red-900 text-sm sm:text-base">Rückstände</h3>
+                      <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5 text-brand" aria-hidden="true" />
+                      <h3 className="font-semibold text-foreground text-sm sm:text-base">Rückstände</h3>
                       <Badge variant="destructive" className="text-xs">
                         {allRueckstaende.length} {allRueckstaende.length === 1 ? 'Vertrag' : 'Verträge'}
                       </Badge>
                     </div>
-                    <p className="font-bold text-red-600 text-sm sm:text-base">
+                    <p className="font-bold text-brand text-sm sm:text-base">
                       {formatBetrag(gesamtRueckstandBetrag)}
                     </p>
                   </div>
@@ -483,15 +485,15 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               {/* Guthaben Section */}
               {allGuthaben.length > 0 && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 p-2 sm:p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border border-success/30 bg-success/10 p-2 sm:p-3">
                     <div className="flex items-center gap-2">
-                      <Euro className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
-                      <h3 className="font-semibold text-green-900 text-sm sm:text-base">Guthaben</h3>
-                      <Badge className="text-xs bg-green-600">
+                      <Euro className="h-4 w-4 sm:h-5 sm:w-5 text-success" aria-hidden="true" />
+                      <h3 className="font-semibold text-foreground text-sm sm:text-base">Guthaben</h3>
+                      <Badge className="text-xs bg-success text-success-foreground">
                         {allGuthaben.length} {allGuthaben.length === 1 ? 'Vertrag' : 'Verträge'}
                       </Badge>
                     </div>
-                    <p className="font-bold text-green-600 text-sm sm:text-base">
+                    <p className="font-bold text-success text-sm sm:text-base">
                       {formatBetrag(gesamtGuthabenBetrag)}
                     </p>
                   </div>
@@ -524,19 +526,19 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
               )}
               
               {/* Summary Footer */}
-              <div className="pt-4 border-t border-gray-300">
+              <div className="pt-4 border-t border-border">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                  <p className="text-xs sm:text-sm text-gray-600">
+                  <p className="text-xs sm:text-sm text-muted-foreground">
                     {sortedFehlendeMietzahlungen.length} {sortedFehlendeMietzahlungen.length === 1 ? 'Mietvertrag' : 'Mietverträge'} mit Rückständen oder Guthaben
                   </p>
                   <div className="flex flex-wrap gap-2 sm:gap-4">
                     {allRueckstaende.length > 0 && (
-                      <p className="font-semibold text-red-600 text-xs sm:text-sm">
+                      <p className="font-semibold text-brand text-xs sm:text-sm">
                         Rückstände: {formatBetrag(gesamtRueckstandBetrag)}
                       </p>
                     )}
                     {allGuthaben.length > 0 && (
-                      <p className="font-semibold text-green-600 text-xs sm:text-sm">
+                      <p className="font-semibold text-success text-xs sm:text-sm">
                         Guthaben: {formatBetrag(gesamtGuthabenBetrag)}
                       </p>
                     )}
@@ -573,13 +575,13 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
             <p className="py-8 text-center text-sm text-muted-foreground">Keine Treffer für Suche oder Filter.</p>
           ) : (
             <div className="text-center py-8 animate-fade-in">
-              <div className="p-6 bg-green-50 rounded-lg border border-green-200 inline-block">
+              <div className="inline-block border border-success/30 bg-success/10 p-6">
                 <div className="flex flex-col items-center gap-2">
-                  <div className="p-3 bg-green-100 rounded-full">
-                    <Euro className="h-6 w-6 text-green-600" />
+                  <div className="rounded-full bg-success/15 p-3">
+                    <Euro className="h-6 w-6 text-success" aria-hidden="true" />
                   </div>
-                  <p className="text-green-700 font-medium text-lg">Keine Rückstände oder Guthaben</p>
-                  <p className="text-green-600 text-sm">Alle Mietverträge sind ausgeglichen</p>
+                  <p className="text-lg font-medium text-success">Keine Rückstände oder Guthaben</p>
+                  <p className="text-sm text-muted-foreground">Alle Mietverträge sind ausgeglichen</p>
                 </div>
               </div>
             </div>

@@ -11,13 +11,17 @@ import { alsIsoTag, getVertragsende, istLaufenderVertrag } from "@/utils/contrac
 import { basiszinsPeriodenBeginn, marktdatenKorrektur, vorgeschlagenerVpiMonat } from "@/utils/marktdatenKorrektur";
 import { useMietkonto } from "@/hooks/useRueckstaende";
 import { KennzahlInfo } from "./KennzahlInfo";
+import { OffeneMietenListe } from "./OffeneMietenListe";
+import { anzahlMieter } from "@/utils/offeneMieten";
 
 interface DashboardStatsProps {
   immobilien: any[] | undefined;
   onNavigateToContract?: (immobilieId: string, einheitId: string, mietvertragId: string) => void;
+  /** Öffnet die Rückstandsliste unter „Handlungsbedarf“ und scrollt dorthin */
+  onRueckstaendeZeigen?: () => void;
 }
 
-export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardStatsProps) => {
+export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaendeZeigen }: DashboardStatsProps) => {
   const queryClient = useQueryClient();
   const { isAdmin } = useUserRole();
   const [editingTyp, setEditingTyp] = useState<'basiszinssatz' | 'vpi' | null>(null);
@@ -308,23 +312,32 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
             <p className="eyebrow flex items-center gap-1">
               Noch offen
               <KennzahlInfo titel={`Noch offen ${monat}`}>
-                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
-                <p>Ältere Rückstände stehen darunter getrennt. Ab dem 8. ergeben beide zusammen die Rückstände unter „Handlungsbedarf“. Guthaben stehen ebenfalls dort.</p>
+                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Die Liste darunter zeigt, wer. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
+                <p>Rückstände aus früheren Monaten stehen getrennt. Ab dem 8. ergeben beide zusammen die Rückstände unter „Handlungsbedarf“. Guthaben stehen ebenfalls dort.</p>
               </KennzahlInfo>
             </p>
             <p className={`whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums sm:text-[1.75rem] xl:text-[2rem] ${saldo && saldo.offen > 0 ? 'text-brand' : 'text-foreground'}`}>
               {saldo ? euro(saldo.offen) : '—'}
             </p>
-            {saldo && (saldo.vertraegeOffen > 0 || saldo.aelter > 0) && (
+            {mietkonto && mietkonto.offenImMonat.length > 0 && (
               <p className="mt-1 basis-full text-right text-xs text-muted-foreground sm:mt-2 sm:text-left">
-                {saldo.vertraegeOffen > 0 && `${saldo.vertraegeOffen} ${saldo.vertraegeOffen === 1 ? 'Vertrag' : 'Verträge'}`}
-                {saldo.vertraegeOffen > 0 && saldo.aelter > 0 && ' · '}
-                {saldo.aelter > 0 && `dazu ${euro(saldo.aelter)} ältere Rückstände`}
+                {anzahlMieter(mietkonto.offenImMonat)} Mieter
               </p>
             )}
           </div>
         </div>
       </div>
+
+      {/* Wer noch nicht bezahlt hat, direkt unter den Kennzahlen (29.10.2026, Kundenwunsch) */}
+      {mietkonto && saldo && saldo.soll > 0 && (
+        <OffeneMietenListe
+          eintraege={mietkonto.offenImMonat}
+          monat={monat}
+          aelter={saldo.aelter}
+          vertraegeAelter={saldo.vertraegeAelter}
+          onRueckstaendeZeigen={onRueckstaendeZeigen}
+        />
+      )}
 
       {/* Faktenzeile */}
       <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-border py-4 text-sm sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-10">

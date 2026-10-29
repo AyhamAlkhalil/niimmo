@@ -1,6 +1,6 @@
 
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Loader2 } from 'lucide-react';
 
@@ -11,12 +11,15 @@ interface ProtectedRouteProps {
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (!loading && !user) {
-      navigate('/auth');
+      // Die Adresse mitgeben: Ein Vertrag, der in einem neuen Tab geöffnet wird (?vertrag=…), soll nach der
+      // Anmeldung wieder aufgehen (Review 29.10.2026). Auth.tsx nimmt daraus nur eine gültige Vertrags-ID.
+      navigate('/auth', { state: { zurueck: location.search } });
     }
-  }, [user, loading, navigate]);
+  }, [user, loading, navigate, location.search]);
 
   if (loading) {
     return (

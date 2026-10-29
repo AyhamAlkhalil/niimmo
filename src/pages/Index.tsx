@@ -26,7 +26,9 @@ import VermieterStammdatenDialog from "@/components/dashboard/VermieterStammdate
 import { useUserRole } from "@/hooks/useUserRole";
 import { useAuth } from "@/hooks/useAuth";
 
-import { useState, useMemo, useCallback, lazy, Suspense, type ReactNode } from "react";
+import { useState, useMemo, useCallback, useEffect, lazy, Suspense, type ReactNode } from "react";
+import { toast } from "sonner";
+import { vertragAusAdresse } from "@/utils/vertragsLink";
 import { Loader2, Building2, Box, LayoutGrid } from "lucide-react";
 import { sortPropertiesByName } from "@/utils/contractUtils";
 import { useNavigationState } from "@/hooks/useNavigationState";
@@ -82,6 +84,47 @@ const Index = () => {
   const [rentIncreaseOpen, setRentIncreaseOpen] = useState<boolean>(false);
   const [listSource, setListSource] = useState<'rueckstaende' | 'rentincrease' | null>(null);
   const [scrollToContractId, setScrollToContractId] = useState<string | null>(null);
+
+  // Vertrag aus der Adresse öffnen (?vertrag=<id>): Die Liste „Noch offen“ der Startseite öffnet Verträge in
+  // einem neuen Tab (29.10.2026). Der Parameter verschwindet, sobald der Vertrag geladen ist, damit Neuladen
+  // ihn nicht erneut öffnet; scheitert die Abfrage, bleibt er für einen zweiten Versuch stehen.
+  useEffect(() => {
+    const mietvertragId = vertragAusAdresse(window.location.search);
+    if (!mietvertragId) return;
+    const parameterEntfernen = () => window.history.replaceState(window.history.state, '', window.location.pathname);
+    void (async () => {
+      const { data: mietvertrag, error } = await supabase
+        .from('mietvertrag')
+        .select('einheit_id, einheiten (immobilie_id)')
+        .eq('id', mietvertragId)
+        .maybeSingle();
+      if (error) {
+        toast.error('Der Vertrag konnte nicht geladen werden. Bitte die Seite neu laden.');
+        return;
+      }
+      parameterEntfernen();
+      if (!mietvertrag?.einheit_id || !mietvertrag.einheiten?.immobilie_id) {
+        toast.error('Diesen Vertrag gibt es nicht mehr oder er ist keiner Einheit zugeordnet.');
+        return;
+      }
+      updateNav({
+        showAnalytics: false,
+        showControlboard: false,
+        showUebergabe: false,
+        showDarlehen: false,
+        showAufgabenBoard: false,
+        selectedAufgabe: null,
+        show3D: false,
+        fokus3D: null,
+        selectedTab: null,
+        selectedImmobilie: mietvertrag.einheiten.immobilie_id,
+        selectedEinheit: mietvertrag.einheit_id,
+        selectedMietvertrag: mietvertragId,
+        navigationSource: 'dashboard',
+      });
+    })();
+  }, [updateNav]);
+
   const {
     data: immobilien,
     isLoading,
@@ -439,6 +482,12 @@ const Index = () => {
           <DashboardStats
             immobilien={immobilien}
             onNavigateToContract={handleNavigateToContract}
+            onRueckstaendeZeigen={() => {
+              setRueckstaendeOpen(true);
+              window.setTimeout(() => {
+                document.getElementById('rueckstaende-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 60);
+            }}
           />
         )}
 

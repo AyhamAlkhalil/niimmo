@@ -216,3 +216,29 @@ describe('monatsSaldo — Aufteilung der Soll-Miete in Kaltmiete und Betriebskos
     expect(r.aufteilung).toMatchObject({ kaltmiete: 0, betriebskosten: 0, vertragKaltmiete: 400, vertragBetriebskosten: 100 });
   });
 });
+
+describe('monatsSaldo — offene Verträge für die Liste unter „Noch offen“', () => {
+  it('nennt jeden offenen Vertrag mit Betrag, größter zuerst, und erkennt Teilzahlungen', () => {
+    const c = { id: 'c', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 600, betriebskosten: 150 };
+    const r = monatsSaldo(
+      [...vertraege, c],
+      [miete('a', '2026-10'), miete('b', '2026-10'), miete('c', '2026-10', 750)],
+      [zahlung('a', 500, '2026-10-02'), zahlung('b', 200, '2026-10-03')],
+      am10Okt
+    );
+    expect(r.offeneVertraege).toEqual([
+      { mietvertragId: 'c', offen: 750, soll: 750 },
+      { mietvertragId: 'b', offen: 300, soll: 500 },
+    ]);
+    expect(r.offeneVertraege.length).toBe(r.vertraegeOffen);
+    expect(r.offeneVertraege.reduce((s, o) => s + o.offen, 0)).toBe(r.offen);
+  });
+
+  it('führt einen Vertrag, der nur ältere Rückstände hat, nicht als offen für diesen Monat', () => {
+    const r = monatsSaldo([vertraege[0]], [miete('a', '2026-09'), miete('a', '2026-10')], [zahlung('a', 500, '2026-10-02')], am10Okt);
+    // Die Zahlung tilgt den September (§ 366 BGB), offen bleibt der Oktober
+    expect(r.offeneVertraege).toEqual([{ mietvertragId: 'a', offen: 500, soll: 500 }]);
+    const bezahlt = monatsSaldo([vertraege[0]], [miete('a', '2026-10')], [zahlung('a', 500, '2026-10-02')], am10Okt);
+    expect(bezahlt.offeneVertraege).toEqual([]);
+  });
+});

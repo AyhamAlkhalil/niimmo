@@ -49,6 +49,11 @@ export interface MonatsSaldo {
   vertraegeOffen: number;
   vertraegeAelter: number;
   /**
+   * Die Verträge hinter „Noch offen“, größter offener Betrag zuerst (29.10.2026, Kundenwunsch: Arbeitsliste
+   * unter der Kennzahl). offen < soll heißt: teilweise bezahlt.
+   */
+  offeneVertraege: { mietvertragId: string; offen: number; soll: number }[];
+  /**
    * Überleitung Kaltmiete + Betriebskosten → Soll-Miete (29.10.2026, Kundenfrage): vertragsmiete + anteilig
    * + abweichend + gebuehren = soll. anteilig: Monate mit Mietbeginn oder -ende; abweichend: Monatsmieten,
    * die nicht der Vertragsmiete entsprechen (Mieterhöhung ab Folgemonat, Minderung, erlassene Miete).
@@ -126,6 +131,7 @@ export function monatsSaldo(
   let vertragBetriebskosten = 0;
   const kaltUnterschied = { anteilig: 0, abweichend: 0 };
   const bkUnterschied = { anteilig: 0, abweichend: 0 };
+  const offeneVertraege: MonatsSaldo['offeneVertraege'] = [];
   const letzterTag = format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 0), 'yyyy-MM-dd');
   let zahlungenImMonat = 0;
 
@@ -164,7 +170,10 @@ export function monatsSaldo(
     offen += offenV;
     eingang += sollPositiv - offenV;
     aelter += aelterV;
-    if (offenV > 0) vertraegeOffen += 1;
+    if (offenV > 0) {
+      vertraegeOffen += 1;
+      offeneVertraege.push({ mietvertragId: v.id, offen: rund(offenV), soll: sollPositiv });
+    }
     if (aelterV > 0) vertraegeAelter += 1;
 
     const kv = zahl(v.kaltmiete);
@@ -202,6 +211,7 @@ export function monatsSaldo(
     aelter: rund(aelter),
     vertraegeOffen,
     vertraegeAelter,
+    offeneVertraege: offeneVertraege.sort((a, b) => b.offen - a.offen),
     ueberleitung: { vertragsmiete: rund(vertragsmiete), anteilig: rund(anteilig), abweichend: rund(abweichend), gebuehren: rund(gebuehren) },
     aufteilung: {
       kaltmiete: rund(kaltmiete),
