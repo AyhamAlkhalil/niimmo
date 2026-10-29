@@ -95,6 +95,29 @@ export function bkaVorauszahlung(
   return aufCent(Math.min(Math.max(0, bkaGezahlt - bkaFaellig), bkaOffen));
 }
 
+/**
+ * BKA-Zahlungen zählen im Mietkonto nur bis zur Höhe der BKA-Forderungen (Nachzahlungen nach oben,
+ * Guthaben nach unten). Der Rest ist eine BKA-Zahlung ohne Forderung: Die Abrechnung ist nicht als
+ * Forderung angelegt, die Zahlung tilgt keine Miete und steht als Hinweis am Vertrag (Entscheidung des
+ * Nutzers 29.10.2026). Live senkten 782,53 € solcher Zahlungen den Mietrückstand zweier Verträge.
+ */
+export function bkaAnrechnung(
+  forderungen: readonly KontoForderung[],
+  zahlungen: readonly KontoZahlung[]
+): { angerechnet: number; ohneForderung: number } {
+  // Wie überall: Eine Forderung ohne Fälligkeitsdatum zählt nirgends (Gutschriften zählen ab ihrem Monat)
+  const bka = forderungen
+    .filter((f) => f.sollmonat && f.typ === 'BKA' && (!!f.faelligkeitsdatum || (Number(f.sollbetrag) || 0) < 0))
+    .map((f) => Number(f.sollbetrag) || 0);
+  const obergrenze = bka.reduce((s, b) => s + Math.max(0, b), 0);
+  const untergrenze = bka.reduce((s, b) => s + Math.min(0, b), 0);
+  const gezahlt = zahlungen
+    .filter((z) => zaehltImMietkonto(z) && z.kategorie === 'Betriebskostenabrechnung')
+    .reduce((s, z) => s + (Number(z.betrag) || 0), 0);
+  const angerechnet = aufCent(Math.min(Math.max(gezahlt, untergrenze), obergrenze));
+  return { angerechnet, ohneForderung: aufCent(gezahlt - angerechnet) };
+}
+
 export interface SollVertrag {
   status?: string | null;
   start_datum?: string | null;
@@ -203,6 +226,8 @@ export interface Mietkontostand extends RueckstandsBerechnung {
   vorauszahlung: number;
   /** Summe der Forderungen, die am Stichtag noch nicht fällig sind */
   nichtFaellig: number;
+  /** BKA-Zahlungen ohne passende BKA-Forderung — nicht im Mietkonto, als Hinweis anzeigen */
+  bkaOhneForderung: number;
 }
 
 /**
@@ -226,12 +251,19 @@ export function berechneMietkontostand(
   stichtag: Date = new Date()
 ): Mietkontostand {
   if (!mietvertrag || !forderungen || !zahlungen) {
-    return { gesamtForderungen: 0, gesamtZahlungen: 0, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0 };
+    return { gesamtForderungen: 0, gesamtZahlungen: 0, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0, bkaOhneForderung: 0 };
   }
   const heute = format(stichtag, 'yyyy-MM-dd');
   const mitMonat = forderungen.filter((f) => f.sollmonat);
   const faellig = nurFaelligeForderungen(mitMonat, stichtag);
-  const basis = calculateMietvertragRueckstand(mietvertrag, faellig, zahlungen);
+  const basisRoh = calculateMietvertragRueckstand(mietvertrag, faellig, zahlungen);
+  // BKA-Zahlungen ohne passende Forderung tilgen keine Miete
+  const { ohneForderung: bkaOhneForderung } = bkaAnrechnung(mitMonat, zahlungen);
+  const basis: RueckstandsBerechnung = {
+    gesamtForderungen: basisRoh.gesamtForderungen,
+    gesamtZahlungen: aufCent(basisRoh.gesamtZahlungen - bkaOhneForderung),
+    rueckstand: aufCent(basisRoh.rueckstand + bkaOhneForderung),
+  };
 
   // Noch nicht fällig ist, was eine Fälligkeit nach dem Stichtag hat; ohne Datum zählt eine Forderung nirgends
   const zaehltSchon = new Set(faellig);
@@ -245,7 +277,7 @@ export function berechneMietkontostand(
   const vorausBka = bkaVorauszahlung(faellig, nichtFaellige, zahlungen);
   const saldo = aufCent(basis.rueckstand + vorausBka);
   if (saldo >= 0) {
-    return { ...basis, rueckstand: saldo, vorauszahlung: vorausBka, nichtFaellig };
+    return { ...basis, rueckstand: saldo, vorauszahlung: vorausBka, nichtFaellig, bkaOhneForderung };
   }
 
   // Vorauszahlung auf die Miete ist nur, was nach dem letzten Fälligkeitstag eingezahlt oder ausdrücklich
@@ -297,7 +329,7 @@ export function berechneMietkontostand(
   const vorausMiete = aufCent(Math.min(-saldo, deckung, seitherGezahlt));
   const vorauszahlung = aufCent(vorausBka + vorausMiete);
 
-  return { ...basis, rueckstand: aufCent(saldo + vorausMiete), vorauszahlung, nichtFaellig };
+  return { ...basis, rueckstand: aufCent(saldo + vorausMiete), vorauszahlung, nichtFaellig, bkaOhneForderung };
 }
 
 // Einfache Berechnung für Miete-Zahlungen (alle mit Kategorie "Miete")

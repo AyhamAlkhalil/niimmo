@@ -15,6 +15,7 @@ import { useMietvertragData } from "@/hooks/useMietvertragData";
 import { useToast } from "@/hooks/use-toast";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
 import { berechneMietkontostand } from "@/utils/rueckstandsberechnung";
+import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
 import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragDetailsModalProps {
@@ -300,9 +301,9 @@ export default function MietvertragDetailsModal({
           <AlertDialogDescription>
             Sie haben die Kaltmiete geändert. Handelt es sich um eine offizielle Mieterhöhung?
             <br /><br />
-            <strong>Ja:</strong> Das Datum der letzten Mieterhöhung wird automatisch auf heute gesetzt.
+            <strong>Ja:</strong> Das Datum der letzten Mieterhöhung wird auf heute gesetzt. Die neue Miete wird ab dem {offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.
             <br />
-            <strong>Nein:</strong> Die Miete wird nur korrigiert, ohne das Mieterhöhungsdatum zu ändern.
+            <strong>Nein:</strong> Die Miete wird nur korrigiert, ohne das Mieterhöhungsdatum zu ändern. Die Korrektur gilt schon für den laufenden Monat.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

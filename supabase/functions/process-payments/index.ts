@@ -122,6 +122,8 @@ interface ContractInfo {
   mieterNamen: string[]; // Array of individual names for fuzzy matching
   gesamtmiete: number;
   kaution: number | null;
+  /** Bereits gezahlte Kaution (mietvertrag.kaution_ist, per Trigger aus den Kautionszahlungen) */
+  kautionIst: number | null;
   iban: string | null;
   weitere_iban: string | null;
   verwendungszweck: string[] | null;
@@ -365,6 +367,7 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
       kaltmiete,
       betriebskosten,
       kaution_betrag,
+      kaution_ist,
       bankkonto_mieter,
       weitere_bankkonten,
       verwendungszweck,
@@ -434,6 +437,7 @@ async function getContractContext(supabase: any): Promise<ContractInfo[]> {
       mieterNamen: Array.from(mieterNamesSet),
       gesamtmiete,
       kaution: c.kaution_betrag,
+      kautionIst: c.kaution_ist == null ? null : Number(c.kaution_ist),
       iban: normalisiereIban(c.bankkonto_mieter) || null,
       weitere_iban: c.weitere_bankkonten
         ? c.weitere_bankkonten.split(",").map(normalisiereIban).filter(Boolean).join(",") || null
@@ -648,11 +652,22 @@ function namensVarianten(name: string): string[] {
  * die vereinbarte Kaution nicht übersteigt. Bis zum 27.10.2026 musste der Betrag positiv und gleich
  * der vollen Kaution sein: Raten (§ 551 Abs. 2 BGB) und Rückzahlungen wurden zu „Miete“ — eine
  * Rückzahlung von −1.500 € erhöhte so den Mietrückstand um 1.500 €.
+ *
+ * Ist die Kaution schon voll gezahlt, ist ein weiterer Eingang keine Kaution (29.10.2026): Ein Mieter
+ * überweist seit 2025 seine Monatsmiete mit „Kaution“ im Verwendungszweck (22 Zahlungen, Kaution seit
+ * Langem voll). Seit der Regel vom 27.10. wären sie als Kaution gebucht worden und die Miete hätte
+ * als Rückstand gegolten. Eine Rückzahlung (negativ) bleibt Kaution.
  */
-function istKautionsbuchung(verwendungszweck: string, betrag: number, kaution: number | null | undefined): boolean {
+function istKautionsbuchung(
+  verwendungszweck: string,
+  betrag: number,
+  kaution: number | null | undefined,
+  kautionIst?: number | null
+): boolean {
   if (!/kaution|depot|sicherheitsleistung/.test((verwendungszweck || "").toLowerCase())) return false;
   if (!kaution || kaution <= 0) return false;
   const b = Math.abs(betrag);
+  if (betrag > 0 && kautionIst != null && kautionIst >= kaution - BETRAG_TOLERANZ) return false;
   return b > 0 && b <= kaution + BETRAG_TOLERANZ;
 }
 
@@ -1006,7 +1021,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
     
     if (bestContract) {
       const matchInfo = ibanMatchedContracts.find(m => m.contract.id === bestContract.id);
-      const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, bestContract.kaution);
+      const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, bestContract.kaution, bestContract.kautionIst);
       const matchType = matchInfo?.matchType === 'weitere' ? 'Weitere IBAN' : 'IBAN';
       const anzahlVertraege = new Set(matchingContracts.map(c => c.id)).size;
       const multiInfo = anzahlVertraege > 1
@@ -1040,7 +1055,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
     if (contract.verwendungszweck && Array.isArray(contract.verwendungszweck)) {
       for (const vzweck of contract.verwendungszweck) {
         if (vzweck && verwendungszweck.includes(vzweck.toLowerCase())) {
-          const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution);
+          const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution, contract.kautionIst);
           const kategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
           return {
             ...payment,
@@ -1116,7 +1131,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
       }
 
       const { contract, matchedNames, matchedParts } = winner;
-      const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution);
+      const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution, contract.kautionIst);
       const nameKategorie = isKaution ? "Mietkaution" : bka ? "Betriebskostenabrechnung" : "Miete";
       // Auch ein Treffer mit vollem Namen (Vor- UND Nachname) kann mehrdeutig sein,
       // wenn er nur per Datum/Betrag/Status von einem gleichwertigen Kandidaten
@@ -1206,7 +1221,7 @@ function matchPaymentByRules(payment: Payment, contracts: ContractInfo[], sonder
 
   if (amountMatches.length === 1) {
     const contract = amountMatches[0];
-    const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution);
+    const isKaution = istKautionsbuchung(verwendungszweck, payment.betrag, contract.kaution, contract.kautionIst);
     // LOW confidence - user should verify!
     return {
       ...payment,
@@ -1398,7 +1413,7 @@ function matchBGPaymentByName(payment: Payment, contracts: ContractInfo[]): Proc
 
   // Determine category: Kaution or Miete
   let kategorie = "Miete";
-  if (istKautionsbuchung(verwendungszweck, payment.betrag, bestMatch.contract.kaution)) {
+  if (istKautionsbuchung(verwendungszweck, payment.betrag, bestMatch.contract.kaution, bestMatch.contract.kautionIst)) {
     kategorie = "Mietkaution";
   }
   

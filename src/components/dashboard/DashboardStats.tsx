@@ -164,6 +164,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
 
   // Beträge wie in Schriftstücken: „48.250 €“ statt „€48,250“, Cent nur wenn vorhanden
   const euro = formatEuroKompakt;
+  const vorzeichen = (betrag: number) => `${betrag > 0 ? '+' : '−'} ${euro(Math.abs(betrag))}`;
   const anzahlObjekte = immobilien?.length || 0;
 
   // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin). ui/input statt rohem Zahlenfeld:
@@ -252,6 +253,17 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
               <KennzahlInfo titel={`Soll-Miete ${monat}`}>
                 <p>Die Monatsmieten im {monat} aller aktiven und gekündigten Verträge, die in diesem Monat laufen — auch bei Einzug im Laufe des Monats. So, wie die Sollstellung sie anlegt: Kaltmiete + Betriebskosten, bei Ein- oder Auszug taggenau anteilig, mit Minderungen und Rücklastschriftgebühren.</p>
                 <p>Fällig am 8. des Monats, beim Einzug am Mietbeginn.</p>
+                {saldo && (
+                  <table className="mt-2 w-full text-xs tabular-nums">
+                    <tbody>
+                      <tr><td>Kaltmiete + Betriebskosten dieser Verträge</td><td className="text-right">{euro(saldo.ueberleitung.vertragsmiete)}</td></tr>
+                      {saldo.ueberleitung.anteilig !== 0 && <tr><td>Einzug oder Auszug im Monat (anteilig)</td><td className="text-right">{vorzeichen(saldo.ueberleitung.anteilig)}</td></tr>}
+                      {saldo.ueberleitung.abweichend !== 0 && <tr><td>Abweichende Monatsmiete (z. B. Erhöhung erst ab Folgemonat, Minderung)</td><td className="text-right">{vorzeichen(saldo.ueberleitung.abweichend)}</td></tr>}
+                      {saldo.ueberleitung.gebuehren !== 0 && <tr><td>Rücklastschriftgebühren</td><td className="text-right">{vorzeichen(saldo.ueberleitung.gebuehren)}</td></tr>}
+                      <tr className="border-t border-border font-medium text-foreground"><td>Soll-Miete</td><td className="text-right">{euro(saldo.soll)}</td></tr>
+                    </tbody>
+                  </table>
+                )}
               </KennzahlInfo>
             </p>
             <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{saldo ? euro(saldo.soll) : '—'}</p>

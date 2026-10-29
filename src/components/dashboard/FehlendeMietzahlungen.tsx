@@ -35,6 +35,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
   const [searchTerm, setSearchTerm] = useState("");
   const { data, isLoading, error } = useRueckstaende();
   const fehlendeMietzahlungen = data?.eintraege;
+  const bkaHinweise = data?.bkaOhneForderung ?? [];
 
   const { rueckstaende, guthaben, sortedFehlendeMietzahlungen, statusCounts } = useMemo(() => {
     if (!fehlendeMietzahlungen) return { rueckstaende: { aktiv: [], gekuendigt: [], beendet: [] }, guthaben: { aktiv: [], gekuendigt: [], beendet: [] }, sortedFehlendeMietzahlungen: [], statusCounts: { aktiv: 0, gekuendigt: 0, beendet: 0 } };
@@ -194,7 +195,7 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
                     ? 'nicht geladen'
                     : isLoading
                     ? 'wird geladen …'
-                    : `${fehlendeMietzahlungen?.length || 0} ${(fehlendeMietzahlungen?.length || 0) === 1 ? 'Vertrag' : 'Verträge'}`}
+                    : `${fehlendeMietzahlungen?.length || 0} ${(fehlendeMietzahlungen?.length || 0) === 1 ? 'Vertrag' : 'Verträge'}${bkaHinweise.length > 0 ? ` · ${bkaHinweise.length} zu prüfen` : ''}`}
                 </span>
               </span>
             </CollapsibleTrigger>
@@ -280,6 +281,33 @@ export const FehlendeMietzahlungen = ({ onMietvertragClick, open, defaultOpen, o
             </div>
           )}
           
+          {/* BKA-Zahlungen ohne BKA-Forderung, auch bei ausgeglichenem Saldo (Sonderfall, 29.10.2026) */}
+          {bkaHinweise.length > 0 && (
+            <div className="mb-4 border border-warning/40 bg-warning/5 p-3">
+              <p className="flex items-center gap-1 text-sm font-medium text-foreground">
+                Zu prüfen: BKA-Zahlungen ohne BKA-Forderung
+                <KennzahlInfo titel="BKA-Zahlung ohne BKA-Forderung">
+                  <p>Eine Zahlung ist als Betriebskostenabrechnung gebucht, aber die Abrechnung ist nicht als Forderung (Typ BKA) angelegt — oder die Zahlung geht über sie hinaus.</p>
+                  <p>Solche Zahlungen tilgen keine Miete und stehen nicht im Rückstand oder Guthaben. Bitte die Abrechnung im Vertrag als Forderung anlegen.</p>
+                </KennzahlInfo>
+              </p>
+              <ul className="mt-2 space-y-1 text-sm">
+                {bkaHinweise.map((h) => (
+                  <li key={h.mietvertrag_id}>
+                    <button
+                      type="button"
+                      onClick={(e) => handleMietvertragClick(h.mietvertrag_id, e)}
+                      className="flex w-full flex-wrap items-baseline justify-between gap-x-3 rounded-sm text-left hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                    >
+                      <span>{h.immobilie_name}{h.einheit ? ` · ${h.einheit}` : ''} · {h.mieter_name}</span>
+                      <span className="tabular-nums text-muted-foreground">{h.betrag > 0 ? 'Zahlung' : 'Auszahlung'} {formatBetrag(Math.abs(h.betrag))}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Search */}
           <div className="relative mb-3">
             <Search className="h-4 w-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />

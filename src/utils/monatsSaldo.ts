@@ -1,5 +1,7 @@
 import { format } from 'date-fns';
+import { getVertragsende } from './contractUtils';
 import {
+  bkaAnrechnung,
   bkaVorauszahlung,
   istMonatsmiete,
   nurFaelligeForderungen,
@@ -46,6 +48,12 @@ export interface MonatsSaldo {
   aelter: number;
   vertraegeOffen: number;
   vertraegeAelter: number;
+  /**
+   * Überleitung Kaltmiete + Betriebskosten → Soll-Miete (29.10.2026, Kundenfrage): vertragsmiete + anteilig
+   * + abweichend + gebuehren = soll. anteilig: Monate mit Mietbeginn oder -ende; abweichend: Monatsmieten,
+   * die nicht der Vertragsmiete entsprechen (Mieterhöhung ab Folgemonat, Minderung, erlassene Miete).
+   */
+  ueberleitung: { vertragsmiete: number; anteilig: number; abweichend: number; gebuehren: number };
   /** Zahlungen (Miete, Rücklastschrift, BKA) mit Buchungstag im laufenden Monat — 0 heißt: Kontoauszug fehlt vermutlich */
   zahlungenImMonat: number;
 }
@@ -87,6 +95,11 @@ export function monatsSaldo(
   let aelter = 0;
   let vertraegeOffen = 0;
   let vertraegeAelter = 0;
+  let vertragsmiete = 0;
+  let anteilig = 0;
+  let abweichend = 0;
+  let gebuehren = 0;
+  const letzterTag = format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 0), 'yyyy-MM-dd');
   let zahlungenImMonat = 0;
 
   for (const v of vertraege) {
@@ -114,6 +127,7 @@ export function monatsSaldo(
       faellig.reduce((s, x) => s + zahl(x.sollbetrag), 0) +
         nochNichtFaellig -
         z.reduce((s, x) => s + zahl(x.betrag), 0) +
+        bkaAnrechnung(f, z).ohneForderung +
         bkaVorauszahlung(faellig, nichtFaelligeBka, z)
     );
 
@@ -125,6 +139,15 @@ export function monatsSaldo(
     aelter += aelterV;
     if (offenV > 0) vertraegeOffen += 1;
     if (aelterV > 0) vertraegeAelter += 1;
+
+    const vm = zahl(v.kaltmiete) + zahl(v.betriebskosten);
+    const gebuehrV = imMonat.filter((x) => !!x.ruecklastschrift_am).reduce((s, x) => s + zahl(x.sollbetrag), 0);
+    const ende = getVertragsende(v)?.slice(0, 10);
+    const teilmonat = (!!v.start_datum && v.start_datum.slice(0, 10) > `${monat}-01`) || (!!ende && ende < letzterTag);
+    vertragsmiete += vm;
+    gebuehren += gebuehrV;
+    if (teilmonat) anteilig += sollPositiv - vm - gebuehrV;
+    else abweichend += sollPositiv - vm - gebuehrV;
   }
 
   return {
@@ -134,6 +157,7 @@ export function monatsSaldo(
     aelter: rund(aelter),
     vertraegeOffen,
     vertraegeAelter,
+    ueberleitung: { vertragsmiete: rund(vertragsmiete), anteilig: rund(anteilig), abweichend: rund(abweichend), gebuehren: rund(gebuehren) },
     zahlungenImMonat,
   };
 }

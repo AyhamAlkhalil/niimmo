@@ -53,6 +53,23 @@ export function wirksamAb(zugang: Date): Date {
 }
 
 /**
+ * Ab wann eine in der Vertragsbearbeitung als „offizielle Mieterhöhung“ erfasste Miete gefordert wird:
+ * ab dem Folgemonat, am Monatsersten ab diesem Monat. So zieht es der DB-Trigger
+ * update_forderungen_on_rent_change nach (Migration 20261029100000, Entscheidung des Nutzers 29.10.2026).
+ * Eine reine Korrektur der Miete gilt dagegen schon für den laufenden Monat.
+ */
+export function offizielleErhoehungGiltAb(erfasstAm: Date = new Date()): Date {
+  return erfasstAm.getDate() === 1
+    ? new Date(erfasstAm.getFullYear(), erfasstAm.getMonth(), 1)
+    : new Date(erfasstAm.getFullYear(), erfasstAm.getMonth() + 1, 1);
+}
+
+/** offizielleErhoehungGiltAb als Text für Dialoge, z. B. „1. November 2026“ */
+export function offizielleErhoehungGiltAbText(erfasstAm: Date = new Date()): string {
+  return offizielleErhoehungGiltAb(erfasstAm).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/**
  * wirksamAb als Kalendertag für die Datenbank (mieterhoehungen.wirksam_ab).
  * Nicht über toISOString(): Die lokale Mitternacht des Monatsersten liegt in deutscher
  * Zeit am Vortag in UTC — gespeichert wurde bis zum 27.10.2026 immer der Monatsletzte

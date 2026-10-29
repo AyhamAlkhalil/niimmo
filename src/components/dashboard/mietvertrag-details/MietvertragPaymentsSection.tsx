@@ -83,7 +83,7 @@ export function MietvertragPaymentsSection({
   // Nur fällige Forderungen, wie Rückstandsliste und Mahnung. Bis zum 27.10.2026 zeigte das Detail vom
   // 1. bis 7. jedes Monats die noch nicht fällige Monatsmiete als Rückstand, Liste und Mahnung 0 €;
   // bis zum 28.10.2026 die vorab gezahlte Monatsmiete als Guthaben.
-  const { gesamtZahlungen, rueckstand, vorauszahlung, nichtFaellig } = berechneMietkontostand(
+  const { gesamtZahlungen, rueckstand, vorauszahlung, nichtFaellig, bkaOhneForderung } = berechneMietkontostand(
     vertrag,
     forderungen || [],
     zahlungen || []
@@ -191,6 +191,11 @@ export function MietvertragPaymentsSection({
                 {nichtFaellig !== 0 && (
                   <p className="text-xs text-muted-foreground">
                     Noch nicht fällig: {formatBetrag(nichtFaellig)}
+                  </p>
+                )}
+                {bkaOhneForderung !== 0 && (
+                  <p className="text-xs text-warning">
+                    {bkaOhneForderung > 0 ? 'BKA-Zahlung' : 'BKA-Auszahlung'} ohne BKA-Forderung, nicht enthalten: {formatBetrag(Math.abs(bkaOhneForderung))}. Bitte die Betriebskostenabrechnung als Forderung (Typ BKA) anlegen.
                   </p>
                 )}
                 {vorauszahlung > 0 && (

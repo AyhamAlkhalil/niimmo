@@ -497,9 +497,9 @@ describe('berechneMietkontostand', () => {
     // Am 05.10.2026 standen so 48 Verträge mit einer Monatsmiete Guthaben in der Liste
     const zahlungen = [septBezahlt, zahlung('z10', 800, '2026-10-01', '2026-10')];
     const am3 = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 3));
-    expect(am3).toEqual({ gesamtForderungen: 800, gesamtZahlungen: 1600, rueckstand: 0, vorauszahlung: 800, nichtFaellig: 800 });
+    expect(am3).toEqual({ gesamtForderungen: 800, gesamtZahlungen: 1600, rueckstand: 0, vorauszahlung: 800, nichtFaellig: 800, bkaOhneForderung: 0 });
     const am8 = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 8));
-    expect(am8).toEqual({ gesamtForderungen: 1600, gesamtZahlungen: 1600, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0 });
+    expect(am8).toEqual({ gesamtForderungen: 1600, gesamtZahlungen: 1600, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0, bkaOhneForderung: 0 });
   });
 
   it('zeigt eine Zahlung ab dem 28. für den Folgemonat nicht als Guthaben, bevor dessen Forderung existiert', () => {
@@ -696,7 +696,7 @@ describe('berechneMietkontostand', () => {
   });
 
   it('liefert für fehlende Daten Nullen', () => {
-    const nullen = { gesamtForderungen: 0, gesamtZahlungen: 0, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0 };
+    const nullen = { gesamtForderungen: 0, gesamtZahlungen: 0, rueckstand: 0, vorauszahlung: 0, nichtFaellig: 0, bkaOhneForderung: 0 };
     expect(berechneMietkontostand(null, [], [])).toEqual(nullen);
     // QA 28.10.2026: nichtFaellig bzw. Zahlungen kamen trotz fehlender Daten durch
     expect(berechneMietkontostand(null, [sept, okt], [], new Date(2026, 9, 5))).toEqual(nullen);
@@ -756,10 +756,10 @@ describe('Review 29.10.2026', () => {
     const zahlungen = [septBezahlt, zahlung('b', 300, '2026-10-25', '2026-10', 'Betriebskostenabrechnung')];
     const stand = berechneMietkontostand(mockMietvertrag, [sept, okt, bka], zahlungen, new Date(2026, 9, 29));
     expect(stand).toMatchObject({ rueckstand: 800, vorauszahlung: 300 });
-    // Was über die BKA-Forderung hinaus gezahlt ist, ist Guthaben
+    // Was über die BKA-Forderung hinaus gezahlt ist, ist eine BKA-Zahlung ohne Forderung (Entscheidung 29.10.2026)
     const zuViel = [septBezahlt, zahlung('z10', 800, '2026-10-01', '2026-10'), zahlung('b', 350, '2026-10-25', '2026-10', 'Betriebskostenabrechnung')];
     expect(berechneMietkontostand(mockMietvertrag, [sept, okt, bka], zuViel, new Date(2026, 9, 29)))
-      .toMatchObject({ rueckstand: -50, vorauszahlung: 300 });
+      .toMatchObject({ rueckstand: 0, vorauszahlung: 300, bkaOhneForderung: 50 });
   });
 
   it('hält eine Rücklastschrift-Gebühr im Folgemonat nicht für die angelegte Monatsmiete', () => {
@@ -811,5 +811,48 @@ describe('Review 29.10.2026, zweite Runde', () => {
     const zahlungen = [zahlung('z9', 800, '2026-09-01', '2026-09'), zahlung('z10', 800, '2026-10-01', '2026-10'), zahlung('x', 800, '2026-11-02', '2026-11')];
     // November erlassen: die Zahlung am 02.11. deckt keine kommende Miete, sie ist Guthaben
     expect(berechneMietkontostand(mockMietvertrag, [sept, okt, erlassen], zahlungen, new Date(2026, 10, 3)).rueckstand).toBe(-800);
+  });
+});
+
+describe('Sonderfälle 29.10.2026 — BKA-Zahlung ohne BKA-Forderung', () => {
+  const sept = { id: 'f9', sollmonat: '2026-09-01', sollbetrag: 800, faelligkeitsdatum: '2026-09-08' };
+  const okt = { id: 'f10', sollmonat: '2026-10-01', sollbetrag: 800, faelligkeitsdatum: '2026-10-08' };
+  const zahlung = (id: string, betrag: number, buchungsdatum: string, kategorie = 'Miete') =>
+    ({ id, betrag, buchungsdatum, kategorie, zugeordneter_monat: buchungsdatum.slice(0, 7) });
+
+  it('tilgt keine Miete, wenn die Abrechnung nicht als Forderung angelegt ist', () => {
+    // Live: Rückstand 97,73 € statt 482,00 €, weil 384,27 € BKA-Zahlung die Miete ausglich
+    const zahlungen = [zahlung('z9', 800, '2026-09-01'), zahlung('b', 384.27, '2026-03-23', 'Betriebskostenabrechnung')];
+    const stand = berechneMietkontostand(mockMietvertrag, [sept, okt], zahlungen, new Date(2026, 9, 29));
+    expect(stand).toMatchObject({ rueckstand: 800, gesamtZahlungen: 800, bkaOhneForderung: 384.27 });
+  });
+
+  it('rechnet sie an, sobald die BKA-Forderung angelegt ist', () => {
+    const bka = { id: 'b', sollmonat: '2025-12-01', sollbetrag: 384.27, faelligkeitsdatum: '2026-03-01', typ: 'BKA' };
+    const zahlungen = [zahlung('z9', 800, '2026-09-01'), zahlung('z10', 800, '2026-10-01'), zahlung('b', 384.27, '2026-03-23', 'Betriebskostenabrechnung')];
+    expect(berechneMietkontostand(mockMietvertrag, [sept, okt, bka], zahlungen, new Date(2026, 9, 29)))
+      .toMatchObject({ rueckstand: 0, bkaOhneForderung: 0 });
+  });
+
+  it('lässt eine Auszahlung über das BKA-Guthaben hinaus ebenfalls außen vor', () => {
+    const gutschrift = { id: 'g', sollmonat: '2025-12-01', sollbetrag: -150, faelligkeitsdatum: '2026-09-20', typ: 'BKA' };
+    const zahlungen = [zahlung('z9', 800, '2026-09-01'), zahlung('z10', 800, '2026-10-01'), zahlung('a', -200, '2026-09-22', 'Betriebskostenabrechnung')];
+    expect(berechneMietkontostand(mockMietvertrag, [sept, okt, gutschrift], zahlungen, new Date(2026, 9, 29)))
+      // Die Gutschrift (150) ist mit der Auszahlung verbraucht; die 50 € zu viel ausgezahlt stehen als Hinweis
+      .toMatchObject({ rueckstand: 0, bkaOhneForderung: -50 });
+  });
+});
+
+describe('Rückstandsliste — Hinweis BKA-Zahlung ohne Forderung auch bei Saldo 0', () => {
+  it('sammelt die Hinweise unabhängig vom Saldo und zeigt sie als eigenen Block', () => {
+    // Review 29.10.2026: Ein Vertrag mit bezahlter Miete und BKA-Zahlung ohne Forderung hat Saldo 0
+    // und stand deshalb gar nicht in der Liste
+    const hook = readFileSync('src/hooks/useRueckstaende.ts', 'utf-8');
+    const block = hook.slice(hook.indexOf('if (bkaOhneForderung !== 0) {'), hook.indexOf('if (Math.abs(rueckstand) >= 0.01) {'));
+    expect(block).toMatch(/bkaHinweise\.push\(/);
+    expect(hook).toMatch(/return \{ eintraege: rueckstaende, monat, bkaOhneForderung: bkaHinweise \};/);
+    const ansicht = readFileSync('src/components/dashboard/FehlendeMietzahlungen.tsx', 'utf-8');
+    expect(ansicht).toMatch(/Zu prüfen: BKA-Zahlungen ohne BKA-Forderung/);
+    expect(ansicht).toMatch(/bkaHinweise\.map\(/);
   });
 });

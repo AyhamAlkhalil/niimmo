@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { format } from "date-fns";
+import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
 import { getVertragsende, istVergangenerTag, mietendeFelder, statusNachMietende } from "@/utils/contractUtils";
 import {
   VERTRAG_ZAEHLER_FELDER,
@@ -89,7 +90,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       const mieterName = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;
 
       if (field === 'kaltmiete' && isOfficialRentIncrease) {
-        toast({ title: "Mieterhöhung dokumentiert", description: "Kaltmiete wurde erhöht und Datum der letzten Mieterhöhung wurde automatisch gesetzt." });
+        toast({ title: "Mieterhöhung dokumentiert", description: `Die neue Miete wird ab dem ${offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.` });
         logActivity('mieterhoehung_dokumentiert', 'mietvertrag', vertragId, { altKaltmiete: altWert, neueKaltmiete: numericValue, mieter: mieterName });
       } else {
         const fieldName = field === 'kaltmiete' ? 'Kaltmiete' : field === 'betriebskosten' ? 'Betriebskosten' : 'Rücklastschrift-Gebühr';
@@ -614,7 +615,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       const isRentIncrease = mietvertragUpdates.letzte_mieterhoehung_am;
       toast(historieOk ? {
         title: isRentIncrease ? "Mieterhöhung dokumentiert" : "Erfolgreich gespeichert",
-        description: isRentIncrease ? "Kaltmiete wurde erhöht und Datum der letzten Mieterhöhung wurde automatisch gesetzt." : "Alle Änderungen wurden übernommen.",
+        description: isRentIncrease ? `Die neue Miete wird ab dem ${offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.` : "Alle Änderungen wurden übernommen.",
       } : HISTORIE_FEHLT_TOAST);
 
       const mieterNameGlobal = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;

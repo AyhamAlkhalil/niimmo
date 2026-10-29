@@ -84,6 +84,16 @@ export function FehlendeMietzahlungenItem({
                 </p>
               </div>
             </div>
+            {item.bka_ohne_forderung !== 0 && (
+              <p className="text-xs text-warning">
+                {formatBetrag(Math.abs(item.bka_ohne_forderung))} {item.bka_ohne_forderung > 0 ? 'BKA-Zahlung' : 'BKA-Auszahlung'} ohne BKA-Forderung, nicht im Betrag — bitte die Betriebskostenabrechnung als Forderung anlegen
+              </p>
+            )}
+            {item.verbundener_gegenbetrag > 0 && (
+              <p className="text-xs text-warning">
+                Ein weiterer Vertrag dieses Mieters hat {formatBetrag(item.verbundener_gegenbetrag)} {isGuthaben ? 'Rückstand' : 'Guthaben'} — vielleicht eine Sammelzahlung; bitte die Zahlung aufteilen
+              </p>
+            )}
             {item.vorauszahlung > 0 && (
               <p className="text-xs text-muted-foreground">
                 {formatBetrag(item.vorauszahlung)} sind mit noch nicht fälligen Forderungen verrechnet und im Betrag nicht enthalten

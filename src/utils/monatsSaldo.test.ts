@@ -125,3 +125,22 @@ describe('monatsSaldo — Review 29.10.2026, zweite Runde', () => {
     expect(r).toMatchObject({ soll: 0, eingang: 0, offen: 0, aelter: 0 });
   });
 });
+
+describe('monatsSaldo — Überleitung Kaltmiete + Betriebskosten → Soll-Miete', () => {
+  it('erklärt den Unterschied: anteilige Monate, abweichende Monatsmieten, Gebühren', () => {
+    // Live 29.10.2026: 63.276,01 € Vertragsmiete, Soll 62.271,63 €: −722,58 € Einzug am 15.10., −281,80 € fünf
+    // Mieterhöhungen ab November
+    const einzug = { id: 'e', status: 'aktiv', start_datum: '2026-10-15', kaltmiete: 1400, betriebskosten: 200 };
+    const erhoeht = { id: 'h', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 426, betriebskosten: 0 };
+    const gebuehr = { id: 'g', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 500, betriebskosten: 0 };
+    const r = monatsSaldo([einzug, erhoeht, gebuehr], [
+      { mietvertrag_id: 'e', sollmonat: '2026-10-01', sollbetrag: 877.42, faelligkeitsdatum: '2026-10-15', typ: 'Miete' },
+      { mietvertrag_id: 'h', sollmonat: '2026-10-01', sollbetrag: 375, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
+      { mietvertrag_id: 'g', sollmonat: '2026-10-01', sollbetrag: 500, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
+      { mietvertrag_id: 'g', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-03', typ: 'Miete', ruecklastschrift_am: '2026-10-03' },
+    ], [], am10Okt);
+    expect(r.ueberleitung).toEqual({ vertragsmiete: 2526, anteilig: -722.58, abweichend: -51, gebuehren: 7.5 });
+    const { vertragsmiete, anteilig, abweichend, gebuehren } = r.ueberleitung;
+    expect(Math.round((vertragsmiete + anteilig + abweichend + gebuehren) * 100) / 100).toBe(r.soll);
+  });
+});

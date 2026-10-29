@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.8.2",
+    datum: "2026-10-29",
+    aenderungen: [
+      { art: "neu", titel: "Rückstandsliste weist auf Sonderfälle hin: BKA-Zahlung ohne BKA-Forderung, mögliche Sammelzahlung" },
+      { art: "verbessert", titel: "Eine offizielle Mieterhöhung in der Vertragsbearbeitung gilt ab dem Folgemonat" },
+    ],
+  },
+  {
     version: "1.8.1",
     datum: "2026-10-29",
     aenderungen: [

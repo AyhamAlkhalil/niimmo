@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  offizielleErhoehungGiltAb,
+  offizielleErhoehungGiltAbText,
   KAPPUNGSGRENZE_ANGESPANNT_PROZENT,
   KAPPUNGSGRENZE_REGEL_PROZENT,
   erhoehungUeberfaellig,
@@ -422,5 +424,23 @@ describe('Zustimmung: Zurücknehmen und Prüfung beim Zustimmen', () => {
   it('fehlende Kaltmiete überspringt die Konfliktprüfung nicht mehr', () => {
     expect(migration).toMatch(/v_schon := v_mv\.kaltmiete is not distinct from v_mh\.neue_kaltmiete/);
     expect(migration).toContain('v_mv.kaltmiete is distinct from v_mh.alte_kaltmiete');
+  });
+});
+
+describe('offizielleErhoehungGiltAb (Vertragsbearbeitung, 29.10.2026)', () => {
+  it('gilt ab dem Folgemonat, am Monatsersten ab diesem Monat', () => {
+    expect(offizielleErhoehungGiltAb(new Date(2026, 9, 28))).toEqual(new Date(2026, 10, 1));
+    expect(offizielleErhoehungGiltAb(new Date(2026, 11, 15))).toEqual(new Date(2027, 0, 1));
+    expect(offizielleErhoehungGiltAb(new Date(2026, 10, 1))).toEqual(new Date(2026, 10, 1));
+    expect(offizielleErhoehungGiltAbText(new Date(2026, 9, 28))).toBe('1. November 2026');
+  });
+
+  it('entspricht der Regel im DB-Trigger der Migration', () => {
+    const migration = readFileSync('supabase/migrations/20261029100000_mieterhoehung_ab_folgemonat.sql', 'utf-8');
+    expect(migration).toMatch(/when extract\(day from new\.letzte_mieterhoehung_am\) = 1\s+then new\.letzte_mieterhoehung_am\s+else \(date_trunc\('month', new\.letzte_mieterhoehung_am\) \+ interval '1 month'\)::date/);
+    // Monate vor der Wirksamkeit mit alter Miete — auch bei gleichzeitiger Datumsänderung (Review 29.10.2026)
+    expect(migration).toMatch(/case when v_f\.sollmonat < v_ab then v_alt_miete else v_neu_miete end/);
+    expect(migration).toMatch(/elsif v_monat < v_ab then\s+v_basis := v_alt_miete;/);
+    expect(migration).toMatch(/and f\.sollmonat >= v_laufend/);
   });
 });

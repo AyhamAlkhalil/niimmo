@@ -24,6 +24,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
+import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 
@@ -411,7 +412,9 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
         queryClient.invalidateQueries({ queryKey: ["all-mietvertraege"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag-mit-details"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag-detail"] });
-        toast({ title: extraUpdate?.letzte_mieterhoehung_am ? "✓ Mieterhöhung dokumentiert" : "✓ Gespeichert" });
+        toast(extraUpdate?.letzte_mieterhoehung_am
+          ? { title: "Mieterhöhung dokumentiert", description: `Die neue Miete wird ab dem ${offizielleErhoehungGiltAbText()} gefordert.` }
+          : { title: "Gespeichert" });
       } catch (err: unknown) {
         toast({ title: "Fehler", description: (err as Error).message, variant: "destructive" });
       }
@@ -987,9 +990,9 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
               Sie haben die Kaltmiete von {pendingKaltmiete?.oldValue.toFixed(2)} € auf {pendingKaltmiete?.newValue.toFixed(2)} € geändert.
               Handelt es sich um eine offizielle Mieterhöhung?
               <br /><br />
-              <strong>Ja:</strong> Das Datum der letzten Mieterhöhung wird automatisch auf heute gesetzt.
+              <strong>Ja:</strong> Das Datum der letzten Mieterhöhung wird auf heute gesetzt. Die neue Miete wird ab dem {offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.
               <br />
-              <strong>Nein:</strong> Die Miete wird nur korrigiert.
+              <strong>Nein:</strong> Die Miete wird nur korrigiert. Die Korrektur gilt schon für den laufenden Monat.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

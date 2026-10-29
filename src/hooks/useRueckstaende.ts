@@ -31,6 +31,13 @@ export interface FehlendeMietzahlung {
   gesamt_zahlungen: number;
   /** Überzahlung, die mit noch nicht fälligen Forderungen verrechnet ist (weder Rückstand noch Guthaben) */
   vorauszahlung: number;
+  /** BKA-Zahlungen ohne passende BKA-Forderung — nicht im Betrag enthalten (Sonderfall, 29.10.2026) */
+  bka_ohne_forderung: number;
+  /**
+   * Gegenbetrag an weiteren Verträgen desselben Mieters (Guthaben bei Rückstand und umgekehrt), z. B. eine
+   * Sammelzahlung für Wohnung und Garage. Die Software teilt nie selbst auf (Entscheidung 28.10.2026).
+   */
+  verbundener_gegenbetrag: number;
   miete_zahlungen: number;
   immobilie_name: string;
   immobilie_adresse: string;
@@ -62,9 +69,21 @@ export interface FehlendeMietzahlung {
  * Rückstandsliste und Monatszahlen der Startseite aus einer Abfrage und mit einem Stichtag: So passen
  * „Noch offen“ oben und die Rückstände darunter zusammen (29.10.2026).
  */
+/** BKA-Zahlung ohne passende BKA-Forderung — unabhängig vom Saldo zu prüfen (Sonderfall, 29.10.2026) */
+export interface BkaHinweis {
+  mietvertrag_id: string;
+  betrag: number;
+  immobilie_name: string;
+  einheit: string;
+  mieter_name: string;
+  mietvertrag_status: string;
+}
+
 export interface Mietkonto {
   eintraege: FehlendeMietzahlung[];
   monat: MonatsSaldo;
+  /** Auch Verträge mit ausgeglichenem Saldo: Die BKA-Zahlung steht dort sonst nirgends in der Liste */
+  bkaOhneForderung: BkaHinweis[];
 }
 
 export const useRueckstaende = () => {
@@ -183,6 +202,7 @@ export const useMietkonto = () =>
       ]);
 
       const rueckstaende: FehlendeMietzahlung[] = [];
+      const bkaHinweise: BkaHinweis[] = [];
 
       // Berechne für jeden Mietvertrag (aktiv, gekündigt, beendet)
       for (const mietvertrag of mietvertraege || []) {
@@ -198,12 +218,25 @@ export const useMietkonto = () =>
 
         // Nur fällige Forderungen; eine Überzahlung auf noch nicht fällige Miete ist Vorauszahlung, kein
         // Guthaben. Dieselbe Rechnung wie Vertragsdetail und Mahnbetrag (MietvertragDetailsModal).
-        const { gesamtForderungen, gesamtZahlungen, rueckstand, vorauszahlung } = berechneMietkontostand(
+        const { gesamtForderungen, gesamtZahlungen, rueckstand, vorauszahlung, bkaOhneForderung } = berechneMietkontostand(
           mietvertrag,
           mietvertragForderungen,
           mietvertragZahlungen,
           stichtag
         );
+
+        if (bkaOhneForderung !== 0) {
+          const einheitH = einheiten?.find(e => e.id === mietvertrag.einheit_id);
+          const mieterH = mietvertragMieter?.find(mm => mm.mietvertrag_id === mietvertrag.id)?.mieter;
+          bkaHinweise.push({
+            mietvertrag_id: mietvertrag.id,
+            betrag: bkaOhneForderung,
+            immobilie_name: immobilien?.find(i => i.id === einheitH?.immobilie_id)?.name || 'Unbekannt',
+            einheit: [einheitH?.einheitentyp, einheitH?.etage].filter(Boolean).join(' · '),
+            mieter_name: mieterH ? `${mieterH.vorname} ${mieterH.nachname}` : 'Unbekannt',
+            mietvertrag_status: mietvertrag.status,
+          });
+        }
 
         // Zeige nur Nettostand (Rückstand oder Guthaben nach Aufrechnung)
         // Filtere auch sehr kleine Beträge unter 1 Cent aus
@@ -234,6 +267,8 @@ export const useMietkonto = () =>
             gesamt_forderungen: gesamtForderungen,
             gesamt_zahlungen: gesamtZahlungen,
             vorauszahlung,
+            bka_ohne_forderung: bkaOhneForderung,
+            verbundener_gegenbetrag: 0,
             miete_zahlungen: mieteZahlungenSumme,
             immobilie_name: immobilie?.name || 'Unbekannt',
             immobilie_adresse: immobilie?.adresse || 'Unbekannt',
@@ -265,6 +300,17 @@ export const useMietkonto = () =>
         }
       }
       
+      // Sammelzahlung erkennen, nicht aufteilen: Rückstand an einem Vertrag, Guthaben an einem anderen
+      // desselben Mieters (Live 29.10.2026: zwei Garagen zu je 50 €, 100 € Guthaben und 150 € Rückstand)
+      const offen = rueckstaende.filter((e) => e.mietvertrag_status !== 'Beendet');
+      for (const eintrag of offen) {
+        const mieterIds = new Set(eintrag.alle_mieter.map((m: { mieter_id?: string }) => m.mieter_id).filter(Boolean));
+        eintrag.verbundener_gegenbetrag = offen
+          .filter((andere) => andere.mietvertrag_id !== eintrag.mietvertrag_id && andere.ist_guthaben !== eintrag.ist_guthaben)
+          .filter((andere) => andere.alle_mieter.some((m: { mieter_id?: string }) => mieterIds.has(m.mieter_id)))
+          .reduce((s, andere) => s + andere.fehlend_betrag, 0);
+      }
+
       // Dieselben Verträge wie die Summen der Liste (aktiv und gekündigt), soweit sie in diesem Monat laufen
       const monatKey = format(stichtag, 'yyyy-MM');
       const monat = monatsSaldo(
@@ -273,6 +319,6 @@ export const useMietkonto = () =>
         alleZahlungen,
         stichtag
       );
-      return { eintraege: rueckstaende, monat };
+      return { eintraege: rueckstaende, monat, bkaOhneForderung: bkaHinweise };
     }
   });
