@@ -1,5 +1,5 @@
 
-import { Pencil, Check, X } from "lucide-react";
+import { Pencil, Check, X, ArrowUp, ArrowDown } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatEuroKompakt } from "@/utils/betragAnzeige";
@@ -125,9 +125,9 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
   const aktiveMietvertraege = relevanteVertraege.filter(mv => mv.status === 'aktiv');
   const gekuendigteMietvertraege = relevanteVertraege.filter(mv => mv.status === 'gekuendigt');
 
-  // Kaltmiete und Betriebskosten der Faktenzeile teilen die Soll-Miete auf (monatsSaldo → aufteilung). Bis zum
-  // 29.10.2026 standen dort die Vertragswerte (summiereLaufendeMieten), die im Monat eines Einzugs oder einer
-  // erst ab dem Folgemonat geltenden Erhöhung nicht die Soll-Miete ergaben (Kundenfrage).
+  // Kaltmiete und Betriebskosten der Faktenzeile teilen die Soll-Miete auf (monatsSaldo → aufteilung), beide aus
+  // den Verträgen mit der im Monat gültigen Miete. Bis zum 29.10.2026 standen dort die vollen Vertragswerte
+  // (summiereLaufendeMieten), die im Monat eines Einzugs nicht die Soll-Miete ergaben (Kundenfrage).
   const saldo = mietkonto?.monat;
   const ladeFehler = einheitenFehler || vertraegeFehler || monatsFehler;
   const monatGeladen = !!saldo;
@@ -169,26 +169,24 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
   // Beträge wie in Schriftstücken: „48.250 €“ statt „€48,250“, Cent nur wenn vorhanden
   const euro = formatEuroKompakt;
   const vorzeichen = (betrag: number) => `${betrag > 0 ? '+' : '−'} ${euro(Math.abs(betrag))}`;
-  // Vom Vertragswert zum Wert im Monat, für Soll-Miete, Kaltmiete und Betriebskosten (29.10.2026, Kundenfrage:
-  // „Laut Verträgen“ stand bei Kaltmiete ohne Erklärung, warum oben weniger steht)
-  const unterschiedImMonat = (
-    vertragswert: number,
-    anteilig: number,
-    abweichend: number,
-    abweichendText = 'Abweichende Monatsmiete (z. B. Erhöhung erst ab Folgemonat, Minderung)'
-  ) => (
-    <>
-      <p className="mt-2">Laut Verträgen sind es {euro(vertragswert)} im Monat.{(anteilig !== 0 || abweichend !== 0) && ` Unterschied im ${monat}:`}</p>
-      {(anteilig !== 0 || abweichend !== 0) && (
-        <table className="w-full text-xs tabular-nums">
-          <tbody>
-            {anteilig !== 0 && <tr><td>Einzug oder Auszug im Monat, nur anteilig</td><td className="text-right">{vorzeichen(anteilig)}</td></tr>}
-            {abweichend !== 0 && <tr><td>{abweichendText}</td><td className="text-right">{vorzeichen(abweichend)}</td></tr>}
-          </tbody>
-        </table>
-      )}
-    </>
-  );
+  // Pfeil zum nächsten Monat (29.10.2026, Kunde: „einfach nur damit man sieht, ob es nächsten Monat mehr wird
+  // oder weniger“). Ersetzt die Überleitung zu den Vertragswerten im Info-Knopf, die er „total verwirrend“ fand.
+  const folge = mietkonto?.folgemonat;
+  const folgeName = folge ? new Date(Number(folge.monat.slice(0, 4)), Number(folge.monat.slice(5, 7)) - 1, 1).toLocaleDateString('de-DE', { month: 'long' }) : '';
+  const pfeil = (jetzt: number, danach: number | undefined) => {
+    if (danach === undefined) return null;
+    const unterschied = Math.round((danach - jetzt) * 100) / 100;
+    if (unterschied === 0) return null;
+    const Zeichen = unterschied > 0 ? ArrowUp : ArrowDown;
+    const text = `Im ${folgeName} ${euro(danach)} (${vorzeichen(unterschied)})`;
+    return (
+      <span role="img" aria-label={text} title={text} className="ml-1.5 inline-flex align-middle text-muted-foreground">
+        <Zeichen className="h-[0.75em] w-[0.75em]" aria-hidden="true" />
+      </span>
+    );
+  };
+  const imFolgemonat = (danach: number | undefined) =>
+    danach !== undefined && <p>Im {folgeName}: {euro(danach)}. Der Pfeil zeigt, ob es mehr oder weniger wird.</p>;
   const anzahlObjekte = immobilien?.length || 0;
 
   // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin). ui/input statt rohem Zahlenfeld:
@@ -275,30 +273,31 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
             <p className="eyebrow flex items-center gap-1">
               Soll-Miete
               <KennzahlInfo titel={`Soll-Miete ${monat}`}>
-                <p>Die Monatsmieten im {monat} aller aktiven und gekündigten Verträge, die in diesem Monat laufen — auch bei Einzug im Laufe des Monats. So, wie die Sollstellung sie anlegt: Kaltmiete + Betriebskosten, bei Ein- oder Auszug taggenau anteilig, mit Minderungen und Rücklastschriftgebühren.</p>
-                <p>Fällig am 8. des Monats, beim Einzug am Mietbeginn.</p>
+                <p>Die Monatsmieten im {monat} aus den Mietverträgen: Kaltmiete + Betriebskosten aller aktiven und gekündigten Verträge, die in diesem Monat laufen. Bei Ein- oder Auszug im Monat taggenau anteilig. Gebühren gehören nicht dazu.</p>
+                <p>Es zählt die Miete, die im {monat} gilt: Eine Mieterhöhung, die erst ab dem nächsten Monat gilt, zählt erst dort. Fällig am 8. des Monats, beim Einzug am Mietbeginn.</p>
                 {saldo && (
                   <table className="mt-2 w-full text-xs tabular-nums">
                     <tbody>
                       <tr><td>Kaltmiete</td><td className="text-right">{euro(saldo.aufteilung.kaltmiete)}</td></tr>
                       <tr><td>Betriebskosten</td><td className="text-right">{euro(saldo.aufteilung.betriebskosten)}</td></tr>
-                      {saldo.ueberleitung.gebuehren !== 0 && <tr><td>Rücklastschriftgebühren</td><td className="text-right">{euro(saldo.ueberleitung.gebuehren)}</td></tr>}
                       <tr className="border-t border-border font-medium text-foreground"><td>Soll-Miete</td><td className="text-right">{euro(saldo.soll)}</td></tr>
                     </tbody>
                   </table>
                 )}
-                {saldo && (saldo.ueberleitung.anteilig !== 0 || saldo.ueberleitung.abweichend !== 0) &&
-                  unterschiedImMonat(saldo.ueberleitung.vertragsmiete, saldo.ueberleitung.anteilig, saldo.ueberleitung.abweichend)}
+                {imFolgemonat(folge?.gesamt)}
               </KennzahlInfo>
             </p>
-            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{saldo ? euro(saldo.soll) : '—'}</p>
+            <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">
+              {saldo ? euro(saldo.soll) : '—'}
+              {saldo && pfeil(saldo.soll, folge?.gesamt)}
+            </p>
           </div>
           <div className="flex min-w-0 items-baseline justify-between gap-4 border-b border-border py-3.5 sm:block sm:border-b-0 sm:border-l sm:px-5 sm:py-0 sm:pt-4">
             <p className="eyebrow flex items-center gap-1">
               Eingang
               <KennzahlInfo titel={`Eingang ${monat}`}>
-                <p>Der Teil der Soll-Miete, den Zahlungen und Gutschriften decken. Eingang + Noch offen = Soll-Miete.</p>
-                <p>Eine Zahlung für den {monat} zählt hier, auch wenn aus früheren Monaten noch etwas offen ist. Was darüber hinaus gezahlt wird, tilgt zuerst ältere Rückstände (§ 366 BGB). Eine schon im Vormonat gezahlte Miete zählt mit, eine Zahlung auf eine Betriebskostennachzahlung nicht.</p>
+                <p>Alle Mietzahlungen, die dem {monat} zugeordnet sind, abzüglich Rücklastschriften. Die Zuordnung steht in der Zahlungsverwaltung.</p>
+                <p>Eine im Vormonat vorausgezahlte Miete zählt im Vormonat, eine doppelte Zahlung doppelt. Eingang und Noch offen ergeben deshalb nicht immer genau die Soll-Miete. Zahlungen auf eine Betriebskostenabrechnung zählen nicht.</p>
               </KennzahlInfo>
               {saldo && saldo.zahlungenImMonat === 0 && (
                 <KennzahlInfo titel="Noch keine Zahlungen erfasst" warnung>
@@ -312,7 +311,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
             <p className="eyebrow flex items-center gap-1">
               Noch offen
               <KennzahlInfo titel={`Noch offen ${monat}`}>
-                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Wer noch zahlen muss, zeigt die Zeile darunter per Klick. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
+                <p>Was von der Soll-Miete im {monat} noch nicht bezahlt ist. Eine Vorauszahlung oder ein Guthaben aus früheren Monaten deckt sie mit. Wer noch zahlen muss, zeigt die Zeile darunter per Klick. Vor der Fälligkeit (8. des Monats, beim Einzug Mietbeginn) ist es noch kein Rückstand.</p>
                 <p>Rückstände aus früheren Monaten stehen getrennt. Ab dem 8. ergeben beide zusammen die Rückstände unter „Handlungsbedarf“. Guthaben stehen ebenfalls dort.</p>
               </KennzahlInfo>
             </p>
@@ -344,40 +343,28 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
           <dt className="eyebrow flex items-center gap-1">
             Kaltmiete
             <KennzahlInfo titel={`Kaltmiete ${monat}`}>
-              <p>Der Kaltmiete-Anteil der Soll-Miete im {monat}. Kaltmiete + Betriebskosten = Soll-Miete.</p>
-              <p>Bei Ein- oder Auszug im Monat anteilig. Gilt eine Mieterhöhung erst ab dem Folgemonat, steht hier noch die alte Kaltmiete; eine Minderung senkt sie.</p>
-              {saldo && unterschiedImMonat(saldo.aufteilung.vertragKaltmiete, saldo.aufteilung.kaltmieteAnteilig, saldo.aufteilung.kaltmieteAbweichend)}
+              <p>Die Kaltmieten der Soll-Miete im {monat}, aus den Mietverträgen, bei Ein- oder Auszug im Monat anteilig. Kaltmiete + Betriebskosten = Soll-Miete.</p>
+              {imFolgemonat(folge?.kaltmiete)}
             </KennzahlInfo>
           </dt>
-          <dd className="mt-1 tabular-nums text-foreground">{saldo ? euro(saldo.aufteilung.kaltmiete) : '—'}</dd>
+          <dd className="mt-1 tabular-nums text-foreground">
+            {saldo ? euro(saldo.aufteilung.kaltmiete) : '—'}
+            {saldo && pfeil(saldo.aufteilung.kaltmiete, folge?.kaltmiete)}
+          </dd>
         </div>
         <div>
           <dt className="eyebrow flex items-center gap-1">
             Betriebskosten
             <KennzahlInfo titel={`Betriebskosten ${monat}`}>
-              <p>Die Betriebskostenvorauszahlungen in der Soll-Miete im {monat}, bei Ein- oder Auszug im Monat anteilig.</p>
-              {saldo && unterschiedImMonat(
-                saldo.aufteilung.vertragBetriebskosten,
-                saldo.aufteilung.betriebskostenAnteilig,
-                saldo.aufteilung.betriebskostenAbweichend,
-                // Die Vorauszahlung weicht nur ab, wenn die Monatsmiete darunter liegt (Review 29.10.2026)
-                'Monatsmiete unter der Vorauszahlung (Minderung, erlassene Miete)'
-              )}
+              <p>Die Betriebskostenvorauszahlungen der Soll-Miete im {monat}, aus den Mietverträgen, bei Ein- oder Auszug im Monat anteilig.</p>
+              {imFolgemonat(folge?.betriebskosten)}
             </KennzahlInfo>
           </dt>
-          <dd className="mt-1 tabular-nums text-foreground">{saldo ? euro(saldo.aufteilung.betriebskosten) : '—'}</dd>
+          <dd className="mt-1 tabular-nums text-foreground">
+            {saldo ? euro(saldo.aufteilung.betriebskosten) : '—'}
+            {saldo && pfeil(saldo.aufteilung.betriebskosten, folge?.betriebskosten)}
+          </dd>
         </div>
-        {saldo && saldo.ueberleitung.gebuehren !== 0 && (
-          <div>
-            <dt className="eyebrow flex items-center gap-1">
-              Gebühren
-              <KennzahlInfo titel="Rücklastschriftgebühren">
-                <p>Rücklastschriftgebühren im {monat}. Sie gehören zur Soll-Miete: Kaltmiete + Betriebskosten + Gebühren = Soll-Miete.</p>
-              </KennzahlInfo>
-            </dt>
-            <dd className="mt-1 tabular-nums text-foreground">{euro(saldo.ueberleitung.gebuehren)}</dd>
-          </div>
-        )}
         <div>
           <dt className="eyebrow flex items-center gap-1">
             Leerstand

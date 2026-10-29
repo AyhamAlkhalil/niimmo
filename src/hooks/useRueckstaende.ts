@@ -4,6 +4,7 @@ import { berechneMietkontostand, calculateMieteZahlungen, nurFaelligeForderungen
 import { mietrueckstand, rueckstandInMonatsmieten, rueckstandSeit } from "@/utils/rueckstandSeit";
 import { mieterNamenText } from "@/utils/offeneMieten";
 import { monatsSaldo, type MonatsSaldo } from "@/utils/monatsSaldo";
+import { sollFolgemonat, type SollFolgemonat } from "@/utils/sollFolgemonat";
 import { laeuftImMonat } from "@/utils/rueckstandsberechnung";
 import { format } from "date-fns";
 import { useEffect } from "react";
@@ -109,6 +110,8 @@ export interface Mietkonto {
   offenImMonat: OffeneMiete[];
   /** Auch Verträge mit ausgeglichenem Saldo: Die BKA-Zahlung steht dort sonst nirgends in der Liste */
   bkaOhneForderung: BkaHinweis[];
+  /** Soll-Miete des nächsten Monats für den Pfeil an den Kennzahlen; fehlt, wenn die Vorgänge nicht geladen wurden */
+  folgemonat?: SollFolgemonat;
 }
 
 export const useRueckstaende = () => {
@@ -184,6 +187,7 @@ export const useMietkonto = () =>
         { data: einheiten, error: einheitenError },
         { data: immobilien, error: immobilienError },
         { data: mietvertragMieter, error: mmError },
+        { data: erhoehungen, error: erhoehungenError },
       ] = await Promise.all([
         supabase.from('mietvertrag').select('*'),
         supabase.from('einheiten').select('*'),
@@ -199,12 +203,20 @@ export const useMietkonto = () =>
             telnr
           )
         `),
+        // Im Voraus vereinbarte Erhöhungen für den Pfeil zum nächsten Monat (sollFolgemonat); nur noch offene
+        supabase
+          .from('mieterhoehungen')
+          .select('mietvertrag_id, status, wirksam_ab, alte_kaltmiete, neue_kaltmiete, alte_betriebskosten, neue_betriebskosten')
+          .eq('status', 'zugestimmt'),
       ]);
 
       if (mietvertrageError) throw mietvertrageError;
       if (einheitenError) throw einheitenError;
       if (immobilienError) throw immobilienError;
       if (mmError) throw mmError;
+      // Kein throw: Die Vorgänge braucht nur der Pfeil. Ohne sie fehlt der Pfeil, statt dass die ganze
+      // Startseite samt Rückstandsliste ausfällt (Review 29.10.2026)
+      if (erhoehungenError) console.error('Mieterhöhungen für den Pfeil nicht geladen:', erhoehungenError.message);
 
       // Große Tabellen mit Pagination laden (umgeht serverseitiges 1000-Zeilen-Limit)
       const [alleForderungen, alleZahlungen] = await Promise.all([
@@ -372,6 +384,12 @@ export const useMietkonto = () =>
           mieter_namen: namen,
         };
       });
-      return { eintraege: rueckstaende, monat, offenImMonat, bkaOhneForderung: bkaHinweise };
+      return {
+        eintraege: rueckstaende,
+        monat,
+        offenImMonat,
+        bkaOhneForderung: bkaHinweise,
+        folgemonat: erhoehungenError ? undefined : sollFolgemonat(mietvertraege || [], erhoehungen || [], stichtag),
+      };
     }
   });

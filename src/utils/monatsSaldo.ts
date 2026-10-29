@@ -1,5 +1,4 @@
 import { format } from 'date-fns';
-import { getVertragsende } from './contractUtils';
 import {
   bkaAnrechnung,
   bkaVorauszahlung,
@@ -10,20 +9,23 @@ import {
   zahlungsMonat,
   type KontoForderung,
   type KontoZahlung,
-  type SollVertrag,
 } from './rueckstandsberechnung';
+import { vertragsMonatsmiete, type MonatsmieteVertrag } from './vertragsMonatsmiete';
 
 /**
  * Soll-Miete, Eingang und Noch offen des laufenden Monats für die Startseite (DashboardStats).
  *
- * Seit dem 29.10.2026 auf demselben Mietkonto wie die Rückstandsliste (berechneMietkontostand):
- * - Soll-Miete: die Monatsforderungen (Typ Miete: Monatsmiete, anteiliger Monat, Minderung, Gebühren),
- *   solange die Sollstellung den Monat nicht angelegt hat (am 1. vor 05:00 UTC) die Vertragsmiete.
- * - Eingang: der Teil davon, den Zahlungen decken. Eine Zahlung für diesen Monat (zugeordneter Monat, sonst
- *   Buchungsmonat) deckt zuerst seine Miete; alles Übrige tilgt die älteste Schuld (§ 366 Abs. 2 BGB), eine im
- *   Vormonat vorausgezahlte Miete zählt so mit.
- * - Noch offen = Soll-Miete − Eingang. Was aus früheren Monaten fällig und unbezahlt ist, steht
- *   getrennt in `aelter`; ab dem 8. ergeben Noch offen und `aelter` zusammen den Rückstand der Liste.
+ * Seit dem 29.10.2026 (Kundenvorgaben, wörtlich: „Die Soll-Miete soll aus den Mietverträgen berechnet werden —
+ * sie sind die Basis“, „Eingang sind alle Zahlungen die dem Monat zugeordnet werden als Miete“):
+ * - Soll-Miete: je laufendem Vertrag die in diesem Monat gültige Miete aus dem Vertrag, bei Ein- oder Auszug
+ *   anteilig (vertragsMonatsmiete). Keine Gebühren, keine Minderungen — die stehen nur im Mietkonto. Bis dahin
+ *   summierte sie die Forderungen des Monats, samt Rücklastschriftgebühren.
+ * - Eingang: alle Miet-Zahlungen, die diesem Monat zugeordnet sind (zugeordneter Monat, sonst Buchungsmonat),
+ *   Rücklastschriften mindernd, ohne Deckel. Wer doppelt zahlt, erhöht den Eingang; wer im Vormonat
+ *   vorausgezahlt hat, steht dort. Eingang + Noch offen ergibt daher nicht immer die Soll-Miete.
+ * - Noch offen: was von der Soll-Miete eines Vertrags weder durch Zahlungen für diesen Monat noch durch ein
+ *   Guthaben im Mietkonto (berechneMietkontostand) gedeckt ist. Was aus früheren Monaten fällig und unbezahlt
+ *   ist, steht getrennt in `aelter`; ab dem 8. ergeben Noch offen und `aelter` zusammen den Rückstand der Liste.
  *
  * Bis zum 28.10.2026 zählte der Eingang die Zahlungen mit zugeordnetem Monat. Die DB ordnet erst ab dem
  * 28. dem Folgemonat zu: Wer die Oktobermiete am 26.09. zahlte, stand im Oktober als offen, obwohl die
@@ -31,10 +33,10 @@ import {
  * Die Zeile „X € mehr eingegangen“ war kein Guthaben im Sinne der Liste und entfällt.
  * Vom 28. bis 29.10.2026 tilgte auch die Oktoberzahlung zuerst ältere Rückstände: Ein Mieter, der im Oktober
  * gezahlt, aber im April ausgelassen hatte, stand unter „hat die Oktobermiete noch nicht bezahlt“ (Kundenmeldung).
+ * Am 29.10.2026 zählt der Eingang auf Kundenvorgabe wieder die zugeordneten Zahlungen; „Noch offen“ bleibt beim
+ * Mietkonto, damit die Vorauszahlung vom 26.09. dort nicht als offen erscheint.
  */
-export interface MonatsVertrag extends SollVertrag {
-  id: string;
-}
+export type MonatsVertrag = MonatsmieteVertrag;
 
 export interface MonatsForderung extends KontoForderung {
   mietvertrag_id: string | null;
@@ -58,32 +60,10 @@ export interface MonatsSaldo {
    */
   offeneVertraege: { mietvertragId: string; offen: number; soll: number }[];
   /**
-   * Überleitung Kaltmiete + Betriebskosten → Soll-Miete (29.10.2026, Kundenfrage): vertragsmiete + anteilig
-   * + abweichend + gebuehren = soll. anteilig: Monate mit Mietbeginn oder -ende; abweichend: Monatsmieten,
-   * die nicht der Vertragsmiete entsprechen (Mieterhöhung ab Folgemonat, Minderung, erlassene Miete).
+   * Die Soll-Miete aufgeteilt für die Faktenzeile: kaltmiete + betriebskosten = soll, je Vertrag aus dem Vertrag.
+   * Eine Überleitung zu „Vertragswerten“ und Gebühren gibt es nicht mehr (Kunde 29.10.2026: „total verwirrend“).
    */
-  ueberleitung: { vertragsmiete: number; anteilig: number; abweichend: number; gebuehren: number };
-  /**
-   * Aufteilung der Soll-Miete für die Faktenzeile (29.10.2026, Kundenfrage „warum eine Differenz?“):
-   * kaltmiete + betriebskosten + ueberleitung.gebuehren = soll. Bis dahin zeigte die Faktenzeile die
-   * Vertragswerte (vertragKaltmiete, vertragBetriebskosten), die im Monat eines Einzugs oder einer erst ab
-   * dem Folgemonat geltenden Mieterhöhung nicht die Soll-Miete ergeben.
-   * Anteiliger Monat: beide Teile anteilig wie die Sollstellung. Sonst gelten die Betriebskosten laut Vertrag,
-   * eine abweichende Monatsmiete (Erhöhung erst ab Folgemonat, Minderung, erlassene Miete) ändert die Kaltmiete.
-   * Der Unterschied zum Vertragswert je Teil wie in `ueberleitung` (29.10.2026, Kundenfrage „wieso 50.582,51 €
-   * laut Verträgen, oben 49.668,45 €?“): vertragKaltmiete + kaltmieteAnteilig + kaltmieteAbweichend = kaltmiete,
-   * ebenso für die Betriebskosten.
-   */
-  aufteilung: {
-    kaltmiete: number;
-    betriebskosten: number;
-    vertragKaltmiete: number;
-    vertragBetriebskosten: number;
-    kaltmieteAnteilig: number;
-    kaltmieteAbweichend: number;
-    betriebskostenAnteilig: number;
-    betriebskostenAbweichend: number;
-  };
+  aufteilung: { kaltmiete: number; betriebskosten: number };
   /** Zahlungen (Miete, Rücklastschrift, BKA) mit Buchungstag im laufenden Monat — 0 heißt: Kontoauszug fehlt vermutlich */
   zahlungenImMonat: number;
 }
@@ -125,18 +105,9 @@ export function monatsSaldo(
   let aelter = 0;
   let vertraegeOffen = 0;
   let vertraegeAelter = 0;
-  let vertragsmiete = 0;
-  let anteilig = 0;
-  let abweichend = 0;
-  let gebuehren = 0;
   let kaltmiete = 0;
   let betriebskosten = 0;
-  let vertragKaltmiete = 0;
-  let vertragBetriebskosten = 0;
-  const kaltUnterschied = { anteilig: 0, abweichend: 0 };
-  const bkUnterschied = { anteilig: 0, abweichend: 0 };
   const offeneVertraege: MonatsSaldo['offeneVertraege'] = [];
-  const letzterTag = format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 0), 'yyyy-MM-dd');
   let zahlungenImMonat = 0;
 
   for (const v of vertraege) {
@@ -144,15 +115,18 @@ export function monatsSaldo(
     const z = (zahlungenJe.get(v.id) ?? []).filter(zaehltImMietkonto);
     zahlungenImMonat += z.filter((x) => (x.buchungsdatum as string).slice(0, 7) === monat).length;
 
-    // Forderungen des Monats ohne BKA: Monatsmiete, anteiliger Monat, Minderung, Gebühren. Fehlt die
-    // Monatsmiete noch (am 1. vor 05:00 UTC), kommt sie aus der Nachbildung der Sollstellung dazu.
-    const imMonat = f.filter((x) => (x.sollmonat as string).slice(0, 7) === monat && (x.typ ?? 'Miete') !== 'BKA');
-    const fehlendeMiete = imMonat.some(istMonatsmiete) ? 0 : sollMonatsmiete(v, monat);
-    const sollV = imMonat.reduce((s, x) => s + zahl(x.sollbetrag), 0) + fehlendeMiete;
-    const sollPositiv = Math.max(0, rund(sollV));
+    // Soll aus dem Vertrag: die in diesem Monat gültige Miete, anteilig bei Ein- oder Auszug
+    const miete = vertragsMonatsmiete(v, monat, f);
+    const sollPositiv = Math.max(0, miete.gesamt);
 
-    // Mietkonto bis einschließlich dieses Monats: alles Fällige, dazu die Monatsmiete auch vor dem 8.
+    // Mietkonto bis einschließlich dieses Monats aus den Forderungen: alles Fällige, dazu die Monatsmiete (samt
+    // Minderung) auch vor dem 8. Eine Rücklastschriftgebühr zählt erst ab ihrer Fälligkeit, über `faellig`. Fehlt
+    // die Monatsmiete noch (am 1. vor 05:00 UTC), kommt sie aus der Nachbildung der Sollstellung dazu.
     // Eine vorab bezahlte BKA-Nachzahlung zählt nicht als Eingang auf die Miete.
+    const imMonat = f.filter(
+      (x) => (x.sollmonat as string).slice(0, 7) === monat && (x.typ ?? 'Miete') !== 'BKA' && !x.ruecklastschrift_am
+    );
+    const fehlendeMiete = imMonat.some(istMonatsmiete) ? 0 : sollMonatsmiete(v, monat);
     const faellig = nurFaelligeForderungen(f, stichtag);
     const schonFaellig = new Set(faellig);
     const heute = format(stichtag, 'yyyy-MM-dd');
@@ -181,7 +155,8 @@ export function monatsSaldo(
     const aelterV = rund(Math.max(0, konto) - offenV);
     soll += sollPositiv;
     offen += offenV;
-    eingang += sollPositiv - offenV;
+    // Kundenvorgabe: alle Miet-Zahlungen dieses Monats, nicht nur der Teil, der die Soll-Miete deckt
+    eingang += fuerMonat;
     aelter += aelterV;
     if (offenV > 0) {
       vertraegeOffen += 1;
@@ -189,32 +164,8 @@ export function monatsSaldo(
     }
     if (aelterV > 0) vertraegeAelter += 1;
 
-    const kv = zahl(v.kaltmiete);
-    const bv = zahl(v.betriebskosten);
-    const vm = kv + bv;
-    const gebuehrV = imMonat.filter((x) => !!x.ruecklastschrift_am).reduce((s, x) => s + zahl(x.sollbetrag), 0);
-    const ende = getVertragsende(v)?.slice(0, 10);
-    const teilmonat = (!!v.start_datum && v.start_datum.slice(0, 10) > `${monat}-01`) || (!!ende && ende < letzterTag);
-    vertragsmiete += vm;
-    gebuehren += gebuehrV;
-    if (teilmonat) anteilig += sollPositiv - vm - gebuehrV;
-    else abweichend += sollPositiv - vm - gebuehrV;
-
-    // Aufteilung der Monatsmiete (ohne Gebühren) in Kaltmiete und Betriebskosten. Der anteilige Teil in
-    // ganzen Cent: 877,42 × 200 / 1.600 ergab in Euro gerechnet 109,67 statt 109,68.
-    const mieteV = rund(sollPositiv - gebuehrV);
-    let bkV = 0;
-    if (vm > 0 && mieteV > 0) {
-      bkV = teilmonat ? Math.round((Math.round(mieteV * 100) * bv) / vm) / 100 : bv;
-      bkV = Math.min(bkV, mieteV);
-    }
-    vertragKaltmiete += kv;
-    vertragBetriebskosten += bv;
-    betriebskosten += bkV;
-    kaltmiete += mieteV - bkV;
-    const art = teilmonat ? 'anteilig' : 'abweichend';
-    kaltUnterschied[art] += mieteV - bkV - kv;
-    bkUnterschied[art] += bkV - bv;
+    kaltmiete += miete.kaltmiete;
+    betriebskosten += miete.betriebskosten;
   }
 
   return {
@@ -225,17 +176,7 @@ export function monatsSaldo(
     vertraegeOffen,
     vertraegeAelter,
     offeneVertraege: offeneVertraege.sort((a, b) => b.offen - a.offen),
-    ueberleitung: { vertragsmiete: rund(vertragsmiete), anteilig: rund(anteilig), abweichend: rund(abweichend), gebuehren: rund(gebuehren) },
-    aufteilung: {
-      kaltmiete: rund(kaltmiete),
-      betriebskosten: rund(betriebskosten),
-      vertragKaltmiete: rund(vertragKaltmiete),
-      vertragBetriebskosten: rund(vertragBetriebskosten),
-      kaltmieteAnteilig: rund(kaltUnterschied.anteilig),
-      kaltmieteAbweichend: rund(kaltUnterschied.abweichend),
-      betriebskostenAnteilig: rund(bkUnterschied.anteilig),
-      betriebskostenAbweichend: rund(bkUnterschied.abweichend),
-    },
+    aufteilung: { kaltmiete: rund(kaltmiete), betriebskosten: rund(betriebskosten) },
     zahlungenImMonat,
   };
 }

@@ -40,8 +40,10 @@ Grundregeln: Eine Monatsmiete ist am 8. fällig, beim Einzug am Mietbeginn. Zahl
 
 | Fall | Regel | Umsetzung |
 |---|---|---|
-| Kaltmiete und Betriebskosten unter der Soll-Miete | Sie teilen die Soll-Miete des Monats auf: Kaltmiete + Betriebskosten (+ Gebühren) = Soll-Miete (seit 29.10.2026; vorher standen dort die Vertragswerte). Im anteiligen Monat sind beide anteilig, sonst trägt die Kaltmiete die Abweichung (Erhöhung erst ab Folgemonat, Minderung). Die Vertragswerte und die Überleitung stehen in den Info-Knöpfen | `monatsSaldo` → `aufteilung`, `ueberleitung` |
-| „Noch offen“ und Rückstände | Eingang + Noch offen = Soll-Miete. Ab dem Fälligkeitstag ergeben Noch offen und „ältere Rückstände“ die Rückstände der Liste (aktive und gekündigte Verträge) | `monatsSaldo`, `useMietkonto` |
+| Soll-Miete auf der Startseite | Aus den Mietverträgen, nicht aus den Forderungen (Kunde 29.10.2026: „sie sind die Basis“): Kaltmiete + Betriebskosten aller aktiven und gekündigten Verträge, die im Monat laufen, bei Ein- oder Auszug taggenau anteilig. Es zählt die im Monat gültige Miete: Eine offizielle Erhöhung, die erst ab dem Folgemonat gilt, zählt erst dort; der Vertrag hat dann schon die neue Miete, die bisherige steht nur in der Monatsmiete-Forderung. Keine Gebühren, keine Minderungen. Kaltmiete + Betriebskosten = Soll-Miete; keine Vertragswerte oder Überleitung (Kunde: „total verwirrend“) | `vertragsMonatsmiete`, `monatsSaldo` → `aufteilung` |
+| Pfeil ↑/↓ an Soll-Miete, Kaltmiete, Betriebskosten | Zeigt nur, ob es im nächsten Monat mehr oder weniger wird (Kunde 29.10.2026). Nächster Monat wie oben gerechnet, mit Ein- und Auszügen und dem, was zum Ersten im Voraus vereinbart ist (zugestimmter Erhöhungsvorgang, Staffelstufe). Betrag im Info-Knopf | `sollFolgemonat` |
+| Eingang | Alle Miet-Zahlungen, die dem Monat zugeordnet sind, Rücklastschriften mindernd, ohne Deckel (Kunde 29.10.2026). Eine Vorauszahlung im Vormonat zählt dort, eine Doppelzahlung doppelt; Eingang + Noch offen ergibt daher nicht immer die Soll-Miete | `monatsSaldo` |
+| „Noch offen“ und Rückstände | Was von der Soll-Miete weder durch Zahlungen für den Monat noch durch ein Guthaben gedeckt ist. Ab dem Fälligkeitstag ergeben Noch offen und „ältere Rückstände“ die Rückstände der Liste (aktive und gekündigte Verträge). Eine Rücklastschriftgebühr zählt erst ab ihrer Fälligkeit | `monatsSaldo`, `useMietkonto` |
 | Beendete Verträge | Stehen in der Liste, zählen nicht in den Summen | `FehlendeMietzahlungen` |
 | Ladefehler | Kennzahlen zeigen „—“, nie 0 | `DashboardStats` |
 

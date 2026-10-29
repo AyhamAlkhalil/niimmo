@@ -16,25 +16,27 @@ const am10Okt = new Date(2026, 9, 10);
 const am3Okt = new Date(2026, 9, 3);
 
 describe('monatsSaldo', () => {
-  it('ergibt Eingang + Noch offen = Soll-Miete', () => {
+  it('teilt eine Teilzahlung in Eingang und Noch offen', () => {
     const r = monatsSaldo(vertraege, [miete('a', '2026-10'), miete('b', '2026-10')], [zahlung('a', 300, '2026-10-02')], am10Okt);
     expect(r).toMatchObject({ soll: 1000, eingang: 300, offen: 700, aelter: 0, vertraegeOffen: 2 });
     expect(r.eingang + r.offen).toBe(r.soll);
   });
 
   it('verrechnet die Überzahlung eines Mieters nicht mit dem Rückstand eines anderen', () => {
-    // 27.10.2026: Gesamt-Soll minus Gesamt-Eingang zeigte „Mehr eingegangen“ trotz Rückständen
+    // 27.10.2026: Gesamt-Soll minus Gesamt-Eingang zeigte „Mehr eingegangen“ trotz Rückständen. Seit 29.10.2026
+    // zählt der Eingang alle Zahlungen (Kundenvorgabe), b bleibt trotzdem offen
     const r = monatsSaldo(vertraege, [miete('a', '2026-10'), miete('b', '2026-10')], [zahlung('a', 1000, '2026-10-01')], am10Okt);
-    expect(r).toMatchObject({ soll: 1000, eingang: 500, offen: 500, vertraegeOffen: 1 });
+    expect(r).toMatchObject({ soll: 1000, eingang: 1000, offen: 500, vertraegeOffen: 1 });
   });
 
-  it('zählt die im Vormonat vorausgezahlte Miete als Eingang', () => {
-    // 29.10.2026: Am 26.09. gezahlt, von der DB dem September zugeordnet — bis dahin „offen“
+  it('zählt eine im Vormonat vorausgezahlte Miete im Vormonat, im Oktober ist sie nicht offen', () => {
+    // 29.10.2026: Am 26.09. gezahlt, von der DB dem September zugeordnet — bis zum 28.10. „offen“. Eingang sind
+    // die dem Monat zugeordneten Zahlungen (Kundenvorgabe 29.10.2026)
     const r = monatsSaldo([vertraege[0]], [miete('a', '2026-09'), miete('a', '2026-10')], [
       zahlung('a', 500, '2026-08-26'),
       zahlung('a', 500, '2026-09-26'),
     ], am3Okt);
-    expect(r).toMatchObject({ soll: 500, eingang: 500, offen: 0, aelter: 0 });
+    expect(r).toMatchObject({ soll: 500, eingang: 0, offen: 0, aelter: 0 });
   });
 
   it('zählt die Oktoberzahlung für den Oktober, auch wenn ältere Monate offen sind (Kundenmeldung 29.10.2026)', () => {
@@ -60,9 +62,9 @@ describe('monatsSaldo', () => {
     // 200 für Oktober decken den Oktober zum Teil; die 100 für September tilgen den September
     const teil = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 200, '2026-10-02'), zahlung('a', 100, '2026-09-30')], am10Okt);
     expect(teil).toMatchObject({ eingang: 200, offen: 300, aelter: 400 });
-    // Eine Doppelzahlung im Oktober deckt zuerst den Oktober, der Rest tilgt den September
+    // Eine Doppelzahlung im Oktober deckt zuerst den Oktober, der Rest tilgt den September; Eingang ist alles
     const doppelt = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 800, '2026-10-02')], am10Okt);
-    expect(doppelt).toMatchObject({ eingang: 500, offen: 0, aelter: 200 });
+    expect(doppelt).toMatchObject({ eingang: 800, offen: 0, aelter: 200 });
     // Eine BKA-Zahlung ohne BKA-Forderung ist für die BKA bestimmt: weder Oktobermiete noch Tilgung des Septembers
     const bka = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 500, '2026-10-02', 'Betriebskostenabrechnung')], am10Okt);
     expect(bka).toMatchObject({ eingang: 0, offen: 500, aelter: 500 });
@@ -90,20 +92,21 @@ describe('monatsSaldo', () => {
     expect(monatsSaldo([vertraege[0]], [...forderungen, gutschrift], [], am10Okt)).toMatchObject({ offen: 500, aelter: 0 });
   });
 
-  it('nimmt als Soll die Forderungen des Monats (ohne BKA), sonst die Sollstellung des Vertrags', () => {
-    // a: anteiliger Einzugsmonat und Gebühr; b: Sollstellung noch nicht gelaufen (1. vor 05:00 UTC)
+  it('nimmt die Soll-Miete aus den Verträgen, ohne Gebühren und BKA (Kundenvorgabe 29.10.2026)', () => {
+    // a: Einzug am 15.10., 17 von 31 Tagen von 500 €, mit Gebühr; b: Sollstellung noch nicht gelaufen (1. vor 05:00)
+    const einzug = { ...vertraege[0], start_datum: '2026-10-15' };
     const r = monatsSaldo(
-      vertraege,
+      [einzug, vertraege[1]],
       [
-        { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: '258.06', faelligkeitsdatum: '2026-10-16', typ: 'Miete' },
-        { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-02', typ: 'Miete' },
+        { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: '274.19', faelligkeitsdatum: '2026-10-16', typ: 'Miete' },
+        { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-02', typ: 'Miete', ruecklastschrift_am: '2026-10-02' },
         { mietvertrag_id: 'a', sollmonat: '2025-12-01', sollbetrag: 300, faelligkeitsdatum: '2026-11-20', typ: 'BKA' },
       ],
       [],
       new Date(2026, 9, 1, 3)
     );
-    expect(r.soll).toBe(765.56);
-    expect(r.offen).toBe(765.56);
+    expect(r.soll).toBe(774.19);
+    expect(r.offen).toBe(774.19);
     expect(r.aelter).toBe(0);
   });
 
@@ -119,10 +122,10 @@ describe('monatsSaldo', () => {
   });
 
   it('rechnet Cent-genau ohne Fließkommareste', () => {
-    const r = monatsSaldo([vertraege[0]], [
-      { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0.1, faelligkeitsdatum: '2026-10-08' },
-      { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0.2, faelligkeitsdatum: '2026-10-08' },
-    ], [zahlung('a', 0.3, '2026-10-01')], am10Okt);
+    const cent = { id: 'a', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 0.1, betriebskosten: 0.2 };
+    const r = monatsSaldo([cent], [
+      { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0.3, faelligkeitsdatum: '2026-10-08' },
+    ], [zahlung('a', 0.1, '2026-10-01'), zahlung('a', 0.2, '2026-10-02')], am10Okt);
     expect(r).toMatchObject({ soll: 0.3, eingang: 0.3, offen: 0, vertraegeOffen: 0 });
   });
 
@@ -171,106 +174,67 @@ describe('monatsSaldo — Review 29.10.2026', () => {
   it('nimmt vor der Sollstellung die Vertragsmiete auch dann, wenn schon eine Gebühr im Monat steht', () => {
     const gebuehr = { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-01', ruecklastschrift_am: '2026-10-01' };
     const r = monatsSaldo([vertraege[0]], [gebuehr], [], new Date(2026, 9, 1, 3));
-    expect(r.soll).toBe(507.5);
+    // Die Gebühr gehört nicht zur Soll-Miete (Kundenvorgabe 29.10.2026); fällig steht sie im Mietkonto
+    expect(r).toMatchObject({ soll: 500, offen: 500, aelter: 7.5 });
   });
 });
 
 describe('monatsSaldo — Review 29.10.2026, zweite Runde', () => {
-  it('setzt für eine erlassene Monatsmiete (0 €) keine Vertragsmiete ein', () => {
+  it('führt eine erlassene Monatsmiete (0 €) in der Soll-Miete laut Vertrag, aber nicht als offen', () => {
+    // Seit 29.10.2026 kommt die Soll-Miete aus dem Vertrag; was erlassen ist, steht nur im Mietkonto
     const erlassen = { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0, faelligkeitsdatum: '2026-10-08', typ: 'Miete' };
     const r = monatsSaldo([vertraege[0]], [erlassen], [], am10Okt);
-    expect(r).toMatchObject({ soll: 0, eingang: 0, offen: 0, aelter: 0 });
+    expect(r).toMatchObject({ soll: 500, eingang: 0, offen: 0, aelter: 0 });
+    expect(r.aufteilung).toEqual({ kaltmiete: 400, betriebskosten: 100 });
   });
 });
 
-describe('monatsSaldo — Überleitung Kaltmiete + Betriebskosten → Soll-Miete', () => {
-  it('erklärt den Unterschied: anteilige Monate, abweichende Monatsmieten, Gebühren', () => {
-    // Live 29.10.2026: 63.276,01 € Vertragsmiete, Soll 62.271,63 €: −722,58 € Einzug am 15.10., −281,80 € fünf
-    // Mieterhöhungen ab November
-    const einzug = { id: 'e', status: 'aktiv', start_datum: '2026-10-15', kaltmiete: 1400, betriebskosten: 200 };
-    const erhoeht = { id: 'h', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 426, betriebskosten: 0 };
-    const gebuehr = { id: 'g', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 500, betriebskosten: 0 };
-    const r = monatsSaldo([einzug, erhoeht, gebuehr], [
-      { mietvertrag_id: 'e', sollmonat: '2026-10-01', sollbetrag: 877.42, faelligkeitsdatum: '2026-10-15', typ: 'Miete' },
-      { mietvertrag_id: 'h', sollmonat: '2026-10-01', sollbetrag: 375, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
-      { mietvertrag_id: 'g', sollmonat: '2026-10-01', sollbetrag: 500, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
-      { mietvertrag_id: 'g', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-03', typ: 'Miete', ruecklastschrift_am: '2026-10-03' },
-    ], [], am10Okt);
-    expect(r.ueberleitung).toEqual({ vertragsmiete: 2526, anteilig: -722.58, abweichend: -51, gebuehren: 7.5 });
-    const { vertragsmiete, anteilig, abweichend, gebuehren } = r.ueberleitung;
-    expect(Math.round((vertragsmiete + anteilig + abweichend + gebuehren) * 100) / 100).toBe(r.soll);
-  });
-});
-
-describe('monatsSaldo — Aufteilung der Soll-Miete in Kaltmiete und Betriebskosten', () => {
-  // Kundenfrage 29.10.2026: Die Faktenzeile zeigte die Vertragswerte (63.276,01 €), oben stand die Soll-Miete
-  // (62.271,63 €). Jetzt ergeben Kaltmiete + Betriebskosten die Soll-Miete.
+describe('monatsSaldo — Soll-Miete aus den Verträgen, Gebühren getrennt (Kundenvorgabe 29.10.2026)', () => {
+  // Kunde: „Die Soll-Miete soll aus den Mietverträgen berechnet werden“, Rücklastschriftgebühren „sind doch nicht
+  // die Sollmiete“, und bei Erhöhungen „kommt es doch darauf an WANN die Mieterhöhung gültig ist“
+  const am29Okt = new Date(2026, 9, 29, 12);
   const einzug = { id: 'e', status: 'aktiv', start_datum: '2026-10-15', kaltmiete: 1400, betriebskosten: 200 };
-  const erhoeht = { id: 'h', status: 'aktiv', start_datum: '2011-05-01', kaltmiete: 469.3, betriebskosten: 284 };
+  // Live: Kaltmiete am 28.10. um 52,80 € erhöht, gilt erst ab November; der Vertrag hat schon die neue
+  const erhoeht = { id: 'h', status: 'aktiv', start_datum: '2011-05-01', kaltmiete: 469.3, betriebskosten: 284, letzte_mieterhoehung_am: '2026-10-28' };
   const gebuehr = { id: 'g', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 500, betriebskosten: 0 };
   const forderungen = [
     { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 500, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
     { mietvertrag_id: 'e', sollmonat: '2026-10-01', sollbetrag: 877.42, faelligkeitsdatum: '2026-10-15', typ: 'Miete' },
-    // Erhöhung der Kaltmiete am 28.10. um 52,80 €, gilt erst ab November
     { mietvertrag_id: 'h', sollmonat: '2026-10-01', sollbetrag: 700.5, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
     { mietvertrag_id: 'g', sollmonat: '2026-10-01', sollbetrag: 500, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
     { mietvertrag_id: 'g', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-03', typ: 'Miete', ruecklastschrift_am: '2026-10-03' },
   ];
 
-  it('teilt anteilige Monate anteilig und rechnet eine abweichende Monatsmiete der Kaltmiete zu', () => {
-    const r = monatsSaldo([vertraege[0], einzug, erhoeht, gebuehr], forderungen, [], am10Okt);
+  it('teilt die Soll-Miete in Kaltmiete und Betriebskosten, anteilig beim Einzug, ohne Gebühr', () => {
+    const r = monatsSaldo([vertraege[0], einzug, erhoeht, gebuehr], forderungen, [], am29Okt);
     // Kaltmiete 400 + 767,74 + 416,50 + 500; Betriebskosten 100 + 109,68 + 284 + 0 (Einzug: 17 von 31 Tagen)
-    expect(r.aufteilung).toMatchObject({ kaltmiete: 2084.24, betriebskosten: 493.68, vertragKaltmiete: 2769.3, vertragBetriebskosten: 584 });
+    expect(r.aufteilung).toEqual({ kaltmiete: 2084.24, betriebskosten: 493.68 });
+    expect(r.soll).toBe(2577.92);
+    expect(Math.round((r.aufteilung.kaltmiete + r.aufteilung.betriebskosten) * 100) / 100).toBe(r.soll);
   });
 
-  it('erklärt je Teil den Unterschied zum Vertragswert: anteilig und abweichend', () => {
-    // Live 29.10.2026: Kaltmiete laut Verträgen 50.582,51 €, im Oktober 49.668,45 € — −632,26 € Einzug am 15.10.,
-    // −281,80 € fünf Mieterhöhungen ab November (Kundenfrage)
-    const r = monatsSaldo([vertraege[0], einzug, erhoeht, gebuehr], forderungen, [], am10Okt);
-    expect(r.aufteilung).toMatchObject({
-      kaltmieteAnteilig: -632.26,
-      kaltmieteAbweichend: -52.8,
-      betriebskostenAnteilig: -90.32,
-      betriebskostenAbweichend: 0,
-    });
-    const a = r.aufteilung;
-    expect(Math.round((a.vertragKaltmiete + a.kaltmieteAnteilig + a.kaltmieteAbweichend) * 100) / 100).toBe(a.kaltmiete);
-    expect(Math.round((a.vertragBetriebskosten + a.betriebskostenAnteilig + a.betriebskostenAbweichend) * 100) / 100).toBe(a.betriebskosten);
+  it('nimmt eine Erhöhung, die schon in diesem Monat gilt, sofort in die Soll-Miete', () => {
+    // Zum Monatsersten erhöht oder als Korrektur geändert: Die Forderung hat noch den alten Betrag, es gilt der Vertrag
+    const zumErsten = { ...erhoeht, letzte_mieterhoehung_am: '2026-10-01' };
+    const korrektur = { ...erhoeht, letzte_mieterhoehung_am: '2024-05-01' };
+    for (const v of [zumErsten, korrektur]) {
+      expect(monatsSaldo([v], forderungen, [], am29Okt)).toMatchObject({ soll: 753.3, aufteilung: { kaltmiete: 469.3, betriebskosten: 284 } });
+    }
   });
 
-  it('rechnet bei erlassener Miete auch die Betriebskosten als abweichend', () => {
-    const erlassen = { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0, faelligkeitsdatum: '2026-10-08', typ: 'Miete' };
-    const r = monatsSaldo([vertraege[0]], [erlassen], [], am10Okt);
-    expect(r.aufteilung).toMatchObject({ kaltmieteAbweichend: -400, betriebskostenAbweichend: -100, kaltmieteAnteilig: 0, betriebskostenAnteilig: 0 });
-  });
-
-  it('ergibt Kaltmiete + Betriebskosten + Gebühren genau die Soll-Miete', () => {
-    const r = monatsSaldo([vertraege[0], einzug, erhoeht, gebuehr], forderungen, [], am10Okt);
-    const { kaltmiete, betriebskosten } = r.aufteilung;
-    expect(kaltmiete + betriebskosten + r.ueberleitung.gebuehren).toBeCloseTo(r.soll, 10);
-  });
-
-  it('geht auch mit Gebühr bei erlassener Monatsmiete genau auf', () => {
-    const r = monatsSaldo([vertraege[0]], [
-      { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
-      { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-03', typ: 'Miete', ruecklastschrift_am: '2026-10-03' },
-    ], [], am10Okt);
-    expect(r.soll).toBe(7.5);
-    expect(r.aufteilung).toMatchObject({ kaltmiete: 0, betriebskosten: 0 });
-    expect(r.ueberleitung.gebuehren).toBe(7.5);
+  it('führt eine Rücklastschriftgebühr nicht in der Soll-Miete, fällig aber im Mietkonto wie die Liste', () => {
+    const zahlungen = [zahlung('g', 500, '2026-10-02')];
+    const r = monatsSaldo([gebuehr], forderungen, zahlungen, am29Okt);
+    expect(r).toMatchObject({ soll: 500, eingang: 500, offen: 0, aelter: 7.5, vertraegeOffen: 0 });
+    const liste = berechneMietkontostand(gebuehr, forderungen.filter((f) => f.mietvertrag_id === 'g'), zahlungen, am29Okt).rueckstand;
+    expect(Math.round((r.offen + r.aelter) * 100) / 100).toBe(liste);
   });
 
   it('teilt vor der Sollstellung die nachgebildete Monatsmiete ebenso auf', () => {
     // Am 1. vor 05:00 UTC: b voller Monat, Einzug am 15. anteilig (17 von 31 Tagen)
     const r = monatsSaldo([vertraege[1], einzug], [], [], new Date(2026, 9, 1, 3));
     expect(r.soll).toBe(1377.42);
-    expect(r.aufteilung).toMatchObject({ kaltmiete: 1167.74, betriebskosten: 209.68 });
-  });
-
-  it('setzt für eine erlassene Monatsmiete weder Kaltmiete noch Betriebskosten an', () => {
-    const erlassen = { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0, faelligkeitsdatum: '2026-10-08', typ: 'Miete' };
-    const r = monatsSaldo([vertraege[0]], [erlassen], [], am10Okt);
-    expect(r.aufteilung).toMatchObject({ kaltmiete: 0, betriebskosten: 0, vertragKaltmiete: 400, vertragBetriebskosten: 100 });
+    expect(r.aufteilung).toEqual({ kaltmiete: 1167.74, betriebskosten: 209.68 });
   });
 });
 

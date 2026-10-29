@@ -850,7 +850,7 @@ describe('Rückstandsliste — Hinweis BKA-Zahlung ohne Forderung auch bei Saldo
     const hook = readFileSync('src/hooks/useRueckstaende.ts', 'utf-8');
     const block = hook.slice(hook.indexOf('if (bkaOhneForderung !== 0) {'), hook.indexOf('if (Math.abs(rueckstand) >= 0.01) {'));
     expect(block).toMatch(/bkaHinweise\.push\(/);
-    expect(hook).toMatch(/return \{ eintraege: rueckstaende, monat, offenImMonat, bkaOhneForderung: bkaHinweise \};/);
+    expect(hook).toMatch(/bkaOhneForderung: bkaHinweise[,\s}]/);
     const ansicht = readFileSync('src/components/dashboard/FehlendeMietzahlungen.tsx', 'utf-8');
     expect(ansicht).toMatch(/Zu prüfen: BKA-Zahlungen ohne BKA-Forderung/);
     expect(ansicht).toMatch(/bkaHinweise\.map\(/);
