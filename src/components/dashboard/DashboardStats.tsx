@@ -165,6 +165,26 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
   // Beträge wie in Schriftstücken: „48.250 €“ statt „€48,250“, Cent nur wenn vorhanden
   const euro = formatEuroKompakt;
   const vorzeichen = (betrag: number) => `${betrag > 0 ? '+' : '−'} ${euro(Math.abs(betrag))}`;
+  // Vom Vertragswert zum Wert im Monat, für Soll-Miete, Kaltmiete und Betriebskosten (29.10.2026, Kundenfrage:
+  // „Laut Verträgen“ stand bei Kaltmiete ohne Erklärung, warum oben weniger steht)
+  const unterschiedImMonat = (
+    vertragswert: number,
+    anteilig: number,
+    abweichend: number,
+    abweichendText = 'Abweichende Monatsmiete (z. B. Erhöhung erst ab Folgemonat, Minderung)'
+  ) => (
+    <>
+      <p className="mt-2">Laut Verträgen sind es {euro(vertragswert)} im Monat.{(anteilig !== 0 || abweichend !== 0) && ` Unterschied im ${monat}:`}</p>
+      {(anteilig !== 0 || abweichend !== 0) && (
+        <table className="w-full text-xs tabular-nums">
+          <tbody>
+            {anteilig !== 0 && <tr><td>Einzug oder Auszug im Monat, nur anteilig</td><td className="text-right">{vorzeichen(anteilig)}</td></tr>}
+            {abweichend !== 0 && <tr><td>{abweichendText}</td><td className="text-right">{vorzeichen(abweichend)}</td></tr>}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
   const anzahlObjekte = immobilien?.length || 0;
 
   // Wert einer Marktkennzahl mit Bearbeiten-Knopf (nur Admin). ui/input statt rohem Zahlenfeld:
@@ -263,17 +283,8 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
                     </tbody>
                   </table>
                 )}
-                {saldo && (saldo.ueberleitung.anteilig !== 0 || saldo.ueberleitung.abweichend !== 0) && (
-                  <>
-                    <p className="mt-2">Laut Verträgen sind es {euro(saldo.ueberleitung.vertragsmiete)} im Monat. Unterschied im {monat}:</p>
-                    <table className="w-full text-xs tabular-nums">
-                      <tbody>
-                        {saldo.ueberleitung.anteilig !== 0 && <tr><td>Einzug oder Auszug im Monat, nur anteilig</td><td className="text-right">{vorzeichen(saldo.ueberleitung.anteilig)}</td></tr>}
-                        {saldo.ueberleitung.abweichend !== 0 && <tr><td>Abweichende Monatsmiete (z. B. Erhöhung erst ab Folgemonat, Minderung)</td><td className="text-right">{vorzeichen(saldo.ueberleitung.abweichend)}</td></tr>}
-                      </tbody>
-                    </table>
-                  </>
-                )}
+                {saldo && (saldo.ueberleitung.anteilig !== 0 || saldo.ueberleitung.abweichend !== 0) &&
+                  unterschiedImMonat(saldo.ueberleitung.vertragsmiete, saldo.ueberleitung.anteilig, saldo.ueberleitung.abweichend)}
               </KennzahlInfo>
             </p>
             <p className="whitespace-nowrap text-2xl font-light sm:mt-2 leading-none tabular-nums text-foreground sm:text-[1.75rem] xl:text-[2rem]">{saldo ? euro(saldo.soll) : '—'}</p>
@@ -323,7 +334,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
             <KennzahlInfo titel={`Kaltmiete ${monat}`}>
               <p>Der Kaltmiete-Anteil der Soll-Miete im {monat}. Kaltmiete + Betriebskosten = Soll-Miete.</p>
               <p>Bei Ein- oder Auszug im Monat anteilig. Gilt eine Mieterhöhung erst ab dem Folgemonat, steht hier noch die alte Kaltmiete; eine Minderung senkt sie.</p>
-              {saldo && <p>Laut Verträgen: {euro(saldo.aufteilung.vertragKaltmiete)} im Monat.</p>}
+              {saldo && unterschiedImMonat(saldo.aufteilung.vertragKaltmiete, saldo.aufteilung.kaltmieteAnteilig, saldo.aufteilung.kaltmieteAbweichend)}
             </KennzahlInfo>
           </dt>
           <dd className="mt-1 tabular-nums text-foreground">{saldo ? euro(saldo.aufteilung.kaltmiete) : '—'}</dd>
@@ -333,7 +344,13 @@ export const DashboardStats = ({ immobilien, onNavigateToContract }: DashboardSt
             Betriebskosten
             <KennzahlInfo titel={`Betriebskosten ${monat}`}>
               <p>Die Betriebskostenvorauszahlungen in der Soll-Miete im {monat}, bei Ein- oder Auszug im Monat anteilig.</p>
-              {saldo && <p>Laut Verträgen: {euro(saldo.aufteilung.vertragBetriebskosten)} im Monat.</p>}
+              {saldo && unterschiedImMonat(
+                saldo.aufteilung.vertragBetriebskosten,
+                saldo.aufteilung.betriebskostenAnteilig,
+                saldo.aufteilung.betriebskostenAbweichend,
+                // Die Vorauszahlung weicht nur ab, wenn die Monatsmiete darunter liegt (Review 29.10.2026)
+                'Monatsmiete unter der Vorauszahlung (Minderung, erlassene Miete)'
+              )}
             </KennzahlInfo>
           </dt>
           <dd className="mt-1 tabular-nums text-foreground">{saldo ? euro(saldo.aufteilung.betriebskosten) : '—'}</dd>

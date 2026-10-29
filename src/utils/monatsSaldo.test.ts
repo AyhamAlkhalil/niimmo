@@ -163,7 +163,28 @@ describe('monatsSaldo — Aufteilung der Soll-Miete in Kaltmiete und Betriebskos
   it('teilt anteilige Monate anteilig und rechnet eine abweichende Monatsmiete der Kaltmiete zu', () => {
     const r = monatsSaldo([vertraege[0], einzug, erhoeht, gebuehr], forderungen, [], am10Okt);
     // Kaltmiete 400 + 767,74 + 416,50 + 500; Betriebskosten 100 + 109,68 + 284 + 0 (Einzug: 17 von 31 Tagen)
-    expect(r.aufteilung).toEqual({ kaltmiete: 2084.24, betriebskosten: 493.68, vertragKaltmiete: 2769.3, vertragBetriebskosten: 584 });
+    expect(r.aufteilung).toMatchObject({ kaltmiete: 2084.24, betriebskosten: 493.68, vertragKaltmiete: 2769.3, vertragBetriebskosten: 584 });
+  });
+
+  it('erklärt je Teil den Unterschied zum Vertragswert: anteilig und abweichend', () => {
+    // Live 29.10.2026: Kaltmiete laut Verträgen 50.582,51 €, im Oktober 49.668,45 € — −632,26 € Einzug am 15.10.,
+    // −281,80 € fünf Mieterhöhungen ab November (Kundenfrage)
+    const r = monatsSaldo([vertraege[0], einzug, erhoeht, gebuehr], forderungen, [], am10Okt);
+    expect(r.aufteilung).toMatchObject({
+      kaltmieteAnteilig: -632.26,
+      kaltmieteAbweichend: -52.8,
+      betriebskostenAnteilig: -90.32,
+      betriebskostenAbweichend: 0,
+    });
+    const a = r.aufteilung;
+    expect(Math.round((a.vertragKaltmiete + a.kaltmieteAnteilig + a.kaltmieteAbweichend) * 100) / 100).toBe(a.kaltmiete);
+    expect(Math.round((a.vertragBetriebskosten + a.betriebskostenAnteilig + a.betriebskostenAbweichend) * 100) / 100).toBe(a.betriebskosten);
+  });
+
+  it('rechnet bei erlassener Miete auch die Betriebskosten als abweichend', () => {
+    const erlassen = { mietvertrag_id: 'a', sollmonat: '2026-10-01', sollbetrag: 0, faelligkeitsdatum: '2026-10-08', typ: 'Miete' };
+    const r = monatsSaldo([vertraege[0]], [erlassen], [], am10Okt);
+    expect(r.aufteilung).toMatchObject({ kaltmieteAbweichend: -400, betriebskostenAbweichend: -100, kaltmieteAnteilig: 0, betriebskostenAnteilig: 0 });
   });
 
   it('ergibt Kaltmiete + Betriebskosten + Gebühren genau die Soll-Miete', () => {

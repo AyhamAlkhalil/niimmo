@@ -61,8 +61,20 @@ export interface MonatsSaldo {
    * dem Folgemonat geltenden Mieterhöhung nicht die Soll-Miete ergeben.
    * Anteiliger Monat: beide Teile anteilig wie die Sollstellung. Sonst gelten die Betriebskosten laut Vertrag,
    * eine abweichende Monatsmiete (Erhöhung erst ab Folgemonat, Minderung, erlassene Miete) ändert die Kaltmiete.
+   * Der Unterschied zum Vertragswert je Teil wie in `ueberleitung` (29.10.2026, Kundenfrage „wieso 50.582,51 €
+   * laut Verträgen, oben 49.668,45 €?“): vertragKaltmiete + kaltmieteAnteilig + kaltmieteAbweichend = kaltmiete,
+   * ebenso für die Betriebskosten.
    */
-  aufteilung: { kaltmiete: number; betriebskosten: number; vertragKaltmiete: number; vertragBetriebskosten: number };
+  aufteilung: {
+    kaltmiete: number;
+    betriebskosten: number;
+    vertragKaltmiete: number;
+    vertragBetriebskosten: number;
+    kaltmieteAnteilig: number;
+    kaltmieteAbweichend: number;
+    betriebskostenAnteilig: number;
+    betriebskostenAbweichend: number;
+  };
   /** Zahlungen (Miete, Rücklastschrift, BKA) mit Buchungstag im laufenden Monat — 0 heißt: Kontoauszug fehlt vermutlich */
   zahlungenImMonat: number;
 }
@@ -112,6 +124,8 @@ export function monatsSaldo(
   let betriebskosten = 0;
   let vertragKaltmiete = 0;
   let vertragBetriebskosten = 0;
+  const kaltUnterschied = { anteilig: 0, abweichend: 0 };
+  const bkUnterschied = { anteilig: 0, abweichend: 0 };
   const letzterTag = format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 0), 'yyyy-MM-dd');
   let zahlungenImMonat = 0;
 
@@ -176,6 +190,9 @@ export function monatsSaldo(
     vertragBetriebskosten += bv;
     betriebskosten += bkV;
     kaltmiete += mieteV - bkV;
+    const art = teilmonat ? 'anteilig' : 'abweichend';
+    kaltUnterschied[art] += mieteV - bkV - kv;
+    bkUnterschied[art] += bkV - bv;
   }
 
   return {
@@ -191,6 +208,10 @@ export function monatsSaldo(
       betriebskosten: rund(betriebskosten),
       vertragKaltmiete: rund(vertragKaltmiete),
       vertragBetriebskosten: rund(vertragBetriebskosten),
+      kaltmieteAnteilig: rund(kaltUnterschied.anteilig),
+      kaltmieteAbweichend: rund(kaltUnterschied.abweichend),
+      betriebskostenAnteilig: rund(bkUnterschied.anteilig),
+      betriebskostenAbweichend: rund(bkUnterschied.abweichend),
     },
     zahlungenImMonat,
   };
