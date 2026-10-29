@@ -393,7 +393,9 @@ describe('Wir kündigen: Auszugs- und Räumungsdatum', () => {
     const dialog = readFileSync('src/components/dashboard/termination/TerminationDialog.tsx', 'utf-8');
     expect(dialog).not.toContain('if (!auszugsdatum) setAuszugsdatum(e.target.value);');
     expect(dialog).toContain('setAuszugsdatum(auszugNachKuendigungsdatum(auszugsdatum, kuendigungsdatum, e.target.value));');
-    expect(dialog).toContain('disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler}');
+    expect(dialog).toContain('disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler || zahlungsverzugFristlos}');
+    // Fristlos wegen Zahlungsverzug nur über die Mahnung Stufe 3 (Prüfung 29.10.2026)
+    expect(dialog).toContain("kuendigungstyp === 'ausserordentlich_fristlos' && kuendigungsgrund === 'Zahlungsverzug'");
     expect(dialog).toMatch(/if \(raeumungsFehler\) \{\s*toast\(/);
   });
 });

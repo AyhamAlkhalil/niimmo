@@ -134,7 +134,7 @@ describe('send-mahnung: Stufe 3 beim Vormerken und per Post', () => {
 
   it('der Postweg im Dialog setzt den Status nicht selbst', () => {
     const modal = readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8');
-    const post = modal.slice(modal.indexOf('const handlePostBuchen'), modal.indexOf('const monatsmieteDesVertrags'));
+    const post = modal.slice(modal.indexOf('const handlePostBuchen'), modal.indexOf('// Nur der Rückstand zählt: hinge die Rechnung'));
     expect(post.length).toBeGreaterThan(100);
     expect(post).not.toContain(".from('mietvertrag')");
     expect(post).not.toContain('kuendigungGesetzt');

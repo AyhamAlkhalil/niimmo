@@ -192,13 +192,16 @@ export function vorgemerkteKuendigungFehler(
 /**
  * Die Vormerkung, die der Dialog zum Versand anbietet: Stufe = gespeicherte Stufe + 1, nicht veraltet
  * (Frist nicht vor heute, bei Stufe 3 dieselbe Regel wie send-mahnung: vorgemerkteKuendigungFehler),
- * Schreiben noch unter Dokumente; die jüngste. Veraltete Vormerkungen werden nicht angeboten.
+ * Schreiben noch unter Dokumente; die jüngste. Veraltete Vormerkungen werden nicht angeboten — auch keine, deren
+ * Rückstand nicht mehr dem heutigen entspricht: Hat der Mieter seither gezahlt, ginge sonst das alte Schreiben mit
+ * dem alten Betrag hinaus, bei Stufe 3 samt Kündigung (§ 543 Abs. 2 S. 2 BGB; Prüfung 29.10.2026).
  */
 export function angeboteneVormerkung(
   zeilen: MahnungVormerkung[],
   stufe: number,
   heuteIso: string,
   vorhandenePfade: Set<string>,
+  aktuellerRueckstand?: number,
 ): MahnungVormerkung | null {
   const passend = zeilen.filter(
     (v) =>
@@ -206,7 +209,10 @@ export function angeboteneVormerkung(
       !!v.zahlungsfrist &&
       v.zahlungsfrist.slice(0, 10) >= heuteIso &&
       (stufe < 3 || vorgemerkteKuendigungFehler(v.kuendigung, heuteIso) === null) &&
-      vorhandenePfade.has(v.dokument_pfad),
+      vorhandenePfade.has(v.dokument_pfad) &&
+      (aktuellerRueckstand === undefined ||
+        (typeof v.betraege?.gesamtRueckstand === 'number' &&
+          Math.abs(v.betraege.gesamtRueckstand - aktuellerRueckstand) < 0.005)),
   );
   passend.sort((a, b) => (a.erstellt_am < b.erstellt_am ? 1 : a.erstellt_am > b.erstellt_am ? -1 : 0));
   return passend[0] ?? null;

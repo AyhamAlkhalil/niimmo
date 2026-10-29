@@ -14,7 +14,8 @@ import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
 import { useToast } from "@/hooks/use-toast";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
-import { berechneMietkontostand } from "@/utils/rueckstandsberechnung";
+import { berechneMietkontostand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
+import { offenePosten } from "@/utils/rueckstandSeit";
 import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
 import { getVertragsende } from "@/utils/contractUtils";
 
@@ -86,6 +87,12 @@ export default function MietvertragDetailsModal({
       </Dialog>
     );
   }
+
+  // Gleiche Rechnung wie die Rueckstandsliste. Die eigene Formel bis zum 07.10.2026
+  // liess bezahlte Betriebskosten-Nachzahlungen weg (docs/offene-punkte.md C5); bis zum
+  // 27.10.2026 zaehlten auch noch nicht faellige Forderungen mit -- vom 1. bis 7. war
+  // der Mahnbetrag um die laufende Monatsmiete zu hoch.
+  const mahnRueckstand = Math.max(0, berechneMietkontostand(vertrag, forderungen || [], zahlungen || []).rueckstand);
 
   return (
     <>
@@ -281,11 +288,10 @@ export default function MietvertragDetailsModal({
             vertragsende: getVertragsende(vertrag),
             mieter: mieter as any[]
           } : null}
-          // Gleiche Rechnung wie die Rueckstandsliste. Die eigene Formel bis zum 07.10.2026
-          // liess bezahlte Betriebskosten-Nachzahlungen weg (docs/offene-punkte.md C5); bis zum
-          // 27.10.2026 zaehlten auch noch nicht faellige Forderungen mit -- vom 1. bis 7. war
-          // der Mahnbetrag um die laufende Monatsmiete zu hoch.
-          rueckstand={Math.max(0, berechneMietkontostand(vertrag, forderungen || [], zahlungen || []).rueckstand)}
+          rueckstand={mahnRueckstand}
+          // Die offenen Monate dahinter (§ 366 Abs. 2 BGB: die jüngsten): Das Schreiben zählt sie auf, und nur ihr
+          // Mietanteil zählt für die Schwelle der fristlosen Kündigung (Prüfung 29.10.2026)
+          offenePosten={offenePosten(nurFaelligeForderungen((forderungen || []).filter((f) => f.sollmonat), new Date()), mahnRueckstand)}
         />
 
       </DialogContent>

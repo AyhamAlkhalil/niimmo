@@ -105,6 +105,14 @@ describe('Offene Vormerkung beim Öffnen des Dialogs', () => {
     expect(angeboteneVormerkung([{ ...s3, kuendigung: null }], 3, '2026-10-28', new Set(['p.pdf']))).toBeNull();
   });
 
+  it('bietet ein Schreiben nicht mehr an, wenn sich der Rückstand seither geändert hat (Prüfung 29.10.2026)', () => {
+    const v = zeile({ dokument_pfad: 'p.pdf', betraege: { gesamtRueckstand: 1200 } });
+    expect(angeboteneVormerkung([v], 2, '2026-10-28', new Set(['p.pdf']), 1200)).not.toBeNull();
+    // Der Mieter hat 600 € gezahlt: Das alte Schreiben über 1.200 € ginge sonst unverändert hinaus
+    expect(angeboteneVormerkung([v], 2, '2026-10-28', new Set(['p.pdf']), 600)).toBeNull();
+    expect(angeboteneVormerkung([{ ...v, betraege: null }], 2, '2026-10-28', new Set(['p.pdf']), 1200)).toBeNull();
+  });
+
   it('baut den Versandstand aus der Vormerkung (Tag des Schreibens in deutscher Zeit)', () => {
     const stand = versandStandAusVormerkung(zeile({ erstellt_am: '2026-10-27T23:30:00+00:00' }));
     expect(stand.pfad).toBe('mahnungen/x/Mahnung_Stufe2_2026-10-26_100000.pdf');
@@ -153,7 +161,7 @@ describe('Empfänger im Mailweg wie in der Kündigungsbestätigung', () => {
 describe('Mahnungsdialog: Vormerken und Postversand', () => {
   const modal = readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8');
   const speichern = modal.slice(modal.indexOf('const handleSaveAndUpload'), modal.indexOf('const handleDownload'));
-  const post = modal.slice(modal.indexOf('const handlePostBuchen'), modal.indexOf('const monatsmieteDesVertrags'));
+  const post = modal.slice(modal.indexOf('const handlePostBuchen'), modal.indexOf('// Nur der Rückstand zählt: hinge die Rechnung'));
 
   it('merkt das Schreiben beim Speichern vor und entfernt es wieder, wenn das scheitert', () => {
     const vormerken = speichern.indexOf("versandart: 'vormerken'");
@@ -179,7 +187,7 @@ describe('Mahnungsdialog: Vormerken und Postversand', () => {
   });
 
   it('bietet eine offene Vormerkung an und daneben ein neues Schreiben', () => {
-    expect(modal).toContain('angeboteneVormerkung(liste, mahnstufe, berlinerKalendertag(), vorhanden)');
+    expect(modal).toContain('angeboteneVormerkung(liste, mahnstufe, berlinerKalendertag(), vorhanden, rueckstand)');
     expect(modal).toContain('Jetzt versenden (E-Mail oder Post)');
     expect(modal).toContain('Neues Schreiben erstellen');
     expect(modal).toContain('setGespeichert(versandStandAusVormerkung(angebot));');

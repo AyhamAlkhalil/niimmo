@@ -65,19 +65,41 @@ export function rueckstandSeit(
   return offen.length > 0 ? faelligAm(offen[offen.length - 1]).slice(0, 7) : null;
 }
 
+/** Ein offener Posten eines Rückstands, wie ihn das Mahnschreiben aufzählt */
+export interface OffenerPosten {
+  /** JJJJ-MM des Sollmonats */
+  monat: string;
+  betrag: number;
+  art: 'Miete' | 'Rücklastschriftgebühr' | 'Betriebskostennachzahlung' | 'Sonstige Forderung';
+}
+
+/**
+ * Die offenen Posten eines Rückstands, ältester zuerst (29.10.2026, Prüfung: das Mahnschreiben kündigte „folgende
+ * Mietzahlungen“ an und zählte keine auf). Offen sind nach § 366 Abs. 2 BGB die jüngsten fälligen Forderungen;
+ * was der Rückstand über sie hinaus ausmacht (BKA-Zahlung ohne Forderung), steht als „Sonstige Forderung“.
+ */
+export function offenePosten(faellige: readonly KontoForderung[], rueckstand: number): OffenerPosten[] {
+  let rest = Math.round(rueckstand * 100) / 100;
+  const posten: OffenerPosten[] = [];
+  for (const f of juengsteZuerst(faellige)) {
+    if (rest <= 0.005) break;
+    const teil = Math.round(Math.min(rest, Number(f.sollbetrag) || 0) * 100) / 100;
+    const art: OffenerPosten['art'] = istMonatsmiete(f) ? 'Miete'
+      : f.ruecklastschrift_am ? 'Rücklastschriftgebühr'
+        : f.typ === 'BKA' ? 'Betriebskostennachzahlung' : 'Sonstige Forderung';
+    posten.push({ monat: (f.sollmonat ?? faelligAm(f)).slice(0, 7), betrag: teil, art });
+    rest = Math.round((rest - teil) * 100) / 100;
+  }
+  if (rest > 0.005) posten.push({ monat: '', betrag: rest, art: 'Sonstige Forderung' });
+  return posten.reverse();
+}
+
 /**
  * Der Mietanteil eines Rückstands (Review 29.10.2026): Offen sind die jüngsten fälligen Forderungen; davon
  * zählen nur Monatsmieten — eine Betriebskostennachzahlung oder Rücklastschriftgebühr ist keine Miete.
  */
 export function mietrueckstand(faellige: readonly KontoForderung[], rueckstand: number): number {
-  let rest = rueckstand;
-  let miete = 0;
-  for (const f of juengsteZuerst(faellige)) {
-    if (rest <= 0.005) break;
-    const teil = Math.min(rest, Number(f.sollbetrag) || 0);
-    if (istMonatsmiete(f)) miete += teil;
-    rest -= teil;
-  }
+  const miete = offenePosten(faellige, rueckstand).filter((p) => p.art === 'Miete').reduce((s, p) => s + p.betrag, 0);
   return Math.round(miete * 100) / 100;
 }
 

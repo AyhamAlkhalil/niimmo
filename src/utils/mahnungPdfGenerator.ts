@@ -234,23 +234,16 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
     y = drawJustifiedText(data.freitext, marginLeft, y, contentWidth, lineHeight);
     y += 4;
   } else {
-    let bodyText: string;
-    
-    if (data.mahnstufe >= 3) {
-      bodyText = `Sie haben seit Beginn des Mietverhältnisses am ${data.vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${rueckstandsUmfang(data.anzahlMonatsmieten, formatEuro(data.gesamtRueckstand))}. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
-    } else if (data.mahnstufe === 2) {
-      bodyText = `trotz unserer ersten Mahnung sind die folgenden Zahlungen weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.\nDer Mietrückstand beläuft sich auf insgesamt ${formatEuro(data.gesamtRueckstand)} €.`;
-    } else {
-      bodyText = `wir möchten Sie darauf hinweisen, dass folgende Mietzahlungen noch nicht bei uns eingegangen sind:\nDer Mietrückstand beläuft sich auf insgesamt ${formatEuro(data.gesamtRueckstand)} €.`;
-    }
-    
-    const paragraphs = bodyText.split('\n');
-    for (const paragraph of paragraphs) {
-      if (paragraph.trim() === '') {
-        y += 3;
+    const absaetze = mahnungAbsaetze(data);
+    for (const absatz of absaetze) {
+      if (absatz.startsWith(POSTEN_PRAEFIX)) {
+        // Offene Posten eingerückt, eine Zeile je Monat
+        y = checkPageBreak(y, lineHeight);
+        doc.text(absatz.slice(POSTEN_PRAEFIX.length), marginLeft + 4, y);
+        y += lineHeight;
         continue;
       }
-      y = drawJustifiedText(paragraph, marginLeft, y, contentWidth, lineHeight);
+      y = drawJustifiedText(absatz, marginLeft, y, contentWidth, lineHeight);
       y += 2;
     }
     y += 2;
@@ -284,6 +277,16 @@ export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
     y = checkPageBreak(y, lineHeight + 2);
     const mahnkostenText = `Weiterhin entstehen Mahnkosten i. H. v. ${formatEuro(data.mahnkostenProSchreiben)} € pro Mahnschreiben, somit ${formatEuro(data.mahnkostenGesamt)} €.`;
     y = drawJustifiedText(mahnkostenText, marginLeft, y, contentWidth, lineHeight);
+    y += 4;
+  }
+
+  // Gesamtbetrag (Prüfung 29.10.2026): „Wir bitten Sie, den Gesamtbetrag … zu überweisen“ bezifferte ihn nirgends;
+  // wer das Schreiben per Post bekommt, erfuhr den Zahlbetrag nicht
+  if (!data.freitext) {
+    y = checkPageBreak(y, lineHeight + 4);
+    doc.setFont('helvetica', 'bold');
+    y = drawJustifiedText(gesamtbetragText(data), marginLeft, y, contentWidth, lineHeight);
+    doc.setFont('helvetica', 'normal');
     y += 4;
   }
   
@@ -444,6 +447,54 @@ export function monatsmietenText(anzahl: number): string {
  * 0 sind: Ohne Miete am Vertrag oder bei sehr kleinem Rückstand stand „auf 0 Monatsmieten“ im
  * Kündigungsschreiben (27.10.2026).
  */
+/** Kennzeichnet in mahnungAbsaetze eine Zeile der Postenliste */
+export const POSTEN_PRAEFIX = '\u0000posten:';
+
+/**
+ * Die Absätze des Mahnschreibens ohne Freitext, für PDF und Textvorlage im Dialog (Prüfung 29.10.2026: das Schreiben
+ * kündigte „folgende Mietzahlungen“ an und zählte keine auf). Zeilen der Postenliste beginnen mit POSTEN_PRAEFIX.
+ */
+export function mahnungAbsaetze(
+  data: Pick<MahnungPdfData, 'mahnstufe' | 'vertragStart' | 'offeneForderungen' | 'gesamtRueckstand' | 'anzahlMonatsmieten'>
+): string[] {
+  const posten = data.offeneForderungen.map((p) => `${POSTEN_PRAEFIX}${p.monat}: ${formatEuro(p.betrag)} €`);
+  const mitListe = posten.length > 0;
+  if (data.mahnstufe >= 3) {
+    return [
+      `Sie haben seit Beginn des Mietverhältnisses am ${data.vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.${mitListe ? ' Offen sind:' : ''}`,
+      ...posten,
+      `Der Mietrückstand beläuft sich inzwischen auf ${rueckstandsUmfang(data.anzahlMonatsmieten, formatEuro(data.gesamtRueckstand))}. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`,
+    ];
+  }
+  if (data.mahnstufe === 2) {
+    return [
+      `trotz unserer ersten Mahnung sind ${mitListe ? 'die folgenden Zahlungen' : 'die offenen Zahlungen'} weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.`,
+      ...posten,
+      `Der Mietrückstand beläuft sich auf insgesamt ${formatEuro(data.gesamtRueckstand)} €.`,
+    ];
+  }
+  return [
+    mitListe
+      ? 'wir möchten Sie darauf hinweisen, dass folgende Mietzahlungen noch nicht bei uns eingegangen sind:'
+      : 'wir möchten Sie darauf hinweisen, dass Mietzahlungen noch nicht vollständig bei uns eingegangen sind.',
+    ...posten,
+    `Der Mietrückstand beläuft sich auf insgesamt ${formatEuro(data.gesamtRueckstand)} €.`,
+  ];
+}
+
+/** „Zu zahlen sind insgesamt …“: Rückstand, Zinsen und Mahnkosten mit Summe */
+export function gesamtbetragText(
+  data: Pick<MahnungPdfData, 'gesamtRueckstand' | 'verzugszinsenGesamt' | 'mahnkostenGesamt'>
+): string {
+  const teile = [`Mietrückstand ${formatEuro(data.gesamtRueckstand)} €`];
+  if (data.verzugszinsenGesamt > 0) teile.push(`Verzugszinsen ${formatEuro(data.verzugszinsenGesamt)} €`);
+  if (data.mahnkostenGesamt > 0) teile.push(`Mahnkosten ${formatEuro(data.mahnkostenGesamt)} €`);
+  const summe = Math.round((data.gesamtRueckstand + data.verzugszinsenGesamt + data.mahnkostenGesamt) * 100) / 100;
+  return teile.length === 1
+    ? `Zu zahlen sind insgesamt ${formatEuro(summe)} €.`
+    : `Zu zahlen sind insgesamt ${formatEuro(summe)} € (${teile.join(', ')}).`;
+}
+
 export function rueckstandsUmfang(anzahlMonatsmieten: number, betragText: string): string {
   const wert = Number.isFinite(anzahlMonatsmieten) ? Math.floor(anzahlMonatsmieten * 10) / 10 : 0;
   return wert > 0 ? `${monatsmietenText(wert)} in Höhe von insgesamt ${betragText} €` : `insgesamt ${betragText} €`;

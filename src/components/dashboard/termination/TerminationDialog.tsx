@@ -264,6 +264,10 @@ export const TerminationDialog = ({
   };
 
   const raeumungsFehler = raeumungVorKuendigung(kuendigungstyp, kuendigungsdatum, auszugsdatum);
+  // Fristlos wegen Zahlungsverzug nur über die Mahnung (Stufe 3): Dort stehen Rückstand und offene Monate im
+  // Schreiben (§ 569 Abs. 4 BGB), und die Schwelle des § 543 Abs. 2 Nr. 3 BGB wird geprüft. Bis zum 29.10.2026 ließ
+  // sich hier ein Schreiben ohne Betrag und ohne Prüfung erzeugen, und der Vertrag wurde gekündigt (Prüfung 29.10.2026).
+  const zahlungsverzugFristlos = kuendigungstyp === 'ausserordentlich_fristlos' && kuendigungsgrund === 'Zahlungsverzug';
 
   // ====== MANUAL: Save PDF + terminate ======
   const handleManualTermination = async () => {
@@ -624,6 +628,12 @@ export const TerminationDialog = ({
                               <SelectItem value="Sonstiges">Sonstiges</SelectItem>
                             </SelectContent>
                           </Select>
+                          {zahlungsverzugFristlos && (
+                            <p className="mt-1 text-xs text-destructive" role="alert">
+                              Eine fristlose Kündigung wegen Zahlungsverzug bitte über die Mahnung (Stufe 3) erstellen. Dort stehen
+                              Rückstand und offene Monate im Schreiben, und die gesetzliche Schwelle wird geprüft.
+                            </p>
+                          )}
                           {kuendigungsgrund === 'Sonstiges' && (
                             <Input
                               value={bemerkungen}
@@ -701,7 +711,7 @@ export const TerminationDialog = ({
                         size="sm"
                         variant="destructive"
                         onClick={() => setShowConfirm(true)}
-                        disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler}
+                        disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler || zahlungsverzugFristlos}
                         className="flex-1"
                       >
                         {isSubmitting ? (

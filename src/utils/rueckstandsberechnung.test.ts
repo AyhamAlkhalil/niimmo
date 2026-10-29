@@ -409,7 +409,8 @@ describe('Vertragsdetail und Rückstandsliste', () => {
     expect(readFileSync('src/components/dashboard/mietvertrag-details/MietvertragOverviewTab.tsx', 'utf-8')).toMatch(/finanzLaedt=\{finanzLaedt\}/);
     const mahnung = readFileSync('src/components/dashboard/MietvertragDetailsModal.tsx', 'utf-8');
     expect(mahnung).toMatch(/finanzLaedt=\{finanzLaedt\}/);
-    expect(mahnung).toMatch(/rueckstand=\{Math\.max\(0, berechneMietkontostand\(vertrag, forderungen \|\| \[\], zahlungen \|\| \[\]\)\.rueckstand\)\}/);
+    expect(mahnung).toMatch(/const mahnRueckstand = Math\.max\(0, berechneMietkontostand\(vertrag, forderungen \|\| \[\], zahlungen \|\| \[\]\)\.rueckstand\);/);
+    expect(mahnung).toMatch(/rueckstand=\{mahnRueckstand\}/);
   });
 
   it('zeigen im Kopf der Liste den Bestand, nicht die Auswahl nach Suche und Filter', () => {

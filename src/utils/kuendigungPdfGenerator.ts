@@ -274,11 +274,13 @@ export async function generateKuendigungPdf(data: KuendigungPdfData): Promise<Bl
     if (typ === 'ausserordentlich_fristlos') {
       y = blocksatz(`Wir fordern Sie auf, die Wohnung unverzüglich, spätestens jedoch bis zum ${data.auszugsdatum}, zu räumen und in ordnungsgemäßem Zustand zu übergeben.`, y);
       y += 4;
-
-      y = blocksatz('Der Kündigung kann gemäß § 574 BGB innerhalb von zwei Monaten vor Beendigung des Mietverhältnisses schriftlich widersprochen werden, sofern die Beendigung eine unzumutbare Härte darstellen würde.', y);
-      y += 4;
     } else {
       y = blocksatz(`Wir bitten Sie, die Wohnung bis zum ${data.auszugsdatum} geräumt und in ordnungsgemäßem Zustand zu übergeben. Bitte vereinbaren Sie rechtzeitig einen Übergabetermin mit uns.`, y);
+      y += 4;
+
+      // Hinweis auf den Widerspruch (§ 568 Abs. 2 BGB) gehört zur Kündigung mit Frist; bei einer berechtigten fristlosen
+      // Kündigung gibt es ihn nicht (§ 574 Abs. 1 S. 2 BGB). Bis zum 29.10.2026 stand er umgekehrt nur dort (Prüfung).
+      y = blocksatz('Der Kündigung können Sie gemäß §§ 574 bis 574b BGB schriftlich widersprechen und die Fortsetzung des Mietverhältnisses verlangen, wenn dessen Beendigung für Sie oder Ihre Familie eine nicht zu rechtfertigende Härte bedeuten würde. Der Widerspruch muss uns spätestens zwei Monate vor der Beendigung des Mietverhältnisses zugehen.', y);
       y += 4;
     }
 

@@ -17,13 +17,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, AlertTriangle, Download, Mail, Mailbox, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { generateMahnungPdf, rueckstandsUmfang, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
+import { generateMahnungPdf, mahnungAbsaetze, POSTEN_PRAEFIX, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
 import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
 import { fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
 import { leseKautionsbetrag } from "@/utils/vertragKaution";
+import { monatText, rueckstandInMonatsmieten, type OffenerPosten } from "@/utils/rueckstandSeit";
 import { leseAnzahlSchreiben, leseMahnungBetraege, mahnkostenGesamtText, mahnungBetragsMeldung } from "@/utils/mahnungEingaben";
 import { empfaengerDerAuswahl, mailadressenDerMieter, vorausgewaehlteEmpfaenger } from "@/utils/kuendigungsbestaetigung";
 import {
@@ -80,13 +81,18 @@ interface MahnungErstellungModalProps {
     }>;
   } | null;
   rueckstand?: number;
+  /** Die offenen Posten hinter dem Rückstand (offenePosten), ältester zuerst */
+  offenePosten?: OffenerPosten[];
 }
+
+const KEINE_POSTEN: OffenerPosten[] = [];
 
 export function MahnungErstellungModal({
   isOpen,
   onClose,
   contractData,
-  rueckstand = 0
+  rueckstand = 0,
+  offenePosten = KEINE_POSTEN,
 }: MahnungErstellungModalProps) {
   const { toast } = useToast();
   const { perioden, fromDB } = useBasiszinsPerioden();
@@ -146,7 +152,6 @@ export function MahnungErstellungModal({
   const [mieterPlzOrt, setMieterPlzOrt] = useState<string>("");
   const [einheitBezeichnung, setEinheitBezeichnung] = useState<string>("");
   const [gesamtRueckstand, setGesamtRueckstand] = useState<string>("0.00");
-  const [anzahlMonatsmieten, setAnzahlMonatsmieten] = useState<string>("1");
   
   // Verzugszinsen
   const [verzugszinsenDetails, setVerzugszinsenDetails] = useState<Array<{
@@ -195,11 +200,6 @@ export function MahnungErstellungModal({
         : '');
       setEinheitBezeichnung("WE");
       
-      const monatsmiete = (contractData.current_kaltmiete || 0) + (contractData.current_betriebskosten || 0);
-      // Abgerundet auf eine Stelle (monatsmietenText): aufgerundet stand 1,1 als „2 Monatsmieten“ im Schreiben
-      const monate = monatsmiete > 0 ? Math.floor((rueckstand / monatsmiete) * 10) / 10 : 0;
-      setAnzahlMonatsmieten(String(monate));
-      
       // Je Schreiben dieser Mahnfolge einschließlich des jetzigen (Miete ist kalendermäßig fällig,
       // § 286 Abs. 2 Nr. 1 BGB). Bis zum 27.10.2026 ergab max(1, alteStufe || 1) für Stufe 1/2/3
       // die Anzahl 1/1/2.
@@ -232,24 +232,45 @@ export function MahnungErstellungModal({
     [gesamtRueckstand, mahnkostenProSchreiben, verzugszinsenGesamt]
   );
   const betragsMeldung = mahnungBetragsMeldung(betraege.ungueltig);
+
+  // Monatsmieten im Rückstand nur aus dem Mietanteil (ohne BKA-Nachzahlung und Gebühren) wie die Rückstandsliste,
+  // höchstens der eingetragene Rückstand; abgerundet auf eine Stelle (rueckstandInMonatsmieten). Bis zum 29.10.2026
+  // ein freies Feld, beim Öffnen aus dem Gesamtrückstand gesetzt: 500 € Miete + 600 € BKA standen als
+  // „2,2 Monatsmieten“ im Kündigungsschreiben (Prüfung 29.10.2026)
+  const monatsmieteDesVertrags = (contractData?.current_kaltmiete || 0) + (contractData?.current_betriebskosten || 0);
+  const mietanteil = Math.min(
+    betraege.werte.rueckstand,
+    offenePosten.filter((p) => p.art === 'Miete').reduce((s, p) => s + p.betrag, 0)
+  );
+  const anzahlMonatsmieten = String(rueckstandInMonatsmieten(mietanteil, monatsmieteDesVertrags) ?? 0);
+  // Fristlos nach § 543 Abs. 2 Nr. 3, § 569 Abs. 3 Nr. 1 BGB erst, wenn der Mietrückstand eine Monatsmiete
+  // übersteigt (zwei Termine mit mehr als einer Monatsmiete oder zwei Monatsmieten über mehr als zwei Termine).
+  // Bis zum 29.10.2026 kündigte Stufe 3 auch bei 0,3 Monatsmieten (Prüfung 29.10.2026).
+  const fristlosGesperrt = mahnstufe >= 3 && !(mietanteil > monatsmieteDesVertrags + 0.005);
+  // Die offenen Posten passen nur zum ungeänderten Rückstand; wer ihn von Hand ändert, bekommt keine Aufzählung
+  const postenImSchreiben = Math.abs(betraege.werte.rueckstand - rueckstand) < 0.005 ? offenePosten : KEINE_POSTEN;
+  const postenZeilen = useMemo(() => postenImSchreiben.map((p) => ({
+    monat: p.monat ? `${monatText(p.monat)}${p.art === 'Miete' ? '' : ` – ${p.art}`}` : 'Sonstige Forderungen',
+    betrag: p.betrag,
+  })), [postenImSchreiben]);
   // „-2“ Schreiben ergab negative Mahnkosten (QA 28.10.2026)
   const anzahlUngueltig = leseAnzahlSchreiben(anzahlMahnschreiben) === undefined;
 
-  // Generate the standard Mahnungstext for the current Mahnstufe
+  // Generate the standard Mahnungstext for the current Mahnstufe — derselbe Wortlaut wie im PDF (mahnungAbsaetze)
   const buildStandardText = useCallback((): string => {
-    const rueckstandFormatted = betraege.werte.rueckstand.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const vertragStart = contractData?.start_datum
       ? new Date(contractData.start_datum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
       : 'N/A';
-
-    if (mahnstufe >= 3) {
-      return `Sie haben seit Beginn des Mietverhältnisses am ${vertragStart} Ihre Mietzahlungen wiederholt verspätet und unregelmäßig erbracht. Trotz meiner Mahnung sind die Mietrückstände nicht ausgeglichen worden.\nDer Mietrückstand beläuft sich inzwischen auf ${rueckstandsUmfang(parseFloat(anzahlMonatsmieten), rueckstandFormatted)}. Damit befinden Sie sich im erheblichen Zahlungsverzug im Sinne der §§ 543 Abs. 2 Nr. 3, 569 Abs. 3 Nr. 1 BGB.`;
-    } else if (mahnstufe === 2) {
-      return `trotz unserer ersten Mahnung sind die folgenden Zahlungen weiterhin nicht bei uns eingegangen. Wir fordern Sie hiermit erneut zur Zahlung auf.\nDer Mietrückstand beläuft sich auf insgesamt ${rueckstandFormatted} €.`;
-    } else {
-      return `wir möchten Sie darauf hinweisen, dass folgende Mietzahlungen noch nicht bei uns eingegangen sind:\nDer Mietrückstand beläuft sich auf insgesamt ${rueckstandFormatted} €.`;
-    }
-  }, [contractData, mahnstufe, betraege, anzahlMonatsmieten]);
+    return mahnungAbsaetze({
+      mahnstufe,
+      vertragStart,
+      offeneForderungen: postenZeilen,
+      gesamtRueckstand: betraege.werte.rueckstand,
+      anzahlMonatsmieten: parseFloat(anzahlMonatsmieten) || 0,
+    })
+      .map((absatz) => (absatz.startsWith(POSTEN_PRAEFIX) ? `  ${absatz.slice(POSTEN_PRAEFIX.length)}` : absatz))
+      .join('\n');
+  }, [contractData, mahnstufe, betraege, anzahlMonatsmieten, postenZeilen]);
 
   // Build PDF data from state
   const buildPdfData = useCallback((): MahnungPdfData | null => {
@@ -286,7 +307,7 @@ export function MahnungErstellungModal({
       vertragStart,
       mahnstufe,
       datum: datumStr,
-      offeneForderungen: [],
+      offeneForderungen: postenZeilen,
       gesamtRueckstand: betraege.werte.rueckstand,
       anzahlMonatsmieten: parseFloat(anzahlMonatsmieten) || 0,
       verzugszinsenDetails,
@@ -303,7 +324,7 @@ export function MahnungErstellungModal({
       freitext: useFreitext ? freitext : undefined,
     };
   }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
-      betraege, anzahlMonatsmieten, verzugszinsenDetails,
+      betraege, anzahlMonatsmieten, verzugszinsenDetails, postenZeilen,
       anzahlMahnschreiben, mahnkostenGesamt,
       zahlungsfristTage, raeumungsfristTage, uebergabeDatum, mahnstufe, useFreitext, freitext]);
 
@@ -376,7 +397,7 @@ export function MahnungErstellungModal({
   // Dialog an, sie jetzt zu versenden — ein gedrucktes, aber nicht gebuchtes Schreiben ging sonst verloren.
   const vertragsId = contractData?.mietvertrag_id;
   const { data: angebot = null, isError: angebotFehler } = useQuery({
-    queryKey: ['mahnung-vormerkungen', vertragsId, mahnstufe],
+    queryKey: ['mahnung-vormerkungen', vertragsId, mahnstufe, rueckstand],
     enabled: isOpen && !!vertragsId,
     staleTime: 0,
     queryFn: async (): Promise<MahnungVormerkung | null> => {
@@ -400,7 +421,7 @@ export function MahnungErstellungModal({
         .in('pfad', liste.map(v => v.dokument_pfad));
       if (dokumentFehler) throw dokumentFehler;
       const vorhanden = new Set((dokumente ?? []).map(d => d.pfad as string));
-      return angeboteneVormerkung(liste, mahnstufe, berlinerKalendertag(), vorhanden);
+      return angeboteneVormerkung(liste, mahnstufe, berlinerKalendertag(), vorhanden, rueckstand);
     },
   });
 
@@ -827,7 +848,6 @@ export function MahnungErstellungModal({
     }
   };
 
-  const monatsmieteDesVertrags = (contractData?.current_kaltmiete || 0) + (contractData?.current_betriebskosten || 0);
   // Nur der Rückstand zählt: hinge die Rechnung an allen Beträgen, überschriebe sie jede Eingabe der Zinssumme
   const rueckstandWert = betraege.werte.rueckstand;
   const rueckstandUngueltig = betraege.ungueltig.includes('rueckstand');
@@ -880,7 +900,7 @@ export function MahnungErstellungModal({
     : gesamtkosten;
   // Solange ein Versand unklar ist, lehnt send-mahnung neue Vormerkungen ab — erst klären (Review 28.10.2026)
   // Auch gesperrt, solange nicht geprüft ist, ob ein Versand unklar ist (lädt oder Fehler)
-  const speichernGesperrt = isSubmitting || parsedRueckstand <= 0 || betraege.ungueltig.length > 0 || anzahlUngueltig || !vorschauAktuell || unklar !== null || !unklarGeprueft;
+  const speichernGesperrt = isSubmitting || fristlosGesperrt || parsedRueckstand <= 0 || betraege.ungueltig.length > 0 || anzahlUngueltig || !vorschauAktuell || unklar !== null || !unklarGeprueft;
 
   const getMahnstufeColor = (stufe: number) => {
     if (stufe === 1) return "bg-yellow-100 text-yellow-800 border-yellow-300";
@@ -938,7 +958,7 @@ export function MahnungErstellungModal({
                           Zahlungsfrist {deutschAusIso(angebot.zahlungsfrist.slice(0, 10))}.
                         </p>
                         <div className="flex flex-wrap gap-2">
-                          <Button size="sm" onClick={vormerkungVersenden} disabled={vormerkungLaedt}>
+                          <Button size="sm" onClick={vormerkungVersenden} disabled={vormerkungLaedt || fristlosGesperrt}>
                             {vormerkungLaedt ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Send className="h-4 w-4 mr-1.5" />}
                             Jetzt versenden (E-Mail oder Post)
                           </Button>
@@ -1068,10 +1088,18 @@ export function MahnungErstellungModal({
                         <Input 
                           type="number" 
                           value={anzahlMonatsmieten} 
-                          onChange={(e) => setAnzahlMonatsmieten(e.target.value)} 
-                          className="mt-1 h-9"
+                          readOnly
+                          title="Aus dem Mietanteil des Rückstands, ohne Betriebskostennachzahlung und Gebühren"
+                          className="mt-1 h-9 bg-muted/40"
                         />
                       </div>
+                      {fristlosGesperrt && (
+                        <p className="text-xs text-destructive" role="alert">
+                          Keine fristlose Kündigung möglich: Der Mietrückstand ({mietanteil.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €) übersteigt
+                          eine Monatsmiete ({monatsmieteDesVertrags.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €) nicht
+                          (§ 543 Abs. 2 Nr. 3, § 569 Abs. 3 Nr. 1 BGB). Betriebskostennachzahlungen und Gebühren zählen dafür nicht.
+                        </p>
+                      )}
                       {betraege.ungueltig.includes('rueckstand') && (
                         <p className="text-xs text-destructive" role="alert">{betragsMeldung}</p>
                       )}
