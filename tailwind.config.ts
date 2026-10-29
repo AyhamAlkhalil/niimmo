@@ -101,6 +101,21 @@ export default {
 					'serif': ['Jost', 'InterVariable', 'system-ui', 'sans-serif'],
 					'display': ['Jost', 'InterVariable', 'system-ui', 'sans-serif'],
 				},
+				// Kräftiger statt filigran (29.10.2026, Kunde: „die Schriftlinie ein bisschen dicker, nicht so
+				// filigran“): jede Stärke eine Stufe schwerer, Jost ist variabel (100–900). Light bleibt für die
+				// großen Titel und Zahlen die leichteste Stufe, wirkt aber nicht mehr dünn.
+				fontWeight: {
+					light: '400',
+					normal: '450',
+					medium: '550',
+					semibold: '650',
+					bold: '720',
+				},
+				// Linien als Abschnittsgrenzen sichtbar (29.10.2026, Kunde: „die grauen Striche ein bisschen dicker,
+				// dass man die Sektionen besser trennt“): border, border-t usw. sind 2 px; border-[1px] für Ausnahmen
+				borderWidth: {
+					DEFAULT: '2px',
+				},
 				// Jost hat eine kleinere x-Höhe als Inter; die beiden kleinsten Grade wachsen deshalb um
 				// einen halben Pixel, damit Tabellen und Etiketten gleich gut lesbar bleiben
 				fontSize: {

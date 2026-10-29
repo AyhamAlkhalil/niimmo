@@ -109,7 +109,8 @@
     /* Dunkles Karmin für Text auf brand-soft (7,9:1) */
     --brand-strong: 353 66.3% 33.7%;
 
-    --border: 20 5.9% 90%;
+    /* 82 % statt 90 % (29.10.2026): Linien trennen die Abschnitte sichtbar, nicht nur als Haarlinie */
+    --border: 20 5.9% 82%;
     --input: 24 4.6% 78.6%;
     --ring: 345 7% 11.8%;
 
@@ -171,7 +172,7 @@
     --brand-soft: 355 30% 16%;
     --brand-strong: 355 80% 72%;
 
-    --border: 0 7% 16.9%;
+    --border: 0 7% 24%;
     --input: 0 7% 19%;
     --ring: 25 6% 62%;
 
@@ -203,13 +204,15 @@
     min-height: 100vh;
     /* Jost läuft eng; ein Hauch Sperrung hält kleine Grade lesbar */
     letter-spacing: 0.004em;
+    /* Grundtext eine halbe Stufe kräftiger als 400 (29.10.2026, „nicht so filigran“) */
+    font-weight: 450;
     font-feature-settings: 'kern' 1;
   }
 
   /* Titel: dieselbe Schrift, leichter und enger gesetzt -- groß und ruhig wie im Exposé */
   .font-display,
   .font-serif {
-    font-weight: 400;
+    font-weight: 450;
     letter-spacing: -0.012em;
   }
 
@@ -243,7 +246,7 @@
   .elegant-card,
   .metric-card {
     background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
+    border: 2px solid hsl(var(--border));
     transition: border-color 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -263,7 +266,7 @@
 
   .modern-input {
     background: hsl(var(--card));
-    border: 1px solid hsl(var(--input));
+    border: 2px solid hsl(var(--input));
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
@@ -275,7 +278,7 @@
 
   .modern-button-ghost {
     background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
+    border: 2px solid hsl(var(--border));
     transition: background-color 0.2s ease, border-color 0.2s ease;
   }
 
