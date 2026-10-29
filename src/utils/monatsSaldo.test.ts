@@ -110,15 +110,18 @@ describe('monatsSaldo', () => {
     expect(r.aelter).toBe(0);
   });
 
-  it('zählt Rücklastschriften mindernd, Kaution und fremde Verträge nicht', () => {
+  it('zählt Rücklastschriften mindernd, Kaution und Zahlungen ohne Vertrag nicht', () => {
+    // x: Vertrag läuft im Oktober nicht mehr (Nachzahlung nach dem Auszug) — zählt im Eingang, nicht in Soll und
+    // Noch offen (Kundenvorgabe „alle Zahlungen, die dem Monat zugeordnet werden als Miete“, Review 29.10.2026)
     const r = monatsSaldo(vertraege, [miete('a', '2026-10'), miete('b', '2026-10')], [
       zahlung('a', 500, '2026-10-01'),
       zahlung('a', -500, '2026-10-05', 'Rücklastschrift'),
       zahlung('b', 1500, '2026-10-01', 'Mietkaution'),
       zahlung('x', 999, '2026-10-01'),
       zahlung(null, 50, '2026-10-01'),
+      { ...zahlung('x', 400, '2026-10-02'), zugeordneter_monat: '2026-09' },
     ], am10Okt);
-    expect(r).toMatchObject({ soll: 1000, eingang: 0, offen: 1000, vertraegeOffen: 2, zahlungenImMonat: 2 });
+    expect(r).toMatchObject({ soll: 1000, eingang: 999, offen: 1000, vertraegeOffen: 2, zahlungenImMonat: 2 });
   });
 
   it('rechnet Cent-genau ohne Fließkommareste', () => {

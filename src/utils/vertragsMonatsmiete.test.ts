@@ -45,6 +45,13 @@ describe('vertragsMonatsmiete', () => {
     expect(vertragsMonatsmiete(v, '2026-10', [miete('h', 607)])).toMatchObject({ gesamt: 607, kaltmiete: 420, vorErhoehung: false });
   });
 
+  it('nimmt die bisherige Miete auch im Monat eines Auszugs oder Einzugs (Review 29.10.2026)', () => {
+    // Gekündigt zum 15.11., am 03.11. offiziell von 600 € auf 660 € erhöht: Die Novembermiete bleibt 300 € (15/30)
+    const aus = { id: 'a', status: 'gekuendigt', start_datum: '2020-01-01', kuendigungsdatum: '2026-11-15', kaltmiete: 560, betriebskosten: 100, letzte_mieterhoehung_am: '2026-11-03' };
+    const nov = { mietvertrag_id: 'a', sollmonat: '2026-11-01', sollbetrag: 300, faelligkeitsdatum: '2026-11-08', typ: 'Miete' };
+    expect(vertragsMonatsmiete(aus, '2026-11', [nov])).toEqual({ gesamt: 300, kaltmiete: 250, betriebskosten: 50, anteilig: true, vorErhoehung: true });
+  });
+
   it('fällt ohne Monatsmiete-Forderung auf den Vertrag zurück', () => {
     const v = { id: 'h', status: 'aktiv', start_datum: '2024-03-01', kaltmiete: 420, betriebskosten: 187, letzte_mieterhoehung_am: '2026-10-28' };
     expect(vertragsMonatsmiete(v, '2026-10', [])).toMatchObject({ gesamt: 607, vorErhoehung: false });

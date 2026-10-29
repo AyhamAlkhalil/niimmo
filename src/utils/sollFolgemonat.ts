@@ -1,4 +1,6 @@
 import { format } from 'date-fns';
+import { getVertragsende } from './contractUtils';
+import { erhoehungUeberfaellig, zustimmungHindernis } from './mieterhoehungRegeln';
 import { laeuftImMonat } from './rueckstandsberechnung';
 import { vertragsMonatsmiete, type MonatsmieteVertrag } from './vertragsMonatsmiete';
 
@@ -68,9 +70,14 @@ function staffelstufen(plan: unknown): { gueltigAb: string; kaltmiete: number }[
 }
 
 /** Der Vertrag mit der zum Ersten von `ersterTag` gültigen Miete */
-function gueltigAm(v: FolgemonatVertrag, ersterTag: string, vorgaenge: readonly Mieterhoehungsvorgang[]): FolgemonatVertrag {
+function gueltigAm(v: FolgemonatVertrag, ersterTag: string, heute: string, vorgaenge: readonly Mieterhoehungsvorgang[]): FolgemonatVertrag {
+  // Was der Nachtlauf nicht übernimmt, zählt nicht (Review 29.10.2026): Staffel- oder Indexmiete lehnt die
+  // Datenbank ab (STAFFEL_ODER_INDEX), und ein Vorgang, der vor heute wirksam war und noch „zugestimmt“ steht, ist
+  // dort schon gescheitert (erhoehungUeberfaellig) — sonst zeigte der Pfeil jeden Monat ein „mehr“, das nie kommt
   const vorgang = vorgaenge
     .filter((m) => m.mietvertrag_id === v.id && m.status === 'zugestimmt' && m.wirksam_ab.slice(0, 10) <= ersterTag)
+    .filter((m) => !erhoehungUeberfaellig(m, heute))
+    .filter((m) => !zustimmungHindernis({ mietanpassungArt: v.mietanpassung_art, vertragsende: getVertragsende(v), wirksamAbIso: m.wirksam_ab }))
     .sort((a, b) => a.wirksam_ab.localeCompare(b.wirksam_ab))
     .pop();
   if (vorgang) {
@@ -101,13 +108,14 @@ export function sollFolgemonat(
 ): SollFolgemonat {
   const ersterTag = format(new Date(stichtag.getFullYear(), stichtag.getMonth() + 1, 1), 'yyyy-MM-dd');
   const monat = ersterTag.slice(0, 7);
+  const heute = format(stichtag, 'yyyy-MM-dd');
   let gesamt = 0;
   let kaltmiete = 0;
   let betriebskosten = 0;
   for (const v of vertraege) {
     if ((v.status !== 'aktiv' && v.status !== 'gekuendigt') || !laeuftImMonat(v, monat)) continue;
     // Keine Forderungen: Für den Folgemonat gibt es noch keine, es gilt allein der Vertrag
-    const m = vertragsMonatsmiete(gueltigAm(v, ersterTag, vorgaenge), monat, []);
+    const m = vertragsMonatsmiete(gueltigAm(v, ersterTag, heute, vorgaenge), monat, []);
     gesamt += m.gesamt;
     kaltmiete += m.kaltmiete;
     betriebskosten += m.betriebskosten;

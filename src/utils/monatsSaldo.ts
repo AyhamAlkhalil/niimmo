@@ -98,9 +98,14 @@ export function monatsSaldo(
   const monat = format(stichtag, 'yyyy-MM');
   const forderungenJe = nachVertrag(forderungen);
   const zahlungenJe = nachVertrag(zahlungen);
+  // Eingang: alle Miet-Zahlungen, die diesem Monat zugeordnet sind — auch die eines Vertrags, der nicht mehr läuft
+  // (Nachzahlung nach dem Auszug). Bis zur Review vom 29.10.2026 nur die der laufenden Verträge, so fehlten
+  // Nachzahlungen von Ex-Mietern.
+  const eingang = zahlungen
+    .filter((x) => !!x.mietvertrag_id && zaehltImMietkonto(x) && x.kategorie !== 'Betriebskostenabrechnung' && zahlungsMonat(x) === monat)
+    .reduce((s, x) => s + zahl(x.betrag), 0);
 
   let soll = 0;
-  let eingang = 0;
   let offen = 0;
   let aelter = 0;
   let vertraegeOffen = 0;
@@ -155,8 +160,6 @@ export function monatsSaldo(
     const aelterV = rund(Math.max(0, konto) - offenV);
     soll += sollPositiv;
     offen += offenV;
-    // Kundenvorgabe: alle Miet-Zahlungen dieses Monats, nicht nur der Teil, der die Soll-Miete deckt
-    eingang += fuerMonat;
     aelter += aelterV;
     if (offenV > 0) {
       vertraegeOffen += 1;

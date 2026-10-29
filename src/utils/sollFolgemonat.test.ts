@@ -38,6 +38,19 @@ describe('sollFolgemonat', () => {
     expect(r).toMatchObject({ kaltmiete: 500, gesamt: 600 });
   });
 
+  it('zählt keinen Vorgang, den der Nachtlauf ablehnt: überfällig, Staffel- oder Indexmiete (Review 29.10.2026)', () => {
+    const vorgang = (id: string, wirksam: string) => ({
+      mietvertrag_id: id, alte_kaltmiete: 500, status: 'zugestimmt', wirksam_ab: wirksam, neue_kaltmiete: 560, alte_betriebskosten: 100, neue_betriebskosten: 100,
+    });
+    const r = sollFolgemonat([
+      vertrag('ueberfaellig', 500, 100),
+      vertrag('index', 500, 100, { mietanpassung_art: 'index' }),
+      vertrag('heute', 500, 100),
+    ], [vorgang('ueberfaellig', '2026-09-01'), vorgang('index', '2026-11-01'), vorgang('heute', '2026-10-29')], am29Okt);
+    // Nur der heute wirksame zählt: Der Nachtlauf übernimmt ihn, der laufende Monat bleibt, der November steigt
+    expect(r).toMatchObject({ kaltmiete: 500 + 500 + 560, gesamt: 1860 });
+  });
+
   it('nimmt die Staffelstufe zum Ersten, nicht eine schon übernommene oder spätere', () => {
     const plan = [
       { gueltig_ab: '2025-11-01', kaltmiete: 500 },

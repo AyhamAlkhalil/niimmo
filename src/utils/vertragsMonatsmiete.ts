@@ -63,17 +63,19 @@ export function vertragsMonatsmiete(
   const ende = getVertragsende(v)?.slice(0, 10);
   const anteilig = (!!start && start > `${monat}-01`) || (!!ende && ende < letzterTag);
 
-  // Bisherige Miete nur im vollen Monat; im Monat eines Einzugs oder Auszugs wäre sie anteilig und nicht
-  // sauber in Kaltmiete und Betriebskosten zu trennen
-  if (!anteilig && erhoehungAbFolgemonat(v, monat)) {
+  // Auch im Monat eines Ein- oder Auszugs: Der Trigger lässt die anteilige Monatsmiete bei der bisherigen Miete
+  // (Review 29.10.2026; bis dahin nur im vollen Monat, die neue Miete stand dann schon anteilig in der Soll-Miete)
+  if (erhoehungAbFolgemonat(v, monat)) {
     // Die Sollstellung legt je Vertrag und Monat eine Monatsmiete an; stehen doch zwei da oder ist sie erlassen
     // (0 €), gilt die höchste — eine erlassene sagt nichts über die bisherige Miete (Review 29.10.2026)
     const bisher = rund(Math.max(0, ...forderungen
       .filter((f) => f.mietvertrag_id === v.id && (f.sollmonat ?? '').slice(0, 7) === monat && istMonatsmiete(f))
       .map((f) => zahl(f.sollbetrag))));
     if (bisher > 0) {
-      // Die Erhöhung betrifft die Kaltmiete; die Betriebskosten bleiben die des Vertrags
-      const betriebskosten = Math.min(bv, bisher);
+      // Die Erhöhung betrifft die Kaltmiete; die Betriebskosten bleiben die des Vertrags, im anteiligen Monat
+      // taggenau wie die Sollstellung
+      const bkMonat = anteilig ? sollMonatsmiete({ ...v, kaltmiete: 0 }, monat) : bv;
+      const betriebskosten = Math.min(bkMonat, bisher);
       return { gesamt: bisher, kaltmiete: rund(bisher - betriebskosten), betriebskosten, anteilig, vorErhoehung: true };
     }
   }
