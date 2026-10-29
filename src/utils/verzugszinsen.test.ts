@@ -90,3 +90,33 @@ describe('Mahnung Stufe 3', () => {
     expect(modal).toMatch(/fristloseKuendigungFelder\(parseInt\(raeumungsfristTage\), new Date\(\), contractData\.vertragsende\)/);
   });
 });
+
+describe('Verzugszinsen — Prüfung 29.10.2026', () => {
+  it('beginnt den Verzug am Kalendertag nach dem 3. Werktag, auch wenn das ein Samstag ist', () => {
+    // Juli 2026: Mi 1., Do 2., Fr 3. → Verzug ab Sa 4.07. (bis dahin Mo 6.07., der 4. Werktag)
+    const beginn = berechneVerzugsbeginn(new Date(2026, 5, 1));
+    expect([beginn.getFullYear(), beginn.getMonth() + 1, beginn.getDate()]).toEqual([2026, 7, 4]);
+  });
+
+  it('trennt nur, wo sich der Basiszins ändert, nicht an jeder Monatszeile', () => {
+    const monatlich = [
+      { ab: '2026-07-01', satz: 1.52 },
+      { ab: '2026-06-01', satz: 1.27 },
+      { ab: '2026-05-01', satz: 1.27 },
+      { ab: '2026-04-01', satz: 1.27 },
+    ];
+    const r = berechneAlleVerzugszinsen([{ betrag: 1000, faelligAb: '2026-04-05' }], new Date(2026, 7, 1), monatlich);
+    // Zwei Stücke: 05.04.–01.07. zu 6,27 %, 01.07.–01.08. zu 6,52 %
+    expect(r.details.map((d) => [d.verzugVon, d.verzugBis, d.verzugszinssatz])).toEqual([
+      ['2026-04-05', '2026-07-01', 6.27],
+      ['2026-07-01', '2026-08-01', 6.52],
+    ]);
+  });
+
+  it('nimmt die amtlichen Sätze vor dem Beginn der Tabelle marktdaten', () => {
+    const r = berechneAlleVerzugszinsen([{ betrag: 365, faelligAb: '2025-08-01' }], new Date(2025, 7, 2));
+    expect(r.details[0].basiszinssatz).toBe(1.27);
+    const alt = berechneAlleVerzugszinsen([{ betrag: 365, faelligAb: '2022-08-01' }], new Date(2022, 7, 2));
+    expect(alt.details[0].basiszinssatz).toBe(-0.88);
+  });
+});

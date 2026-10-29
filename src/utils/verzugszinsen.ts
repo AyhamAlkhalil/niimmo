@@ -4,18 +4,24 @@
  * Verzugszinssatz = Basiszinssatz der Bundesbank + 5 Prozentpunkte (fuer Verbraucher)
  * Formel: (Rueckstand x Verzugszinssatz x Verzugstage) / (365 x 100)
  *
- * Verzugsbeginn: 4. Werktag des Folgemonats (§ 556b Abs. 1 BGB)
+ * Verzugsbeginn: Kalendertag nach dem 3. Werktag (§ 556b Abs. 1, § 286 Abs. 2 Nr. 1 BGB; Samstag ist kein
+ * Werktag, BGH VIII ZR 129/09). Bis zum 29.10.2026 stand hier der 4. Werktag — in Monaten, deren 3. Werktag
+ * ein Freitag ist, begann der Verzug so erst am Montag statt am Samstag (Prüfung 29.10.2026).
  */
 
-// Fallback-Perioden wenn DB nicht verfuegbar (Stand 2026)
+// Basiszinssätze der Bundesbank (§ 247 BGB). Gelten, wo die Tabelle marktdaten nicht hinreicht (sie beginnt am
+// 01.03.2026) oder nicht erreichbar ist. Bis zum 29.10.2026 stand ab 01.07.2025 1,77 % statt der amtlichen 1,27 %,
+// vor 2023 galt 1,62 % statt −0,88 %, und 01.07.2026 fehlte (Prüfung 29.10.2026).
 export const BASISZINSSATZ_PERIODEN_FALLBACK: Array<{ ab: string; satz: number }> = [
+  { ab: '2026-07-01', satz: 1.52 },
   { ab: '2026-01-01', satz: 1.27 },
-  { ab: '2025-07-01', satz: 1.77 },
+  { ab: '2025-07-01', satz: 1.27 },
   { ab: '2025-01-01', satz: 2.27 },
   { ab: '2024-07-01', satz: 3.37 },
   { ab: '2024-01-01', satz: 3.62 },
   { ab: '2023-07-01', satz: 3.12 },
   { ab: '2023-01-01', satz: 1.62 },
+  { ab: '2016-07-01', satz: -0.88 },
 ];
 
 // Aufschlag fuer Verbraucher-Mietverhaeltnisse: 5 Prozentpunkte (§ 288 Abs. 1 BGB)
@@ -90,8 +96,8 @@ function isWerktag(datum: Date): boolean {
 }
 
 /**
- * Berechnet den 4. Werktag des auf das Faelligkeitsmonat folgenden Monats.
- * Z.B. Miete Dezember → Verzug ab 4. Werktag Januar
+ * Verzugsbeginn für die Miete des auf `faelligkeitsMonat` folgenden Monats: der Kalendertag nach dem 3. Werktag.
+ * Z.B. Miete Januar (faelligkeitsMonat Dezember) → fällig am 3. Werktag im Januar, Verzug ab dem Tag danach.
  */
 export function berechneVerzugsbeginn(faelligkeitsMonat: Date): Date {
   // Ein ungültiges Datum ist nie ein Werktag — die Schleife lief endlos und fror den Tab ein (QA 27.10.2026)
@@ -102,12 +108,12 @@ export function berechneVerzugsbeginn(faelligkeitsMonat: Date): Date {
   let werktage = 0;
   let aktuell = new Date(folgeMonat);
 
-  while (werktage < 4) {
+  while (werktage < 3) {
     if (isWerktag(aktuell)) werktage++;
-    if (werktage < 4) aktuell = addTage(aktuell, 1);
+    if (werktage < 3) aktuell = addTage(aktuell, 1);
   }
 
-  return aktuell;
+  return addTage(aktuell, 1);
 }
 
 export interface VerzugszinsPosten {
@@ -205,7 +211,12 @@ export function berechneAlleVerzugszinsen(
   const bis = new Date(jetzt.getFullYear(), jetzt.getMonth(), jetzt.getDate());
   const details: VerzugszinsPosten[] = [];
   let gesamt = 0;
-  const grenzen = [...new Set(perioden.map((p) => p.ab.slice(0, 10)))].sort();
+  // Nur dort trennen, wo sich der Satz ändert: marktdaten führt eine Zeile je Monat, das Schreiben zerlegte jeden
+  // Posten in Monatsstücke mit gleichem Satz, jedes einzeln gerundet (bis 2 Cent Abweichung, Prüfung 29.10.2026)
+  const aufsteigend = [...perioden].sort((a, b) => a.ab.localeCompare(b.ab));
+  const grenzen = aufsteigend
+    .filter((p, i) => i === 0 || p.satz !== aufsteigend[i - 1].satz)
+    .map((p) => p.ab.slice(0, 10));
 
   for (const p of posten) {
     const von = lokalerTag(p.faelligAb);
@@ -231,8 +242,8 @@ export function berechneAlleVerzugszinsen(
 
 /**
  * Verteilt einen Mietrückstand auf die jüngsten fälligen Monate (je eine Monatsmiete, der Rest
- * auf den ältesten) und gibt je Monat den Verzugsbeginn zurück: 4. Werktag des Mietmonats
- * (§ 556b Abs. 1 BGB). Zahlungen tilgen die älteste Schuld zuerst (§ 366 Abs. 2 BGB), offen
+ * auf den ältesten) und gibt je Monat den Verzugsbeginn zurück: Tag nach dem 3. Werktag des
+ * Mietmonats (§ 556b Abs. 1 BGB). Zahlungen tilgen die älteste Schuld zuerst (§ 366 Abs. 2 BGB), offen
  * bleiben also die jüngsten Monate.
  *
  * Der jüngste Monat ist der, dessen Forderung schon fällig ist (Fälligkeit wie in der

@@ -836,7 +836,7 @@ export function MahnungErstellungModal({
     if (rueckstandUngueltig) return;
     const parsedBetrag = rueckstandWert;
     const heute = new Date();
-    // Offen sind die jüngsten fälligen Monate, je eine Monatsmiete; Verzug ab 4. Werktag des
+    // Offen sind die jüngsten fälligen Monate, je eine Monatsmiete; Verzug ab dem Tag nach dem 3. Werktag des
     // Mietmonats, Zinssatz je Basiszins-Periode (utils/verzugszinsen.ts, seit 27.10.2026)
     const posten = verzugspostenAusRueckstand(parsedBetrag, monatsmieteDesVertrags, heute);
     const ergebnis = berechneAlleVerzugszinsen(posten, heute, perioden);
