@@ -354,10 +354,12 @@ export const useMietkonto = () =>
           .reduce((s, andere) => s + andere.fehlend_betrag, 0);
       }
 
-      // Dieselben Verträge wie die Summen der Liste (aktiv und gekündigt), soweit sie in diesem Monat laufen
+      // Alle Verträge, die in diesem Monat laufen — auch beendete mit Ende im Monat: Der Nachtlauf setzt am Tag nach
+      // dem Auszug „beendet“, die anteilige Miete gehört trotzdem den ganzen Monat zur Soll-Miete (Prüfung 29.10.2026).
+      // Noch offen und älter zählen wie die Summen der Liste nur aktive und gekündigte (monatsSaldo).
       const monatKey = format(stichtag, 'yyyy-MM');
       const monat = monatsSaldo(
-        (mietvertraege || []).filter((mv) => (mv.status === 'aktiv' || mv.status === 'gekuendigt') && laeuftImMonat(mv, monatKey)),
+        (mietvertraege || []).filter((mv) => ['aktiv', 'gekuendigt', 'beendet'].includes(mv.status) && laeuftImMonat(mv, monatKey)),
         alleForderungen,
         alleZahlungen,
         stichtag

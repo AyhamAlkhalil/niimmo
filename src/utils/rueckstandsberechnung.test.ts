@@ -430,8 +430,9 @@ describe('Vertragsdetail und Rückstandsliste', () => {
     expect(start).not.toMatch(/erfasste-miete/);
     expect(start).not.toMatch(/mehr eingegangen/);
     const hook = readFileSync('src/hooks/useRueckstaende.ts', 'utf-8');
-    // Dieselben Verträge wie die Summen der Liste (aktiv/gekündigt), soweit sie im Monat laufen (Review 29.10.2026)
-    expect(hook).toMatch(/monatsSaldo\(\s*\(mietvertraege \|\| \[\]\)\.filter\(\(mv\) => \(mv\.status === 'aktiv' \|\| mv\.status === 'gekuendigt'\) && laeuftImMonat\(mv, monatKey\)\),\s*alleForderungen,\s*alleZahlungen,\s*stichtag\s*\)/);
+    // Alle Verträge, die im Monat laufen, auch beendete mit Ende im Monat; offen/älter zählt monatsSaldo nur für
+    // aktive und gekündigte wie die Liste (Review und Prüfung 29.10.2026)
+    expect(hook).toMatch(/monatsSaldo\(\s*\(mietvertraege \|\| \[\]\)\.filter\(\(mv\) => \['aktiv', 'gekuendigt', 'beendet'\]\.includes\(mv\.status\) && laeuftImMonat\(mv, monatKey\)\),\s*alleForderungen,\s*alleZahlungen,\s*stichtag\s*\)/);
     expect(hook).toMatch(/typ, ruecklastschrift_am'\)/);
   });
 });
@@ -854,5 +855,33 @@ describe('Rückstandsliste — Hinweis BKA-Zahlung ohne Forderung auch bei Saldo
     const ansicht = readFileSync('src/components/dashboard/FehlendeMietzahlungen.tsx', 'utf-8');
     expect(ansicht).toMatch(/Zu prüfen: BKA-Zahlungen ohne BKA-Forderung/);
     expect(ansicht).toMatch(/bkaHinweise\.map\(/);
+  });
+});
+
+describe('berechneMietkontostand — Prüfung des Rechenmodells 29.10.2026', () => {
+  const v = { id: 'V', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 500, betriebskosten: 0 };
+  const z = (betrag: number, buchungsdatum: string, kategorie = 'Miete', monat = buchungsdatum.slice(0, 7)) =>
+    ({ mietvertrag_id: 'V', betrag, buchungsdatum, kategorie, zugeordneter_monat: monat });
+
+  it('macht aus einem ausgezahlten BKA-Guthaben und einer vorab bezahlten Nachzahlung kein Scheinguthaben', () => {
+    const forderungen = [
+      { mietvertrag_id: 'V', sollmonat: '2026-10-01', sollbetrag: 500, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
+      { mietvertrag_id: 'V', sollmonat: '2026-06-01', sollbetrag: -100, faelligkeitsdatum: '2026-07-01', typ: 'BKA' },
+      { mietvertrag_id: 'V', sollmonat: '2026-10-01', sollbetrag: 300, faelligkeitsdatum: '2026-11-20', typ: 'BKA' },
+    ];
+    const zahlungen = [z(500, '2026-10-01'), z(-100, '2026-07-10', 'Betriebskostenabrechnung'), z(300, '2026-10-25', 'Betriebskostenabrechnung')];
+    expect(berechneMietkontostand(v, forderungen, zahlungen, new Date(2026, 9, 29, 12))).toMatchObject({ rueckstand: 0, vorauszahlung: 300 });
+  });
+
+  it('lässt eine Rücklastschrift nach dem 8. keine spätere Vorauszahlung aufheben', () => {
+    // Guthaben 600 aus September, Oktobermiete am 02.10. per Lastschrift, geplatzt am 10.10. (503 € mit Bankgebühr),
+    // Novembermiete am 25.10. bezahlt: Guthaben 89,50 €, Vorauszahlung 500 €
+    const forderungen = [
+      { mietvertrag_id: 'V', sollmonat: '2026-09-01', sollbetrag: 500, faelligkeitsdatum: '2026-09-08', typ: 'Miete' },
+      { mietvertrag_id: 'V', sollmonat: '2026-10-01', sollbetrag: 500, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
+      { mietvertrag_id: 'V', sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-10', typ: 'Miete', ruecklastschrift_am: '2026-10-10' },
+    ];
+    const zahlungen = [z(1100, '2026-09-01'), z(500, '2026-10-02'), z(-503, '2026-10-10', 'Rücklastschrift'), z(500, '2026-10-25')];
+    expect(berechneMietkontostand(v, forderungen, zahlungen, new Date(2026, 9, 29, 12))).toMatchObject({ rueckstand: -89.5, vorauszahlung: 500 });
   });
 });

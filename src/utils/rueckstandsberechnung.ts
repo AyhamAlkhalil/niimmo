@@ -90,12 +90,21 @@ export function bkaVorauszahlung(
   zahlungen: readonly KontoZahlung[]
 ): number {
   const istBka = (f: KontoForderung) => f.typ === 'BKA';
-  const bkaGezahlt = zahlungen
+  const bkaZahlungen = zahlungen
     .filter((z) => zaehltImMietkonto(z) && z.kategorie === 'Betriebskostenabrechnung')
-    .reduce((s, z) => s + (Number(z.betrag) || 0), 0);
-  const bkaFaellig = faellig.filter(istBka).reduce((s, f) => s + Math.max(0, Number(f.sollbetrag) || 0), 0);
+    .map((z) => Number(z.betrag) || 0);
+  const vomMieter = bkaZahlungen.filter((b) => b > 0).reduce((s, b) => s + b, 0);
+  const ausgezahlt = -bkaZahlungen.filter((b) => b < 0).reduce((s, b) => s + b, 0);
+  const faelligeBka = faellig.filter(istBka).map((f) => Number(f.sollbetrag) || 0);
+  const nachzahlungenFaellig = faelligeBka.filter((b) => b > 0).reduce((s, b) => s + b, 0);
+  const guthabenFaellig = -faelligeBka.filter((b) => b < 0).reduce((s, b) => s + b, 0);
+  // Eine Auszahlung erledigt zuerst ein fälliges Guthaben; nur was darüber hinaus ausgezahlt wurde, mindert die
+  // Zahlungen des Mieters. Bis zum 29.10.2026 minderte jede Auszahlung sie, auch die eines Guthabens — eine vorab
+  // bezahlte neue Nachzahlung wurde so zum Teil zum Scheinguthaben (Prüfung 29.10.2026). Ein noch nicht
+  // ausgezahltes Guthaben ist keine Zahlung des Mieters.
+  const ueberAuszahlung = Math.max(0, ausgezahlt - guthabenFaellig);
   const bkaOffen = nichtFaellig.filter(istBka).reduce((s, f) => s + Math.max(0, Number(f.sollbetrag) || 0), 0);
-  return aufCent(Math.min(Math.max(0, bkaGezahlt - bkaFaellig), bkaOffen));
+  return aufCent(Math.min(Math.max(0, vomMieter - ueberAuszahlung - nachzahlungenFaellig), bkaOffen));
 }
 
 /**
@@ -296,21 +305,22 @@ export function berechneMietkontostand(
     new Date(stichtag.getFullYear(), stichtag.getMonth() - (stichtag.getDate() >= FAELLIGKEITSTAG ? 0 : 1), FAELLIGKEITSTAG),
     'yyyy-MM-dd'
   );
-  // Rücklastschriften heben eine Zahlung auf; Auszahlungen und Erstattungen sind keine Vorauszahlung
-  const seitherGezahlt = Math.max(
-    0,
-    zahlungen
-      .filter((z) =>
-        zaehltImMietkonto(z) &&
-        z.kategorie !== 'Betriebskostenabrechnung' &&
-        ((z.buchungsdatum as string).slice(0, 10) > letzterFaelligkeitstag ||
-          (typeof z.zugeordneter_monat === 'string' && z.zugeordneter_monat.slice(0, 7) >= kommenderMonat))
-      )
-      .reduce((s, z) => {
-        const betrag = Number(z.betrag) || 0;
-        return s + (betrag > 0 || z.kategorie === 'Rücklastschrift' ? betrag : 0);
-      }, 0)
-  );
+  // Rücklastschriften heben eine Zahlung auf; Auszahlungen und Erstattungen sind keine Vorauszahlung. Eine
+  // Rücklastschrift hebt nur auf, was seither gezahlt wurde (nach Buchungstag): Platzt nach dem 8. die Lastschrift
+  // von vor dem 8., blieb bis zum 29.10.2026 die spätere Vorauszahlung auf der Strecke (Prüfung 29.10.2026)
+  const seitherGezahlt = zahlungen
+    .filter((z) =>
+      zaehltImMietkonto(z) &&
+      z.kategorie !== 'Betriebskostenabrechnung' &&
+      ((z.buchungsdatum as string).slice(0, 10) > letzterFaelligkeitstag ||
+        (typeof z.zugeordneter_monat === 'string' && z.zugeordneter_monat.slice(0, 7) >= kommenderMonat))
+    )
+    .sort((a, b) => (a.buchungsdatum as string).localeCompare(b.buchungsdatum as string))
+    .reduce((s, z) => {
+      const betrag = Number(z.betrag) || 0;
+      if (betrag > 0) return s + betrag;
+      return z.kategorie === 'Rücklastschrift' ? Math.max(0, s + betrag) : s;
+    }, 0);
 
   // Gedeckt wird, was angelegt und noch nicht fällig ist, und die kommende Monatsmiete, solange die
   // Sollstellung (05:00 UTC am 1.) sie noch nicht angelegt hat: ab dem 8. die des Folgemonats, davor die

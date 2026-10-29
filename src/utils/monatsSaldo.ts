@@ -105,6 +105,11 @@ export function monatsSaldo(
     .filter((x) => !!x.mietvertrag_id && zaehltImMietkonto(x) && x.kategorie !== 'Betriebskostenabrechnung' && zahlungsMonat(x) === monat)
     .reduce((s, x) => s + zahl(x.betrag), 0);
 
+  // Vor der Sollstellung des Monats (Cron am 1. um 05:00 UTC, mit einer halben Stunde Puffer) fehlt eine Monatsmiete
+  // zu Recht. Bis zum 29.10.2026 griff die Nachbildung den ganzen Monat: Eine gelöschte oder verschobene Monatsmiete
+  // stand auf der Startseite als offen, in der Rückstandsliste nicht (Prüfung 29.10.2026).
+  const vorSollstellung = stichtag.getTime() < Date.UTC(stichtag.getFullYear(), stichtag.getMonth(), 1, 5, 30);
+
   let soll = 0;
   let offen = 0;
   let aelter = 0;
@@ -125,13 +130,13 @@ export function monatsSaldo(
     const sollPositiv = Math.max(0, miete.gesamt);
 
     // Mietkonto bis einschließlich dieses Monats aus den Forderungen: alles Fällige, dazu die Monatsmiete (samt
-    // Minderung) auch vor dem 8. Eine Rücklastschriftgebühr zählt erst ab ihrer Fälligkeit, über `faellig`. Fehlt
-    // die Monatsmiete noch (am 1. vor 05:00 UTC), kommt sie aus der Nachbildung der Sollstellung dazu.
+    // Minderung) auch vor dem 8. Eine Rücklastschriftgebühr zählt erst ab ihrer Fälligkeit, über `faellig`. Hat die
+    // Sollstellung den Monat noch nicht angelegt (am 1. vor 05:00 UTC), kommt die Nachbildung dazu.
     // Eine vorab bezahlte BKA-Nachzahlung zählt nicht als Eingang auf die Miete.
     const imMonat = f.filter(
       (x) => (x.sollmonat as string).slice(0, 7) === monat && (x.typ ?? 'Miete') !== 'BKA' && !x.ruecklastschrift_am
     );
-    const fehlendeMiete = imMonat.some(istMonatsmiete) ? 0 : sollMonatsmiete(v, monat);
+    const fehlendeMiete = !vorSollstellung || imMonat.some(istMonatsmiete) ? 0 : sollMonatsmiete(v, monat);
     const faellig = nurFaelligeForderungen(f, stichtag);
     const schonFaellig = new Set(faellig);
     const heute = format(stichtag, 'yyyy-MM-dd');
@@ -159,6 +164,12 @@ export function monatsSaldo(
     const offenV = rund(Math.min(sollPositiv - gedeckt, Math.max(0, konto)));
     const aelterV = rund(Math.max(0, konto) - offenV);
     soll += sollPositiv;
+    kaltmiete += miete.kaltmiete;
+    betriebskosten += miete.betriebskosten;
+    // Mitten im Monat beendet: zählt den ganzen Monat in der Soll-Miete (anteilig), offen und älter aber wie in der
+    // Rückstandsliste nicht, die beendete Verträge aus ihren Summen nimmt (Prüfung 29.10.2026: ab dem Folgetag des
+    // Auszugs fiel der Vertrag aus der Soll-Miete, der Eingang blieb)
+    if (v.status === 'beendet') continue;
     offen += offenV;
     aelter += aelterV;
     if (offenV > 0) {
@@ -166,9 +177,6 @@ export function monatsSaldo(
       offeneVertraege.push({ mietvertragId: v.id, offen: rund(offenV), soll: sollPositiv });
     }
     if (aelterV > 0) vertraegeAelter += 1;
-
-    kaltmiete += miete.kaltmiete;
-    betriebskosten += miete.betriebskosten;
   }
 
   return {

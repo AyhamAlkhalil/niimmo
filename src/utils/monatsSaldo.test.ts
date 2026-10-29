@@ -267,3 +267,34 @@ describe('monatsSaldo — offene Verträge für die Liste unter „Noch offen“
     expect(bezahlt.offeneVertraege).toEqual([]);
   });
 });
+
+describe('monatsSaldo — Prüfung des Rechenmodells 29.10.2026', () => {
+  const andere = { id: 'B', status: 'aktiv', start_datum: '2020-01-01', kaltmiete: 500, betriebskosten: 100 };
+
+  it('behält einen Auszug mitten im Monat den ganzen Monat in der Soll-Miete, offen zählt wie die Liste', () => {
+    // Auszug 15.10.: Der Nachtlauf setzt am 16.10. „beendet“; bis dahin fiel der Vertrag ab dem 16. aus der Soll-Miete
+    const aus = { id: 'A', start_datum: '2025-01-01', ende_datum: '2026-10-15', kuendigungsdatum: '2026-10-15', kaltmiete: 1000, betriebskosten: 0 };
+    const forderungen = [
+      { mietvertrag_id: 'A', sollmonat: '2026-10-01', sollbetrag: 483.87, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
+      { mietvertrag_id: 'B', sollmonat: '2026-10-01', sollbetrag: 600, faelligkeitsdatum: '2026-10-08', typ: 'Miete' },
+    ];
+    const vor = monatsSaldo([{ ...aus, status: 'gekuendigt' }, andere], forderungen, [], new Date(2026, 9, 15, 12));
+    const nach = monatsSaldo([{ ...aus, status: 'beendet' }, andere], forderungen, [], new Date(2026, 9, 16, 12));
+    expect(vor.soll).toBe(1083.87);
+    expect(nach.soll).toBe(1083.87);
+    expect(nach.aufteilung).toEqual({ kaltmiete: 983.87, betriebskosten: 100 });
+    // Offen bleibt der beendete Vertrag draußen wie in den Summen der Rückstandsliste
+    expect(nach).toMatchObject({ offen: 600, vertraegeOffen: 1 });
+  });
+
+  it('setzt eine gelöschte Monatsmiete nach der Sollstellung nicht als offen an', () => {
+    const v = { id: 'V', status: 'aktiv', start_datum: '2024-01-01', kaltmiete: 500, betriebskosten: 50 };
+    const forderungen = [{ mietvertrag_id: 'V', sollmonat: '2026-09-01', sollbetrag: 550, faelligkeitsdatum: '2026-09-08', typ: 'Miete' }];
+    const zahlungen = [zahlung('V', 550, '2026-09-01')];
+    const r = monatsSaldo([v], forderungen, zahlungen, new Date(2026, 9, 29, 12));
+    expect(r).toMatchObject({ soll: 550, offen: 0, aelter: 0 });
+    expect(berechneMietkontostand(v, forderungen, zahlungen, new Date(2026, 9, 29, 12)).rueckstand).toBe(0);
+    // Am 1. vor 05:00 UTC fehlt sie zu Recht noch und wird nachgebildet
+    expect(monatsSaldo([v], forderungen, zahlungen, new Date(Date.UTC(2026, 10, 1, 3))).offen).toBe(550);
+  });
+});
