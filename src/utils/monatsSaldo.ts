@@ -7,6 +7,7 @@ import {
   nurFaelligeForderungen,
   sollMonatsmiete,
   zaehltImMietkonto,
+  zahlungsMonat,
   type KontoForderung,
   type KontoZahlung,
   type SollVertrag,
@@ -18,8 +19,9 @@ import {
  * Seit dem 29.10.2026 auf demselben Mietkonto wie die Rückstandsliste (berechneMietkontostand):
  * - Soll-Miete: die Monatsforderungen (Typ Miete: Monatsmiete, anteiliger Monat, Minderung, Gebühren),
  *   solange die Sollstellung den Monat nicht angelegt hat (am 1. vor 05:00 UTC) die Vertragsmiete.
- * - Eingang: der Teil davon, den Zahlungen decken. Zahlungen tilgen zuerst ältere Rückstände
- *   (§ 366 Abs. 2 BGB), eine im Vormonat vorausgezahlte Miete zählt mit.
+ * - Eingang: der Teil davon, den Zahlungen decken. Eine Zahlung für diesen Monat (zugeordneter Monat, sonst
+ *   Buchungsmonat) deckt zuerst seine Miete; alles Übrige tilgt die älteste Schuld (§ 366 Abs. 2 BGB), eine im
+ *   Vormonat vorausgezahlte Miete zählt so mit.
  * - Noch offen = Soll-Miete − Eingang. Was aus früheren Monaten fällig und unbezahlt ist, steht
  *   getrennt in `aelter`; ab dem 8. ergeben Noch offen und `aelter` zusammen den Rückstand der Liste.
  *
@@ -27,6 +29,8 @@ import {
  * 28. dem Folgemonat zu: Wer die Oktobermiete am 26.09. zahlte, stand im Oktober als offen, obwohl die
  * Rückstandsliste ihn ausgeglichen zeigte; eine Nachzahlung für September zählte als Oktober-Eingang.
  * Die Zeile „X € mehr eingegangen“ war kein Guthaben im Sinne der Liste und entfällt.
+ * Vom 28. bis 29.10.2026 tilgte auch die Oktoberzahlung zuerst ältere Rückstände: Ein Mieter, der im Oktober
+ * gezahlt, aber im April ausgelassen hatte, stand unter „hat die Oktobermiete noch nicht bezahlt“ (Kundenmeldung).
  */
 export interface MonatsVertrag extends SollVertrag {
   id: string;
@@ -164,8 +168,17 @@ export function monatsSaldo(
         bkaVorauszahlung(faellig, nichtFaelligeBka, z)
     );
 
-    const offenV = Math.min(sollPositiv, Math.max(0, konto));
-    const aelterV = rund(Math.max(0, konto - sollPositiv));
+    // Zahlungen für diesen Monat decken zuerst seine Miete, der Rest des Kontos gilt als älter. Am Saldo ändert
+    // das nichts: offen + aelter = Konto. BKA-Zahlungen sind für die BKA bestimmt (§ 366 Abs. 1 BGB) und zählen
+    // hier nicht. Eine Rücklastschrift gilt wie jede Zahlung für ihren zugeordneten Monat; eine Sonderregel
+    // („hebt die letzte Zahlung davor auf“) überstimmte die Zuordnung von Hand und traf auch geplatzte BKA-
+    // Lastschriften, ein Deckel auf den Listenrückstand vor dem 8. rechnete eine Zahlung doppelt (Gegenprüfung).
+    const fuerMonat = z
+      .filter((x) => x.kategorie !== 'Betriebskostenabrechnung' && zahlungsMonat(x) === monat)
+      .reduce((s, x) => s + zahl(x.betrag), 0);
+    const gedeckt = Math.min(sollPositiv, Math.max(0, fuerMonat));
+    const offenV = rund(Math.min(sollPositiv - gedeckt, Math.max(0, konto)));
+    const aelterV = rund(Math.max(0, konto) - offenV);
     soll += sollPositiv;
     offen += offenV;
     eingang += sollPositiv - offenV;

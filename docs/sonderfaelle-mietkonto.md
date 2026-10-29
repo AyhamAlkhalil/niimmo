@@ -16,7 +16,7 @@ Grundregeln: Eine Monatsmiete ist am 8. fällig, beim Einzug am Mietbeginn. Zahl
 | Miete vor dem 8. gezahlt | Vorauszahlung, kein Guthaben, bis die Miete fällig ist | `berechneMietkontostand` (`seitherGezahlt`, Deckung durch nicht fällige Forderungen) |
 | Folgemiete ab dem 9. gezahlt (live: am 16., 21., 25., 26., 27.) | Vorauszahlung bis zur Höhe der erwarteten Folgemiete. Entscheidend ist der Zahltag nach dem letzten 8., nicht der zugeordnete Monat — der DB-Trigger ordnet erst ab dem 28. dem Folgemonat zu | `berechneMietkontostand`, erwartete Miete über `sollMonatsmiete` |
 | Mehrere Monatsmieten in einer Überweisung | Ohne Aufteilung Guthaben, bis die nächste Miete fällig ist (nicht von einer Doppelzahlung zu unterscheiden). Aufgeteilt mit zugeordnetem Monat gilt der Teil für einen kommenden Monat als Vorauszahlung, auch wenn vor dem 8. gebucht | `berechneMietkontostand` (`zugeordneter_monat >= kommender Monat`) |
-| Nachzahlung alter Rückstände | Tilgt die älteste Schuld. Auf der Startseite zählt sie nicht als Eingang für den laufenden Monat | `monatsSaldo` (Konto bis einschließlich laufendem Monat) |
+| Nachzahlung alter Rückstände | Tilgt die älteste Schuld. Auf der Startseite gilt eine Zahlung zuerst für den Monat, dem sie zugeordnet ist (sonst Buchungsmonat): Wer im Oktober zahlt, aber den April ausließ, hat den Oktober bezahlt und den April als älteren Rückstand (Kundenmeldung 29.10.2026). Was über die Monatsmiete hinausgeht, tilgt die älteste Schuld. Am Saldo ändert das nichts | `monatsSaldo` (`zahlungsMonat`) |
 | Mehrere Teilzahlungen (z. B. Jobcenter und Mieter) | Werden summiert | Mietkonto |
 | Rücklastschrift | Hebt die Zahlung auf; die Gebühr ist eine eigene Forderung (`ruecklastschrift_am`), fällig am Buchungstag, und gilt nie als Monatsmiete | Trigger `create_ruecklastschrift_forderung`, `istMonatsmiete` |
 | Sammelzahlung für zwei Verträge (Wohnung + Garage, zwei Garagen) | Die Software teilt nie selbst auf (Entscheidung 28.10.2026). Die Liste weist auf den Gegenbetrag am anderen Vertrag desselben Mieters hin | `useRueckstaende` (`verbundener_gegenbetrag`) |
@@ -69,6 +69,18 @@ Grundregeln: Eine Monatsmiete ist am 8. fällig, beim Einzug am Mietbeginn. Zahl
   Guthaben. Die erwartete Miete ist die heutige Vertragsmiete. Live gibt es derzeit weder Staffelpläne noch anstehende Mieterhöhungen.
 - **Zahlungseingang ab dem 9.:** Er gilt als Vorauszahlung, sobald der laufende Monat bezahlt ist. Eine versehentliche Doppelzahlung
   zur Monatsmitte erscheint deshalb erst nach dem nächsten Fälligkeitstag als Guthaben, wenn der Mieter dann auch die nächste Miete zahlt.
+- **„Noch offen“ und Zahlungen vor dem 28.:** Auf der Startseite gilt eine Zahlung für den zugeordneten Monat; die DB ordnet erst ab dem
+  28. dem Folgemonat zu. Wer die Oktobermiete schon am 23.09. zahlt und noch einen älteren Rückstand hat, steht deshalb unter „Noch
+  offen“, bis die Zahlung in der Zahlungsverwaltung dem Oktober zugeordnet ist. Eine Weitergabe des Septemberüberschusses an den
+  Oktober wurde am 29.10.2026 an den Live-Daten geprüft und verworfen: Der einzige betroffene Mieter zahlt jeden Monat spät (29.07.
+  für Juli, 31.08. für August, 23.09. für September); sein Oktober wäre fälschlich als bezahlt erschienen.
+- **Vor dem 8. zeigt die Startseite einen älteren Rückstand früher als die Liste:** Wer am 02.10. für Oktober zahlt und den September
+  offen hat, hat auf der Startseite den Oktober bezahlt und den September als älteren Rückstand. Die Liste rechnet die Zahlung bis zur
+  Fälligkeit des Oktobers noch auf den September und zeigt erst ab dem 8. denselben Rückstand. Ein Deckel auf den Listenwert rechnete
+  die Zahlung doppelt und ließ den Rückstand bis zum 8. ganz verschwinden (Gegenprüfung 29.10.2026).
+- **Rücklastschrift im Folgemonat:** Sie gilt wie jede Zahlung für ihren zugeordneten Monat. Platzt die Septemberzahlung erst im
+  Oktober, hebt sie auf der Startseite die Oktoberzahlung auf, bis sie in der Zahlungsverwaltung dem September zugeordnet ist. Live
+  wurden alle 29 Rücklastschriften im Monat der Zahlung gebucht.
 
 Validierung: Eine unabhängige SQL-Umsetzung derselben Regeln stimmte mit der App in 16.920 Fällen überein
 (120 Tage × 141 Verträge). Die anteilige Miete stimmte mit der DB-Funktion `monatsanteil` in 6.018 Fällen centgenau überein.

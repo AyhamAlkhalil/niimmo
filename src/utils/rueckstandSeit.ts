@@ -1,4 +1,4 @@
-import { istMonatsmiete, zaehltImMietkonto, type KontoForderung, type KontoZahlung } from './rueckstandsberechnung';
+import { istMonatsmiete, zaehltImMietkonto, zahlungsMonat, type KontoForderung, type KontoZahlung } from './rueckstandsberechnung';
 
 /** Cent-Reste machen ein Konto nicht „seit Jahren“ offen */
 const TOLERANZ = 1;
@@ -34,7 +34,7 @@ export function rueckstandSeit(
   let ueberschuss = 0;
   for (const z of zahlungen) {
     if (!zaehltImMietkonto(z)) continue;
-    const monat = (z.zugeordneter_monat || (z.buchungsdatum as string)).slice(0, 7);
+    const monat = zahlungsMonat(z);
     const betrag = Number(z.betrag) || 0;
     if (offenJe.has(monat)) offenJe.set(monat, (offenJe.get(monat) as number) - betrag);
     else ueberschuss += betrag;

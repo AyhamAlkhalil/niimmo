@@ -37,12 +37,57 @@ describe('monatsSaldo', () => {
     expect(r).toMatchObject({ soll: 500, eingang: 500, offen: 0, aelter: 0 });
   });
 
-  it('lässt eine Nachzahlung zuerst den älteren Rückstand tilgen (§ 366 Abs. 2 BGB)', () => {
-    const r = monatsSaldo([vertraege[0]], [miete('a', '2026-08'), miete('a', '2026-09'), miete('a', '2026-10')], [
-      zahlung('a', 500, '2026-10-02'),
-    ], am10Okt);
-    // August und September offen (1.000), Oktober bezahlt 500 → Oktober bleibt offen, August/September 500 älter
-    expect(r).toMatchObject({ soll: 500, eingang: 0, offen: 500, aelter: 500, vertraegeAelter: 1 });
+  it('zählt die Oktoberzahlung für den Oktober, auch wenn ältere Monate offen sind (Kundenmeldung 29.10.2026)', () => {
+    const forderungen = [miete('a', '2026-04'), miete('a', '2026-05'), miete('a', '2026-10')];
+    // April ausgelassen, Mai und Oktober gezahlt: Der Oktober ist bezahlt, der April ist älterer Rückstand
+    const r = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 500, '2026-05-04'), zahlung('a', 500, '2026-10-06')], am10Okt);
+    expect(r).toMatchObject({ soll: 500, eingang: 500, offen: 0, aelter: 500, vertraegeOffen: 0, vertraegeAelter: 1 });
+    expect(r.offeneVertraege).toEqual([]);
+  });
+
+  it('lässt eine Nachzahlung mit zugeordnetem älterem Monat den älteren Rückstand tilgen', () => {
+    const forderungen = [miete('a', '2026-08'), miete('a', '2026-09'), miete('a', '2026-10')];
+    const nachzahlung = { ...zahlung('a', 500, '2026-10-02'), zugeordneter_monat: '2026-08' };
+    const r = monatsSaldo([vertraege[0]], forderungen, [nachzahlung], am10Okt);
+    expect(r).toMatchObject({ soll: 500, eingang: 0, offen: 500, aelter: 500 });
+    // Ohne Zuordnung gilt sie für den Buchungsmonat Oktober; offen bleiben August und September
+    const ohne = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 500, '2026-10-02')], am10Okt);
+    expect(ohne).toMatchObject({ soll: 500, eingang: 500, offen: 0, aelter: 1000 });
+  });
+
+  it('nimmt, was über die Monatsmiete hinaus gezahlt wird, zuerst für ältere Rückstände (§ 366 Abs. 2 BGB)', () => {
+    const forderungen = [miete('a', '2026-09'), miete('a', '2026-10')];
+    // 200 für Oktober decken den Oktober zum Teil; die 100 für September tilgen den September
+    const teil = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 200, '2026-10-02'), zahlung('a', 100, '2026-09-30')], am10Okt);
+    expect(teil).toMatchObject({ eingang: 200, offen: 300, aelter: 400 });
+    // Eine Doppelzahlung im Oktober deckt zuerst den Oktober, der Rest tilgt den September
+    const doppelt = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 800, '2026-10-02')], am10Okt);
+    expect(doppelt).toMatchObject({ eingang: 500, offen: 0, aelter: 200 });
+    // Eine BKA-Zahlung ohne BKA-Forderung ist für die BKA bestimmt: weder Oktobermiete noch Tilgung des Septembers
+    const bka = monatsSaldo([vertraege[0]], forderungen, [zahlung('a', 500, '2026-10-02', 'Betriebskostenabrechnung')], am10Okt);
+    expect(bka).toMatchObject({ eingang: 0, offen: 500, aelter: 500 });
+  });
+
+  it('rechnet eine Rücklastschrift ihrem zugeordneten Monat zu', () => {
+    const forderungen = [miete('a', '2026-09'), miete('a', '2026-10')];
+    // Septemberzahlung am 26.09., Rücklastschrift am 03.10., Oktoberzahlung am 06.10.
+    const ruecklastschrift = zahlung('a', -500, '2026-10-03', 'Rücklastschrift');
+    const zahlungen = [zahlung('a', 500, '2026-09-26'), ruecklastschrift, zahlung('a', 500, '2026-10-06')];
+    // Im Oktober gebucht hebt sie die Oktoberzahlung auf; dem September zugeordnet ist der Oktober bezahlt
+    expect(monatsSaldo([vertraege[0]], forderungen, zahlungen, am10Okt)).toMatchObject({ eingang: 0, offen: 500, aelter: 0 });
+    const zugeordnet = [zahlungen[0], { ...ruecklastschrift, zugeordneter_monat: '2026-09' }, zahlungen[2]];
+    expect(monatsSaldo([vertraege[0]], forderungen, zugeordnet, am10Okt)).toMatchObject({ eingang: 500, offen: 0, aelter: 500 });
+    // Im selben Monat: Lastschrift am 01.10. geplatzt, am 05.10. neu gezahlt — der Oktober ist bezahlt
+    const gleich = [zahlung('a', 500, '2026-09-03'), zahlung('a', 500, '2026-10-01'), zahlung('a', -500, '2026-10-02', 'Rücklastschrift'), zahlung('a', 500, '2026-10-05')];
+    expect(monatsSaldo([vertraege[0]], forderungen, gleich, am10Okt)).toMatchObject({ eingang: 500, offen: 0, aelter: 0 });
+  });
+
+  it('nimmt eine Zahlung für einen späteren Monat und eine Gutschrift zuerst für ältere Rückstände', () => {
+    const forderungen = [miete('a', '2026-09'), miete('a', '2026-10')];
+    const november = { ...zahlung('a', 500, '2026-10-20'), zugeordneter_monat: '2026-11' };
+    expect(monatsSaldo([vertraege[0]], forderungen, [november], am10Okt)).toMatchObject({ eingang: 0, offen: 500, aelter: 0 });
+    const gutschrift = { mietvertrag_id: 'a', sollmonat: '2026-09-01', sollbetrag: -500, faelligkeitsdatum: '2026-09-08', typ: 'Miete' };
+    expect(monatsSaldo([vertraege[0]], [...forderungen, gutschrift], [], am10Okt)).toMatchObject({ offen: 500, aelter: 0 });
   });
 
   it('nimmt als Soll die Forderungen des Monats (ohne BKA), sonst die Sollstellung des Vertrags', () => {
@@ -101,6 +146,18 @@ describe('monatsSaldo', () => {
     const r = monatsSaldo([vertraege[0]], forderungen, zahlungen, am3Okt);
     expect(r).toMatchObject({ offen: 500, aelter: 800 });
     expect(berechneMietkontostand(vertraege[0], forderungen, zahlungen, am3Okt).rueckstand).toBe(800);
+  });
+
+  it('rechnet eine Zahlung vor dem 8. nie doppelt: offen + älter bleibt das Konto (Gegenprüfung)', () => {
+    // Am 02.10. für Oktober gezahlt, September offen: Oktober bezahlt, September älter — schon vor dem 8.
+    const forderungen = [miete('a', '2026-09'), miete('a', '2026-10')];
+    const zahlungen = [zahlung('a', 500, '2026-10-02')];
+    expect(monatsSaldo([vertraege[0]], forderungen, zahlungen, am3Okt)).toMatchObject({ eingang: 500, offen: 0, aelter: 500 });
+    // Die Liste rechnet die Zahlung bis zur Fälligkeit des Oktobers noch auf den September (bekannte Grenze)
+    expect(berechneMietkontostand(vertraege[0], forderungen, zahlungen, am3Okt).rueckstand).toBe(0);
+    // Ab dem 8. stimmen beide überein
+    expect(monatsSaldo([vertraege[0]], forderungen, zahlungen, am10Okt)).toMatchObject({ offen: 0, aelter: 500 });
+    expect(berechneMietkontostand(vertraege[0], forderungen, zahlungen, am10Okt).rueckstand).toBe(500);
   });
 });
 
@@ -236,8 +293,9 @@ describe('monatsSaldo — offene Verträge für die Liste unter „Noch offen“
 
   it('führt einen Vertrag, der nur ältere Rückstände hat, nicht als offen für diesen Monat', () => {
     const r = monatsSaldo([vertraege[0]], [miete('a', '2026-09'), miete('a', '2026-10')], [zahlung('a', 500, '2026-10-02')], am10Okt);
-    // Die Zahlung tilgt den September (§ 366 BGB), offen bleibt der Oktober
-    expect(r.offeneVertraege).toEqual([{ mietvertragId: 'a', offen: 500, soll: 500 }]);
+    // Die Oktoberzahlung deckt den Oktober, offen bleibt der September (Kundenmeldung 29.10.2026)
+    expect(r.offeneVertraege).toEqual([]);
+    expect(r).toMatchObject({ offen: 0, aelter: 500 });
     const bezahlt = monatsSaldo([vertraege[0]], [miete('a', '2026-10')], [zahlung('a', 500, '2026-10-02')], am10Okt);
     expect(bezahlt.offeneVertraege).toEqual([]);
   });

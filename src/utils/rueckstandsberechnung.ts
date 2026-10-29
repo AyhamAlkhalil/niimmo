@@ -74,6 +74,9 @@ export const zaehltImMietkonto = (z: KontoZahlung): boolean =>
   !!z.buchungsdatum &&
   (z.kategorie === 'Miete' || z.kategorie === 'Rücklastschrift' || z.kategorie === 'Betriebskostenabrechnung');
 
+/** Monat, für den eine Zahlung gilt (JJJJ-MM): der zugeordnete Monat, sonst der Buchungsmonat */
+export const zahlungsMonat = (z: KontoZahlung): string => (z.zugeordneter_monat || z.buchungsdatum || '').slice(0, 7);
+
 /**
  * Als Betriebskostenabrechnung gebuchte Zahlungen sind für die BKA bestimmt (§ 366 Abs. 1 BGB): Was sie
  * über die fälligen BKA-Nachzahlungen hinaus zahlen, deckt zuerst noch nicht fällige BKA-Nachzahlungen;

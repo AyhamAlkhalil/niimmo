@@ -298,7 +298,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
               Eingang
               <KennzahlInfo titel={`Eingang ${monat}`}>
                 <p>Der Teil der Soll-Miete, den Zahlungen und Gutschriften decken. Eingang + Noch offen = Soll-Miete.</p>
-                <p>Zahlungen tilgen zuerst ältere Rückstände (§ 366 BGB). Eine schon im Vormonat gezahlte Miete zählt hier mit, eine Zahlung auf eine noch nicht fällige Betriebskostennachzahlung nicht.</p>
+                <p>Eine Zahlung für den {monat} zählt hier, auch wenn aus früheren Monaten noch etwas offen ist. Was darüber hinaus gezahlt wird, tilgt zuerst ältere Rückstände (§ 366 BGB). Eine schon im Vormonat gezahlte Miete zählt mit, eine Zahlung auf eine Betriebskostennachzahlung nicht.</p>
               </KennzahlInfo>
               {saldo && saldo.zahlungenImMonat === 0 && (
                 <KennzahlInfo titel="Noch keine Zahlungen erfasst" warnung>
