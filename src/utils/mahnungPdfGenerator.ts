@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { COMPANY } from '@/config/company';
+import type { Unterzeichner } from '@/config/company';
 import { anredeFuerSchreiben } from './kuendigungsbestaetigung';
 import { beginneBrief, ladeBriefbilder, type Briefbilder } from './pdf/briefbogen';
 
@@ -50,6 +50,9 @@ export interface MahnungPdfData {
 
   // Freitext
   freitext?: string;
+
+  /** Rückfragenblock und Unterschrift; im Dialog vorbelegt mit dem Angemeldeten (30.10.2026) */
+  unterzeichner: Unterzeichner;
 }
 
 export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
@@ -91,6 +94,7 @@ function mahnungSetzen(data: MahnungPdfData, bilder: Briefbilder): Blob {
     zeilen: [data.mieterAdresse, data.mieterPlzOrt],
     datum: data.datum,
     betreff: mahnungBetreff(data),
+    unterzeichner: data.unterzeichner,
   });
   brief.anrede(anrede.gruss);
 
@@ -150,8 +154,6 @@ function mahnungSetzen(data: MahnungPdfData, bilder: Briefbilder): Blob {
 
   brief.schluss({
     satz: 'Für Rückfragen stehen wir Ihnen gerne unter den oben genannten Kontaktdaten zur Verfügung.',
-    name: COMPANY.ansprechpartner.unterschrift,
-    funktion: COMPANY.ansprechpartner.funktion,
   });
   return brief.fertig();
 }

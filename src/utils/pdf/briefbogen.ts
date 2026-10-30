@@ -11,7 +11,7 @@
  * kommen aus COMPANY, nicht aus der Vorlage (deren Steuernummer ist die falsche, siehe company.ts).
  */
 import type jsPDF from 'jspdf';
-import { COMPANY } from '@/config/company';
+import { COMPANY, type Unterzeichner } from '@/config/company';
 import type { RGB } from './briefLayout';
 import { pdfText } from './pdfText';
 
@@ -86,6 +86,8 @@ export interface Briefkopf {
   /** TT.MM.JJJJ */
   datum: string;
   betreff: string;
+  /** Steht im Rückfragenblock und unterschreibt — eine Person für das ganze Schreiben */
+  unterzeichner: Unterzeichner;
 }
 
 export interface Brief {
@@ -93,8 +95,11 @@ export interface Brief {
   anrede(gruss: string): void;
   absatz(text: string, opts?: { fett?: boolean; blocksatz?: boolean }): void;
   aufzaehlung(punkte: string[]): void;
-  /** Schlusssatz, Grußformel, Unterschriftsraum, Name und Funktion — nie getrennt, damit keine Seite nur den Gruß trägt */
-  schluss(opts: { satz?: string; name: string; funktion: string }): void;
+  /**
+   * Schlusssatz, Grußformel, Unterschriftsraum, Name und Funktion des Unterzeichners — nie getrennt, damit keine
+   * Seite nur den Gruß trägt
+   */
+  schluss(opts: { satz?: string }): void;
   /** Fußzeilen und Seitenzahlen setzen, PDF liefern. */
   fertig(): Blob;
 }
@@ -182,11 +187,11 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
     schrift(8, 'bold', GRAU);
     doc.text('Rückfragen richten Sie bitte an:', lx, 57.9);
     const kontakt: Array<[string, string]> = [
-      ['', COMPANY.ansprechpartner.name],
-      ['Tel.', COMPANY.ansprechpartner.telefon],
+      ['', kopf.unterzeichner.kontaktname],
+      ['Tel.', kopf.unterzeichner.telefon],
       ['Fax', COMPANY.ansprechpartner.fax],
       ['', `${COMPANY.strasse}, ${COMPANY.plzOrt}`],
-      ['E-Mail', COMPANY.ansprechpartner.email],
+      ['E-Mail', kopf.unterzeichner.email],
     ];
     kontakt.forEach(([label, wert], i) => {
       const ky = 62.3 + i * 3.3;
@@ -297,7 +302,8 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
       }
     },
 
-    schluss({ satz, name, funktion }) {
+    schluss({ satz }) {
+      const { unterschrift, funktion } = kopf.unterzeichner;
       schrift(SCHRIFT);
       const satzZeilen = satz ? (doc.splitTextToSize(druck(satz), BREITE) as string[]) : [];
       // Satz, Leerzeile, Gruß, drei Leerzeilen für die Unterschrift (DIN 5008), Name, Funktion
@@ -313,10 +319,10 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
       if (satzZeilen.length) y += ZEILE;
       doc.text('Mit freundlichem Gruß', LINKS, y);
       y += 4 * ZEILE;
-      doc.text(name, LINKS, y);
+      doc.text(druck(unterschrift), LINKS, y);
       y += 4;
       schrift(8);
-      doc.text(funktion, LINKS, y);
+      doc.text(druck(funktion), LINKS, y);
       blockAmSeitenanfang = false;
       letzterBlockListe = false;
     },

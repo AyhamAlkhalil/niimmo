@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { COMPANY } from './company';
+import { COMPANY, unterzeichnerZurAnmeldung } from './company';
 
 /**
  * Die Firmenstammdaten standen bis zum 06.09.2026 in sieben Generatoren verstreut
@@ -42,6 +42,33 @@ describe('Firmenstammdaten', () => {
 });
 
 /**
+ * Die Mahnung unterschrieb bis zum 30.10.2026 immer Herr Mikyas, gleich wer sie erstellte. Kundenwunsch: der
+ * Angemeldete, sonst auswählbar.
+ */
+describe('Unterzeichner', () => {
+  it('ordnet die Anmeldung über die E-Mail zu, unabhängig von Groß- und Kleinschreibung', () => {
+    const [erster] = COMPANY.unterzeichner;
+    expect(unterzeichnerZurAnmeldung(` ${erster.email.toUpperCase()} `)).toBe(erster);
+  });
+
+  it('wer nicht unterzeichnet, bekommt keinen Vorschlag und muss wählen', () => {
+    expect(unterzeichnerZurAnmeldung('buchhaltung@example.org')).toBeNull();
+    expect(unterzeichnerZurAnmeldung(undefined)).toBeNull();
+    expect(unterzeichnerZurAnmeldung('')).toBeNull();
+  });
+
+  it('jeder Unterzeichner hat alle Angaben für Rückfragenblock und Unterschrift', () => {
+    expect(COMPANY.unterzeichner.length).toBeGreaterThan(1);
+    // Auswahl und Zuordnung laufen über die E-Mail
+    expect(new Set(COMPANY.unterzeichner.map((u) => u.email)).size).toBe(COMPANY.unterzeichner.length);
+    for (const u of COMPANY.unterzeichner) {
+      for (const wert of [u.email, u.kontaktname, u.unterschrift, u.funktion, u.telefon]) expect(wert.trim()).not.toBe('');
+      expect(u.email).toBe(u.email.toLowerCase());
+    }
+  });
+});
+
+/**
  * Ein Generator, der die Angaben selbst hinschreibt, läuft beim nächsten Umzug
  * oder Registereintrag wieder auseinander. Deshalb prüfen wir den Quelltext.
  */
@@ -69,7 +96,8 @@ describe('Generatoren enthalten keine Firmendaten als Literal', () => {
   for (const datei of GENERATOREN) {
     it(`${datei.split('/').pop()} liest die Firmendaten aus COMPANY`, () => {
       const quelle = readFileSync(datei, 'utf-8');
-      expect(quelle).toContain('COMPANY');
+      // Die Mahnung bekommt Kopf, Fußzeile und Unterzeichner vom Briefbogen (30.10.2026)
+      expect(quelle).toMatch(/COMPANY|\.\/pdf\/briefbogen/);
       for (const wert of VERBOTEN) {
         expect(quelle, `${datei} schreibt "${wert}" selbst statt COMPANY zu nutzen`).not.toContain(wert);
       }

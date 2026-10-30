@@ -20,6 +20,46 @@
  * kann diese Datei nicht importieren — Änderungen dort mitziehen.
  */
 
+/** Wer ein Schreiben unterzeichnet: Rückfragenblock oben rechts, Name und Funktion unter dem Gruß. */
+export interface Unterzeichner {
+  /** Anmelde-E-Mail; sie steht zugleich im Rückfragenblock. */
+  email: string;
+  /** Rückfragenblock, in der Form der Briefvorlage („Herr …, M. Sc.“) */
+  kontaktname: string;
+  /** Unter dem Gruß */
+  unterschrift: string;
+  funktion: string;
+  telefon: string;
+}
+
+/**
+ * Wer Mahnungen unterzeichnen kann (30.10.2026, Kundenwunsch: „immer der, der eingeloggt ist — oder man soll es
+ * auswählen können“). Vorbelegt ist der Angemeldete, zugeordnet über die Anmelde-E-Mail. Die Angaben zu Herrn
+ * Yeyrek stammen aus der Briefvorlage des Kunden; `ansprechpartner` bleibt Absender der übrigen Schreiben.
+ */
+const UNTERZEICHNER: readonly Unterzeichner[] = [
+  {
+    email: "yeyrek@niimmo.de",
+    kontaktname: "Herr Ayhan Yeyrek, M. Sc.",
+    unterschrift: "Ayhan Yeyrek (M. Sc.)",
+    funktion: "Geschäftsführer – CEO",
+    telefon: "05138 - 600 72 71",
+  },
+  {
+    email: "mikyas@niimmo.de",
+    kontaktname: "Herr Dennis Baris Mikyas",
+    unterschrift: "Dennis Mikyas",
+    funktion: "Geschäftsführer",
+    telefon: "05138 - 600 72 72",
+  },
+];
+
+/** Der Unterzeichner zur Anmeldung; null für Konten, die nicht unterzeichnen (Buchhaltung, Entwicklung) — dann wird gewählt. */
+export function unterzeichnerZurAnmeldung(email: string | null | undefined): Unterzeichner | null {
+  const gesucht = email?.trim().toLowerCase();
+  return UNTERZEICHNER.find((u) => u.email === gesucht) ?? null;
+}
+
 export const COMPANY = {
   name: "NiImmo Wohnungsbaugesellschaft mbH",
   /** Kurzform ohne Rechtsform, wie sie in der Absenderzeile über der Anschrift steht. */
@@ -45,6 +85,8 @@ export const COMPANY = {
     fax: "05138 - 600 72 79",
     email: "mikyas@niimmo.de",
   },
+
+  unterzeichner: UNTERZEICHNER,
 
   /** Geschäftsführer in der im Handelsregister eingetragenen Reihenfolge. */
   geschaeftsfuehrer: "Ayhan Yeyrek, Dennis Mikyas",

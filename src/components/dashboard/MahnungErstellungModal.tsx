@@ -16,6 +16,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, AlertTriangle, Download, Mail, Mailbox, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
+import { COMPANY, unterzeichnerZurAnmeldung } from "@/config/company";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMahnungPdf, mahnungAbsaetze, POSTEN_PRAEFIX, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
 import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand, verzugszinsAufschlag } from "@/utils/verzugszinsen";
@@ -97,6 +99,7 @@ export function MahnungErstellungModal({
   offenePosten = KEINE_POSTEN,
 }: MahnungErstellungModalProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const { perioden, fromDB } = useBasiszinsPerioden();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -178,11 +181,23 @@ export function MahnungErstellungModal({
   const [useFreitext, setUseFreitext] = useState(false);
   const [freitext, setFreitext] = useState<string>("");
 
+  // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen (30.10.2026, Kundenwunsch).
+  // Ohne Wahl entsteht kein Schreiben — es soll nie still jemand anderes unterzeichnen.
+  const [unterzeichnerEmail, setUnterzeichnerEmail] = useState<string>("");
+  const unterzeichner = COMPANY.unterzeichner.find((u) => u.email === unterzeichnerEmail) ?? null;
+
   // Reset when modal opens
   useEffect(() => {
     if (isOpen && contractData) {
       setStep('edit');
       setGespeichert(null);
+      // Das Schreiben der letzten Öffnung verwerfen, auch eine noch laufende Vorschau: Es konnte einen
+      // anderen Vertrag oder Unterzeichner tragen und blieb bis zur neuen Vorschau herunterladbar (Review 30.10.2026)
+      vorschauLauf.current++;
+      setIsGeneratingPreview(false);
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current);
+      pdfUrlRef.current = null;
+      setPdfBlobUrl(null);
       setPdfBlob(null);
       setPdfStand(null);
       setGesamtRueckstand(rueckstand.toFixed(2));
@@ -217,6 +232,7 @@ export function MahnungErstellungModal({
       setUebergabeDatum("");
       setUseFreitext(false);
       setFreitext("");
+      setUnterzeichnerEmail(unterzeichnerZurAnmeldung(user?.email)?.email ?? "");
     }
     // Nur beim Öffnen oder Vertragswechsel: contractData ist bei jedem Rendern des Vertragsfensters
     // ein neues Objekt -- bis zum 27.10.2026 fielen berechnete Zinsen beim Fensterfokus still auf 0
@@ -277,7 +293,7 @@ export function MahnungErstellungModal({
 
   // Build PDF data from state
   const buildPdfData = useCallback((): MahnungPdfData | null => {
-    if (!contractData) return null;
+    if (!contractData || !unterzeichner) return null;
     
     const mieterList = contractData.mieter || [];
     const firstName = mieterList.map(m => `${m.vorname} ${m.nachname}`).join(' & ');
@@ -325,8 +341,9 @@ export function MahnungErstellungModal({
         ? new Date(uebergabeDatum).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
         : undefined,
       freitext: useFreitext ? freitext : undefined,
+      unterzeichner,
     };
-  }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
+  }, [contractData, unterzeichner, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
       betraege, anzahlMonatsmieten, verzugszinsenDetails, postenZeilen,
       anzahlMahnschreiben, mahnkostenGesamt,
       zahlungsfristTage, raeumungsfristTage, uebergabeDatum, mahnstufe, useFreitext, freitext]);
@@ -926,7 +943,8 @@ export function MahnungErstellungModal({
                 </Badge>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfBlobUrl}>
+                {/* Nur die Vorschau zu den jetzigen Eingaben — nach einem Wechsel des Unterzeichners sonst noch die alte */}
+                <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfBlobUrl || !vorschauAktuell}>
                   <Download className="h-4 w-4 mr-1.5" />
                   <span className="hidden sm:inline">Download</span>
                 </Button>
@@ -1035,6 +1053,27 @@ export function MahnungErstellungModal({
                         <p><span className="text-muted-foreground">Vertragsbeginn:</span> {contractData.start_datum ? new Date(contractData.start_datum).toLocaleDateString('de-DE') : 'N/A'}</p>
                       </div>
                     </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Unterzeichner */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Unterzeichner</h3>
+                    <Label className="text-xs">Rückfragen und Unterschrift</Label>
+                    <Select value={unterzeichnerEmail} onValueChange={setUnterzeichnerEmail}>
+                      <SelectTrigger className="mt-1 h-9">
+                        <SelectValue placeholder="Bitte wählen" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMPANY.unterzeichner.map((u) => (
+                          <SelectItem key={u.email} value={u.email}>{u.unterschrift} – {u.funktion}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!unterzeichner && (
+                      <p className="text-xs text-destructive mt-1" role="alert">Bitte wählen, wer das Schreiben unterzeichnet.</p>
+                    )}
                   </div>
 
                   <Separator />
@@ -1350,7 +1389,11 @@ export function MahnungErstellungModal({
                   </Button>
                 </div>
                 <div className="flex-1 p-4 overflow-auto">
-                  {pdfBlobUrl ? (
+                  {!unterzeichner ? (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                      <p className="text-sm">Bitte zuerst wählen, wer unterzeichnet.</p>
+                    </div>
+                  ) : pdfBlobUrl ? (
                     <iframe 
                       src={pdfBlobUrl} 
                       title="Mahnung PDF Vorschau"

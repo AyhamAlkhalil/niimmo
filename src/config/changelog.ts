@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.1",
+    datum: "2026-10-30",
+    aenderungen: [
+      { art: "neu", titel: "Mahnung: Briefbogen wie die Word-Vorlage, unterzeichnet von dem, der angemeldet ist – oder nach Auswahl" },
+    ],
+  },
+  {
     version: "1.9.0",
     datum: "2026-10-30",
     aenderungen: [

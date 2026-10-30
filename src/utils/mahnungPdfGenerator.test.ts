@@ -4,6 +4,7 @@ import { fristloseKuendigungFelder } from './contractUtils';
 import { freitextBloecke, generateMahnungPdf, mahnungBetreff, type MahnungPdfData } from './mahnungPdfGenerator';
 import { jsPDF } from 'jspdf';
 import { anredeZeilen, beginneBrief, geschuetzt, ladeBriefbilder } from './pdf/briefbogen';
+import { COMPANY } from '@/config/company';
 
 /**
  * Ab Stufe 3 enthält das Mahnschreiben eine echte Kündigungserklärung
@@ -82,6 +83,7 @@ describe('Mahnung im Layout der Briefvorlage', () => {
     zahlungsfristDatum: '13.11.2026',
     zahlungsfristTage: 14,
     raeumungsfristDatum: '30.11.2026',
+    unterzeichner: COMPANY.unterzeichner[0],
   };
 
   /** Seiteninhalte mit Schriftgröße je Textstück; in Node lädt kein Bild, die Streams sind nur Seiten */
@@ -92,7 +94,11 @@ describe('Mahnung im Layout der Briefvorlage', () => {
       let groesse = 0;
       for (const [, tf, text] of inhalt.matchAll(/\/F\d+ ([\d.]+) Tf|\(((?:\\.|[^\\()])*)\) Tj/g)) {
         if (tf) groesse = Number(tf);
-        else stuecke.push({ text: text.replace(/\\(\d{3})/g, (_, o) => String.fromCharCode(parseInt(o, 8))), groesse });
+        else {
+          // Oktal-Escapes sind WinAnsi-Bytes (Umlaute, „–“ = 0x96), sonst nur maskierte Zeichen wie „\(“
+          const bytes = text.replace(/\\(\d{3}|.)/g, (_, e: string) => (e.length === 3 ? String.fromCharCode(parseInt(e, 8)) : e));
+          stuecke.push({ text: new TextDecoder('windows-1252').decode(Uint8Array.from(bytes, (z) => z.charCodeAt(0))), groesse });
+        }
       }
       return stuecke;
     }).filter((s) => s.length > 0);
@@ -129,6 +135,7 @@ describe('Mahnung im Layout der Briefvorlage', () => {
     const kaputt = 'data:image/png;base64,PGh0bWw+';
     const brief = beginneBrief(doc, { logo: kaputt, ihk: kaputt, creditreform: kaputt }, {
       name: 'Erika Mustermann', zeilen: ['Musterweg 1', '29221 Celle'], datum: '30.10.2026', betreff: 'Erste Mahnung',
+      unterzeichner: COMPANY.unterzeichner[0],
     });
     brief.anrede('Guten Tag Erika Mustermann,');
     expect(brief.fertig().size).toBeGreaterThan(0);
@@ -146,6 +153,28 @@ describe('Mahnung im Layout der Briefvorlage', () => {
   it('ein Freitext nur aus Leerzeichen gilt als leer', async () => {
     const text = (await seiten({ ...basis, freitext: '  \n ' })).flat().map((s) => s.text).join(' ');
     expect(text).toContain('Zu zahlen sind insgesamt');
+  });
+
+  it('Rückfragenblock und Unterschrift nennen den gewählten Unterzeichner, nicht einen festen', async () => {
+    const [eins, zwei] = COMPANY.unterzeichner;
+    for (const [gewaehlt, anderer] of [[eins, zwei], [zwei, eins]]) {
+      const texte = (await seiten({ ...basis, unterzeichner: gewaehlt })).flat().map((s) => s.text);
+      for (const wert of [gewaehlt.kontaktname, gewaehlt.telefon, gewaehlt.email, gewaehlt.unterschrift, gewaehlt.funktion]) {
+        expect(texte).toContain(wert);
+      }
+      for (const wert of [anderer.kontaktname, anderer.telefon, anderer.email, anderer.unterschrift]) {
+        expect(texte).not.toContain(wert);
+      }
+    }
+  });
+
+  it('der Dialog belegt mit dem Angemeldeten vor und erzeugt ohne Wahl kein Schreiben', () => {
+    const modal = readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8');
+    expect(modal).toContain('setUnterzeichnerEmail(unterzeichnerZurAnmeldung(user?.email)?.email ?? "")');
+    expect(modal).toContain('if (!contractData || !unterzeichner) return null;');
+    // Herunterladen nur, was zu den jetzigen Eingaben passt; beim Öffnen wird das alte Schreiben verworfen
+    expect(modal).toContain('disabled={!pdfBlobUrl || !vorschauAktuell}');
+    expect(modal).toMatch(/setGespeichert\(null\);[\s\S]{0,400}vorschauLauf\.current\+\+;[\s\S]{0,200}setPdfBlobUrl\(null\);/);
   });
 
   it('eine übliche zweite Mahnung passt auf eine Seite', async () => {
