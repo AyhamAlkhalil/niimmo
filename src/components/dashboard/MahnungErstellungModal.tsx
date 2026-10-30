@@ -18,7 +18,7 @@ import { Loader2, AlertTriangle, Download, Mail, Mailbox, Send, ArrowLeft, FileT
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMahnungPdf, mahnungAbsaetze, POSTEN_PRAEFIX, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
-import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand } from "@/utils/verzugszinsen";
+import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand, verzugszinsAufschlag } from "@/utils/verzugszinsen";
 import { useBasiszinsPerioden } from "@/hooks/useBasiszinsPerioden";
 import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
@@ -65,6 +65,8 @@ interface MahnungErstellungModalProps {
     letzte_mieterhoehung_am: string | null;
     start_datum: string;
     einheit_id?: string;
+    /** Gewerbe: Verzugszins 9 statt 5 Prozentpunkte über dem Basiszins (§ 288 Abs. 2 BGB) */
+    einheitentyp?: string | null;
     immobilie_id?: string;
     immobilie_name?: string;
     immobilie_adresse?: string;
@@ -238,6 +240,7 @@ export function MahnungErstellungModal({
   // ein freies Feld, beim Öffnen aus dem Gesamtrückstand gesetzt: 500 € Miete + 600 € BKA standen als
   // „2,2 Monatsmieten“ im Kündigungsschreiben (Prüfung 29.10.2026)
   const monatsmieteDesVertrags = (contractData?.current_kaltmiete || 0) + (contractData?.current_betriebskosten || 0);
+  const zinsAufschlag = verzugszinsAufschlag(contractData?.einheitentyp);
   const mietanteil = Math.min(
     betraege.werte.rueckstand,
     offenePosten.filter((p) => p.art === 'Miete').reduce((s, p) => s + p.betrag, 0)
@@ -859,14 +862,14 @@ export function MahnungErstellungModal({
     // Offen sind die jüngsten fälligen Monate, je eine Monatsmiete; Verzug ab dem Tag nach dem 3. Werktag des
     // Mietmonats, Zinssatz je Basiszins-Periode (utils/verzugszinsen.ts, seit 27.10.2026)
     const posten = verzugspostenAusRueckstand(parsedBetrag, monatsmieteDesVertrags, heute);
-    const ergebnis = berechneAlleVerzugszinsen(posten, heute, perioden);
+    const ergebnis = berechneAlleVerzugszinsen(posten, heute, perioden, zinsAufschlag);
 
     setVerzugszinsenDetails(ergebnis.details.map(d => ({
       monat: `${d.monat} (${d.tage} Tage, ${d.verzugszinssatz.toFixed(2)}%)`,
       betrag: d.zinsbetrag,
     })));
     setVerzugszinsenGesamt(ergebnis.gesamt.toFixed(2));
-  }, [rueckstandWert, rueckstandUngueltig, monatsmieteDesVertrags, perioden]);
+  }, [rueckstandWert, rueckstandUngueltig, monatsmieteDesVertrags, perioden, zinsAufschlag]);
 
   // Verzugszinsen automatisch berechnen wenn Modal öffnet oder Rückstand/Monate ändern
   useEffect(() => {
@@ -1125,7 +1128,7 @@ export function MahnungErstellungModal({
                     </div>
                     <div className="mb-3 px-2 py-1.5 rounded bg-muted/60 text-xs text-muted-foreground flex items-center gap-1.5">
                       <span>§ 288 BGB:</span>
-                      <span className="font-medium text-foreground">{perioden[0]?.satz.toFixed(2)}% Basiszins + 5% = {getVerzugszinssatz(new Date(), perioden).toFixed(2)}% Verzugszins</span>
+                      <span className="font-medium text-foreground">{perioden[0]?.satz.toFixed(2)}% Basiszins + {zinsAufschlag}% = {getVerzugszinssatz(new Date(), perioden, zinsAufschlag).toFixed(2)}% Verzugszins</span>
                       {fromDB && <span className="ml-auto text-green-600">● DB</span>}
                     </div>
                     <div className="space-y-3">

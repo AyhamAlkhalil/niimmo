@@ -281,6 +281,7 @@ export default function MietvertragDetailsModal({
             letzte_mieterhoehung_am: vertrag.letzte_mieterhoehung_am,
             start_datum: vertrag.start_datum,
             einheit_id: einheit?.id,
+            einheitentyp: einheitData?.einheitentyp,
             immobilie_id: immobilie?.id,
             immobilie_name: immobilie?.name,
             immobilie_adresse: immobilie?.adresse,

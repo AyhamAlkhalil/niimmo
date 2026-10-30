@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, mitAelterenPerioden, verzugspostenAusRueckstand } from './verzugszinsen';
+import { berechneAlleVerzugszinsen, berechneVerzugsbeginn, mitAelterenPerioden, verzugspostenAusRueckstand, verzugszinsAufschlag } from './verzugszinsen';
 import { monatsmietenText, rueckstandsUmfang } from './mahnungPdfGenerator';
 
 const PERIODEN = [
@@ -118,5 +118,20 @@ describe('Verzugszinsen — Prüfung 29.10.2026', () => {
     expect(r.details[0].basiszinssatz).toBe(1.27);
     const alt = berechneAlleVerzugszinsen([{ betrag: 365, faelligAb: '2022-08-01' }], new Date(2022, 7, 2));
     expect(alt.details[0].basiszinssatz).toBe(-0.88);
+  });
+});
+
+describe('Verzugszinsen bei Gewerbe (Kundenentscheidung 29.10.2026)', () => {
+  it('nimmt 9 Prozentpunkte für Gewerbeeinheiten, sonst 5', () => {
+    expect(verzugszinsAufschlag('Gewerbe')).toBe(9);
+    expect(verzugszinsAufschlag('Wohnung')).toBe(5);
+    expect(verzugszinsAufschlag(null)).toBe(5);
+    const posten = [{ betrag: 365, faelligAb: '2026-08-01' }];
+    const wohnen = berechneAlleVerzugszinsen(posten, new Date(2026, 8, 1), [{ ab: '2026-07-01', satz: 1.52 }]);
+    const gewerbe = berechneAlleVerzugszinsen(posten, new Date(2026, 8, 1), [{ ab: '2026-07-01', satz: 1.52 }], 9);
+    expect(wohnen.details[0].verzugszinssatz).toBe(6.52);
+    expect(gewerbe.details[0].verzugszinssatz).toBe(10.52);
+    // 365 € × 31 Tage: 2,02 € gegen 3,26 €
+    expect([wohnen.gesamt, gewerbe.gesamt]).toEqual([2.02, 3.26]);
   });
 });

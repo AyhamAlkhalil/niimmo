@@ -1,7 +1,7 @@
 /**
  * Verzugszinsen-Berechnung nach § 288 BGB
  *
- * Verzugszinssatz = Basiszinssatz der Bundesbank + 5 Prozentpunkte (fuer Verbraucher)
+ * Verzugszinssatz = Basiszinssatz der Bundesbank + 5 Prozentpunkte (fuer Verbraucher), bei Gewerbe 9 (verzugszinsAufschlag)
  * Formel: (Rueckstand x Verzugszinssatz x Verzugstage) / (365 x 100)
  *
  * Verzugsbeginn: Kalendertag nach dem 3. Werktag (§ 556b Abs. 1, § 286 Abs. 2 Nr. 1 BGB; Samstag ist kein
@@ -26,6 +26,16 @@ export const BASISZINSSATZ_PERIODEN_FALLBACK: Array<{ ab: string; satz: number }
 
 // Aufschlag fuer Verbraucher-Mietverhaeltnisse: 5 Prozentpunkte (§ 288 Abs. 1 BGB)
 const AUFSCHLAG_VERBRAUCHER = 5;
+// Zwischen Unternehmern 9 Prozentpunkte (§ 288 Abs. 2 BGB)
+const AUFSCHLAG_UNTERNEHMER = 9;
+
+/**
+ * Aufschlag auf den Basiszins nach der Einheit: Gewerbe 9 Prozentpunkte, sonst 5 (Kundenentscheidung 29.10.2026).
+ * Bis dahin galten immer 5, auch für Gewerbemieter (live ein Vertrag: 9,24 € statt etwa 14,92 €).
+ */
+export function verzugszinsAufschlag(einheitentyp: string | null | undefined): number {
+  return einheitentyp === 'Gewerbe' ? AUFSCHLAG_UNTERNEHMER : AUFSCHLAG_VERBRAUCHER;
+}
 
 // Deutsche gesetzliche Feiertage (feststehende Daten, bundesweit)
 const FEIERTAGE_FEST = [
@@ -147,9 +157,10 @@ export function getBasiszinssatz(
  */
 export function getVerzugszinssatz(
   datum: Date,
-  perioden?: Array<{ ab: string; satz: number }>
+  perioden?: Array<{ ab: string; satz: number }>,
+  aufschlag: number = AUFSCHLAG_VERBRAUCHER
 ): number {
-  return getBasiszinssatz(datum, perioden) + AUFSCHLAG_VERBRAUCHER;
+  return getBasiszinssatz(datum, perioden) + aufschlag;
 }
 
 function diffTage(von: Date, bis: Date): number {
@@ -164,11 +175,12 @@ export function berechneVerzugszins(
   rueckstandBetrag: number,
   verzugVon: Date,
   verzugBis: Date,
-  perioden?: Array<{ ab: string; satz: number }>
+  perioden?: Array<{ ab: string; satz: number }>,
+  aufschlag: number = AUFSCHLAG_VERBRAUCHER
 ): VerzugszinsPosten {
   const tage = diffTage(verzugVon, verzugBis);
   const basiszinssatz = getBasiszinssatz(verzugVon, perioden);
-  const verzugszinssatz = basiszinssatz + AUFSCHLAG_VERBRAUCHER;
+  const verzugszinssatz = basiszinssatz + aufschlag;
   const zinsbetrag = (rueckstandBetrag * verzugszinssatz * tage) / (365 * 100);
 
   const monatLabel = verzugVon.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
@@ -204,7 +216,8 @@ function lokalerTag(iso: string): Date {
 export function berechneAlleVerzugszinsen(
   posten: Array<{ betrag: number; faelligAb: string }>,
   stichtag?: Date,
-  perioden: Array<{ ab: string; satz: number }> = BASISZINSSATZ_PERIODEN_FALLBACK
+  perioden: Array<{ ab: string; satz: number }> = BASISZINSSATZ_PERIODEN_FALLBACK,
+  aufschlag: number = AUFSCHLAG_VERBRAUCHER
 ): { details: VerzugszinsPosten[]; gesamt: number } {
   // Kalendertag ohne Uhrzeit: sonst rechnete die Mahnung ab 12 Uhr einen Zinstag mehr (27.10.2026)
   const jetzt = stichtag || new Date();
@@ -225,7 +238,7 @@ export function berechneAlleVerzugszinsen(
     const monatLabel = von.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
     let start = von;
     for (const grenze of [...grenzen.map(lokalerTag).filter((g) => g > von && g < bis), bis]) {
-      const teil = berechneVerzugszins(p.betrag, start, grenze, perioden);
+      const teil = berechneVerzugszins(p.betrag, start, grenze, perioden, aufschlag);
       if (teil.tage > 0) {
         details.push({ ...teil, monat: start === von ? monatLabel : `${monatLabel} ab ${start.toLocaleDateString('de-DE')}` });
         gesamt += teil.zinsbetrag;
