@@ -1,7 +1,8 @@
 # Sonderfälle im Mietkonto
 
 Rückstand, Guthaben und die Monatszahlen der Startseite rechnen auf **einem** Mietkonto je Vertrag
-(`berechneMietkontostand()` und `monatsSaldo()` in `src/utils/`). Diese Seite sammelt die Fälle, in denen
+(`berechneMietkontostand()` und `monatsSaldo()` in `src/utils/`; der Rechenkern liegt seit 30.10.2026 in
+`supabase/functions/_shared/mietkonto.ts`, damit `send-mahnung` genauso rechnet). Diese Seite sammelt die Fälle, in denen
 „Forderung minus Zahlung“ allein ein falsches Bild gäbe, mit der Regel und der Stelle, die sie umsetzt.
 Stand 29.10.2026, geprüft an den Live-Daten (141 Verträge, Juli bis Oktober 2026).
 
@@ -29,10 +30,15 @@ Grundregeln: Eine Monatsmiete ist am 8. fällig, beim Einzug am Mietbeginn. Zahl
 |---|---|---|
 | Einzug oder Auszug im Monat | Miete taggenau anteilig wie die Sollstellung (Postgres-Rundung), erste Miete fällig am Mietbeginn. Auf der Startseite steht sie bis dahin unter „Noch offen“, aber noch nicht als Rückstand | `sollMonatsmiete`, Trigger `set_faelligkeitsdatum_trigger` |
 | Mieterhöhung in Vertragsbearbeitung und Mietübersicht | Seit 30.10.2026 ein Vorgang (Kunde: „Eine Mieterhöhung ist ein Vorgang“): Gewählt wird „gilt ab“ (Monatserster). Rückwirkend zum 1. des laufenden Monats mit deutlichem Hinweis, dann gilt sie sofort samt der schon angelegten Monatsmiete; sonst bleibt der Vertrag bis zum Wirksamkeitstag bei der alten Miete, der Nachtlauf stellt um. Eine Korrektur gilt sofort. Das Verlangen mit Schreiben und E-Mail bleibt im Mieterhöhungsdialog. Vorher (28./29.10.2026): neue Miete sofort im Vertrag, gefordert ab dem Folgemonat — so noch die fünf Erhöhungen vom 28.10. | `mieterhoehungAlsVorgangAnlegen`, `MietaenderungBestaetigung`, RPC `mieterhoehung_zustimmen`, Begründungsart `vereinbarung` (Migration `20261030100000`) |
+| Beginn oder Ende nachträglich geändert | Der Trigger zieht die Monatsmieten nach: Grenzmonate anteilig, Monate außerhalb der Laufzeit gelöscht, neue Monate angelegt. Monate vor der letzten Erhöhung tragen eine frühere Miete; dort wird die vorhandene Monatsmiete anteilig umgerechnet (seit 30.10.2026, vorher still übergangen: Auszug am 20.10. nach Erhöhung ließ den Oktober voll stehen). Eine von Hand geänderte Monatsmiete ab der letzten Erhöhung bleibt | Trigger `update_forderungen_on_rent_change`, `miete_vor_erhoehung` (Migration `20261030120000`) |
+| „Heute“ in der Datenbank | Deutsche Zeit (`heute_berlin()`) in allen Funktionen des Mietkontos, wie in der Oberfläche. Vorher UTC: Eine Korrektur am 1. zwischen 00:00 und 01:00/02:00 Uhr zog den Vormonat nach | `heute_berlin()` (Migration `20261030120000`) |
+| Vertragsende | Beendet wird über das Vertragsende wie `getVertragsende()`: `ende_datum`, sonst `kuendigungsdatum` — nie über ein früheres Kündigungsdatum, wenn das Räumungsende später liegt | `update_expired_terminated_contracts`, `auto_set_beendet_status`, `check_contract_status_on_update` |
 | Erlassene Miete (Forderung 0 €) | Gilt als angelegte Monatsmiete; es wird keine Vertragsmiete ersatzweise angenommen | `istMonatsmiete` |
 | Minderung | Senkt die Forderung des Monats; fällig mit der Monatsmiete | `nurFaelligeForderungen` |
 | Betriebskostennachzahlung (BKA) | Fällig 30 Tage nach Anlage. Vorab gezahlt, steht die Zahlung für die BKA bereit und tilgt keine Miete (§ 366 Abs. 1 BGB) | `bkaVorauszahlung` |
 | BKA-Guthaben | Zählt ab seinem Monat; eine Auszahlung gleicht es aus | `nurFaelligeForderungen` |
+| Vorauszahlung in der Betriebskostenabrechnung | Je Monat der Betrag, den das Mietkonto verlangt hat: Jede Änderung der Betriebskosten am Vertrag steht seit 30.10.2026 in `betriebskosten_verlauf` mit dem Monat, ab dem sie gilt. Ältere Änderungen sind nicht erfasst, dort gilt der heutige Betrag. Pauschal- und Inklusivmieten werden nicht abgerechnet, im Vertrag nicht umgelegte Arten trägt der Vermieter | `betriebskostenImMonat`, `berechneVorauszahlungen`, `ohneBetriebskostenabrechnung`, `nichtUmgelegteNummern` |
+| Mahnstufe 3 (fristlose Kündigung) | Nur, wenn der Mietrückstand (nur Monatsmieten, ohne BKA-Nachzahlung und Gebühren) eine Monatsmiete übersteigt. Der Dialog sperrt, `send-mahnung` rechnet seit 30.10.2026 mit den Daten der Datenbank nach, auch beim Versand einer Vormerkung. Bei gleicher Fälligkeit gilt die Monatsmiete als zuerst getilgt | `kuendigungsrueckstandErreicht`, `mietanteilAmStichtag`, `juengsteZuerst` |
 | BKA-Zahlung ohne BKA-Forderung | Zählt nicht im Mietkonto, bis die Abrechnung als Forderung (Typ BKA) angelegt ist; Hinweis in Liste und Vertrag (Entscheidung 29.10.2026). Ebenso der Teil einer BKA-Zahlung oder -Auszahlung, der über die BKA-Forderungen hinausgeht | `bkaAnrechnung` |
 | Sollstellung noch nicht gelaufen (am 1. vor 05:00 UTC) | Die Vertragsmiete gilt als Soll und als erwartete Miete | `sollMonatsmiete` |
 

@@ -56,7 +56,10 @@ Betrag, Datum und Fläche sind heute 14-fach nachgebaut. Neue Formatierungen kom
 
 ## 3. Fachlogik
 
-- **Rückstand, Forderungs- und Zahlungssumme** ausschließlich über `rueckstandsberechnung.ts`. Die Mahnung rechnet
+- **Rückstand, Forderungs- und Zahlungssumme** ausschließlich über `rueckstandsberechnung.ts`. Der Kern liegt seit
+  30.10.2026 in `supabase/functions/_shared/mietkonto.ts` (ohne Importe, für Vite und Deno); `rueckstandsberechnung.ts`,
+  `rueckstandSeit.ts` und `getVertragsende()` geben ihn nur weiter, `send-mahnung` importiert ihn direkt. Änderungen
+  dort wirken in App und Edge Function zugleich. Die Mahnung rechnet
   heute über eine eigene Inline-Formel, die bezahlte Betriebskostennachzahlungen ignoriert — sie ist zu ersetzen,
   nicht zu kopieren.
 - **Die Mahnstufe steigt nur durch erfolgreichen Versand** — per E-Mail oder als gebuchter Postversand, beides
