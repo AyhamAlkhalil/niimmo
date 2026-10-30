@@ -60,6 +60,8 @@ export interface NebenkostenAbrechnungPdfData {
   kostenDetails: NebenkostenKostenDetail[];
   monatlicheVorauszahlung: number;
   anzahlMonate: number;
+  /** Monate mit gleicher Vorauszahlung; mehrere nach einer Anpassung im Jahr (seit 30.10.2026) */
+  vorauszahlungsAbschnitte?: { monate: number; monatsbetrag: number }[];
   vorauszahlungenGesamt: number;
   kostenAnteilGesamt: number;
   saldo: number;
@@ -670,16 +672,22 @@ function seite3(
   doc.text('VORAUSZAHLUNGEN LAUT MIETVERTRAG', ML + 2, y);
   // Deutsche Schreibweise: Komma als Dezimaltrennzeichen, und volle Monate ohne
   // Nachkommastelle. Vorher stand dort "12.0 Mon. x 240.00 EUR".
-  const monate = monateText(data.anzahlMonate);
-  doc.text(
-    `${monate} Mon. × ${formatEur(data.monatlicheVorauszahlung)}`,
-    cx[5] + cW[5], y, { align: 'right' }
-  );
+  // Nach einer Anpassung im Jahr je Abschnitt eine Zeile („8 Mon. × 240,00 €“, darunter „4 Mon. × 260,00 €“),
+  // damit der Betrag nachrechenbar bleibt (30.10.2026)
+  const abschnitte = data.vorauszahlungsAbschnitte && data.vorauszahlungsAbschnitte.length > 0
+    ? data.vorauszahlungsAbschnitte
+    : [{ monate: data.anzahlMonate, monatsbetrag: data.monatlicheVorauszahlung }];
+  abschnitte.forEach((a, i) => {
+    doc.text(
+      `${i > 0 ? '+ ' : ''}${monateText(a.monate)} Mon. × ${formatEur(a.monatsbetrag)}`,
+      cx[5] + cW[5], y + i * 4.5, { align: 'right' }
+    );
+  });
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...DARK);
   doc.text(`– ${formatEur(data.vorauszahlungenGesamt)}`, cx[6] + cW[6], y, { align: 'right' });
 
-  y += 6;
+  y += 6 + (abschnitte.length - 1) * 4.5;
 
   doc.setLineWidth(0.4);
   doc.setDrawColor(...DARK);

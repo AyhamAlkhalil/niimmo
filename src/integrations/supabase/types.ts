@@ -291,26 +291,29 @@ export type Database = {
         Row: {
           betriebskosten_alt: number | null
           betriebskosten_neu: number | null
-          erfasst_am: string
+          created_at: string
           gueltig_ab: string
           id: string
           mietvertrag_id: string
+          updated_at: string
         }
         Insert: {
           betriebskosten_alt?: number | null
           betriebskosten_neu?: number | null
-          erfasst_am?: string
+          created_at?: string
           gueltig_ab: string
           id?: string
           mietvertrag_id: string
+          updated_at?: string
         }
         Update: {
           betriebskosten_alt?: number | null
           betriebskosten_neu?: number | null
-          erfasst_am?: string
+          created_at?: string
           gueltig_ab?: string
           id?: string
           mietvertrag_id?: string
+          updated_at?: string
         }
         Relationships: [
           {

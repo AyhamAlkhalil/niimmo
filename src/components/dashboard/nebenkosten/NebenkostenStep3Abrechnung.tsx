@@ -57,6 +57,12 @@ import {
   aufCentVerteilen,
   berechneBezugsgroessen,
   berechneVorauszahlungen,
+  betriebskostenImMonat,
+  vorauszahlungText,
+  ohneBetriebskostenabrechnung,
+  nichtUmgelegteNummern,
+  type BetriebskostenAenderung,
+  type VorauszahlungsAbschnitt,
   bezugsgroesseFuerSchluessel,
   istAlleinnutzung,
   personenzahlErforderlich,
@@ -77,6 +83,7 @@ import { useKostenpositionen, positionenImZeitraum } from "@/hooks/useNebenkoste
 import { trenneKostenartenNachSumme } from "@/utils/nebenkostenGutschrift";
 import { mailadressenDerMieter } from "@/utils/kuendigungsbestaetigung";
 import { edgeFehlertext } from "@/utils/edgeFehler";
+import { alleSeiten } from "@/utils/supabaseSeiten";
 
 interface NebenkostenStep3AbrechnungProps {
   immobilieId: string;
@@ -94,11 +101,17 @@ interface MieterAbrechnung {
   periode: Nutzungsperiode;
   anzahlMonate: number;
   monatlicheVorauszahlung: number;
+  /** Monate mit gleicher Vorauszahlung (Verlauf seit 30.10.2026) */
+  vorauszahlungsAbschnitte: VorauszahlungsAbschnitt[];
   vorauszahlungenGesamt: number;
   kostenDetails: NebenkostenKostenDetail[];
   kostenAnteilGesamt: number;
   saldo: number;
   isLeerstand: boolean;
+  /** Pauschal- oder Inklusivmiete: keine Abrechnung, der Anteil bleibt beim Vermieter (30.10.2026) */
+  ohneAbrechnung: 'pauschale' | 'inklusiv' | null;
+  /** Anteil der Arten, die der Vertrag nicht umlegt — trägt der Vermieter */
+  nichtUmgelegt: number;
 }
 
 interface KategorieKosten {
@@ -193,6 +206,8 @@ export function NebenkostenStep3Abrechnung({
           anzahl_personen,
           neue_anschrift,
           status,
+          betriebskosten_modus,
+          betriebskosten_positionen,
           mietvertrag_mieter(
             mieter:mieter_id(id, vorname, nachname, hauptmail, weitere_mails)
           )
@@ -204,6 +219,31 @@ export function NebenkostenStep3Abrechnung({
     },
     enabled: !!einheiten && einheiten.length > 0,
   });
+
+  // Verlauf der Vorauszahlung (seit 30.10.2026): Ein Ladefehler sperrt die Abrechnung, statt still mit dem heutigen
+  // Betrag für das ganze Jahr zu rechnen
+  const { data: bkVerlauf, isLoading: verlaufLoading, isError: verlaufFehler } = useQuery({
+    queryKey: ["betriebskosten-verlauf-step3", immobilieId, mietvertraege?.map((mv) => mv.id).join(",")],
+    queryFn: async () => {
+      const ids = mietvertraege?.map((mv) => mv.id) || [];
+      if (ids.length === 0) return [] as (BetriebskostenAenderung & { mietvertrag_id: string })[];
+      return alleSeiten<BetriebskostenAenderung & { mietvertrag_id: string }>((von, bis, mitZaehlung) =>
+        supabase
+          .from("betriebskosten_verlauf")
+          .select("mietvertrag_id, gueltig_ab, betriebskosten_alt, betriebskosten_neu, created_at", mitZaehlung ? { count: "exact" } : undefined)
+          .in("mietvertrag_id", ids)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(von, bis)
+      );
+    },
+    enabled: !!mietvertraege,
+  });
+  const verlaufJeVertrag = useMemo(() => {
+    const je = new Map<string, BetriebskostenAenderung[]>();
+    for (const a of bkVerlauf ?? []) je.set(a.mietvertrag_id, [...(je.get(a.mietvertrag_id) ?? []), a]);
+    return je;
+  }, [bkVerlauf]);
 
   const { data: alleKostenpositionen, isLoading: kostenLoading } =
     useKostenpositionen(immobilieId);
@@ -366,11 +406,19 @@ export function NebenkostenStep3Abrechnung({
 
       const kostenDetails: NebenkostenKostenDetail[] = [];
       let kostenAnteilGesamt = 0;
+      let nichtUmgelegt = 0;
+      const ohneAbrechnung = vertrag ? ohneBetriebskostenabrechnung(vertrag.betriebskosten_modus) : null;
+      const nichtVereinbart = nichtUmgelegteNummern(vertrag?.betriebskosten_positionen);
 
       kostenProKategorie.forEach((kategorie) => {
         const anteil = berechneAnteil(periode, kategorie.schluessel, bezugsgroessen);
         const anteilBetrag = (anteilCent.get(kategorie.kategorieId)?.[periodenIndex] ?? 0) / 100;
         if (anteilBetrag <= 0) return;
+        // Im Vertrag ausdrücklich nicht umgelegt (30.10.2026): Der Anteil bleibt beim Vermieter
+        if (kategorie.betrkvNummer && nichtVereinbart.has(kategorie.betrkvNummer)) {
+          nichtUmgelegt += anteilBetrag;
+          return;
+        }
 
         kostenAnteilGesamt += anteilBetrag;
         const bezug = bezugsgroesseFuerSchluessel(kategorie.schluessel, periode, bezugsgroessen);
@@ -394,12 +442,16 @@ export function NebenkostenStep3Abrechnung({
         });
       });
 
-      const monatlicheVorauszahlung = vertrag?.betriebskosten || 0;
-      const vorauszahlung = berechneVorauszahlungen(
-        monatlicheVorauszahlung,
-        periode.von,
-        periode.bis
-      );
+      // Je Monat der Betrag, den das Mietkonto verlangt hat (betriebskosten_verlauf); ohne Abrechnung keine
+      const verlauf = mietvertragId ? verlaufJeVertrag.get(mietvertragId) : undefined;
+      const monatlicheVorauszahlung = ohneAbrechnung ? 0 : Number(vertrag?.betriebskosten) || 0;
+      const vorauszahlung = ohneAbrechnung
+        ? { betrag: 0, monate: 0, abschnitte: [] as VorauszahlungsAbschnitt[] }
+        : berechneVorauszahlungen(
+            (monat) => betriebskostenImMonat(vertrag?.betriebskosten, verlauf, monat),
+            periode.von,
+            periode.bis
+          );
 
       const mieterListe = ((vertrag?.mietvertrag_mieter as
         | { mieter: { vorname: string | null; nachname: string | null; hauptmail: string | null; weitere_mails?: string | null } | null }[]
@@ -432,11 +484,14 @@ export function NebenkostenStep3Abrechnung({
         periode,
         anzahlMonate: vorauszahlung.monate,
         monatlicheVorauszahlung,
+        vorauszahlungsAbschnitte: vorauszahlung.abschnitte,
         vorauszahlungenGesamt: vorauszahlung.betrag,
         kostenDetails,
         kostenAnteilGesamt,
         saldo: kostenAnteilGesamt - vorauszahlung.betrag,
         isLeerstand,
+        ohneAbrechnung,
+        nichtUmgelegt,
       };
     });
   }, [
@@ -447,10 +502,13 @@ export function NebenkostenStep3Abrechnung({
     bezugsgroessen,
     objektAdressZeilen,
     anteilCent,
+    verlaufJeVertrag,
   ]);
 
-  const mieterAbrechnungen = abrechnungen.filter((a) => !a.isLeerstand);
+  // Abgerechnet wird nur mit Vorauszahlung; Pauschal- und Inklusivmieten bleiben wie der Leerstand beim Vermieter
+  const mieterAbrechnungen = abrechnungen.filter((a) => !a.isLeerstand && !a.ohneAbrechnung);
   const leerstandAbrechnungen = abrechnungen.filter((a) => a.isLeerstand);
+  const ohneAbrechnungAbrechnungen = abrechnungen.filter((a) => !!a.ohneAbrechnung);
   const nachzahlungAbrechnungen = mieterAbrechnungen.filter((a) => a.saldo > 0.01);
   const guthabenAbrechnungen = mieterAbrechnungen.filter((a) => a.saldo < -0.01);
   const gesamtNachzahlungen = nachzahlungAbrechnungen.reduce((s, a) => s + a.saldo, 0);
@@ -487,6 +545,11 @@ export function NebenkostenStep3Abrechnung({
     personenSchluesselAktiv && personenzahlErforderlich(bezugsgroessen);
 
   const sperrgruende: string[] = [];
+  if (verlaufFehler) {
+    sperrgruende.push(
+      "Der Verlauf der Betriebskosten-Vorauszahlungen konnte nicht geladen werden. Bitte die Seite neu laden."
+    );
+  }
   if (!istAbrechnungsjahrAbgelaufen(selectedYear)) {
     sperrgruende.push(
       `Das Jahr ${selectedYear} läuft noch. Abgerechnet wird nach dem 31.12.; bis dahin sind Kosten und Vorauszahlungen nicht vollständig.`
@@ -516,7 +579,7 @@ export function NebenkostenStep3Abrechnung({
   const abrechnungGesperrt = sperrgruende.length > 0;
 
   const fristAbgelaufen = istAbrechnungsfristAbgelaufen(selectedYear);
-  const ohneVorauszahlung = mieterAbrechnungen.filter((a) => a.monatlicheVorauszahlung === 0);
+  const ohneVorauszahlung = mieterAbrechnungen.filter((a) => a.vorauszahlungenGesamt === 0);
   const ohneEmail = mieterAbrechnungen.filter((a) => a.mieterEmails.length === 0);
 
   function getVersandInfo(mietvertragId: string | null) {
@@ -708,6 +771,7 @@ export function NebenkostenStep3Abrechnung({
       kostenDetails: abrechnung.kostenDetails,
       monatlicheVorauszahlung: abrechnung.monatlicheVorauszahlung,
       anzahlMonate: abrechnung.anzahlMonate,
+      vorauszahlungsAbschnitte: abrechnung.vorauszahlungsAbschnitte,
       vorauszahlungenGesamt: abrechnung.vorauszahlungenGesamt,
       kostenAnteilGesamt: abrechnung.kostenAnteilGesamt,
       saldo: abrechnung.saldo,
@@ -907,7 +971,7 @@ export function NebenkostenStep3Abrechnung({
 
   // ── Rendering ──────────────────────────────────────────────────────────────
 
-  const isLoading = einheitenLoading || vertraegeLoading || kostenLoading;
+  const isLoading = einheitenLoading || vertraegeLoading || kostenLoading || verlaufLoading;
 
   if (isLoading) {
     return (
@@ -1093,6 +1157,11 @@ export function NebenkostenStep3Abrechnung({
                       + {leerstandAbrechnungen.length} Leerstand
                     </span>
                   )}
+                  {ohneAbrechnungAbrechnungen.length > 0 && (
+                    <span className="text-sm font-normal text-slate-500 ml-1">
+                      + {ohneAbrechnungAbrechnungen.length} ohne Abrechnung
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -1220,7 +1289,14 @@ export function NebenkostenStep3Abrechnung({
               ) : (
                 abrechnungen.map((abrechnung) => {
                   const isExpanded = expandedCards.has(abrechnung.id);
-                  const isNachzahlung = !abrechnung.isLeerstand && abrechnung.saldo > 0.01;
+                  // Leerstand und Pauschal-/Inklusivmiete: Der Anteil bleibt beim Vermieter, keine Abrechnung
+                  const traegtVermieter = abrechnung.isLeerstand || !!abrechnung.ohneAbrechnung;
+                  const grundVermieter = abrechnung.ohneAbrechnung === "pauschale"
+                    ? "Pauschalmiete"
+                    : abrechnung.ohneAbrechnung === "inklusiv"
+                    ? "Inklusivmiete"
+                    : "Leerstand";
+                  const isNachzahlung = !traegtVermieter && abrechnung.saldo > 0.01;
                   const isPdfLoading = loadingPdf.has(abrechnung.id);
                   const isEmailLoading = loadingEmail.has(abrechnung.id);
                   const versandInfo = getVersandInfo(abrechnung.mietvertragId);
@@ -1246,7 +1322,7 @@ export function NebenkostenStep3Abrechnung({
                       <div
                         className={cn(
                           "border-2 rounded-xl transition-all",
-                          abrechnung.isLeerstand
+                          traegtVermieter
                             ? "border-slate-200 bg-slate-50/50"
                             : isNachzahlung
                             ? "border-red-200 bg-red-50/30"
@@ -1264,7 +1340,7 @@ export function NebenkostenStep3Abrechnung({
                               <div
                                 className={cn(
                                   "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
-                                  abrechnung.isLeerstand
+                                  traegtVermieter
                                     ? "bg-slate-100"
                                     : isNachzahlung
                                     ? "bg-red-100"
@@ -1274,7 +1350,7 @@ export function NebenkostenStep3Abrechnung({
                                 <Home
                                   className={cn(
                                     "h-4 w-4",
-                                    abrechnung.isLeerstand
+                                    traegtVermieter
                                       ? "text-slate-500"
                                       : isNachzahlung
                                       ? "text-red-600"
@@ -1302,7 +1378,7 @@ export function NebenkostenStep3Abrechnung({
                                       {abrechnung.periode.tage} Tage
                                     </Badge>
                                   )}
-                                  {!abrechnung.isLeerstand &&
+                                  {!traegtVermieter &&
                                     abrechnung.mieterEmails.length === 0 && (
                                       <Badge
                                         variant="outline"
@@ -1316,12 +1392,13 @@ export function NebenkostenStep3Abrechnung({
                             </div>
 
                             <div className="flex items-center gap-3 ml-10 sm:ml-0">
-                              {abrechnung.isLeerstand ? (
+                              {traegtVermieter ? (
                                 <Badge
                                   variant="outline"
                                   className="text-sm px-3 py-1 border-slate-400 text-slate-600"
                                 >
                                   {abrechnung.saldo.toFixed(2)} € Eigentümeranteil
+                                  {abrechnung.ohneAbrechnung ? ` (${grundVermieter})` : ""}
                                 </Badge>
                               ) : (
                                 <Badge
@@ -1366,17 +1443,26 @@ export function NebenkostenStep3Abrechnung({
                                 <span>Kosten gesamt</span>
                                 <span>{abrechnung.kostenAnteilGesamt.toFixed(2)} €</span>
                               </div>
+                              {abrechnung.nichtUmgelegt > 0 && (
+                                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                                  <span>Im Vertrag nicht umgelegt, trägt der Vermieter</span>
+                                  <span>{abrechnung.nichtUmgelegt.toFixed(2)} €</span>
+                                </div>
+                              )}
                               <div className="flex items-center justify-between text-sm text-muted-foreground">
                                 <span>
-                                  Vorauszahlungen ({abrechnung.anzahlMonate.toFixed(1)} Monate ×{" "}
-                                  {abrechnung.monatlicheVorauszahlung.toFixed(2)} €)
+                                  {abrechnung.ohneAbrechnung
+                                    ? `Keine Abrechnung: ${grundVermieter} ohne Vorauszahlung`
+                                    : abrechnung.vorauszahlungsAbschnitte.length > 0
+                                    ? `Vorauszahlungen (${vorauszahlungText(abrechnung.vorauszahlungsAbschnitte)})`
+                                    : "Vorauszahlungen"}
                                 </span>
                                 <span>– {abrechnung.vorauszahlungenGesamt.toFixed(2)} €</span>
                               </div>
                               <div
                                 className={cn(
                                   "flex items-center justify-between text-base font-bold pt-2 border-t",
-                                  abrechnung.isLeerstand
+                                  traegtVermieter
                                     ? "text-slate-600"
                                     : isNachzahlung
                                     ? "text-red-700"
@@ -1384,8 +1470,8 @@ export function NebenkostenStep3Abrechnung({
                                 )}
                               >
                                 <span>
-                                  {abrechnung.isLeerstand
-                                    ? "Eigentümeranteil (Leerstand)"
+                                  {traegtVermieter
+                                    ? `Eigentümeranteil (${grundVermieter})`
                                     : isNachzahlung
                                     ? "Nachzahlung"
                                     : "Guthaben"}
@@ -1397,7 +1483,7 @@ export function NebenkostenStep3Abrechnung({
                               </div>
                             </div>
 
-                            {!abrechnung.isLeerstand && (
+                            {!traegtVermieter && (
                               <div className="flex flex-wrap gap-2 pt-2">
                                 <Button
                                   size="sm"

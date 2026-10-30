@@ -253,13 +253,15 @@ export function personenzahlErforderlich(bezug: Bezugsgroessen): boolean {
  * aufgeteilt vorliegen. Offene Forderungen werden im UI separat ausgewiesen.
  */
 export function berechneVorauszahlungen(
-  monatsbetrag: number,
+  monatsbetrag: number | ((monat: string) => number),
   von: Date,
   bis: Date
-): { betrag: number; monate: number } {
-  if (monatsbetrag === 0) return { betrag: 0, monate: 0 };
-
+): { betrag: number; monate: number; abschnitte: VorauszahlungsAbschnitt[] } {
+  // Seit 30.10.2026 auch je Monat (betriebskostenImMonat): Bis dahin galt der heutige Betrag für das ganze Jahr, nach
+  // einer Anpassung (§ 560 BGB, Mieterhöhung) also rückwirkend auch für Monate, in denen das Mietkonto den alten verlangte
+  const betragIm = typeof monatsbetrag === 'function' ? monatsbetrag : () => monatsbetrag;
   let monate = 0;
+  const abschnitte: VorauszahlungsAbschnitt[] = [];
   const cursor = new Date(von.getFullYear(), von.getMonth(), 1);
 
   while (cursor <= bis) {
@@ -269,13 +271,62 @@ export function berechneVorauszahlungen(
 
     const overlap = ueberlappung(monatsStart, monatsEnde, von, bis);
     if (overlap) {
-      monate += overlap.tage >= tageImMonat ? 1 : overlap.tage / tageImMonat;
+      const anteil = overlap.tage >= tageImMonat ? 1 : overlap.tage / tageImMonat;
+      const imMonat = betragIm(format(monatsStart, 'yyyy-MM'));
+      monate += anteil;
+      const letzter = abschnitte[abschnitte.length - 1];
+      if (letzter && letzter.monatsbetrag === imMonat) letzter.monate += anteil;
+      else abschnitte.push({ monate: anteil, monatsbetrag: imMonat });
     }
 
     cursor.setMonth(cursor.getMonth() + 1);
   }
 
-  return { betrag: monatsbetrag * monate, monate };
+  // Je Abschnitt Betrag × Monate: Bei gleichbleibender Vorauszahlung genau wie bis zum 30.10.2026
+  const betrag = abschnitte.reduce((summe, a) => summe + a.monatsbetrag * a.monate, 0);
+  if (betrag === 0) return { betrag: 0, monate: 0, abschnitte: [] };
+  return { betrag, monate, abschnitte };
+}
+
+/** Monate mit gleicher Vorauszahlung, in zeitlicher Folge */
+export interface VorauszahlungsAbschnitt {
+  monate: number;
+  monatsbetrag: number;
+}
+
+/** Eine Änderung der Betriebskosten-Vorauszahlung am Vertrag (Tabelle betriebskosten_verlauf, seit 30.10.2026) */
+export interface BetriebskostenAenderung {
+  /** Erster Monat (JJJJ-MM-01), ab dem die Monatsmieten den neuen Betrag tragen */
+  gueltig_ab: string;
+  betriebskosten_alt: number | string | null;
+  betriebskosten_neu: number | string | null;
+  created_at: string;
+}
+
+/**
+ * Vorauszahlung, die das Mietkonto im Monat (JJJJ-MM) verlangt hat: die Änderungen in der Reihenfolge, in der sie
+ * erfasst wurden, jede ab ihrem gueltig_ab. Vor der ersten gilt deren alter Betrag, ohne Verlauf der heutige.
+ * Änderungen vor dem 30.10.2026 sind nicht erfasst — dafür bleibt es beim heutigen Betrag.
+ */
+export function betriebskostenImMonat(
+  aktuell: number | string | null | undefined,
+  verlauf: readonly BetriebskostenAenderung[] | undefined,
+  monat: string
+): number {
+  const aenderungen = [...(verlauf ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  if (aenderungen.length === 0) return Number(aktuell) || 0;
+  let betrag = Number(aenderungen[0].betriebskosten_alt) || 0;
+  for (const a of aenderungen) {
+    if (a.gueltig_ab.slice(0, 7) <= monat) betrag = Number(a.betriebskosten_neu) || 0;
+  }
+  return betrag;
+}
+
+/** „12 Monate × 240,00 €“, nach einer Anpassung „8 Monate × 240,00 € + 4 Monate × 260,00 €“ */
+export function vorauszahlungText(abschnitte: readonly VorauszahlungsAbschnitt[], einheit = 'Monate'): string {
+  const zahl = (n: number) => (Number.isInteger(n) ? `${n}` : n.toLocaleString('de-DE', { maximumFractionDigits: 2 }));
+  const euro = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return abschnitte.map((a) => `${zahl(a.monate)} ${einheit} × ${euro(a.monatsbetrag)} €`).join(' + ');
 }
 
 /**
@@ -417,6 +468,32 @@ export function istAbrechnungsjahrAbgelaufen(abrechnungsjahr: number, heute: Dat
  */
 export function traegtBetriebskosten(einheitentyp: string | null | undefined): boolean {
   return einheitentyp !== 'Garage' && einheitentyp !== 'Stellplatz';
+}
+
+/**
+ * Bei Pauschal- und Inklusivmiete wird nicht abgerechnet (§ 556 Abs. 2 BGB): keine Nachzahlung, kein Guthaben; der
+ * Kostenanteil bleibt beim Vermieter. Bis zum 30.10.2026 bekamen auch diese Verträge eine Abrechnung (live noch keiner).
+ */
+export function ohneBetriebskostenabrechnung(
+  modus: string | null | undefined
+): 'pauschale' | 'inklusiv' | null {
+  return modus === 'pauschale' || modus === 'inklusiv' ? modus : null;
+}
+
+/**
+ * BetrKV-Nummern („2.1“ … „2.17“), die der Vertrag ausdrücklich nicht umlegt (betriebskosten_positionen mit
+ * umgelegt: false). Ihr Anteil bleibt beim Vermieter. Nicht aufgeführte Arten bleiben wie bisher umgelegt.
+ */
+export function nichtUmgelegteNummern(positionen: unknown): Set<string> {
+  const nummern = new Set<string>();
+  if (!Array.isArray(positionen)) return nummern;
+  for (const p of positionen) {
+    if (p && typeof p === 'object' && (p as { umgelegt?: unknown }).umgelegt === false) {
+      const nummer = (p as { nummer?: unknown }).nummer;
+      if (typeof nummer === 'string' && nummer.trim()) nummern.add(nummer.trim());
+    }
+  }
+  return nummern;
 }
 
 export function istAbrechnungsfristAbgelaufen(

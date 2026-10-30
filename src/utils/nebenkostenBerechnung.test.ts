@@ -4,6 +4,10 @@ import {
   berechneAnteil,
   berechneBezugsgroessen,
   berechneVorauszahlungen,
+  betriebskostenImMonat,
+  vorauszahlungText,
+  ohneBetriebskostenabrechnung,
+  nichtUmgelegteNummern,
   bezugsgroesseFuerSchluessel,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
@@ -444,7 +448,7 @@ describe('berechneVorauszahlungen', () => {
   });
 
   it('liefert 0 ohne vereinbarte Vorauszahlung', () => {
-    expect(berechneVorauszahlungen(0, ABR_VON, ABR_BIS)).toEqual({ betrag: 0, monate: 0 });
+    expect(berechneVorauszahlungen(0, ABR_VON, ABR_BIS)).toEqual({ betrag: 0, monate: 0, abschnitte: [] });
   });
 });
 
@@ -556,5 +560,72 @@ describe('Betriebskostenabrechnung — Prüfung des Rechenmodells 29.10.2026', (
     for (const typ of ['Wohnung', 'Gewerbe', 'Haus (Doppelhaushälfte, Reihenhaus)', 'Lager', 'Sonstiges', null]) {
       expect(traegtBetriebskosten(typ)).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Verlauf der Vorauszahlung, Pauschale/Inklusiv, nicht umgelegte Arten (30.10.2026)
+// ---------------------------------------------------------------------------
+describe('Vorauszahlung mit Verlauf', () => {
+  const aenderung = (gueltig_ab: string, alt: number, neu: number, created_at: string) => ({
+    gueltig_ab, betriebskosten_alt: alt, betriebskosten_neu: neu, created_at,
+  });
+
+  it('nimmt je Monat den Betrag, den das Mietkonto verlangt hat', () => {
+    const verlauf = [aenderung('2025-09-01', 200, 240, '2025-08-20T10:00:00Z')];
+    expect(betriebskostenImMonat(240, verlauf, '2025-08')).toBe(200);
+    expect(betriebskostenImMonat(240, verlauf, '2025-09')).toBe(240);
+    const r = berechneVorauszahlungen((m) => betriebskostenImMonat(240, verlauf, m), ABR_VON, ABR_BIS);
+    expect(r.betrag).toBe(8 * 200 + 4 * 240);
+    expect(r.monate).toBe(12);
+    expect(r.abschnitte).toEqual([{ monate: 8, monatsbetrag: 200 }, { monate: 4, monatsbetrag: 240 }]);
+    expect(vorauszahlungText(r.abschnitte)).toBe('8 Monate × 200,00 € + 4 Monate × 240,00 €');
+  });
+
+  it('ohne Verlauf gilt der heutige Betrag wie bisher', () => {
+    expect(betriebskostenImMonat(150, [], '2025-03')).toBe(150);
+    expect(betriebskostenImMonat('150.50', undefined, '2025-03')).toBe(150.5);
+    const r = berechneVorauszahlungen((m) => betriebskostenImMonat(150, [], m), ABR_VON, ABR_BIS);
+    expect(r).toEqual(berechneVorauszahlungen(150, ABR_VON, ABR_BIS));
+    expect(vorauszahlungText(r.abschnitte)).toBe('12 Monate × 150,00 €');
+  });
+
+  it('wendet Änderungen in der Reihenfolge ihrer Erfassung an', () => {
+    // Erst eine Erhöhung ab November, danach eine Korrektur schon ab Oktober
+    const verlauf = [
+      aenderung('2025-10-01', 210, 205, '2025-10-15T09:00:00Z'),
+      aenderung('2025-11-01', 200, 210, '2025-10-02T09:00:00Z'),
+    ];
+    expect(betriebskostenImMonat(205, verlauf, '2025-09')).toBe(200);
+    expect(betriebskostenImMonat(205, verlauf, '2025-10')).toBe(205);
+    expect(betriebskostenImMonat(205, verlauf, '2025-12')).toBe(205);
+  });
+
+  it('gewichtet einen angebrochenen Monat mit seinem eigenen Betrag', () => {
+    const verlauf = [aenderung('2025-02-01', 100, 200, '2025-01-20T09:00:00Z')];
+    // 16.–31. Januar zu 100 €, Februar und März zu 200 €
+    const r = berechneVorauszahlungen((m) => betriebskostenImMonat(200, verlauf, m), new Date(2025, 0, 16), new Date(2025, 2, 31));
+    expect(r.betrag).toBeCloseTo(100 * 16 / 31 + 400, 9);
+  });
+});
+
+describe('ohneBetriebskostenabrechnung und nichtUmgelegteNummern', () => {
+  it('rechnet Pauschal- und Inklusivmiete nicht ab', () => {
+    expect(ohneBetriebskostenabrechnung('pauschale')).toBe('pauschale');
+    expect(ohneBetriebskostenabrechnung('inklusiv')).toBe('inklusiv');
+    expect(ohneBetriebskostenabrechnung('vorauszahlung')).toBeNull();
+    expect(ohneBetriebskostenabrechnung(null)).toBeNull();
+  });
+
+  it('nennt nur ausdrücklich nicht umgelegte Arten', () => {
+    const nummern = nichtUmgelegteNummern([
+      { nummer: '2.1', betrag: 50, umgelegt: true },
+      { nummer: '2.7', betrag: null, umgelegt: false },
+      { nummer: '2.14', umgelegt: false },
+      { nummer: '2.10' },
+    ]);
+    expect([...nummern].sort()).toEqual(['2.14', '2.7']);
+    expect(nichtUmgelegteNummern(null).size).toBe(0);
+    expect(nichtUmgelegteNummern('kaputt').size).toBe(0);
   });
 });
