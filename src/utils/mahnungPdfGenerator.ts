@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { COMPANY } from '@/config/company';
 import { anredeFuerSchreiben } from './kuendigungsbestaetigung';
+import { beginneBrief, ladeBriefbilder, type Briefbilder } from './pdf/briefbogen';
 
 export interface MahnungPdfData {
   // Empfänger
@@ -51,381 +52,108 @@ export interface MahnungPdfData {
   freitext?: string;
 }
 
-// Load logo as base64 - cached
-let logoBase64Cache: string | null = null;
-
-async function loadLogo(): Promise<string | null> {
-  if (logoBase64Cache) return logoBase64Cache;
-  try {
-    const response = await fetch('/nilimmo-logo.png');
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        logoBase64Cache = reader.result as string;
-        resolve(logoBase64Cache);
-      };
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
+export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
+  return mahnungSetzen(data, await ladeBriefbilder());
 }
 
-export async function generateMahnungPdf(data: MahnungPdfData): Promise<Blob> {
+/** Betreff wie in der Briefvorlage: Art des Schreibens – Anschrift des Objekts */
+export function mahnungBetreff(data: Pick<MahnungPdfData, 'mahnstufe' | 'immobilieAdresse'>): string {
+  const art = data.mahnstufe >= 3
+    ? 'Mahnung und fristlose Kündigung des Mietvertrages wegen Zahlungsverzuges'
+    : data.mahnstufe === 2
+      ? 'Zweite Mahnung wegen Mietrückstand'
+      : 'Erste Mahnung wegen Mietrückstand';
+  return data.immobilieAdresse.trim() ? `${art} – ${data.immobilieAdresse.trim()}` : art;
+}
+
+/**
+ * Freitext aus dem Dialog: jede Zeile ein Absatz, eingerückte Zeilen (so übernimmt der Dialog die offenen
+ * Posten) werden zur Aufzählung.
+ */
+export function freitextBloecke(text: string): Array<{ art: 'absatz' | 'liste'; zeilen: string[] }> {
+  const bloecke: Array<{ art: 'absatz' | 'liste'; zeilen: string[] }> = [];
+  for (const roh of text.split(/\r?\n/)) {
+    if (!roh.trim()) continue;
+    const art = /^\s/.test(roh) ? 'liste' : 'absatz';
+    const letzter = bloecke[bloecke.length - 1];
+    if (art === 'liste' && letzter?.art === 'liste') letzter.zeilen.push(roh.trim());
+    else bloecke.push({ art, zeilen: [roh.trim()] });
+  }
+  return bloecke;
+}
+
+function mahnungSetzen(data: MahnungPdfData, bilder: Briefbilder): Blob {
   const doc = new jsPDF('p', 'mm', 'a4');
-  const pageWidth = 210;
-  const marginLeft = 25;
-  const marginRight = 25;
-  const contentWidth = pageWidth - marginLeft - marginRight;
-  const maxY = 240; // page break threshold (leave generous room for footer at y=258)
-  
-  const logo = await loadLogo();
-
-  // Helper: check if we need a page break and add one if so
-  function checkPageBreak(currentY: number, neededSpace: number = 15): number {
-    if (currentY + neededSpace > maxY) {
-      addFooter(doc);
-      doc.addPage();
-      addContinuationHeader(doc, logo);
-      return 50; // resume Y after small header on continuation pages
-    }
-    return currentY;
-  }
-
-  // Helper: draw justified text
-  function drawJustifiedText(text: string, x: number, y: number, maxWidth: number, lineHeight: number): number {
-    const lines = doc.splitTextToSize(text, maxWidth);
-    for (let i = 0; i < lines.length; i++) {
-      y = checkPageBreak(y, lineHeight);
-      // Justify all lines except the last one of each paragraph
-      if (i < lines.length - 1) {
-        const words = lines[i].split(' ');
-        if (words.length > 1) {
-          const totalWordsWidth = words.reduce((sum: number, w: string) => sum + doc.getTextWidth(w), 0);
-          const totalSpaceNeeded = maxWidth - totalWordsWidth;
-          const spacePerGap = totalSpaceNeeded / (words.length - 1);
-          let cx = x;
-          for (let j = 0; j < words.length; j++) {
-            doc.text(words[j], cx, y);
-            cx += doc.getTextWidth(words[j]) + spacePerGap;
-          }
-        } else {
-          doc.text(lines[i], x, y);
-        }
-      } else {
-        doc.text(lines[i], x, y);
-      }
-      y += lineHeight;
-    }
-    return y;
-  }
-
-  // ============ PAGE 1 HEADER (large logo, centered) ============
-  addFirstPageHeader(doc, logo, marginLeft, marginRight, pageWidth);
-  
-  // ============ SENDER LINE ============
-  let y = 55;
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 100, 100);
-  doc.setFont('helvetica', 'normal');
-  const senderLine = COMPANY.absenderzeile;
-  doc.text(senderLine, marginLeft, y);
-  const senderWidth = doc.getTextWidth(senderLine);
-  doc.setDrawColor(100, 100, 100);
-  doc.setLineWidth(0.2);
-  doc.line(marginLeft, y + 0.5, marginLeft + senderWidth, y + 0.5);
-  
-  // ============ RECIPIENT ============
-  y = 63;
-  doc.setFontSize(11);
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('helvetica', 'bold');
   const anrede = anredeFuerSchreiben(data.anrede, data.mieter ?? [{ vorname: '', nachname: data.mieterNachname }]);
-  if (anrede.anschrift) doc.text(anrede.anschrift, marginLeft, y);
-  y += 6;
-  doc.text(data.mieterName, marginLeft, y);
-  y += 6;
-  doc.setFont('helvetica', 'normal');
-  doc.text(data.mieterAdresse, marginLeft, y);
-  y += 6;
-  doc.text(data.mieterPlzOrt, marginLeft, y);
-  
-  // ============ CONTACT BOX (right side, with border) ============
-  const boxX = 128;
-  const boxY = 56;
-  const boxW = 57;
-  const boxH = 32;
-  
-  // Draw box border
-  doc.setDrawColor(180, 180, 180);
-  doc.setLineWidth(0.3);
-  doc.rect(boxX, boxY, boxW, boxH);
-  
-  const contactX = boxX + 3;
-  let contactY = boxY + 5;
-  doc.setFontSize(7);
-  doc.setTextColor(120, 120, 120);
-  doc.setFont('helvetica', 'normal');
-  doc.text('Kontakt:', contactX, contactY);
-  contactY += 5;
-  doc.setTextColor(80, 80, 80);
-  doc.setFontSize(7);
-  // Phone + number
-  doc.text('Tel.', contactX, contactY);
-  doc.text(COMPANY.ansprechpartner.telefon, contactX + 8, contactY);
-  contactY += 4;
-  // Fax + number
-  doc.text('Fax', contactX, contactY);
-  doc.text(COMPANY.ansprechpartner.fax, contactX + 8, contactY);
-  contactY += 4;
-  // Address
-  doc.text(`${COMPANY.strasse}, ${COMPANY.plzOrt}`, contactX + 8, contactY);
-  contactY += 4;
-  // Email
-  doc.text('E-Mail', contactX, contactY);
-  doc.text(COMPANY.email, contactX + 12, contactY);
-  
-  // ============ DATE ============
-  y = 105;
-  doc.setFontSize(10.5);
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('helvetica', 'normal');
-  const dateText = `Sehnde, ${data.datum}`;
-  const dateWidth = doc.getTextWidth(dateText);
-  doc.text(dateText, pageWidth - marginRight - dateWidth, y);
-  
-  // ============ SHORT LINE SEPARATOR BEFORE SUBJECT ============
-  y = 113;
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.15);
-  doc.line(marginLeft, y, marginLeft + 8, y);
-  
-  // ============ SUBJECT ============
-  y = 120;
-  doc.setFontSize(10.5);
-  doc.setFont('helvetica', 'bold');
-  const subjectLine1 = `MV – ${data.immobilieAdresse}, ${data.einheitBezeichnung}`;
-  doc.text(subjectLine1, marginLeft, y);
-  y += 6;
-  
-  let subjectLine2: string;
-  if (data.mahnstufe >= 3) {
-    subjectLine2 = 'Mahnung und fristlose Kündigung des Mietvertrages wegen Zahlungsverzuges';
-  } else if (data.mahnstufe === 2) {
-    subjectLine2 = '2. Mahnung wegen Zahlungsverzuges';
+  const brief = beginneBrief(doc, bilder, {
+    anschrift: anrede.anschrift,
+    name: data.mieterName,
+    zeilen: [data.mieterAdresse, data.mieterPlzOrt],
+    datum: data.datum,
+    betreff: mahnungBetreff(data),
+  });
+  brief.anrede(anrede.gruss);
+
+  // Ein Freitext aus Leerzeichen gilt als leer — sonst bliebe das Schreiben ohne Inhalt und ohne Gesamtbetrag
+  const freitext = data.freitext?.trim() ? data.freitext : undefined;
+  if (freitext) {
+    for (const block of freitextBloecke(freitext)) {
+      if (block.art === 'liste') brief.aufzaehlung(block.zeilen);
+      else block.zeilen.forEach((z) => brief.absatz(z));
+    }
   } else {
-    subjectLine2 = 'Zahlungserinnerung / 1. Mahnung';
-  }
-  doc.text(subjectLine2, marginLeft, y);
-  
-  // ============ BODY TEXT ============
-  y += 12;
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  
-  const salutation = anrede.gruss;
-  doc.text(salutation, marginLeft, y);
-  y += 8;
-  
-  const lineHeight = 5;
-  
-  if (data.freitext) {
-    y = drawJustifiedText(data.freitext, marginLeft, y, contentWidth, lineHeight);
-    y += 4;
-  } else {
-    const absaetze = mahnungAbsaetze(data);
-    for (const absatz of absaetze) {
+    // Aufeinanderfolgende Postenzeilen bilden eine Aufzählung
+    let posten: string[] = [];
+    for (const absatz of mahnungAbsaetze(data)) {
       if (absatz.startsWith(POSTEN_PRAEFIX)) {
-        // Offene Posten eingerückt, eine Zeile je Monat
-        y = checkPageBreak(y, lineHeight);
-        doc.text(absatz.slice(POSTEN_PRAEFIX.length), marginLeft + 4, y);
-        y += lineHeight;
+        posten.push(absatz.slice(POSTEN_PRAEFIX.length));
         continue;
       }
-      y = drawJustifiedText(absatz, marginLeft, y, contentWidth, lineHeight);
-      y += 2;
+      brief.aufzaehlung(posten);
+      posten = [];
+      brief.absatz(absatz);
     }
-    y += 2;
+    brief.aufzaehlung(posten);
   }
-  
-  // ============ VERZUGSZINSEN ============
+
   if (data.verzugszinsenDetails.length > 0) {
-    y = checkPageBreak(y, 20);
-    y += 2;
-    const zinsenIntro = 'Zusätzlich schulden Sie für die nicht bzw. verspätet gezahlten Mieten Verzugszinsen nach § 288 BGB. Bis zum heutigen Tage belaufen sich diese auf:';
-    y = drawJustifiedText(zinsenIntro, marginLeft, y, contentWidth, lineHeight);
-    y += 3;
-    
-    for (const detail of data.verzugszinsenDetails) {
-      y = checkPageBreak(y, lineHeight);
-      const line = detail.laufend
-        ? `${detail.monat}: ab ${data.datum} weiter laufend`
-        : `${detail.monat}: ${formatEuro(detail.betrag)} €`;
-      doc.text(line, marginLeft, y);
-      y += lineHeight;
-    }
-    
-    // Zwischensumme on same line flow
-    y = checkPageBreak(y, lineHeight);
-    doc.text(`Zwischensumme Verzugszinsen: ${formatEuro(data.verzugszinsenGesamt)} € (zuzüglich weiterer Zinsen bis zur vollständigen Zahlung).`, marginLeft, y);
-    y += lineHeight;
+    brief.absatz('Zusätzlich schulden Sie für die nicht bzw. verspätet gezahlten Mieten Verzugszinsen nach § 288 BGB. Bis zum heutigen Tage belaufen sich diese auf:');
+    brief.aufzaehlung(data.verzugszinsenDetails.map((detail) => detail.laufend
+      ? `${detail.monat}: ab ${data.datum} weiter laufend`
+      : `${detail.monat}: ${formatEuro(detail.betrag)} €`));
+    brief.absatz(`Zwischensumme Verzugszinsen: ${formatEuro(data.verzugszinsenGesamt)} € (zuzüglich weiterer Zinsen bis zur vollständigen Zahlung).`);
   }
-  
-  // Mahnkosten
+
   if (data.mahnkostenGesamt > 0) {
-    y = checkPageBreak(y, lineHeight + 2);
-    const mahnkostenText = `Weiterhin entstehen Mahnkosten i. H. v. ${formatEuro(data.mahnkostenProSchreiben)} € pro Mahnschreiben, somit ${formatEuro(data.mahnkostenGesamt)} €.`;
-    y = drawJustifiedText(mahnkostenText, marginLeft, y, contentWidth, lineHeight);
-    y += 4;
+    brief.absatz(`Weiterhin entstehen Mahnkosten i. H. v. ${formatEuro(data.mahnkostenProSchreiben)} € pro Mahnschreiben, somit ${formatEuro(data.mahnkostenGesamt)} €.`);
   }
 
   // Gesamtbetrag (Prüfung 29.10.2026): „Wir bitten Sie, den Gesamtbetrag … zu überweisen“ bezifferte ihn nirgends;
   // wer das Schreiben per Post bekommt, erfuhr den Zahlbetrag nicht
-  if (!data.freitext) {
-    y = checkPageBreak(y, lineHeight + 4);
-    doc.setFont('helvetica', 'bold');
-    y = drawJustifiedText(gesamtbetragText(data), marginLeft, y, contentWidth, lineHeight);
-    doc.setFont('helvetica', 'normal');
-    y += 4;
+  if (!freitext) {
+    brief.absatz(gesamtbetragText(data), { fett: true, blocksatz: false });
   }
-  
-  // ============ KÜNDIGUNG (Stufe 3) ============
+
+  const uebergabeText = data.uebergabeDatum
+    ? `Die Wohnungsübergabe findet am ${data.uebergabeDatum} statt. Bitte stellen Sie sicher, dass die Wohnung zu diesem Zeitpunkt vollständig geräumt und besenrein übergeben wird.`
+    : null;
+
   if (data.mahnstufe >= 3) {
-    y = checkPageBreak(y, 20);
-    const kuendigungText = `Hiermit kündige ich daher das bestehende Mietverhältnis über die Wohnung in der ${data.immobilieAdresse}, ${data.einheitBezeichnung} außerordentlich fristlos. Wir fordern Sie auf die Wohnung unverzüglich, spätestens jedoch bis zum ${data.raeumungsfristDatum || data.zahlungsfristDatum} zu räumen.`;
-    y = drawJustifiedText(kuendigungText, marginLeft, y, contentWidth, lineHeight);
-    y += 4;
-
-    if (data.uebergabeDatum) {
-      y = checkPageBreak(y, 15);
-      const uebergabeText = `Die Wohnungsübergabe findet am ${data.uebergabeDatum} statt. Bitte stellen Sie sicher, dass die Wohnung zu diesem Zeitpunkt vollständig geräumt und besenrein übergeben wird.`;
-      y = drawJustifiedText(uebergabeText, marginLeft, y, contentWidth, lineHeight);
-      y += 4;
-    }
-
-    y = checkPageBreak(y, 20);
-    const fristText = `Unabhängig hiervon setze ich Ihnen – ohne Anerkennung einer Rechtspflicht – eine Frist von ${data.zahlungsfristTage ?? 7} Kalendertagen, spätestens bis zum ${data.zahlungsfristDatum}, um sämtliche Mietrückstände nebst Zinsen vollständig auszugleichen. Sollten Sie die Rückstände nicht innerhalb dieser Frist begleichen, werde ich die fristlose Kündigung vollumfänglich durchsetzen und Räumungsklage erheben.`;
-    y = drawJustifiedText(fristText, marginLeft, y, contentWidth, lineHeight);
-    y += 4;
+    brief.absatz(`Hiermit kündige ich daher das bestehende Mietverhältnis über die Wohnung in der ${data.immobilieAdresse}, ${data.einheitBezeichnung} außerordentlich fristlos. Wir fordern Sie auf die Wohnung unverzüglich, spätestens jedoch bis zum ${data.raeumungsfristDatum || data.zahlungsfristDatum} zu räumen.`);
+    if (uebergabeText) brief.absatz(uebergabeText);
+    brief.absatz(`Unabhängig hiervon setze ich Ihnen – ohne Anerkennung einer Rechtspflicht – eine Frist von ${data.zahlungsfristTage ?? 7} Kalendertagen, spätestens bis zum ${data.zahlungsfristDatum}, um sämtliche Mietrückstände nebst Zinsen vollständig auszugleichen. Sollten Sie die Rückstände nicht innerhalb dieser Frist begleichen, werde ich die fristlose Kündigung vollumfänglich durchsetzen und Räumungsklage erheben.`);
   } else {
-    y = checkPageBreak(y, 15);
-    const zahlungsText = `Wir bitten Sie, den Gesamtbetrag bis zum ${data.zahlungsfristDatum} auf unser Konto zu überweisen.`;
-    y = drawJustifiedText(zahlungsText, marginLeft, y, contentWidth, lineHeight);
-    y += 4;
-
-    if (data.uebergabeDatum) {
-      y = checkPageBreak(y, 15);
-      const uebergabeText = `Die Wohnungsübergabe findet am ${data.uebergabeDatum} statt. Bitte stellen Sie sicher, dass die Wohnung zu diesem Zeitpunkt vollständig geräumt und besenrein übergeben wird.`;
-      y = drawJustifiedText(uebergabeText, marginLeft, y, contentWidth, lineHeight);
-      y += 4;
-    }
-
-    if (data.mahnstufe === 2) {
-      y = checkPageBreak(y, lineHeight + 4);
-      doc.text('Bei ausbleibender Zahlung behalten wir uns rechtliche Schritte vor.', marginLeft, y);
-      y += lineHeight + 4;
-    }
+    brief.absatz(`Wir bitten Sie, den Gesamtbetrag bis zum ${data.zahlungsfristDatum} auf unser Konto zu überweisen.`);
+    if (uebergabeText) brief.absatz(uebergabeText);
+    if (data.mahnstufe === 2) brief.absatz('Bei ausbleibender Zahlung behalten wir uns rechtliche Schritte vor.');
   }
-  
-  // Contact closing
-  y = checkPageBreak(y, lineHeight + 6);
-  doc.text('Für Rückfragen stehen wir Ihnen gerne unter den oben genannten Kontaktdaten zur Verfügung.', marginLeft, y);
-  y += 8;
-  
-  // ============ SIGNATURE ============
-  y = checkPageBreak(y, 25);
-  doc.text('Mit freundlichem Gruß', marginLeft, y);
-  y += 14;
-  doc.setFont('helvetica', 'bold');
-  doc.text('Dennis Mikyas', marginLeft, y);
-  y += 5;
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(9);
-  doc.text('Geschäftsführer', marginLeft, y);
-  
-  // ============ FOOTER (last page) ============
-  addFooter(doc);
-  
-  return doc.output('blob');
-}
 
-// First page header: large centered logo + red separator
-function addFirstPageHeader(doc: jsPDF, logo: string | null, marginLeft: number, _marginRight: number, pageWidth: number) {
-  if (logo) {
-    // Logo is roughly square (horse + NiImmo Gruppe text)
-    // Keep proportional: ~30mm wide, ~36mm tall, centered
-    const logoW = 30;
-    const logoH = 36;
-    const logoX = (pageWidth - logoW) / 2;
-    doc.addImage(logo, 'PNG', logoX, 6, logoW, logoH);
-  }
-  // Red separator line
-  doc.setDrawColor(200, 30, 30);
-  doc.setLineWidth(0.8);
-  doc.line(marginLeft, 48, pageWidth - 25, 48);
-}
-
-// Continuation page header: small centered logo, no red line
-function addContinuationHeader(doc: jsPDF, logo: string | null) {
-  if (logo) {
-    const logoW = 16;
-    const logoH = 19;
-    const logoX = (210 - logoW) / 2;
-    doc.addImage(logo, 'PNG', logoX, 6, logoW, logoH);
-  }
-}
-
-function addFooter(doc: jsPDF) {
-  const marginLeft = 25;
-  const pageWidth = 210;
-  const marginRight = 25;
-  const footerY = 258;
-  
-  // Separator line
-  doc.setDrawColor(180, 180, 180);
-  doc.setLineWidth(0.3);
-  doc.line(marginLeft, footerY, pageWidth - marginRight, footerY);
-  
-  doc.setFontSize(6);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 100, 100);
-  
-  let fy = footerY + 4;
-  
-  // Left column
-  doc.setFont('helvetica', 'bold');
-  doc.text('Vertretungsberechtigte Geschäftsführer:', marginLeft, fy);
-  doc.setFont('helvetica', 'normal');
-  fy += 3;
-  doc.text(COMPANY.geschaeftsfuehrer, marginLeft, fy);
-  fy += 3;
-  doc.setFont('helvetica', 'bold');
-  doc.text('Registergericht:', marginLeft, fy);
-  doc.setFont('helvetica', 'normal');
-  fy += 3;
-  doc.text(`${COMPANY.register.gericht} ${COMPANY.register.abteilung}`, marginLeft, fy);
-  fy += 3;
-  doc.text(`Registernummer: ${COMPANY.register.nummer}`, marginLeft, fy);
-  fy += 3;
-  doc.setFont('helvetica', 'bold');
-  doc.text('Gewerbeerlaubnis nach § 34 C GewO; Aufsichtsbehörde:', marginLeft, fy);
-  doc.setFont('helvetica', 'normal');
-  fy += 3;
-  doc.text(COMPANY.gewerbeerlaubnis.aufsicht, marginLeft, fy);
-  fy += 3;
-  doc.text(`Steuer-Nummer: ${COMPANY.steuernummer}`, marginLeft, fy);
-  
-  // Right column
-  const rightCol = 130;
-  let rfy = footerY + 4;
-  doc.setFont('helvetica', 'bold');
-  doc.text('Mitglied in:', rightCol, rfy);
-  doc.setFont('helvetica', 'normal');
-  rfy += 3;
-  doc.text('IHK Industrie- und Handelskammer', rightCol, rfy);
-  rfy += 5;
-  doc.text('Creditreform', rightCol, rfy);
+  brief.schluss({
+    satz: 'Für Rückfragen stehen wir Ihnen gerne unter den oben genannten Kontaktdaten zur Verfügung.',
+    name: COMPANY.ansprechpartner.unterschrift,
+    funktion: COMPANY.ansprechpartner.funktion,
+  });
+  return brief.fertig();
 }
 
 function formatEuro(betrag: number): string {

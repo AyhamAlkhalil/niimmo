@@ -48,6 +48,7 @@ describe('Firmenstammdaten', () => {
 describe('Generatoren enthalten keine Firmendaten als Literal', () => {
   const GENERATOREN = [
     'src/utils/mahnungPdfGenerator.ts',
+    'src/utils/pdf/briefbogen.ts',
     'src/utils/kuendigungPdfGenerator.ts',
     'src/utils/mieterhoehungPdfGenerator.ts',
     'src/utils/uebergabePdfGenerator.ts',
