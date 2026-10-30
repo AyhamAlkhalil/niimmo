@@ -5,8 +5,8 @@
  * Ergebnissen. Alle Verteilungen laufen jetzt durch dieses Modul.
  *
  * Kernregeln:
- *  - Nutzungsende eines Vertrags ist das FRÜHESTE gesetzte Datum aus
- *    {ende_datum, kuendigungsdatum} — nach diesem Tag nutzt der Mieter nicht mehr.
+ *  - Nutzungsende eines Vertrags ist das Vertragsende wie getVertragsende(): ende_datum,
+ *    sonst kuendigungsdatum (seit 30.10.2026; vorher das frühere der beiden).
  *  - Kostenpositionen werden über ihren Zeitraum-Überlappungsanteil eingerechnet,
  *    nicht nach dem Kalenderjahr gefiltert (Heizperioden laufen jahresübergreifend).
  *  - Der Personen-Schlüssel rechnet über echte Personentage. Der Zeitanteil steckt
@@ -16,6 +16,7 @@
  */
 
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
+import { getVertragsende } from "@/utils/contractUtils";
 
 export type VerteilerSchluessel = "qm" | "personen" | "gleich";
 
@@ -64,20 +65,17 @@ export function ueberlappung(
 }
 
 /**
- * Tatsächliches Nutzungsende eines Mietvertrags.
- * `kuendigungsdatum` ist das Datum, ZU dem gekündigt wurde (nicht das Datum des
- * Kündigungsschreibens) — es beendet den Vertrag also genauso wie `ende_datum`.
- * Maßgeblich ist das frühere der beiden gesetzten Daten.
+ * Tatsächliches Nutzungsende eines Mietvertrags: das Vertragsende aus getVertragsende() — `ende_datum` führt,
+ * `kuendigungsdatum` nur als Ersatz. Bis zum 30.10.2026 galt das frühere der beiden; lag das Räumungsende
+ * (ende_datum) nach dem Kündigungstermin, fehlten Kosten und Vorauszahlungen der Monate dazwischen, die das Mietkonto
+ * verlangt hat. Sollstellung, Mietkonto und Vertragsablauf rechnen alle mit dem Vertragsende.
  */
 export function vertragsNutzungsende(
   endeDatum: string | null | undefined,
   kuendigungsdatum: string | null | undefined,
   fallback: Date
 ): Date {
-  const ende = parseDatum(endeDatum);
-  const kuendigung = parseDatum(kuendigungsdatum);
-  if (ende && kuendigung) return ende < kuendigung ? ende : kuendigung;
-  return ende ?? kuendigung ?? fallback;
+  return parseDatum(getVertragsende({ ende_datum: endeDatum, kuendigungsdatum })) ?? fallback;
 }
 
 /**

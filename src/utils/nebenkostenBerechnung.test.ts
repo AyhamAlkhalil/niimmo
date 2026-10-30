@@ -116,9 +116,10 @@ describe('vertragsNutzungsende', () => {
     expect(vertragsNutzungsende(null, '2025-06-30', ABR_BIS)).toEqual(new Date(2025, 5, 30));
   });
 
-  it('nimmt das frühere der beiden Daten', () => {
+  it('nimmt das Vertragsende wie getVertragsende: ende_datum vor kuendigungsdatum', () => {
+    // 30.10.2026: Das Räumungsende nach dem Kündigungstermin zählt, wie in Sollstellung und Mietkonto
     expect(vertragsNutzungsende('2025-12-31', '2025-06-30', ABR_BIS)).toEqual(
-      new Date(2025, 5, 30)
+      new Date(2025, 11, 31)
     );
     expect(vertragsNutzungsende('2025-06-30', '2025-12-31', ABR_BIS)).toEqual(
       new Date(2025, 5, 30)

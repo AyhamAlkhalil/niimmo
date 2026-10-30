@@ -151,11 +151,15 @@ describe('send-mahnung: Stufe 3 nur über einer Monatsmiete Mietrückstand (30.1
   });
 
   it('prüft vor Kündigungsfeldern, Vormerken, Post und Mail', () => {
-    const pruefung = handler.indexOf('if (stufe === 3) {\n      const stand = await kuendigungsrueckstand(');
+    const pruefung = handler.indexOf("if (stufe === 3 && versandart !== 'post') {\n      const stand = await kuendigungsrueckstand(");
     expect(pruefung).toBeGreaterThan(handler.indexOf('if (stufe !== bisherigeStufe + 1)'));
     expect(pruefung).toBeLessThan(handler.indexOf('const kuendigungRoh ='));
     expect(pruefung).toBeLessThan(handler.indexOf("if (versandart === 'vormerken') {\n      const betraege"));
     expect(handler.slice(pruefung, pruefung + 900)).toContain('!kuendigungsrueckstandErreicht(mietanteil, stand.monatsmiete)');
+  });
+
+  it('prüft nicht beim Buchen eines schon aufgegebenen Briefs', () => {
+    expect(handler).toContain("if (stufe === 3 && versandart !== 'post') {");
   });
 
   it('lädt alle Forderungen und Zahlungen seitenweise', () => {
@@ -175,5 +179,9 @@ describe('send-mahnung: Stufe 3 nur über einer Monatsmiete Mietrückstand (30.1
     expect(anteil(700, undefined)).toBe(700);
     expect(anteil(700, 'abc')).toBe(700);
     expect(anteil(700, -5)).toBe(700);
+    // Fehlt der Wert im Schreiben, zählt die Datenbank — nicht 0 €
+    expect(anteil(700, null)).toBe(700);
+    expect(anteil(700, '')).toBe(700);
+    expect(anteil(700, 0)).toBe(0);
   });
 });

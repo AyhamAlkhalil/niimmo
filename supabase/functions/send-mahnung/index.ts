@@ -309,6 +309,8 @@ async function kuendigungsrueckstand(
  * Dialog, der den eingetragenen Rueckstand nimmt, wenn er kleiner ist. Ein unlesbarer Wert im Schreiben zaehlt nicht.
  */
 function mietanteilFuerKuendigung(ausDatenbank: number, imSchreiben: unknown): number {
+  // Number(null) und Number('') ergaeben 0 € und sperrten jede Kuendigung (Review 30.10.2026)
+  if (imSchreiben === null || imSchreiben === undefined || imSchreiben === '') return ausDatenbank;
   const schreiben = Number(imSchreiben);
   return Number.isFinite(schreiben) && schreiben >= 0 ? Math.min(schreiben, ausDatenbank) : ausDatenbank;
 }
@@ -1056,9 +1058,11 @@ serve(async (req) => {
     }
 
     // Stufe 3 kuendigt fristlos -- nur, wenn der Mietrueckstand heute eine Monatsmiete uebersteigt. Der Dialog
-    // sperrt das seit dem 29.10.2026; seit dem 30.10.2026 rechnet die Function mit demselben Rechenkern nach, auch
-    // beim Versand einer Vormerkung: Zahlt der Mieter nach dem Speichern, geht die Kuendigung nicht mehr raus.
-    if (stufe === 3) {
+    // sperrt das seit dem 29.10.2026; seit dem 30.10.2026 rechnet die Function mit demselben Rechenkern nach: beim
+    // Vormerken und beim Mailversand, auch einer Vormerkung (zahlt der Mieter nach dem Speichern, geht die Kuendigung
+    // nicht mehr raus). Nicht beim Buchen eines Postversands: Der Brief ist dann schon unterwegs, geprueft wurde beim
+    // Vormerken, und der Dialog bietet ein Schreiben nach geaendertem Rueckstand nicht mehr an (Review 30.10.2026).
+    if (stufe === 3 && versandart !== 'post') {
       const stand = await kuendigungsrueckstand(supabase, data.mietvertragId, heuteIso);
       if (!stand) {
         return antwort({ error: 'Der Mietrückstand konnte nicht geprüft werden. Es wurde nichts versendet.' }, 500);
