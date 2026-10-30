@@ -1,5 +1,5 @@
 
-import { Pencil, Check, X, ArrowUp, ArrowDown } from "lucide-react";
+import { Pencil, Check, X, ArrowUp, ArrowDown, ChevronRight } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatEuroKompakt } from "@/utils/betragAnzeige";
@@ -7,7 +7,9 @@ import { useState, type ReactNode } from "react";
 import { useUserRole } from "@/hooks/useUserRole";
 import { AKTUELLER_VPI_KEY, BASISZINS_PERIODEN_KEY } from "@/hooks/useBasiszinsPerioden";
 import { Input } from "@/components/ui/input";
-import { alsIsoTag, getVertragsende, istLaufenderVertrag } from "@/utils/contractUtils";
+import { alsIsoTag, istLaufenderVertrag } from "@/utils/contractUtils";
+import { anstehendeVertragsenden } from "@/utils/anstehendeVertragsenden";
+import { AnstehendeVertragsendenDialog } from "./AnstehendeVertragsendenDialog";
 import { basiszinsPeriodenBeginn, marktdatenKorrektur, vorgeschlagenerVpiMonat } from "@/utils/marktdatenKorrektur";
 import { useMietkonto } from "@/hooks/useRueckstaende";
 import { KennzahlInfo } from "./KennzahlInfo";
@@ -30,6 +32,7 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
   const [editMonat, setEditMonat] = useState("");
   const [editFehler, setEditFehler] = useState<string | null>(null);
   const [speichertMarktwert, setSpeichertMarktwert] = useState(false);
+  const [endenOffen, setEndenOffen] = useState(false);
   const { data: gesamtEinheiten, isError: einheitenFehler } = useQuery({
     queryKey: ['gesamt-einheiten'],
     queryFn: async () => {
@@ -143,19 +146,11 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
   const vertraegeDa = !!mietvertraege && !vertraegeFehler;
   const bestandDa = vertraegeDa && gesamtEinheiten !== undefined && !einheitenFehler;
 
-  // Berechne das nächste Kündigungs- oder Auslaufdatum. Kalendertage als Text vergleichen: Mit
-  // `new Date(ende) > heute` fiel ein Vertrag, der heute endet, ab 1 bzw. 2 Uhr heraus (27.10.2026).
-  const heuteTag = alsIsoTag(new Date());
-  const naechstesVertragInfo = mietvertraege
-    ?.reduce((frueheste: { datum: string | null, vertrag: any | null }, mv) => {
-      const ende = getVertragsende(mv)?.slice(0, 10);
-      if (!ende || ende < heuteTag) return frueheste;
-      if (!frueheste.datum) return { datum: ende, vertrag: mv };
-      return ende < frueheste.datum ? { datum: ende, vertrag: mv } : frueheste;
-    }, { datum: null, vertrag: null });
-
-  const naechstesDatum = naechstesVertragInfo?.datum;
-  const naechsterVertrag = naechstesVertragInfo?.vertrag;
+  // Alle Mietenden ab heute, das früheste zuerst; das erste ist das „Nächste Vertragsende“, die Liste
+  // öffnet „Alle“ (30.10.2026, Kundenwunsch). Regel in utils/anstehendeVertragsenden.ts.
+  const anstehendeEnden = anstehendeVertragsenden(mietvertraege || [], new Date());
+  const naechstesDatum = anstehendeEnden[0]?.ende ?? null;
+  const naechsterVertrag = anstehendeEnden[0]?.vertrag;
 
   const formatDatum = (datum: string | null) => {
     if (!datum) return 'Keine';
@@ -390,10 +385,10 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
           <dt className="eyebrow flex items-center gap-1">
             Nächstes Vertragsende
             <KennzahlInfo titel="Nächstes Vertragsende">
-              <p>Das früheste Mietende ab heute, aus Kündigung oder befristetem Vertrag. Ein Klick auf das Datum öffnet den Vertrag.</p>
+              <p>Das früheste Mietende ab heute, aus Kündigung oder befristetem Vertrag. Ein Klick auf das Datum öffnet den Vertrag, „Alle“ listet alle anstehenden Vertragsenden mit Mieter, Objekt und Miete.</p>
             </KennzahlInfo>
           </dt>
-          <dd className="mt-1">
+          <dd className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             <button
               type="button"
               disabled={!naechsterVertrag || !onNavigateToContract}
@@ -410,6 +405,25 @@ export const DashboardStats = ({ immobilien, onNavigateToContract, onRueckstaend
             >
               {vertraegeDa ? formatDatum(naechstesDatum) : '—'}
             </button>
+            {vertraegeDa && anstehendeEnden.length > 0 && (
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                aria-label={`Alle ${anstehendeEnden.length} anstehenden Vertragsenden anzeigen`}
+                onClick={() => setEndenOffen(true)}
+                // -my-0.5: Der Rahmen soll die Zeile nicht höher machen, sonst rutscht das Datum gegen die Nachbarwerte
+                className="-my-0.5 inline-flex items-center gap-0.5 rounded-md border border-border px-1.5 py-0.5 text-xs font-medium text-foreground transition-colors hover:border-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Alle {anstehendeEnden.length}
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+            <AnstehendeVertragsendenDialog
+              open={endenOffen}
+              onOpenChange={setEndenOffen}
+              eintraege={anstehendeEnden}
+              onNavigateToContract={onNavigateToContract}
+            />
           </dd>
         </div>
         <div className="group">

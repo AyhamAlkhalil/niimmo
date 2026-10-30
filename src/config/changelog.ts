@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.2",
+    datum: "2026-10-30",
+    aenderungen: [
+      { art: "neu", titel: "Startseite: „Alle“ neben dem nächsten Vertragsende listet alle anstehenden Kündigungen und Befristungen mit Datum, Mieter, Objekt und Miete" },
+    ],
+  },
+  {
     version: "1.9.1",
     datum: "2026-10-30",
     aenderungen: [

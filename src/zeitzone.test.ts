@@ -13,9 +13,12 @@ describe('Testumgebung', () => {
 
 describe('Kalendertage im Dashboard', () => {
   it('zählt einen Vertrag, der heute endet, noch als nächstes Vertragsende', () => {
-    // 27.10.2026: `new Date(ende) > heute` blendete ihn ab 1 bzw. 2 Uhr deutscher Zeit aus
+    // 27.10.2026: `new Date(ende) > heute` blendete ihn ab 1 bzw. 2 Uhr deutscher Zeit aus. Seit 30.10.2026 kommt
+    // das nächste Vertragsende aus anstehendeVertragsenden(); deren Test prüft den Fall um 23:30 Uhr.
     const quelle = readFileSync('src/components/dashboard/DashboardStats.tsx', 'utf-8');
-    expect(quelle).not.toMatch(/ende && new Date\(ende\) > heute \?/);
-    expect(quelle).toMatch(/if \(!ende \|\| ende < heuteTag\) return frueheste;/);
+    expect(quelle).not.toMatch(/new Date\(ende\) > heute/);
+    expect(quelle).toMatch(/const naechstesDatum = anstehendeEnden\[0\]\?\.ende/);
+    const regel = readFileSync('src/utils/anstehendeVertragsenden.ts', 'utf-8');
+    expect(regel).toMatch(/if \(!ende \|\| ende < heute\) return \[\];/);
   });
 });
