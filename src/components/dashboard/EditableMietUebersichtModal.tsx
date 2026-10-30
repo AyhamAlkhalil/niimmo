@@ -27,6 +27,7 @@ import { format } from "date-fns";
 import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
+import { flaecheFuerSumme } from "@/utils/einheitFlaeche";
 
 interface EditableMietUebersichtProps {
   onBack: () => void;
@@ -122,7 +123,7 @@ function buildBankHtml(
       } else if (r.sollMiete != null) {
         gSoll += r.sollMiete;
       }
-      gQm += r.qm;
+      gQm += flaecheFuerSumme({ qm: r.qm, einheitentyp: r.typ });
 
       const leerCls = r.isLeerstand ? ' class="leerstand"' : "";
       const negCls = (v: number) => v < 0 ? ' class="neg"' : v > 0 ? ' class="pos"' : "";

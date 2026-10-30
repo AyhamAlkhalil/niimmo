@@ -21,6 +21,7 @@ import { ObjektFinanzierung } from "./ObjektFinanzierung";
 import { Fassade } from "./Fassade";
 import { freieEinheiten } from "@/utils/fassadenPlan";
 import { standImEntwurf } from "./ZaehlerVerwaltung";
+import { flaecheFuerSumme } from "@/utils/einheitFlaeche";
 
 /** Mieterfelder, die der Vertrags-Query nachlaedt (siehe useQuery 'mietvertrag-detail'). */
 type MieterKurz = Pick<
@@ -199,11 +200,8 @@ export const ImmobilienDetail = ({
   const gesamtWarmmiete = gesamtKaltmiete + gesamtBetriebskosten;
   // Beim Laden und bei einem Fehler „—“ statt 0 € (bis 27.10.2026 standen dort 0 €)
   const mietenBekannt = !!alleMietvertraege && !mietenFehler;
-  // Exclude non-residential unit types (Garage, Stellplatz, Lager, Sonstiges) from total QM calculation
-  const wohnflaechenEinheiten = einheiten?.filter(e => 
-    !['Garage', 'Stellplatz', 'Lager', 'Sonstiges'].includes(e.einheitentyp || '')
-  ) || [];
-  const gesamtQm = wohnflaechenEinheiten.reduce((sum, einheit) => sum + (einheit.qm || 0), 0);
+  // Fläche ohne Garagen und Stellplätze wie Mietaufstellung und Mietübersicht (einheitFlaeche, 29.10.2026)
+  const gesamtQm = (einheiten || []).reduce((sum, einheit) => sum + flaecheFuerSumme(einheit), 0);
 
   // Scroll to specific unit if scrollToEinheitId is provided with enhanced highlighting
   useEffect(() => {

@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { EURO_BETRAG_HINWEIS, istUngueltigerEuroBetrag, leseEuroBetrag } from "@/utils/euroBetrag";
+import { flaecheFuerSumme } from "@/utils/einheitFlaeche";
 
 interface MietaufstellungBankProps {
   onBack: () => void;
@@ -182,7 +183,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
     const annuitaetMap = new Map<string, number>();
 
     for (const row of rows) {
-      qm += row.qm ?? 0;
+      qm += flaecheFuerSumme(row);
       if (!row.isVacant) {
         km += row.kaltmiete ?? 0;
         bkv += row.betriebskosten ?? 0;
@@ -384,7 +385,7 @@ export const MietaufstellungBank = ({ onBack }: MietaufstellungBankProps) => {
                   const immSoll = imm.units.reduce((s, u) => {
                     return s + (u.sollMiete ?? (u.isVacant ? 0 : (u.kaltmiete ?? 0)));
                   }, 0);
-                  const immQm      = imm.units.reduce((s, u) => s + (u.qm ?? 0), 0);
+                  const immQm      = imm.units.reduce((s, u) => s + flaecheFuerSumme(u), 0);
                   const immVacant  = imm.units.filter(u => u.isVacant).length;
                   const ueberschussIst  = (immIst  - (imm.annuitaet ?? 0)) * 12;
                   const ueberschussSoll = (immSoll - (imm.annuitaet ?? 0)) * 12;
