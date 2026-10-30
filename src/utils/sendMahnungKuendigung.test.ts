@@ -140,3 +140,40 @@ describe('send-mahnung: Stufe 3 beim Vormerken und per Post', () => {
     expect(post).not.toContain('kuendigungGesetzt');
   });
 });
+
+describe('send-mahnung: Stufe 3 nur über einer Monatsmiete Mietrückstand (30.10.2026)', () => {
+  it('rechnet mit dem gemeinsamen Rechenkern, nicht mit einer eigenen Kopie', () => {
+    expect(quelle).toContain("import { kuendigungsrueckstandErreicht, mietanteilAmStichtag } from '../_shared/mietkonto.ts';");
+    // Die App nimmt denselben Kern
+    expect(readFileSync('src/utils/rueckstandsberechnung.ts', 'utf-8')).toContain("from '../../supabase/functions/_shared/mietkonto.ts'");
+    expect(readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8'))
+      .toContain('!kuendigungsrueckstandErreicht(mietanteil, monatsmieteDesVertrags)');
+  });
+
+  it('prüft vor Kündigungsfeldern, Vormerken, Post und Mail', () => {
+    const pruefung = handler.indexOf('if (stufe === 3) {\n      const stand = await kuendigungsrueckstand(');
+    expect(pruefung).toBeGreaterThan(handler.indexOf('if (stufe !== bisherigeStufe + 1)'));
+    expect(pruefung).toBeLessThan(handler.indexOf('const kuendigungRoh ='));
+    expect(pruefung).toBeLessThan(handler.indexOf("if (versandart === 'vormerken') {\n      const betraege"));
+    expect(handler.slice(pruefung, pruefung + 900)).toContain('!kuendigungsrueckstandErreicht(mietanteil, stand.monatsmiete)');
+  });
+
+  it('lädt alle Forderungen und Zahlungen seitenweise', () => {
+    const laden = ausschnitt('async function kuendigungsrueckstand(');
+    expect(laden.match(/\.range\(von, bis\)/g)).toHaveLength(2);
+    expect(laden).toContain(".from('mietforderungen')");
+    expect(laden).toContain(".from('zahlungen')");
+  });
+
+  it('nimmt den kleineren Wert aus Datenbank und Schreiben, einen unlesbaren nicht', () => {
+    const code = ts.transpileModule(ausschnitt('function mietanteilFuerKuendigung('), {
+      compilerOptions: { target: ts.ScriptTarget.ES2020 },
+    }).outputText;
+    const anteil = new Function(`${code}\nreturn mietanteilFuerKuendigung;`)() as (db: number, s: unknown) => number;
+    expect(anteil(1200, 900)).toBe(900);
+    expect(anteil(700, 900)).toBe(700);
+    expect(anteil(700, undefined)).toBe(700);
+    expect(anteil(700, 'abc')).toBe(700);
+    expect(anteil(700, -5)).toBe(700);
+  });
+});

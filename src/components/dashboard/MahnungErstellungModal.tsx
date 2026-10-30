@@ -26,7 +26,7 @@ import { schriftstueckPfad } from "@/utils/storagePfad";
 import { edgeFehlertext } from "@/utils/edgeFehler";
 import { fristloseKuendigungFelder, raeumungsfristInTagen } from "@/utils/contractUtils";
 import { leseKautionsbetrag } from "@/utils/vertragKaution";
-import { monatText, rueckstandInMonatsmieten, type OffenerPosten } from "@/utils/rueckstandSeit";
+import { kuendigungsrueckstandErreicht, monatText, rueckstandInMonatsmieten, type OffenerPosten } from "@/utils/rueckstandSeit";
 import { leseAnzahlSchreiben, leseMahnungBetraege, mahnkostenGesamtText, mahnungBetragsMeldung } from "@/utils/mahnungEingaben";
 import { empfaengerDerAuswahl, mailadressenDerMieter, vorausgewaehlteEmpfaenger } from "@/utils/kuendigungsbestaetigung";
 import {
@@ -265,7 +265,8 @@ export function MahnungErstellungModal({
   // Fristlos nach § 543 Abs. 2 Nr. 3, § 569 Abs. 3 Nr. 1 BGB erst, wenn der Mietrückstand eine Monatsmiete
   // übersteigt (zwei Termine mit mehr als einer Monatsmiete oder zwei Monatsmieten über mehr als zwei Termine).
   // Bis zum 29.10.2026 kündigte Stufe 3 auch bei 0,3 Monatsmieten (Prüfung 29.10.2026).
-  const fristlosGesperrt = mahnstufe >= 3 && !(mietanteil > monatsmieteDesVertrags + 0.005);
+  // Dieselbe Regel prüft send-mahnung seit dem 30.10.2026 mit den Daten der Datenbank nach
+  const fristlosGesperrt = mahnstufe >= 3 && !kuendigungsrueckstandErreicht(mietanteil, monatsmieteDesVertrags);
   // Die offenen Posten passen nur zum ungeänderten Rückstand; wer ihn von Hand ändert, bekommt keine Aufzählung
   const postenImSchreiben = Math.abs(betraege.werte.rueckstand - rueckstand) < 0.005 ? offenePosten : KEINE_POSTEN;
   const postenZeilen = useMemo(() => postenImSchreiben.map((p) => ({

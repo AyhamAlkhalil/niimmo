@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Buffer } from "node:buffer";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import nodemailer from "npm:nodemailer@6.9.10";
+import { kuendigungsrueckstandErreicht, mietanteilAmStichtag } from '../_shared/mietkonto.ts';
 
 const ALLOWED_ORIGINS = [
   'https://immobilien-blick-dashboard.lovable.app',
@@ -242,6 +243,74 @@ function berlinerIsoTag(zeitpunkt: Date): string {
       .map((t) => [t.type, t.value]),
   );
   return `${teile.year}-${teile.month}-${teile.day}`;
+}
+
+/** Alle Zeilen einer Abfrage in Seiten zu 1000 — PostgREST liefert still hoechstens 1000. NULL bei Fehler. */
+async function alleZeilen<T>(
+  seite: (von: number, bis: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[] | null> {
+  const zeilen: T[] = [];
+  for (let von = 0; ; von += 1000) {
+    const { data, error } = await seite(von, von + 999);
+    if (error) {
+      console.error('Zeilen nicht lesbar:', error.message);
+      return null;
+    }
+    zeilen.push(...(data ?? []));
+    if (!data || data.length < 1000) return zeilen;
+  }
+}
+
+/**
+ * Mietanteil des Rueckstands heute und Monatsmiete aus der Datenbank (30.10.2026), mit demselben Rechenkern wie
+ * Vertragsansicht und Mahndialog (_shared/mietkonto.ts): alle Forderungen und alle Zahlungen des Vertrags.
+ * NULL, wenn etwas nicht lesbar ist.
+ */
+async function kuendigungsrueckstand(
+  // deno-lint-ignore no-explicit-any
+  client: any,
+  mietvertragId: string,
+  heuteIso: string,
+): Promise<{ mietanteil: number; monatsmiete: number } | null> {
+  const { data: vertrag, error } = await client
+    .from('mietvertrag')
+    .select('status, start_datum, ende_datum, kuendigungsdatum, kaltmiete, betriebskosten')
+    .eq('id', mietvertragId)
+    .maybeSingle();
+  if (error || !vertrag) {
+    console.error('Vertrag fuer die Kuendigungspruefung nicht lesbar:', error?.message ?? 'kein Vertrag');
+    return null;
+  }
+  const forderungen = await alleZeilen((von, bis) => client
+    .from('mietforderungen')
+    .select('sollmonat, sollbetrag, faelligkeitsdatum, typ, ruecklastschrift_am')
+    .eq('mietvertrag_id', mietvertragId)
+    .order('sollmonat', { ascending: true })
+    .order('id', { ascending: true })
+    .range(von, bis));
+  const zahlungen = await alleZeilen((von, bis) => client
+    .from('zahlungen')
+    .select('betrag, buchungsdatum, kategorie, zugeordneter_monat')
+    .eq('mietvertrag_id', mietvertragId)
+    .order('id', { ascending: true })
+    .range(von, bis));
+  if (!forderungen || !zahlungen) return null;
+  // Mittag des deutschen Kalendertags: Der Rechenkern liest die lokalen Datumsteile, Deno laeuft in UTC
+  const [jahr, monat, tag] = heuteIso.split('-').map(Number);
+  const stichtag = new Date(jahr, monat - 1, tag, 12);
+  return {
+    mietanteil: mietanteilAmStichtag(vertrag, forderungen, zahlungen, stichtag),
+    monatsmiete: (Number(vertrag.kaltmiete) || 0) + (Number(vertrag.betriebskosten) || 0),
+  };
+}
+
+/**
+ * Mietanteil fuer die Stufe-3-Pruefung: der aus der Datenbank, hoechstens der Rueckstand im Schreiben -- wie der
+ * Dialog, der den eingetragenen Rueckstand nimmt, wenn er kleiner ist. Ein unlesbarer Wert im Schreiben zaehlt nicht.
+ */
+function mietanteilFuerKuendigung(ausDatenbank: number, imSchreiben: unknown): number {
+  const schreiben = Number(imSchreiben);
+  return Number.isFinite(schreiben) && schreiben >= 0 ? Math.min(schreiben, ausDatenbank) : ausDatenbank;
 }
 
 /**
@@ -984,6 +1053,22 @@ serve(async (req) => {
     }
     if (stufe !== bisherigeStufe + 1) {
       return antwort({ error: `Der Vertrag steht inzwischen auf Mahnstufe ${bisherigeStufe}. Bitte den Dialog neu öffnen, damit Schreiben und Mail die richtige Stufe nennen. Es wurde nichts versendet.` }, 409);
+    }
+
+    // Stufe 3 kuendigt fristlos -- nur, wenn der Mietrueckstand heute eine Monatsmiete uebersteigt. Der Dialog
+    // sperrt das seit dem 29.10.2026; seit dem 30.10.2026 rechnet die Function mit demselben Rechenkern nach, auch
+    // beim Versand einer Vormerkung: Zahlt der Mieter nach dem Speichern, geht die Kuendigung nicht mehr raus.
+    if (stufe === 3) {
+      const stand = await kuendigungsrueckstand(supabase, data.mietvertragId, heuteIso);
+      if (!stand) {
+        return antwort({ error: 'Der Mietrückstand konnte nicht geprüft werden. Es wurde nichts versendet.' }, 500);
+      }
+      const imSchreiben = ausVormerkung && vormerkung ? vormerkung.betraege?.gesamtRueckstand : data.rueckstandBetrag;
+      const mietanteil = mietanteilFuerKuendigung(stand.mietanteil, imSchreiben);
+      if (!kuendigungsrueckstandErreicht(mietanteil, stand.monatsmiete)) {
+        const betrag = (wert: number) => wert.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return antwort({ error: `Keine fristlose Kündigung möglich: Der Mietrückstand (${betrag(mietanteil)} €) übersteigt nicht eine Monatsmiete (${betrag(stand.monatsmiete)} €). Es wurde nichts versendet.` }, 409);
+      }
     }
 
     const fristRoh = ausVormerkung && vormerkung ? vormerkung.zahlungsfrist : data.fristDatum;

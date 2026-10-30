@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
+import { getVertragsende } from '../../supabase/functions/_shared/mietkonto.ts';
 
 export interface ContractFilter {
   mietstatus: "all" | "aktiv" | "gekuendigt" | "beendet";
@@ -112,23 +113,11 @@ export const getCurrentContract = (contracts: any[]): any | null => {
 };
 
 /**
- * Das massgebliche Ende eines Mietverhaeltnisses.
- *
- * `ende_datum` ist die fuehrende Quelle: Der Kuendigungs-Workflow schreibt den
- * Kuendigungstermin seit dem 03.09.2026 dorthin mit. Zuvor fuehrten beide
- * Felder dieselbe Aussage getrennt -- die Einheiten-Karte zeigte
- * `kuendigungsdatum`, die Vertragsdetails `ende_datum`, und bei 23 Vertraegen
- * wichen sie voneinander ab.
- *
- * `kuendigungsdatum` bleibt nur noch Fallback fuer Datensaetze, die von aussen
- * (Import, Altbestand) ohne `ende_datum` hereinkommen.
+ * Das massgebliche Ende eines Mietverhaeltnisses: `ende_datum` fuehrt, `kuendigungsdatum` nur als Ersatz.
+ * Die Definition samt Begruendung steht seit dem 30.10.2026 im Rechenkern
+ * (supabase/functions/_shared/mietkonto.ts), den auch die Edge Function send-mahnung nutzt.
  */
-export const getVertragsende = (
-  vertrag: { ende_datum?: string | null; kuendigungsdatum?: string | null } | null | undefined
-): string | null => {
-  if (!vertrag) return null;
-  return vertrag.ende_datum || vertrag.kuendigungsdatum || null;
-};
+export { getVertragsende };
 
 /**
  * Felder fuer ein neues Mietende.

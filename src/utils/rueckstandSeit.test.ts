@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { mietrueckstand, monatText, rueckstandInMonatsmieten, rueckstandSeit } from './rueckstandSeit';
+import {
+  kuendigungsrueckstandErreicht,
+  mietanteilAmStichtag,
+  mietrueckstand,
+  monatText,
+  offenePosten,
+  rueckstandInMonatsmieten,
+  rueckstandSeit,
+} from './rueckstandSeit';
+import { berechneMietkontostand, nurFaelligeForderungen } from './rueckstandsberechnung';
 
 const miete = (monat: string, betrag = 500, typ = 'Miete') => ({
   sollmonat: `${monat}-01`, sollbetrag: betrag, faelligkeitsdatum: `${monat}-08`, typ,
@@ -81,5 +90,55 @@ describe('monatText', () => {
     expect(monatText('2026-09')).toBe('September 2026');
     expect(monatText('2027-01')).toBe('Januar 2027');
     expect(monatText('2026-03')).toBe('März 2026');
+  });
+});
+
+describe('Stufe 3: Mietanteil und Schwelle (30.10.2026, gleich in Dialog und send-mahnung)', () => {
+  const vertrag = { status: 'aktiv', start_datum: '2026-01-01', kaltmiete: 500, betriebskosten: 100 };
+  const miete = (monat: string) => ({ sollmonat: `${monat}-01`, sollbetrag: 600, faelligkeitsdatum: `${monat}-08`, typ: 'Miete' });
+  const forderungen = [
+    miete('2026-08'), miete('2026-09'), miete('2026-10'),
+    { sollmonat: '2026-09-01', sollbetrag: 450, faelligkeitsdatum: '2026-09-20', typ: 'BKA' },
+  ];
+  const stichtag = new Date(2026, 9, 30, 12);
+
+  it('mietanteilAmStichtag ist genau, was die Vertragsansicht dem Dialog gibt', () => {
+    const zahlungen = [
+      { betrag: 600, buchungsdatum: '2026-08-05', kategorie: 'Miete', zugeordneter_monat: '2026-08' },
+      { betrag: 200, buchungsdatum: '2026-10-05', kategorie: 'Miete', zugeordneter_monat: '2026-10' },
+    ];
+    const rueckstand = Math.max(0, berechneMietkontostand(vertrag, forderungen, zahlungen, stichtag).rueckstand);
+    const posten = offenePosten(nurFaelligeForderungen(forderungen, stichtag), rueckstand);
+    const imDialog = posten.filter((p) => p.art === 'Miete').reduce((s, p) => s + p.betrag, 0);
+    // 2.250 € fällig, 800 € gezahlt: 1.450 € offen, davon 450 € BKA-Nachzahlung
+    expect(rueckstand).toBe(1450);
+    expect(mietanteilAmStichtag(vertrag, forderungen, zahlungen, stichtag)).toBe(1000);
+    expect(mietanteilAmStichtag(vertrag, forderungen, zahlungen, stichtag)).toBe(Math.round(imDialog * 100) / 100);
+  });
+
+  it('kündigt erst, wenn der Mietanteil eine Monatsmiete übersteigt', () => {
+    expect(kuendigungsrueckstandErreicht(600, 600)).toBe(false);
+    expect(kuendigungsrueckstandErreicht(600.005, 600)).toBe(false);
+    expect(kuendigungsrueckstandErreicht(600.01, 600)).toBe(true);
+    expect(kuendigungsrueckstandErreicht(1000, 600)).toBe(true);
+  });
+
+  it('BKA-Nachzahlung und Gebühren heben den Mietanteil nicht über die Schwelle', () => {
+    const zahlungen = [
+      { betrag: 600, buchungsdatum: '2026-08-05', kategorie: 'Miete', zugeordneter_monat: '2026-08' },
+      { betrag: 600, buchungsdatum: '2026-09-05', kategorie: 'Miete', zugeordneter_monat: '2026-09' },
+    ];
+    // Offen: Oktobermiete 600 € und BKA 450 € — 1.050 € Rückstand, aber nur eine Monatsmiete
+    const anteil = mietanteilAmStichtag(vertrag, forderungen, zahlungen, stichtag);
+    expect(anteil).toBe(600);
+    expect(kuendigungsrueckstandErreicht(anteil, 600)).toBe(false);
+  });
+
+  it('bei gleicher Fälligkeit bleibt die Gebühr offen, nicht die Monatsmiete — unabhängig von der Reihenfolge', () => {
+    const okt = miete('2026-10');
+    const gebuehr = { sollmonat: '2026-10-01', sollbetrag: 7.5, faelligkeitsdatum: '2026-10-08', typ: 'Miete', ruecklastschrift_am: '2026-10-06' };
+    for (const reihe of [[okt, gebuehr], [gebuehr, okt]]) {
+      expect(offenePosten(reihe, 7.5)).toEqual([{ monat: '2026-10', betrag: 7.5, art: 'Rücklastschriftgebühr' }]);
+    }
   });
 });
