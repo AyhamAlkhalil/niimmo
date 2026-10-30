@@ -99,7 +99,7 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
     }
   }, [openMietvertragId, vertrag?.id]);
 
-  // Auto-expire contracts past their Kündigungsdatum
+  // Gekündigten Vertrag nach dem Vertragsende auf 'beendet' setzen
   useAutoExpireContract(vertrag?.id, vertrag?.status, getVertragsende(vertrag) ?? undefined);
 
   // Weiße Karte, Status als schmale Farblinie oben; nur was Aufmerksamkeit braucht, bekommt

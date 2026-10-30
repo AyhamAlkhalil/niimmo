@@ -3,21 +3,21 @@ import { supabase } from '@/integrations/supabase/client';
 import { istVergangenerTag } from '@/utils/contractUtils';
 
 /**
- * Automatically transitions a contract from 'gekuendigt' to 'beendet'
- * once its Kündigungsdatum has passed.
+ * Setzt einen gekündigten Vertrag auf 'beendet', sobald sein Vertragsende vorbei ist.
  *
- * Der letzte Vertragstag zählt noch als laufend, wie im Nachtlauf (`< CURRENT_DATE`).
- * Bis zum 27.10.2026 setzte der Vergleich `terminationDate > today` den Vertrag schon an
+ * `vertragsende` kommt aus getVertragsende() (ende_datum vor kuendigungsdatum), wie in den
+ * DB-Funktionen seit dem 30.10.2026. Der letzte Vertragstag zählt noch als laufend, wie im
+ * Nachtlauf. Bis zum 27.10.2026 setzte der Vergleich `terminationDate > today` den Vertrag schon an
  * seinem letzten Tag auf 'beendet', sobald jemand die Objektansicht öffnete.
  */
 export const useAutoExpireContract = (
   vertragId: string | undefined,
   status: string | undefined,
-  kuendigungsdatum: string | undefined
+  vertragsende: string | undefined
 ) => {
   useEffect(() => {
-    if (!vertragId || status !== 'gekuendigt' || !kuendigungsdatum) return;
-    if (!istVergangenerTag(kuendigungsdatum)) return;
+    if (!vertragId || status !== 'gekuendigt' || !vertragsende) return;
+    if (!istVergangenerTag(vertragsende)) return;
 
     const updateStatus = async () => {
       try {
@@ -32,5 +32,5 @@ export const useAutoExpireContract = (
     };
 
     updateStatus();
-  }, [vertragId, status, kuendigungsdatum]);
+  }, [vertragId, status, vertragsende]);
 };

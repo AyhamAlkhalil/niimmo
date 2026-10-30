@@ -287,6 +287,41 @@ export type Database = {
           },
         ]
       }
+      betriebskosten_verlauf: {
+        Row: {
+          betriebskosten_alt: number | null
+          betriebskosten_neu: number | null
+          erfasst_am: string
+          gueltig_ab: string
+          id: string
+          mietvertrag_id: string
+        }
+        Insert: {
+          betriebskosten_alt?: number | null
+          betriebskosten_neu?: number | null
+          erfasst_am?: string
+          gueltig_ab: string
+          id?: string
+          mietvertrag_id: string
+        }
+        Update: {
+          betriebskosten_alt?: number | null
+          betriebskosten_neu?: number | null
+          erfasst_am?: string
+          gueltig_ab?: string
+          id?: string
+          mietvertrag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "betriebskosten_verlauf_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bewerbung_blacklist: {
         Row: {
           created_at: string
@@ -2870,6 +2905,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      heute_berlin: { Args: never; Returns: string }
       hybrid_search: {
         Args: {
           full_text_weight?: number
@@ -2906,6 +2942,17 @@ export type Database = {
         Returns: undefined
       }
       mein_app_benutzer_id: { Args: never; Returns: string }
+      miete_vor_erhoehung: {
+        Args: {
+          p_betrag: number
+          p_ende: string
+          p_monat: string
+          p_start: string
+          p_vertrag: string
+          p_vor: string
+        }
+        Returns: number
+      }
       mieterhoehung_anwenden: {
         Args: { p_mieterhoehung_id: string; p_trotz_abweichung?: boolean }
         Returns: Json

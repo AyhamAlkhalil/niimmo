@@ -215,8 +215,9 @@ describe("istVergangenerTag", () => {
   it("entscheidet auch beim automatischen Beenden in der Objektansicht", () => {
     // 27.10.2026: useAutoExpireContract setzte per `terminationDate > today` am letzten Tag 'beendet'
     const hook = readFileSync("src/hooks/useAutoExpireContracts.ts", "utf-8");
-    expect(hook).toMatch(/if \(!istVergangenerTag\(kuendigungsdatum\)\) return;/);
-    expect(hook).not.toMatch(/new Date\(kuendigungsdatum\)/);
+    // 30.10.2026: Der Parameter ist das Vertragsende aus getVertragsende(), nicht das kuendigungsdatum
+    expect(hook).toMatch(/if \(!istVergangenerTag\(vertragsende\)\) return;/);
+    expect(hook).not.toMatch(/new Date\(vertragsende\)/);
   });
 });
 
