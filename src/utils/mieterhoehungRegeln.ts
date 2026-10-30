@@ -66,6 +66,38 @@ export function offizielleErhoehungGiltAb(erfasstAm: Date = new Date()): Date {
     : new Date(erfasstAm.getFullYear(), erfasstAm.getMonth() + 1, 1);
 }
 
+/**
+ * Mieterhöhung aus der Vertragsbearbeitung als Vorgang (Kundenentscheidung 29.10.2026: „Eine Mieterhöhung ist ein
+ * Vorgang“): Gewählt wird, ab wann sie gilt — der 1. des laufenden Monats (rückwirkend, „weil vergessen“) oder ein
+ * späterer Monatserster. Die Vertragsmiete stellt die Datenbank um: rückwirkend sofort samt der schon angelegten
+ * Monatsmiete (mieterhoehung_zustimmen), sonst der Nachtlauf am Wirksamkeitstag. Bis dahin setzte „offizielle
+ * Mieterhöhung“ die neue Miete sofort in den Vertrag und galt fest ab dem Folgemonat.
+ */
+export function vereinbarungGiltAbOptionen(heute: Date = new Date(), monate = 12): string[] {
+  return Array.from({ length: monate + 1 }, (_, i) =>
+    format(new Date(heute.getFullYear(), heute.getMonth() + i, 1), 'yyyy-MM-dd'));
+}
+
+/** Vorgabe für „gilt ab“: der 1. des Folgemonats */
+export function vereinbarungGiltAbVorgabe(heute: Date = new Date()): string {
+  return format(new Date(heute.getFullYear(), heute.getMonth() + 1, 1), 'yyyy-MM-dd');
+}
+
+/** Gilt die Erhöhung schon heute (rückwirkend zum Monatsersten)? Dann wird der laufende Monat sofort angehoben. */
+export function erhoehungRueckwirkend(giltAbIso: string, heute: Date = new Date()): boolean {
+  return giltAbIso.slice(0, 10) <= format(heute, 'yyyy-MM-dd');
+}
+
+/**
+ * verlangt_am für den Vorgang: Die Datenbank verlangt verlangt_am < wirksam_ab. Rückwirkend wurde die Erhöhung
+ * vorher vereinbart (der Vortag des Wirksamkeitstags), sonst heute.
+ */
+export function vereinbarungVerlangtAm(giltAbIso: string, heute: Date = new Date()): string {
+  if (!erhoehungRueckwirkend(giltAbIso, heute)) return format(heute, 'yyyy-MM-dd');
+  const [j, m, t] = giltAbIso.slice(0, 10).split('-').map(Number);
+  return format(new Date(j, m - 1, t - 1), 'yyyy-MM-dd');
+}
+
 /** offizielleErhoehungGiltAb als Text für Dialoge, z. B. „1. November 2026“ */
 export function offizielleErhoehungGiltAbText(erfasstAm: Date = new Date()): string {
   return offizielleErhoehungGiltAb(erfasstAm).toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });

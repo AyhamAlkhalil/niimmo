@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Building2, Loader2, AlertCircle } from "lucide-react";
@@ -16,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
 import { berechneMietkontostand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
 import { offenePosten } from "@/utils/rueckstandSeit";
-import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
+import { MietaenderungBestaetigung } from "./rent-increase/MietaenderungBestaetigung";
 import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragDetailsModalProps {
@@ -298,46 +297,15 @@ export default function MietvertragDetailsModal({
       </DialogContent>
     </Dialog>
 
-    {/* Rent Increase Confirmation Dialog */}
-    <AlertDialog open={mutations.showRentIncreaseConfirm} onOpenChange={(open) => {
-      if (!open) mutations.handleRentIncreaseCancel();
-    }}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Mietänderung bestätigen</AlertDialogTitle>
-          <AlertDialogDescription>
-            Sie haben die Kaltmiete geändert. Handelt es sich um eine offizielle Mieterhöhung?
-            <br /><br />
-            <strong>Ja:</strong> Das Datum der letzten Mieterhöhung wird auf heute gesetzt. Die neue Miete wird ab dem {offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.
-            <br />
-            <strong>Nein:</strong> Die Miete wird nur korrigiert, ohne das Mieterhöhungsdatum zu ändern. Die Korrektur gilt schon für den laufenden Monat.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={(e) => {
-            e.stopPropagation();
-            mutations.handleRentIncreaseCancel();
-          }}>
-            Abbrechen
-          </AlertDialogCancel>
-          <Button
-            variant="outline"
-            onClick={(e) => {
-              e.stopPropagation();
-              mutations.handleRentIncreaseConfirm(false);
-            }}
-          >
-            Nein, nur Korrektur
-          </Button>
-          <AlertDialogAction onClick={(e) => {
-            e.stopPropagation();
-            mutations.handleRentIncreaseConfirm(true);
-          }}>
-            Ja, offizielle Mieterhöhung
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    {/* Mietänderung: Korrektur oder Mieterhöhung als Vorgang (29.10.2026) */}
+    <MietaenderungBestaetigung
+      open={mutations.showRentIncreaseConfirm}
+      alteKaltmiete={vertrag ? Number(vertrag.kaltmiete || 0) : null}
+      neueKaltmiete={mutations.pendingKaltmieteValue}
+      onKorrektur={() => mutations.handleRentIncreaseConfirm(null)}
+      onErhoehung={(giltAb) => mutations.handleRentIncreaseConfirm(giltAb)}
+      onAbbrechen={mutations.handleRentIncreaseCancel}
+    />
     </>
   );
 }

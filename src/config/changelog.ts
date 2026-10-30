@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.0",
+    datum: "2026-10-30",
+    aenderungen: [
+      { art: "neu", titel: "Mieterhöhung in Vertrag und Mietübersicht als Vorgang mit „gilt ab“ – rückwirkend zum Monatsersten mit Hinweis, sonst ab dem gewählten Monat" },
+      { art: "verbessert", titel: "Startseite: Soll-Miete aus den Verträgen, Eingang aus allen Mietzahlungen des Monats, Pfeil zum nächsten Monat" },
+    ],
+  },
+  {
     version: "1.8.3",
     datum: "2026-10-29",
     aenderungen: [

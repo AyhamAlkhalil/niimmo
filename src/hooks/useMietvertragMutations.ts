@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useActivityLog } from "@/hooks/useActivityLog";
 import { format } from "date-fns";
-import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
+import { erhoehungsMeldung, mieterhoehungAlsVorgangAnlegen } from "@/utils/mieterhoehungVorgang";
+import { vereinbarteMieterhoehungKey } from "@/hooks/useVereinbarteMieterhoehung";
 import { getVertragsende, istVergangenerTag, mietendeFelder, statusNachMietende } from "@/utils/contractUtils";
 import {
   VERTRAG_ZAEHLER_FELDER,
@@ -75,28 +76,20 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
   ]);
 
-  // Helper to save a numeric field on mietvertrag
-  const saveNumericField = async (field: string, numericValue: number, isOfficialRentIncrease: boolean) => {
+  // Helper to save a numeric field on mietvertrag. Eine Mieterhöhung läuft seit dem 29.10.2026 als Vorgang
+  // (mieterhoehungVereinbaren), hier nur Korrekturen: Sie gelten sofort, ohne Erhöhungsdatum.
+  const saveNumericField = async (field: string, numericValue: number) => {
     try {
       const altWert = vertrag ? Number(vertrag[field as keyof Mietvertrag] ?? 0) : undefined;
       const updateData: Partial<Mietvertrag> = { [field]: numericValue };
-      if (field === 'kaltmiete' && isOfficialRentIncrease) {
-        updateData.letzte_mieterhoehung_am = format(new Date(), 'yyyy-MM-dd');
-      }
 
       const { error } = await supabase.from('mietvertrag').update(updateData).eq('id', vertragId);
       if (error) throw error;
 
       const mieterName = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;
-
-      if (field === 'kaltmiete' && isOfficialRentIncrease) {
-        toast({ title: "Mieterhöhung dokumentiert", description: `Die neue Miete wird ab dem ${offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.` });
-        logActivity('mieterhoehung_dokumentiert', 'mietvertrag', vertragId, { altKaltmiete: altWert, neueKaltmiete: numericValue, mieter: mieterName });
-      } else {
-        const fieldName = field === 'kaltmiete' ? 'Kaltmiete' : field === 'betriebskosten' ? 'Betriebskosten' : 'Rücklastschrift-Gebühr';
-        toast({ title: "Aktualisiert", description: `${fieldName} wurde erfolgreich aktualisiert.` });
-        logActivity('mietvertrag_geaendert', 'mietvertrag', vertragId, { feld: field, altWert, neuerWert: numericValue, mieter: mieterName });
-      }
+      const fieldName = field === 'kaltmiete' ? 'Kaltmiete' : field === 'betriebskosten' ? 'Betriebskosten' : 'Rücklastschrift-Gebühr';
+      toast({ title: "Aktualisiert", description: `${fieldName} wurde erfolgreich aktualisiert.` });
+      logActivity('mietvertrag_geaendert', 'mietvertrag', vertragId, { feld: field, altWert, neuerWert: numericValue, mieter: mieterName });
 
       setEditingMietvertrag(null);
       await Promise.all([
@@ -233,26 +226,74 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         setShowRentIncreaseConfirm(true);
         return;
       }
-      await saveNumericField(field, numericValue, false);
+      await saveNumericField(field, numericValue);
     } catch (error) {
       const fieldName = field === 'kaltmiete' ? 'Kaltmiete' : field === 'betriebskosten' ? 'Betriebskosten' : field === 'neue_anschrift' ? 'Neue Anschrift' : 'Rücklastschrift-Gebühr';
       toast({ title: "Fehler", description: `${fieldName} konnte nicht aktualisiert werden.`, variant: "destructive" });
     }
   };
 
-  const handleRentIncreaseConfirm = async (isOfficialIncrease: boolean) => {
-    if (pendingGlobalUpdates) {
-      const updates = { ...pendingGlobalUpdates };
-      if (isOfficialIncrease) {
-        updates.letzte_mieterhoehung_am = format(new Date(), 'yyyy-MM-dd');
+  /**
+   * Bestätigung einer geänderten Kaltmiete: `giltAb` null ist eine Korrektur (gilt sofort, ohne Erhöhungsdatum),
+   * sonst eine Mieterhöhung als Vorgang ab diesem Monatsersten (Kundenentscheidung 29.10.2026). Die Vertragsmiete
+   * schreibt dann nicht der Dialog, sondern die Datenbank: rückwirkend sofort (mieterhoehung_zustimmen samt der schon
+   * angelegten Monatsmiete), sonst der Nachtlauf am Wirksamkeitstag. Übrige Änderungen werden normal gespeichert.
+   */
+  const handleRentIncreaseConfirm = async (giltAb: string | null) => {
+    if (giltAb === null) {
+      if (pendingGlobalUpdates) {
+        await finishGlobalSave({ ...pendingGlobalUpdates });
+        setPendingGlobalUpdates(null);
+      } else if (pendingKaltmieteValue !== null) {
+        await saveNumericField('kaltmiete', pendingKaltmieteValue);
       }
-      await finishGlobalSave(updates);
-      setPendingGlobalUpdates(null);
-    } else if (pendingKaltmieteValue !== null) {
-      await saveNumericField('kaltmiete', pendingKaltmieteValue, isOfficialIncrease);
+    } else {
+      await mieterhoehungVereinbaren(giltAb);
     }
     setShowRentIncreaseConfirm(false);
     setPendingKaltmieteValue(null);
+  };
+
+  const mieterhoehungVereinbaren = async (giltAb: string) => {
+    const alteKaltmiete = Number(vertrag?.kaltmiete || 0);
+    const alteBetriebskosten = Number(vertrag?.betriebskosten || 0);
+    const neueKaltmiete = pendingKaltmieteValue ?? alteKaltmiete;
+    const neueBetriebskosten = pendingGlobalUpdates?.betriebskosten != null
+      ? Number(pendingGlobalUpdates.betriebskosten)
+      : alteBetriebskosten;
+    if (!(neueKaltmiete > alteKaltmiete)) {
+      toast({ title: "Keine Mieterhöhung", description: "Die Kaltmiete sinkt oder bleibt gleich — das ist eine Korrektur.", variant: "destructive" });
+      return;
+    }
+    // Die Miete geht in den Vorgang, alles andere aus der Gesamtbearbeitung wird wie gewohnt gespeichert
+    if (pendingGlobalUpdates) {
+      const { kaltmiete: _kaltmiete, betriebskosten: _betriebskosten, ...uebrige } = pendingGlobalUpdates;
+      if (Object.keys(uebrige).length > 0) {
+        await finishGlobalSave(uebrige);
+      } else {
+        setIsGlobalEditMode(false);
+        setEditedValues({});
+      }
+      setPendingGlobalUpdates(null);
+    }
+    const ergebnis = await mieterhoehungAlsVorgangAnlegen({
+      mietvertragId: vertragId, alteKaltmiete, alteBetriebskosten, neueKaltmiete, neueBetriebskosten, giltAb,
+    });
+    if (!ergebnis.ok) {
+      toast({ title: "Mieterhöhung nicht erfasst", description: ergebnis.meldung, variant: "destructive" });
+      return;
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: vereinbarteMieterhoehungKey(vertragId) }),
+      queryClient.invalidateQueries({ queryKey: ['rent-increase-eligibility'] }),
+      invalidateAll(),
+      queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] }),
+    ]);
+    toast(erhoehungsMeldung(ergebnis, giltAb, neueKaltmiete));
+    logActivity('mieterhoehung_dokumentiert', 'mietvertrag', vertragId, {
+      altKaltmiete: alteKaltmiete, neueKaltmiete, giltAb,
+      mieter: mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined,
+    });
   };
 
   const handleEditKaution = async (field: 'soll' | 'ist', value: string) => {
@@ -612,11 +653,8 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         queryClient.invalidateQueries({ predicate: (query) => Array.isArray(query.queryKey) && (query.queryKey[0] === 'mietvertrag-mieter' || query.queryKey[0] === 'mietvertrag-mieter-detail') }),
       ]);
 
-      const isRentIncrease = mietvertragUpdates.letzte_mieterhoehung_am;
-      toast(historieOk ? {
-        title: isRentIncrease ? "Mieterhöhung dokumentiert" : "Erfolgreich gespeichert",
-        description: isRentIncrease ? `Die neue Miete wird ab dem ${offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.` : "Alle Änderungen wurden übernommen.",
-      } : HISTORIE_FEHLT_TOAST);
+      // Eine Mieterhöhung speichert seit dem 29.10.2026 mieterhoehungVereinbaren als Vorgang, nicht diese Funktion
+      toast(historieOk ? { title: "Erfolgreich gespeichert", description: "Alle Änderungen wurden übernommen." } : HISTORIE_FEHLT_TOAST);
 
       const mieterNameGlobal = mieter?.map(m => `${m.vorname} ${m.nachname}`.trim()).join(', ') || undefined;
       const feldLabels: Record<string, string> = {
@@ -629,7 +667,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         .filter(f => f !== 'letzte_mieterhoehung_am' && f !== 'status')
         .map(f => (istVertragZaehlerFeld(f) ? zaehlerFeldBezeichnung(f) : feldLabels[f] ?? f));
       logActivity(
-        isRentIncrease ? 'mieterhoehung_dokumentiert' : 'mietvertrag_geaendert',
+        'mietvertrag_geaendert',
         'mietvertrag',
         vertragId,
         { geaenderteFelder: lesbareFelder, mieter: mieterNameGlobal }
@@ -673,7 +711,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     handleTerminationSuccess,
 
     // Rent increase confirmation
-    showRentIncreaseConfirm, handleRentIncreaseConfirm, handleRentIncreaseCancel,
+    showRentIncreaseConfirm, handleRentIncreaseConfirm, handleRentIncreaseCancel, pendingKaltmieteValue,
 
     // Dialog visibility
     showCreateForderungModal, setShowCreateForderungModal,

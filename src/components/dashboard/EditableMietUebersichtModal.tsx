@@ -24,7 +24,8 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { format } from "date-fns";
-import { offizielleErhoehungGiltAbText } from "@/utils/mieterhoehungRegeln";
+import { erhoehungsMeldung, mieterhoehungAlsVorgangAnlegen } from "@/utils/mieterhoehungVorgang";
+import { MietaenderungBestaetigung } from "@/components/dashboard/rent-increase/MietaenderungBestaetigung";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { flaecheFuerSumme } from "@/utils/einheitFlaeche";
@@ -256,7 +257,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
   const [statusFilter, setStatusFilter] = useState("all");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState<{ id: string; field: string; value: unknown } | null>(null);
-  const [pendingKaltmiete, setPendingKaltmiete] = useState<{ contractId: string; oldValue: number; newValue: number } | null>(null);
+  const [pendingKaltmiete, setPendingKaltmiete] = useState<{ contractId: string; oldValue: number; newValue: number; betriebskosten: number } | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -413,9 +414,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
         queryClient.invalidateQueries({ queryKey: ["all-mietvertraege"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag-mit-details"] });
         queryClient.invalidateQueries({ queryKey: ["mietvertrag-detail"] });
-        toast(extraUpdate?.letzte_mieterhoehung_am
-          ? { title: "Mieterhöhung dokumentiert", description: `Die neue Miete wird ab dem ${offizielleErhoehungGiltAbText()} gefordert.` }
-          : { title: "Gespeichert" });
+        toast({ title: "Gespeichert" });
       } catch (err: unknown) {
         toast({ title: "Fehler", description: (err as Error).message, variant: "destructive" });
       }
@@ -438,7 +437,7 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
         const oldValue = row?.kaltmiete ?? 0;
         const newValue = value as number;
         if (newValue !== oldValue) {
-          setPendingKaltmiete({ contractId: id, oldValue, newValue });
+          setPendingKaltmiete({ contractId: id, oldValue, newValue, betriebskosten: row?.betriebskosten ?? 0 });
           return;
         }
       }
@@ -982,31 +981,39 @@ export const EditableMietUebersicht = ({ onBack }: EditableMietUebersichtProps) 
         </div>
       </div>
 
-      {/* Kaltmiete-Bestätigung */}
-      <AlertDialog open={!!pendingKaltmiete} onOpenChange={(open) => { if (!open) { setPendingKaltmiete(null); setEditing(null); } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Mietänderung bestätigen</AlertDialogTitle>
-            <AlertDialogDescription>
-              Sie haben die Kaltmiete von {pendingKaltmiete?.oldValue.toFixed(2)} € auf {pendingKaltmiete?.newValue.toFixed(2)} € geändert.
-              Handelt es sich um eine offizielle Mieterhöhung?
-              <br /><br />
-              <strong>Ja:</strong> Das Datum der letzten Mieterhöhung wird auf heute gesetzt. Die neue Miete wird ab dem {offizielleErhoehungGiltAbText()} gefordert; der laufende Monat bleibt.
-              <br />
-              <strong>Nein:</strong> Die Miete wird nur korrigiert. Die Korrektur gilt schon für den laufenden Monat.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setPendingKaltmiete(null); setEditing(null); }}>Abbrechen</AlertDialogCancel>
-            <Button variant="outline" onClick={() => { if (pendingKaltmiete) { saveField("mietvertrag", pendingKaltmiete.contractId, "kaltmiete", pendingKaltmiete.newValue); setPendingKaltmiete(null); } }}>
-              Nein, nur Korrektur
-            </Button>
-            <AlertDialogAction onClick={() => { if (pendingKaltmiete) { saveField("mietvertrag", pendingKaltmiete.contractId, "kaltmiete", pendingKaltmiete.newValue, { letzte_mieterhoehung_am: format(new Date(), "yyyy-MM-dd") }); setPendingKaltmiete(null); } }}>
-              Ja, offizielle Mieterhöhung
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Kaltmiete-Bestätigung: Korrektur oder Mieterhöhung als Vorgang (29.10.2026) */}
+      <MietaenderungBestaetigung
+        open={!!pendingKaltmiete}
+        alteKaltmiete={pendingKaltmiete?.oldValue ?? null}
+        neueKaltmiete={pendingKaltmiete?.newValue ?? null}
+        onKorrektur={() => {
+          if (pendingKaltmiete) saveField("mietvertrag", pendingKaltmiete.contractId, "kaltmiete", pendingKaltmiete.newValue);
+          setPendingKaltmiete(null);
+        }}
+        onErhoehung={async (giltAb) => {
+          const p = pendingKaltmiete;
+          setPendingKaltmiete(null);
+          setEditing(null);
+          if (!p) return;
+          const ergebnis = await mieterhoehungAlsVorgangAnlegen({
+            mietvertragId: p.contractId,
+            alteKaltmiete: p.oldValue,
+            alteBetriebskosten: p.betriebskosten,
+            neueKaltmiete: p.newValue,
+            neueBetriebskosten: p.betriebskosten,
+            giltAb,
+          });
+          if (!ergebnis.ok) {
+            toast({ title: "Mieterhöhung nicht erfasst", description: ergebnis.meldung, variant: "destructive" });
+            return;
+          }
+          for (const key of [["miet-overview"], ["mietaufstellung-bank"], ["mietvertrag"], ["alle-mietvertrag-immobilie"], ["all-mietvertraege"], ["mietvertrag-detail"], ["rueckstaende"], ["rent-increase-eligibility"], ["mieterhoehung-vereinbart", p.contractId]]) {
+            queryClient.invalidateQueries({ queryKey: key });
+          }
+          toast(erhoehungsMeldung(ergebnis, giltAb, p.newValue));
+        }}
+        onAbbrechen={() => { setPendingKaltmiete(null); setEditing(null); }}
+      />
     </div>
   );
 };

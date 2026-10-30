@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   offizielleErhoehungGiltAb,
+  vereinbarungGiltAbOptionen,
+  vereinbarungGiltAbVorgabe,
+  erhoehungRueckwirkend,
+  vereinbarungVerlangtAm,
   offizielleErhoehungGiltAbText,
   KAPPUNGSGRENZE_ANGESPANNT_PROZENT,
   KAPPUNGSGRENZE_REGEL_PROZENT,
@@ -449,5 +453,44 @@ describe('offizielleErhoehungGiltAb (Vertragsbearbeitung, 29.10.2026)', () => {
     expect(migration).toMatch(/case when v_f\.sollmonat < v_ab then v_alt_miete else v_neu_miete end/);
     expect(migration).toMatch(/elsif v_monat < v_ab then\s+v_basis := v_alt_miete;/);
     expect(migration).toMatch(/and f\.sollmonat >= v_laufend/);
+  });
+});
+
+describe('Mieterhöhung als Vorgang aus der Vertragsbearbeitung (Kundenentscheidung 29.10.2026)', () => {
+  const heute = new Date(2026, 9, 30, 12);
+  it('bietet den 1. des laufenden Monats und zwölf folgende Monatserste an, Vorgabe der Folgemonat', () => {
+    const optionen = vereinbarungGiltAbOptionen(heute);
+    expect(optionen[0]).toBe('2026-10-01');
+    expect(optionen[1]).toBe('2026-11-01');
+    expect(optionen).toHaveLength(13);
+    expect(optionen[12]).toBe('2027-10-01');
+    expect(vereinbarungGiltAbVorgabe(heute)).toBe('2026-11-01');
+  });
+
+  it('erkennt rückwirkend und datiert das Verlangen dann vor den Wirksamkeitstag', () => {
+    expect(erhoehungRueckwirkend('2026-10-01', heute)).toBe(true);
+    expect(erhoehungRueckwirkend('2026-11-01', heute)).toBe(false);
+    expect(vereinbarungVerlangtAm('2026-10-01', heute)).toBe('2026-09-30');
+    expect(vereinbarungVerlangtAm('2026-11-01', heute)).toBe('2026-10-30');
+    // Am Monatsersten selbst: gilt heute, also rückwirkend, verlangt am Vortag
+    const erster = new Date(2026, 10, 1, 9);
+    expect(erhoehungRueckwirkend('2026-11-01', erster)).toBe(true);
+    expect(vereinbarungVerlangtAm('2026-11-01', erster)).toBe('2026-10-31');
+  });
+});
+
+describe('Mieterhöhung nur als Vorgang (Kundenentscheidung 29.10.2026)', () => {
+  it('Vertragsbearbeitung und Mietübersicht schreiben bei einer Erhöhung nie selbst Miete oder Erhöhungsdatum', async () => {
+    const { readFileSync } = await import('node:fs');
+    const hook = readFileSync('src/hooks/useMietvertragMutations.ts', 'utf-8');
+    const uebersicht = readFileSync('src/components/dashboard/EditableMietUebersichtModal.tsx', 'utf-8');
+    for (const quelle of [hook, uebersicht]) {
+      expect(quelle).toContain('mieterhoehungAlsVorgangAnlegen(');
+      expect(quelle).not.toMatch(/letzte_mieterhoehung_am[:=]\s*format\(/);
+    }
+    const vorgang = readFileSync('src/utils/mieterhoehungVorgang.ts', 'utf-8');
+    expect(vorgang).toContain("begruendungsart: 'vereinbarung'");
+    expect(vorgang).toContain("'mieterhoehung_zustimmen'");
+    expect(vorgang).not.toContain(".from('mietvertrag')");
   });
 });
