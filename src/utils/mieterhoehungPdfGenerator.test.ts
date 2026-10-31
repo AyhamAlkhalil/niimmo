@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { pruefeErhoehungsdaten, erhoehungsAnrede, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData } from './mieterhoehungPdfGenerator';
+import { pruefeErhoehungsdaten, erhoehungsAnrede, generateMieterhoehungPdf, mieterhoehungBetreff, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData } from './mieterhoehungPdfGenerator';
+import { COMPANY } from '@/config/company';
 
 const BASIS: MieterhoehungPdfData = {
   anrede: 'Herr',
@@ -19,7 +20,17 @@ const BASIS: MieterhoehungPdfData = {
   wirksamDatum: '01.12.2026',
   begruendungsart: 'mietspiegel',
   begruendungText: 'Mietspiegel Sehnde 2025, Feld C3: 8,10–9,40 €/m².',
+  unterzeichner: COMPANY.unterzeichner[0],
 };
+
+/** Textstücke des PDFs; Oktal-Escapes sind WinAnsi-Bytes, „\(“ maskierte Zeichen */
+async function pdfTexte(daten: MieterhoehungPdfData): Promise<string[]> {
+  const roh = Buffer.from(await (await generateMieterhoehungPdf(daten)).arrayBuffer()).toString('latin1');
+  return [...roh.matchAll(/\(((?:\\.|[^\\()])*)\) Tj/g)].map(([, t]) => {
+    const bytes = t.replace(/\\(\d{3}|.)/g, (_, e: string) => (e.length === 3 ? String.fromCharCode(parseInt(e, 8)) : e));
+    return new TextDecoder('windows-1252').decode(Uint8Array.from(bytes, (z) => z.charCodeAt(0)));
+  });
+}
 
 describe('Pflichtangaben des Erhöhungsverlangens (§ 558a BGB)', () => {
   it('lässt vollständige Daten durch', () => {
@@ -53,6 +64,32 @@ describe('Pflichtangaben des Erhöhungsverlangens (§ 558a BGB)', () => {
     for (const text of Object.values(BEGRUENDUNGS_BEZEICHNUNG)) {
       expect(text).toContain('§ 558a Abs. 2');
     }
+  });
+});
+
+/** Layout nach der Briefvorlage des Kunden wie die Mahnung (31.10.2026) */
+describe('Erhöhungsverlangen im Briefbogen der Vorlage', () => {
+  it('Betreff: Art des Schreibens – Anschrift', () => {
+    expect(mieterhoehungBetreff(BASIS)).toBe('Zustimmung zur Mieterhöhung nach § 558 BGB – Musterstraße 1, 31319 Sehnde');
+  });
+
+  it('Tabelle mit alter und neuer Miete, Prozent mit Dezimalkomma', async () => {
+    const texte = await pdfTexte(BASIS);
+    for (const wert of ['Kaltmiete', '500,00 €', '560,00 €', '60,00 €', 'Gesamtmiete', '620,00 €', '680,00 €', '12,00 %']) {
+      expect(texte).toContain(wert.replace(' €', '\u00a0€'));
+    }
+    expect(texte).toContain('Begründung');
+  });
+
+  it('unterschreibt der gewählte Unterzeichner, nicht ein fester Name', async () => {
+    for (const [gewaehlt, anderer] of [[COMPANY.unterzeichner[0], COMPANY.unterzeichner[1]], [COMPANY.unterzeichner[1], COMPANY.unterzeichner[0]]]) {
+      const texte = await pdfTexte({ ...BASIS, unterzeichner: gewaehlt });
+      expect(texte).toContain(gewaehlt.unterschrift);
+      expect(texte).toContain(gewaehlt.kontaktname);
+      expect(texte).not.toContain(anderer.kontaktname);
+      expect(texte).not.toContain(anderer.telefon);
+    }
+    expect(readFileSync('src/utils/mieterhoehungPdfGenerator.ts', 'utf-8')).not.toContain('Mikyas');
   });
 });
 

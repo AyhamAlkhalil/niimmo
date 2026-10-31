@@ -20,6 +20,8 @@ import { schriftstueckPfad, dateiendung } from "@/utils/storagePfad";
 import { vertragsendeDerKuendigung } from "@/utils/contractUtils";
 import { auszugNachKuendigungsdatum, raeumungVorKuendigung } from "@/utils/kuendigungsbestaetigung";
 import { DocumentDragDropZone } from "../DocumentDragDropZone";
+import { UnterzeichnerAuswahl } from "../UnterzeichnerAuswahl";
+import { useUnterzeichnerWahl } from "@/hooks/useUnterzeichnerWahl";
 import { Progress } from "@/components/ui/progress";
 
 interface TerminationDialogProps {
@@ -80,11 +82,19 @@ export const TerminationDialog = ({
   const [useFreitext, setUseFreitext] = useState(false);
   const [freitext, setFreitext] = useState("");
 
+  // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen. Ohne Wahl entsteht kein Schreiben.
+  const { unterzeichner, unterzeichnerEmail, setUnterzeichnerEmail } = useUnterzeichnerWahl(isOpen);
+
   // PDF preview
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  // Eingaben, aus denen pdfBlob entstand (wie Mahnung und Mieterhöhung): Die Vorschau läuft 500 ms hinterher, und
+  // nach einem Wechsel des Unterzeichners ließ sich sonst noch das alte Schreiben aussprechen (31.10.2026)
+  const [pdfStand, setPdfStand] = useState<string | null>(null);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ein älterer Vorschaulauf, der später fertig wird, darf den neueren nicht überschreiben
+  const vorschauLauf = useRef(0);
 
   // ====== Upload Tab State ======
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -145,6 +155,12 @@ export const TerminationDialog = ({
   useEffect(() => {
     if (isOpen) {
       setActiveTab("upload");
+      // Kein Schreiben der letzten Öffnung stehen lassen
+      vorschauLauf.current++;
+      setIsGeneratingPreview(false);
+      setPdfBlob(null);
+      setPdfStand(null);
+      setPdfBlobUrl(null);
       setShowConfirm(false);
       setShowUploadConfirm(false);
       setKuendigungstyp("ordentlich");
@@ -173,6 +189,7 @@ export const TerminationDialog = ({
 
   // Build PDF data
   const buildPdfData = useCallback((): KuendigungPdfData | null => {
+    if (!unterzeichner) return null;
     const fullName = mieterList.map(m => `${m.vorname} ${m.nachname}`).join(' & ');
     const nachname = mieterList[0]?.nachname || '';
     const heute = new Date();
@@ -206,8 +223,9 @@ export const TerminationDialog = ({
       auszugsdatum: auszugFormatted,
       freitext: useFreitext ? freitext : undefined,
       bemerkungen: bemerkungen || undefined,
+      unterzeichner,
     };
-  }, [mieterList, startDatum, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
+  }, [unterzeichner, mieterList, startDatum, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
     immobilie, kuendigungsdatum, auszugsdatum, kuendigungsgrund, kuendigungstyp, bemerkungen,
     useFreitext, freitext]);
 
@@ -215,13 +233,19 @@ export const TerminationDialog = ({
   const regeneratePreview = useCallback(async () => {
     const pdfData = buildPdfData();
     if (!pdfData) return;
+    const lauf = ++vorschauLauf.current;
     setIsGeneratingPreview(true);
     try {
       const blob = await generateKuendigungPdf(pdfData);
+      if (lauf !== vorschauLauf.current) return;
       setPdfBlob(blob);
+      setPdfStand(JSON.stringify(pdfData));
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
+      if (lauf !== vorschauLauf.current) return;
+      setPdfBlob(null);
+      setPdfStand(null);
       console.error('Kuendigungs-Vorschau konnte nicht erzeugt werden:', err);
       toast({
         title: "Vorschau nicht moeglich",
@@ -229,7 +253,7 @@ export const TerminationDialog = ({
         variant: "destructive",
       });
     } finally {
-      setIsGeneratingPreview(false);
+      if (lauf === vorschauLauf.current) setIsGeneratingPreview(false);
     }
   }, [buildPdfData, pdfBlobUrl]);
 
@@ -243,8 +267,10 @@ export const TerminationDialog = ({
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [isOpen, activeTab, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
+  }, [isOpen, activeTab, unterzeichner, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung,
     kuendigungsdatum, auszugsdatum, kuendigungsgrund, kuendigungstyp, bemerkungen, useFreitext, freitext, mieterList, startDatum]);
+
+  const vorschauAktuell = pdfBlob !== null && pdfStand === JSON.stringify(buildPdfData());
 
   // Cleanup
   useEffect(() => {
@@ -279,8 +305,12 @@ export const TerminationDialog = ({
       toast({ title: "Räumungsfrist prüfen", description: raeumungsFehler, variant: "destructive" });
       return;
     }
-    if (!pdfBlob) {
-      toast({ title: "Fehler", description: "PDF konnte nicht erstellt werden", variant: "destructive" });
+    if (!unterzeichner) {
+      toast({ title: "Unterzeichner wählen", description: "Bitte wählen, wer das Schreiben unterzeichnet.", variant: "destructive" });
+      return;
+    }
+    if (!pdfBlob || !vorschauAktuell) {
+      toast({ title: "Vorschau wird noch erstellt", description: "Das Schreiben entspricht noch nicht den aktuellen Eingaben. Bitte einen Moment warten." });
       return;
     }
 
@@ -531,6 +561,14 @@ export const TerminationDialog = ({
 
                     <Separator />
 
+                    {/* Unterzeichner */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Unterzeichner</h3>
+                      <UnterzeichnerAuswahl wert={unterzeichnerEmail} onChange={setUnterzeichnerEmail} />
+                    </div>
+
+                    <Separator />
+
                     {/* Empfänger */}
                     <div>
                       <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Empfänger im Brief</h3>
@@ -703,7 +741,7 @@ export const TerminationDialog = ({
                     </Card>
 
                     <div className="flex gap-2 pb-4">
-                      <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfBlobUrl}>
+                      <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfBlobUrl || !vorschauAktuell}>
                         <Download className="h-4 w-4 mr-1.5" />
                         Download
                       </Button>
@@ -711,7 +749,7 @@ export const TerminationDialog = ({
                         size="sm"
                         variant="destructive"
                         onClick={() => setShowConfirm(true)}
-                        disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler || zahlungsverzugFristlos}
+                        disabled={isSubmitting || !kuendigungsdatum || !vorschauAktuell || !!raeumungsFehler || zahlungsverzugFristlos}
                         className="flex-1"
                       >
                         {isSubmitting ? (
@@ -738,7 +776,11 @@ export const TerminationDialog = ({
                     </Button>
                   </div>
                   <div className="flex-1 p-4 overflow-auto">
-                    {pdfBlobUrl ? (
+                    {!unterzeichner ? (
+                      <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                        <p className="text-sm">Bitte zuerst wählen, wer unterzeichnet.</p>
+                      </div>
+                    ) : pdfBlobUrl ? (
                       <iframe
                         src={pdfBlobUrl}
                         title="Kündigung PDF Vorschau"

@@ -22,6 +22,8 @@ import {
 import { format } from 'date-fns';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 import { vereinbarteMieterhoehungKey } from '@/hooks/useVereinbarteMieterhoehung';
+import { useUnterzeichnerWahl } from '@/hooks/useUnterzeichnerWahl';
+import { UnterzeichnerAuswahl } from '../UnterzeichnerAuswahl';
 
 /**
  * Die Datenbankfunktionen aus Migration 20261028142000. Eigener Typ, bis die Supabase-Typen nach dem
@@ -68,6 +70,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { vpi: aktuellerVpi } = useAktuellerVpi();
+  // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen. Ohne Wahl entsteht kein Schreiben.
+  const { unterzeichner, unterzeichnerEmail, setUnterzeichnerEmail } = useUnterzeichnerWahl(isOpen);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -81,6 +85,9 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // Lehnte die Datenbank die Zustimmung mit MIETE_GEAENDERT ab, wird „Trotzdem übernehmen“ angeboten
   const [trotzAbweichungAngeboten, setTrotzAbweichungAngeboten] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ein älterer Vorschaulauf, der später fertig wird, darf den neueren nicht überschreiben — sonst stand die Vorschau
+  // auf alten Eingaben, und Speichern meldete „Vorschau wird noch erstellt“, bis wieder etwas geändert wurde (Review 31.10.2026)
+  const vorschauLauf = useRef(0);
 
   // Editable fields
   const [neueKaltmiete, setNeueKaltmiete] = useState("0.00");
@@ -186,6 +193,8 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   // und das PDF eines zuvor geöffneten Vertrags blieb speicherbar.
   useEffect(() => {
     if (isOpen && contractData) {
+      vorschauLauf.current++;
+      setIsGeneratingPreview(false);
       setPdfBlob(null);
       setPdfStand(null);
       setPdfBlobUrl(null);
@@ -207,7 +216,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
 
   // Build PDF data
   const buildPdfData = useCallback((): MieterhoehungPdfData | null => {
-    if (!contractData) return null;
+    if (!contractData || !unterzeichner) return null;
 
     const mieterList = contractData.mieter || [];
     const fullName = mieterList.map(m => `${m.vorname} ${m.nachname}`).join(' & ');
@@ -239,22 +248,26 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
       wirksamDatum: wirksamStr,
       begruendungsart,
       begruendungText,
+      unterzeichner,
     };
-  }, [contractData, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText]);
+  }, [contractData, unterzeichner, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText]);
 
   // Generate PDF preview with debounce
   const regeneratePreview = useCallback(async () => {
     const pdfData = buildPdfData();
     if (!pdfData) return;
+    const lauf = ++vorschauLauf.current;
 
     setIsGeneratingPreview(true);
     try {
       const blob = await generateMieterhoehungPdf(pdfData);
+      if (lauf !== vorschauLauf.current) return;
       setPdfBlob(blob);
       setPdfStand(JSON.stringify(pdfData));
       if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
       setPdfBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
+      if (lauf !== vorschauLauf.current) return;
       // Kein altes Schreiben stehen lassen, das danach gespeichert werden könnte
       setPdfBlob(null);
       setPdfStand(null);
@@ -265,7 +278,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
         variant: "destructive",
       });
     } finally {
-      setIsGeneratingPreview(false);
+      if (lauf === vorschauLauf.current) setIsGeneratingPreview(false);
     }
   }, [buildPdfData, pdfBlobUrl]);
 
@@ -281,7 +294,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     };
     // Begründung und Vertrag gehören dazu: ohne sie blieb die Begründung (§ 558a) im PDF auf dem alten Stand
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, contractData?.mietvertrag_id, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText]);
+  }, [isOpen, contractData?.mietvertrag_id, unterzeichner, anrede, mieterAdresse, mieterPlzOrt, einheitBezeichnung, neueKaltmiete, neueBetriebskosten, begruendungsart, begruendungText]);
 
   // Cleanup
   useEffect(() => {
@@ -295,6 +308,10 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
     const miete = neueMieteAusEingabe(neueKaltmiete, neueBetriebskosten, contractData?.current_kaltmiete);
     if ('fehler' in miete) {
       toast({ title: "Neue Miete unvollständig", description: miete.fehler, variant: "destructive" });
+      return null;
+    }
+    if (!unterzeichner) {
+      toast({ title: "Unterzeichner wählen", description: "Bitte wählen, wer das Schreiben unterzeichnet.", variant: "destructive" });
       return null;
     }
     if (!pdfBlob || pdfStand !== JSON.stringify(buildPdfData())) {
@@ -720,6 +737,13 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
 
                 <Separator />
 
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold">Unterzeichner</h3>
+                  <UnterzeichnerAuswahl wert={unterzeichnerEmail} onChange={setUnterzeichnerEmail} className="h-8 text-sm" />
+                </div>
+
+                <Separator />
+
                 {/* Recipient fields */}
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold">Empfänger</h3>
@@ -934,7 +958,11 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
                 {isGeneratingPreview && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
               </div>
               <div className="flex-1 rounded-lg overflow-hidden shadow-lg bg-background">
-                {pdfBlobUrl ? (
+                {!unterzeichner ? (
+                  <div className="flex items-center justify-center h-full min-h-[500px] text-sm text-muted-foreground">
+                    Bitte zuerst wählen, wer unterzeichnet.
+                  </div>
+                ) : pdfBlobUrl ? (
                   <iframe
                     src={pdfBlobUrl}
                     title="Mieterhöhungsschreiben Vorschau"

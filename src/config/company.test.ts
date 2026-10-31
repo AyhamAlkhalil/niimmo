@@ -66,6 +66,21 @@ describe('Unterzeichner', () => {
       expect(u.email).toBe(u.email.toLowerCase());
     }
   });
+
+  it('alle Schreiben mit Unterschrift belegen gleich vor und entstehen ohne Wahl nicht (31.10.2026)', () => {
+    const dialoge: Array<[string, RegExp]> = [
+      ['src/components/dashboard/MahnungErstellungModal.tsx', /if \(!contractData \|\| !unterzeichner\) return null;/],
+      ['src/components/dashboard/termination/TerminationDialog.tsx', /if \(!unterzeichner\) return null;/],
+      ['src/components/dashboard/termination/KuendigungsbestaetigungDialog.tsx', /if \(!vertrag\?\.vertragsende \|\| !unterzeichner\) return null;/],
+      ['src/components/dashboard/rent-increase/RentIncreaseModal.tsx', /if \(!contractData \|\| !unterzeichner\) return null;/],
+    ];
+    for (const [datei, sperre] of dialoge) {
+      const quelle = readFileSync(datei, 'utf-8');
+      expect(quelle, datei).toContain('useUnterzeichnerWahl(isOpen)');
+      expect(quelle, datei).toContain('<UnterzeichnerAuswahl');
+      expect(quelle, datei).toMatch(sperre);
+    }
+  });
 });
 
 /**
@@ -89,6 +104,8 @@ describe('Generatoren enthalten keine Firmendaten als Literal', () => {
     'HRB 208111',
     '16/204/50864',
     'Ayhan Yeyrek',
+    // Die Mieterhöhung unterschrieb bis zum 31.10.2026 fest im Code
+    'Mikyas',
     'IHK Hannover',
     'info@niimmo.de',
   ];

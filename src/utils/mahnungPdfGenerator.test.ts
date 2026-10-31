@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fristloseKuendigungFelder } from './contractUtils';
-import { freitextBloecke, generateMahnungPdf, mahnungBetreff, type MahnungPdfData } from './mahnungPdfGenerator';
+import { generateMahnungPdf, mahnungBetreff, type MahnungPdfData } from './mahnungPdfGenerator';
 import { jsPDF } from 'jspdf';
-import { anredeZeilen, beginneBrief, geschuetzt, ladeBriefbilder } from './pdf/briefbogen';
+import { anredeZeilen, beginneBrief, druckBreite, freitextBloecke, geschuetzt, ladeBriefbilder } from './pdf/briefbogen';
 import { COMPANY } from '@/config/company';
 
 /**
@@ -88,7 +88,11 @@ describe('Mahnung im Layout der Briefvorlage', () => {
 
   /** Seiteninhalte mit Schriftgröße je Textstück; in Node lädt kein Bild, die Streams sind nur Seiten */
   async function seiten(daten: MahnungPdfData): Promise<Array<Array<{ text: string; groesse: number }>>> {
-    const roh = Buffer.from(await (await generateMahnungPdf(daten)).arrayBuffer()).toString('latin1');
+    return seitenAus(await generateMahnungPdf(daten));
+  }
+
+  async function seitenAus(pdf: Blob): Promise<Array<Array<{ text: string; groesse: number }>>> {
+    const roh = Buffer.from(await pdf.arrayBuffer()).toString('latin1');
     return [...roh.matchAll(/stream\r?\n([\s\S]*?)endstream/g)].map(([, inhalt]) => {
       const stuecke: Array<{ text: string; groesse: number }> = [];
       let groesse = 0;
@@ -122,12 +126,46 @@ describe('Mahnung im Layout der Briefvorlage', () => {
       .toBe('insgesamt 2.562,00 € nach §§ 543 und § 288 BGB');
   });
 
+  it('misst das geschützte Leerzeichen so breit, wie es gedruckt wird', () => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    // jsPDF selbst misst es fast doppelt so breit — daher die eigene Messung im Blocksatz und in der Tabelle
+    expect(doc.getTextWidth('§\u00A0558')).toBeGreaterThan(doc.getTextWidth('§ 558') + 0.5);
+    expect(druckBreite(doc, '§\u00A0558')).toBeCloseTo(doc.getTextWidth('§ 558'), 1);
+    // „m²“: Helvetica setzt die Hochzahl mit 333/1000 em, jsPDF misst sie mit seinem Ersatzwert
+    const em = 11 * 25.4 / 72;
+    expect(druckBreite(doc, 'm²')).toBeCloseTo(doc.getTextWidth('m') + 0.333 * em, 1);
+    doc.setFont('helvetica', 'bold');
+    expect(druckBreite(doc, '1\u00A0€')).toBeCloseTo(doc.getTextWidth('1 €'), 1);
+    const quelle = readFileSync('src/utils/pdf/briefbogen.ts', 'utf-8');
+    expect(quelle).not.toMatch(/getTextWidth\(w(ort)?\)/);
+  });
+
   it('Freitext: eingerückte Zeilen werden zur Aufzählung, Leerzeilen fallen weg', () => {
     expect(freitextBloecke('Erster Satz.\n  09/2026: 1,00 €\n  10/2026: 2,00 €\n\nLetzter Satz.')).toEqual([
       { art: 'absatz', zeilen: ['Erster Satz.'] },
       { art: 'liste', zeilen: ['09/2026: 1,00 €', '10/2026: 2,00 €'] },
       { art: 'absatz', zeilen: ['Letzter Satz.'] },
     ]);
+  });
+
+  it('eine Tabelle bleibt mit ihrem Einleitungssatz auf einer Seite, gleich wo sie hinfällt', async () => {
+    for (let fuellung = 0; fuellung < 24; fuellung++) {
+      const brief = beginneBrief(new jsPDF('p', 'mm', 'a4'), { logo: null, ihk: null, creditreform: null }, {
+        name: 'Erika Mustermann', zeilen: ['Musterweg 1', '29221 Celle'], datum: '31.10.2026', betreff: 'Test',
+        unterzeichner: COMPANY.unterzeichner[0],
+      });
+      for (let i = 0; i < fuellung; i++) brief.absatz('Füllabsatz mit genug Text, damit er eine ganze Zeile einnimmt und umbricht, zwei Zeilen lang insgesamt.');
+      brief.tabelle(['', 'Alt', 'Neu'], [
+        { zellen: ['Erste', '1,00 €', '2,00 €'] },
+        { zellen: ['Zweite', '3,00 €', '4,00 €'] },
+        { zellen: ['Summe', '4,00 €', '6,00 €'], fett: true },
+      ], { einleitung: 'Die Werte stellen sich wie folgt dar:' });
+      const seite = (await seitenAus(brief.fertig())).find((s) => s.some((t) => t.text === 'Summe'));
+      expect(seite?.some((t) => t.text === 'Die Werte stellen sich wie folgt dar:'), `Füllung ${fuellung}`).toBe(true);
+      expect(seite?.some((t) => t.text === 'Erste'), `Füllung ${fuellung}`).toBe(true);
+    }
   });
 
   it('ein beschädigtes Bild verhindert das Schreiben nicht', () => {
@@ -170,11 +208,18 @@ describe('Mahnung im Layout der Briefvorlage', () => {
 
   it('der Dialog belegt mit dem Angemeldeten vor und erzeugt ohne Wahl kein Schreiben', () => {
     const modal = readFileSync('src/components/dashboard/MahnungErstellungModal.tsx', 'utf-8');
-    expect(modal).toContain('setUnterzeichnerEmail(unterzeichnerZurAnmeldung(user?.email)?.email ?? "")');
+    expect(modal).toContain('useUnterzeichnerWahl(isOpen)');
     expect(modal).toContain('if (!contractData || !unterzeichner) return null;');
     // Herunterladen nur, was zu den jetzigen Eingaben passt; beim Öffnen wird das alte Schreiben verworfen
     expect(modal).toContain('disabled={!pdfBlobUrl || !vorschauAktuell}');
     expect(modal).toMatch(/setGespeichert\(null\);[\s\S]{0,400}vorschauLauf\.current\+\+;[\s\S]{0,200}setPdfBlobUrl\(null\);/);
+  });
+
+  it('die Kündigung in Stufe 3 nennt die Mietsache ohne „in der“ (passte nur zu einer Straße)', async () => {
+    const text = (await seiten({ ...basis, mahnstufe: 3 })).flat().map((s) => s.text).join(' ');
+    expect(text).not.toContain('in der Musterweg');
+    expect(text).toMatch(/über die Wohnung Musterweg 12 B, 29221 Celle, WE außerordentlich/);
+    expect(text).toMatch(/Wir fordern Sie auf, die Wohnung/);
   });
 
   it('eine übliche zweite Mahnung passt auf eine Seite', async () => {

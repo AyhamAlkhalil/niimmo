@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import type { Unterzeichner } from '@/config/company';
-import { anredeFuerSchreiben } from './kuendigungsbestaetigung';
+import { anredeFuerSchreiben, anschriftDerMietsache } from './kuendigungsbestaetigung';
 import { beginneBrief, ladeBriefbilder, type Briefbilder } from './pdf/briefbogen';
 
 export interface MahnungPdfData {
@@ -69,22 +69,6 @@ export function mahnungBetreff(data: Pick<MahnungPdfData, 'mahnstufe' | 'immobil
   return data.immobilieAdresse.trim() ? `${art} – ${data.immobilieAdresse.trim()}` : art;
 }
 
-/**
- * Freitext aus dem Dialog: jede Zeile ein Absatz, eingerückte Zeilen (so übernimmt der Dialog die offenen
- * Posten) werden zur Aufzählung.
- */
-export function freitextBloecke(text: string): Array<{ art: 'absatz' | 'liste'; zeilen: string[] }> {
-  const bloecke: Array<{ art: 'absatz' | 'liste'; zeilen: string[] }> = [];
-  for (const roh of text.split(/\r?\n/)) {
-    if (!roh.trim()) continue;
-    const art = /^\s/.test(roh) ? 'liste' : 'absatz';
-    const letzter = bloecke[bloecke.length - 1];
-    if (art === 'liste' && letzter?.art === 'liste') letzter.zeilen.push(roh.trim());
-    else bloecke.push({ art, zeilen: [roh.trim()] });
-  }
-  return bloecke;
-}
-
 function mahnungSetzen(data: MahnungPdfData, bilder: Briefbilder): Blob {
   const doc = new jsPDF('p', 'mm', 'a4');
   const anrede = anredeFuerSchreiben(data.anrede, data.mieter ?? [{ vorname: '', nachname: data.mieterNachname }]);
@@ -101,10 +85,7 @@ function mahnungSetzen(data: MahnungPdfData, bilder: Briefbilder): Blob {
   // Ein Freitext aus Leerzeichen gilt als leer — sonst bliebe das Schreiben ohne Inhalt und ohne Gesamtbetrag
   const freitext = data.freitext?.trim() ? data.freitext : undefined;
   if (freitext) {
-    for (const block of freitextBloecke(freitext)) {
-      if (block.art === 'liste') brief.aufzaehlung(block.zeilen);
-      else block.zeilen.forEach((z) => brief.absatz(z));
-    }
+    brief.freitext(freitext);
   } else {
     // Aufeinanderfolgende Postenzeilen bilden eine Aufzählung
     let posten: string[] = [];
@@ -143,7 +124,8 @@ function mahnungSetzen(data: MahnungPdfData, bilder: Briefbilder): Blob {
     : null;
 
   if (data.mahnstufe >= 3) {
-    brief.absatz(`Hiermit kündige ich daher das bestehende Mietverhältnis über die Wohnung in der ${data.immobilieAdresse}, ${data.einheitBezeichnung} außerordentlich fristlos. Wir fordern Sie auf die Wohnung unverzüglich, spätestens jedoch bis zum ${data.raeumungsfristDatum || data.zahlungsfristDatum} zu räumen.`);
+    const mietsache = anschriftDerMietsache(data.immobilieAdresse, data.einheitBezeichnung);
+    brief.absatz(`Hiermit kündige ich daher das bestehende Mietverhältnis über die Wohnung${mietsache ? ` ${mietsache}` : ''} außerordentlich fristlos. Wir fordern Sie auf, die Wohnung unverzüglich, spätestens jedoch bis zum ${data.raeumungsfristDatum || data.zahlungsfristDatum} zu räumen.`);
     if (uebergabeText) brief.absatz(uebergabeText);
     brief.absatz(`Unabhängig hiervon setze ich Ihnen – ohne Anerkennung einer Rechtspflicht – eine Frist von ${data.zahlungsfristTage ?? 7} Kalendertagen, spätestens bis zum ${data.zahlungsfristDatum}, um sämtliche Mietrückstände nebst Zinsen vollständig auszugleichen. Sollten Sie die Rückstände nicht innerhalb dieser Frist begleichen, werde ich die fristlose Kündigung vollumfänglich durchsetzen und Räumungsklage erheben.`);
   } else {

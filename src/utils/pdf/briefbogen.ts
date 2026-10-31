@@ -80,7 +80,8 @@ export async function ladeBriefbilder(): Promise<Briefbilder> {
 export interface Briefkopf {
   /** „Frau“ / „Herrn“ über dem Namen, leer ohne Anrede */
   anschrift?: string;
-  name: string;
+  /** Fett; mehrere Personen mit eigener Anrede je eine Zeile */
+  name: string | string[];
   /** Straße, PLZ und Ort */
   zeilen: string[];
   /** TT.MM.JJJJ */
@@ -93,8 +94,13 @@ export interface Briefkopf {
 export interface Brief {
   /** Briefanrede; mehrere Personen stehen wie in der Vorlage je auf einer Zeile. */
   anrede(gruss: string): void;
-  absatz(text: string, opts?: { fett?: boolean; blocksatz?: boolean }): void;
+  /** Mit `titel` steht eine fette Überschrift unmittelbar darüber und bleibt mit dem Absatz zusammen. */
+  absatz(text: string, opts?: { fett?: boolean; blocksatz?: boolean; titel?: string }): void;
   aufzaehlung(punkte: string[]): void;
+  /** Text aus einem Eingabefeld: jede Zeile ein Absatz, eingerückte Zeilen eine Aufzählung */
+  freitext(text: string): void;
+  /** Betragstabelle: erste Spalte links, die übrigen rechtsbündig; bleibt mit ihrem Einleitungssatz auf einer Seite */
+  tabelle(spalten: string[], zeilen: Array<{ zellen: string[]; fett?: boolean }>, opts?: { einleitung?: string }): void;
   /**
    * Schlusssatz, Grußformel, Unterschriftsraum, Name und Funktion des Unterzeichners — nie getrennt, damit keine
    * Seite nur den Gruß trägt
@@ -112,9 +118,48 @@ export function anredeZeilen(gruss: string): string[] {
   return gruss.split(/,\s+(?=sehr geehrte)/).map((teil, i, alle) => (i < alle.length - 1 ? `${teil},` : teil));
 }
 
+/**
+ * Freitext aus einem Eingabefeld: jede Zeile ein Absatz, eingerückte Zeilen bilden eine Aufzählung (so belegt der
+ * Mahnungsdialog die offenen Posten vor), Leerzeilen fallen weg.
+ */
+export function freitextBloecke(text: string): Array<{ art: 'absatz' | 'liste'; zeilen: string[] }> {
+  const bloecke: Array<{ art: 'absatz' | 'liste'; zeilen: string[] }> = [];
+  for (const roh of text.split(/\r?\n/)) {
+    if (!roh.trim()) continue;
+    const art = /^\s/.test(roh) ? 'liste' : 'absatz';
+    const letzter = bloecke[bloecke.length - 1];
+    if (art === 'liste' && letzter?.art === 'liste') letzter.zeilen.push(roh.trim());
+    else bloecke.push({ art, zeilen: [roh.trim()] });
+  }
+  return bloecke;
+}
+
 /** Hält Betrag und Währung sowie Paragraphenzeichen und Zahl in einer Zeile („2.562,00 €“, „§ 288“). */
 export function geschuetzt(text: string): string {
   return text.replace(/(\d) €/g, '$1\u00A0€').replace(/(§§?) (\d)/g, '$1\u00A0$2');
+}
+
+/**
+ * Normbreiten (1/1000 em, in Helvetica und Helvetica fett gleich) der Zeichen, die jsPDF nicht kennt und mit einem
+ * Ersatzwert von etwa 530 misst.
+ */
+const NORMBREITE: Record<string, number> = {
+  '\u00A0': 278, '¹': 333, '²': 333, '³': 333, '¼': 834, '½': 834, '¾': 834, '×': 584,
+};
+
+/**
+ * Breite wie gedruckt. jsPDF misst etwa das geschützte Leerzeichen fast doppelt so breit, wie es druckt (2,06 statt
+ * 1,09 mm bei 11 pt): Im Blocksatz stand nach „§ 558“, nach jedem Betrag und nach „m²“ eine doppelte Lücke, und
+ * Beträge endeten vor der Tabellenkante (31.10.2026).
+ */
+export function druckBreite(doc: jsPDF, text: string): number {
+  const em = doc.getFontSize() / doc.internal.scaleFactor;
+  let breite = doc.getTextWidth(text);
+  for (const zeichen of text) {
+    const norm = NORMBREITE[zeichen];
+    if (norm !== undefined) breite += (norm / 1000) * em - doc.getTextWidth(zeichen);
+  }
+  return breite;
 }
 
 /** Namen und Freitext können Zeichen außerhalb von CP1252 enthalten, die jsPDF als Zeichensalat druckt. */
@@ -170,7 +215,7 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
       ay += ZEILE;
     }
     schrift(SCHRIFT, 'bold');
-    for (const zeile of doc.splitTextToSize(druck(kopf.name), 110) as string[]) {
+    for (const zeile of [kopf.name].flat().flatMap((n) => doc.splitTextToSize(druck(n), 110) as string[])) {
       doc.text(zeile, LINKS, ay);
       ay += ZEILE;
     }
@@ -210,7 +255,7 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
     y = Math.max(BETREFF_Y, ay + ZEILE);
     schrift(SCHRIFT, 'bold');
     const betreff = druck(kopf.betreff);
-    const betreffTeile = doc.getTextWidth(betreff) > BREITE ? betreff.split(' – ') : [betreff];
+    const betreffTeile = druckBreite(doc, betreff) > BREITE ? betreff.split(' – ') : [betreff];
     for (const zeile of betreffTeile.flatMap((teil) => doc.splitTextToSize(teil, BREITE) as string[])) {
       doc.text(zeile, LINKS, y);
       y += ZEILE;
@@ -252,17 +297,23 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
       doc.text(text, x, y);
       return;
     }
-    const luecke = (breite - woerter.reduce((s, w) => s + doc.getTextWidth(w), 0)) / (woerter.length - 1);
+    const luecke = (breite - woerter.reduce((s, w) => s + druckBreite(doc, w), 0)) / (woerter.length - 1);
     let cx = x;
     for (const wort of woerter) {
       doc.text(wort, cx, y);
-      cx += doc.getTextWidth(wort) + luecke;
+      cx += druckBreite(doc, wort) + luecke;
     }
+  }
+
+  function linie(ly: number): void {
+    doc.setDrawColor(...DUNKEL);
+    doc.setLineWidth(0.2);
+    doc.line(LINKS, ly, RECHTS, ly);
   }
 
   ersteSeite();
 
-  return {
+  const brief: Brief = {
     anrede(gruss) {
       const zeilen = anredeZeilen(druck(gruss));
       neuerBlock(zeilen.length);
@@ -273,11 +324,16 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
       }
     },
 
-    absatz(text, { fett = false, blocksatz = true } = {}) {
+    absatz(text, { fett = false, blocksatz = true, titel } = {}) {
       schrift(SCHRIFT, fett ? 'bold' : 'normal');
       const zeilen = doc.splitTextToSize(druck(text), BREITE) as string[];
-      // Kein einzelner Absatzanfang unten auf der Seite
-      neuerBlock(Math.min(zeilen.length, 2));
+      // Kein einzelner Absatzanfang unten auf der Seite, keine Überschrift ohne ihren Absatz
+      neuerBlock(Math.min(zeilen.length, 2) + (titel ? 1 : 0));
+      if (titel) {
+        schrift(SCHRIFT, 'bold');
+        doc.text(druck(titel), LINKS, y);
+        y += ZEILE;
+      }
       zeilen.forEach((zeile, i) => {
         platz(1);
         schrift(SCHRIFT, fett ? 'bold' : 'normal');
@@ -300,6 +356,50 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
           y += ZEILE;
         }
       }
+    },
+
+    freitext(text) {
+      for (const block of freitextBloecke(text)) {
+        if (block.art === 'liste') brief.aufzaehlung(block.zeilen);
+        else block.zeilen.forEach((z) => brief.absatz(z));
+      }
+    },
+
+    tabelle(spalten, zeilen, { einleitung } = {}) {
+      const abstand = ZEILE * 1.3;
+      schrift(SCHRIFT);
+      const einleitungZeilen = einleitung ? (doc.splitTextToSize(druck(einleitung), BREITE) as string[]) : [];
+      if (!blockAmSeitenanfang) y += letzterBlockListe ? ZEILE / 2 : ZEILE;
+      // Einleitung, Leerzeile und alle Zeilen bleiben zusammen — kein „wie folgt dar:“ allein unten auf der Seite
+      const bisKopf = einleitungZeilen.length ? (einleitungZeilen.length + 1) * ZEILE : 0;
+      if (y + bisKopf + zeilen.length * abstand > MAX_Y) folgeseite();
+      blockAmSeitenanfang = false;
+      letzterBlockListe = false;
+      einleitungZeilen.forEach((zeile, i) => {
+        schrift(SCHRIFT);
+        zeileSetzen(zeile, LINKS, BREITE, i < einleitungZeilen.length - 1);
+        y += ZEILE;
+      });
+      if (einleitungZeilen.length) y += ZEILE;
+      // Betragsspalten je 36 mm, die letzte endet am rechten Rand
+      const rechteKante = (i: number) => RECHTS - (spalten.length - 1 - i) * 36;
+      const zeileSetzenTabelle = (zellen: string[], fett: boolean) => {
+        schrift(SCHRIFT, fett ? 'bold' : 'normal');
+        zellen.forEach((zelle, i) => {
+          const text = druck(zelle);
+          if (i === 0) doc.text(text, LINKS, y);
+          else if (text) doc.text(text, rechteKante(i) - druckBreite(doc, text), y);
+        });
+      };
+      zeileSetzenTabelle(spalten, true);
+      linie(y + 1.8);
+      zeilen.forEach((zeile, i) => {
+        y += abstand;
+        // Summenzeilen trennt eine Linie vom Rest
+        if (zeile.fett && i > 0 && !zeilen[i - 1].fett) linie(y - abstand + 1.8);
+        zeileSetzenTabelle(zeile.zellen, !!zeile.fett);
+      });
+      y += ZEILE;
     },
 
     schluss({ satz }) {
@@ -342,6 +442,7 @@ export function beginneBrief(doc: jsPDF, bilder: Briefbilder, kopf: Briefkopf): 
       return doc.output('blob');
     },
   };
+  return brief;
 }
 
 function fusszeile(doc: jsPDF, bilder: Briefbilder): void {

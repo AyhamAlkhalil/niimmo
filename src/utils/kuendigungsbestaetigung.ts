@@ -265,6 +265,14 @@ export function anredeFuerSchreiben(
 }
 
 /**
+ * „Musterweg 12 B, 29221 Celle, WE 3“: Anschrift und Einheit der Mietsache ohne leere Teile. Bis zum 31.10.2026
+ * stand in Kündigung und Mahnung „über die Wohnung in der ${Anschrift}“ — das passte nur zu einer „…straße“.
+ */
+export function anschriftDerMietsache(adresse: string | null | undefined, einheit: string | null | undefined): string {
+  return [adresse, einheit].map((teil) => (teil ?? '').trim()).filter(Boolean).join(', ');
+}
+
+/**
  * Auszugs- bzw. Räumungsdatum im Reiter „Wir kündigen“, wenn sich das Kündigungsdatum ändert.
  *
  * Bis zum 28.10.2026 wurde es nur übernommen, solange es leer war. Ein zuerst gewähltes Datum oder

@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.3",
+    datum: "2026-10-31",
+    aenderungen: [
+      { art: "neu", titel: "Kündigung, Kündigungsbestätigung und Mieterhöhung im Briefbogen der Vorlage – unterzeichnet von dem, der angemeldet ist, oder nach Auswahl" },
+    ],
+  },
+  {
     version: "1.9.2",
     datum: "2026-10-30",
     aenderungen: [

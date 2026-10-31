@@ -16,8 +16,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, AlertTriangle, Download, Mail, Mailbox, Send, ArrowLeft, FileText, Eye, RefreshCw, Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/useAuth";
-import { COMPANY, unterzeichnerZurAnmeldung } from "@/config/company";
+import { useUnterzeichnerWahl } from "@/hooks/useUnterzeichnerWahl";
+import { UnterzeichnerAuswahl } from "./UnterzeichnerAuswahl";
 import { supabase } from "@/integrations/supabase/client";
 import { generateMahnungPdf, mahnungAbsaetze, POSTEN_PRAEFIX, type MahnungPdfData } from "@/utils/mahnungPdfGenerator";
 import { berechneAlleVerzugszinsen, getVerzugszinssatz, verzugspostenAusRueckstand, verzugszinsAufschlag } from "@/utils/verzugszinsen";
@@ -99,7 +99,6 @@ export function MahnungErstellungModal({
   offenePosten = KEINE_POSTEN,
 }: MahnungErstellungModalProps) {
   const { toast } = useToast();
-  const { user } = useAuth();
   const { perioden, fromDB } = useBasiszinsPerioden();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -181,10 +180,8 @@ export function MahnungErstellungModal({
   const [useFreitext, setUseFreitext] = useState(false);
   const [freitext, setFreitext] = useState<string>("");
 
-  // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen (30.10.2026, Kundenwunsch).
-  // Ohne Wahl entsteht kein Schreiben — es soll nie still jemand anderes unterzeichnen.
-  const [unterzeichnerEmail, setUnterzeichnerEmail] = useState<string>("");
-  const unterzeichner = COMPANY.unterzeichner.find((u) => u.email === unterzeichnerEmail) ?? null;
+  // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen. Ohne Wahl entsteht kein Schreiben.
+  const { unterzeichner, unterzeichnerEmail, setUnterzeichnerEmail } = useUnterzeichnerWahl(isOpen);
 
   // Reset when modal opens
   useEffect(() => {
@@ -232,7 +229,6 @@ export function MahnungErstellungModal({
       setUebergabeDatum("");
       setUseFreitext(false);
       setFreitext("");
-      setUnterzeichnerEmail(unterzeichnerZurAnmeldung(user?.email)?.email ?? "");
     }
     // Nur beim Öffnen oder Vertragswechsel: contractData ist bei jedem Rendern des Vertragsfensters
     // ein neues Objekt -- bis zum 27.10.2026 fielen berechnete Zinsen beim Fensterfokus still auf 0
@@ -1061,20 +1057,7 @@ export function MahnungErstellungModal({
                   {/* Unterzeichner */}
                   <div>
                     <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Unterzeichner</h3>
-                    <Label className="text-xs">Rückfragen und Unterschrift</Label>
-                    <Select value={unterzeichnerEmail} onValueChange={setUnterzeichnerEmail}>
-                      <SelectTrigger className="mt-1 h-9">
-                        <SelectValue placeholder="Bitte wählen" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {COMPANY.unterzeichner.map((u) => (
-                          <SelectItem key={u.email} value={u.email}>{u.unterschrift} – {u.funktion}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!unterzeichner && (
-                      <p className="text-xs text-destructive mt-1" role="alert">Bitte wählen, wer das Schreiben unterzeichnet.</p>
-                    )}
+                    <UnterzeichnerAuswahl wert={unterzeichnerEmail} onChange={setUnterzeichnerEmail} />
                   </div>
 
                   <Separator />

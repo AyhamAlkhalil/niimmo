@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   anredeAusDatenbank,
   anredeFuerSchreiben,
+  anschriftDerMietsache,
   anschriftZeile,
   auszugNachKuendigungsdatum,
   briefanrede,
@@ -14,7 +15,10 @@ import {
   vorausgewaehlteEmpfaenger,
   type BestaetigungsDaten,
 } from './kuendigungsbestaetigung';
-import { generateKuendigungPdf, generateKuendigungsbestaetigungPdf } from './kuendigungPdfGenerator';
+import { generateKuendigungPdf, generateKuendigungsbestaetigungPdf, kuendigungBetreff } from './kuendigungPdfGenerator';
+import { COMPANY } from '@/config/company';
+
+const [YEYREK_ODER_ERSTER, MIKYAS_ODER_ZWEITER] = COMPANY.unterzeichner;
 
 const BASIS: BestaetigungsDaten = {
   mieter: [{ vorname: 'Anna', nachname: 'Beispiel', anrede: 'Frau' }],
@@ -172,29 +176,36 @@ describe('Kündigungsbestätigung als PDF', () => {
   it('trägt Betreff, Anschrift, Anrede, Vertragsende und Unterschrift', async () => {
     const text = textAusPdf(await bytesVon(await generateKuendigungsbestaetigungPdf({
       ...BASIS,
+      unterzeichner: MIKYAS_ODER_ZWEITER,
       mieter: [
         { vorname: 'Anna', nachname: 'Beispiel', anrede: 'Frau' },
         { vorname: 'Max', nachname: 'Probe', anrede: 'Herr' },
       ],
     })));
-    expect(text).toContain('Bestätigung Ihrer Kündigung');
-    expect(text).toContain('MV – Musterstraße 1, 31319 Sehnde, WE 03');
+    // Betreff seit 31.10.2026 wie in der Briefvorlage; die Einheit steht im Text
+    expect(text).toContain('Bestätigung Ihrer Kündigung – Musterstraße 1, 31319 Sehnde');
+    expect(text).toContain('WE 03, Musterstraße 1, 31319 Sehnde');
     expect(text).toContain('Frau Anna Beispiel');
     expect(text).toContain('Herrn Max Probe');
     expect(text).toContain('Sehr geehrte Frau Beispiel, sehr geehrter Herr Probe,');
     expect(text).toContain('Sehnde, 16.09.2026');
     expect(text).toContain('endet damit zum 31.12.2026.');
-    expect(text).toContain('Dennis Mikyas');
+    expect(text).toContain(MIKYAS_ODER_ZWEITER.unterschrift);
+    expect(text).toContain(MIKYAS_ODER_ZWEITER.telefon);
+    // Beide Namen stehen in der Fußzeile bei den Geschäftsführern — unterscheiden lässt sich am Rückfragenblock
+    expect(text).not.toContain(YEYREK_ODER_ERSTER.kontaktname);
+    expect(text).not.toContain(YEYREK_ODER_ERSTER.telefon);
     expect(text).toContain('HRB 208111');
   });
 
   it('schreibt nach einem Seitenumbruch in Brieftextschrift weiter, nicht in der Fußzeilenschrift', async () => {
     const lang = Array.from({ length: 45 }, (_, i) => `Absatz ${i} mit etwas Text, der eine Zeile füllt.`).join('\n\n');
-    const roh = rohtext(await bytesVon(await generateKuendigungsbestaetigungPdf({ ...BASIS, freitext: lang })));
+    const roh = rohtext(await bytesVon(await generateKuendigungsbestaetigungPdf({ ...BASIS, unterzeichner: YEYREK_ODER_ERSTER, freitext: lang })));
     const seiten = roh.split(/\bstream\b/).filter(s => s.includes(' Tf'));
     expect(seiten.length).toBeGreaterThan(1);
+    // Briefschrift der Vorlage seit 31.10.2026: 11 pt
     for (const folgeseite of seiten.slice(1)) {
-      expect(folgeseite.match(/\/F\d+ ([\d.]+) Tf/)?.[1]).toBe('10');
+      expect(folgeseite.match(/\/F\d+ ([\d.]+) Tf/)?.[1]).toBe('11');
     }
   });
 
@@ -213,14 +224,33 @@ describe('Kündigungsbestätigung als PDF', () => {
       kuendigungstyp: 'ordentlich',
       datum: '16.09.2026',
       auszugsdatum: '31.12.2026',
+      unterzeichner: YEYREK_ODER_ERSTER,
     })));
-    expect(text).toContain('Kündigung des Mietvertrages');
+    expect(text).toContain('Kündigung des Mietvertrages – Musterstraße 1, 31319 Sehnde');
     // Seit 27.10.2026 gebeugt statt „Sehr geehrte/r Herr Probe,“, Anschrift „Herrn“ (anredeFuerSchreiben)
     expect(text).toContain('Herrn Max Probe');
     expect(text).toContain('Sehr geehrter Herr Probe,');
     expect(text).toContain('ordentlich zum 31.12.2026.');
     expect(text).toContain('Grund der Kündigung: Eigenbedarf');
     expect(text).toContain('Mit freundlichem Gruß');
+    // Seit 31.10.2026 ohne „in der“, das nur zu einer Straße passte
+    expect(text).toContain('über die Wohnung Musterstraße 1, 31319 Sehnde, WE 03, begründet');
+    expect(text).toContain(YEYREK_ODER_ERSTER.kontaktname);
+    expect(text).toContain(YEYREK_ODER_ERSTER.unterschrift);
+    expect(text).not.toContain(MIKYAS_ODER_ZWEITER.kontaktname);
+    expect(text).not.toContain(MIKYAS_ODER_ZWEITER.telefon);
+  });
+
+  it('Betreff wie in der Vorlage: Art der Kündigung – Anschrift', () => {
+    expect(kuendigungBetreff({ kuendigungstyp: 'ausserordentlich_fristlos', immobilieAdresse: 'Musterweg 2, 31319 Sehnde' }))
+      .toBe('Außerordentliche fristlose Kündigung des Mietvertrages – Musterweg 2, 31319 Sehnde');
+    expect(kuendigungBetreff({ kuendigungstyp: 'ordentlich', immobilieAdresse: ' ' })).toBe('Kündigung des Mietvertrages');
+  });
+
+  it('nennt die Mietsache ohne leere Teile', () => {
+    expect(anschriftDerMietsache('Musterweg 2, 31319 Sehnde', 'WE 3')).toBe('Musterweg 2, 31319 Sehnde, WE 3');
+    expect(anschriftDerMietsache(' Musterweg 2 ', '')).toBe('Musterweg 2');
+    expect(anschriftDerMietsache(null, undefined)).toBe('');
   });
 });
 
@@ -393,7 +423,8 @@ describe('Wir kündigen: Auszugs- und Räumungsdatum', () => {
     const dialog = readFileSync('src/components/dashboard/termination/TerminationDialog.tsx', 'utf-8');
     expect(dialog).not.toContain('if (!auszugsdatum) setAuszugsdatum(e.target.value);');
     expect(dialog).toContain('setAuszugsdatum(auszugNachKuendigungsdatum(auszugsdatum, kuendigungsdatum, e.target.value));');
-    expect(dialog).toContain('disabled={isSubmitting || !kuendigungsdatum || !pdfBlob || !!raeumungsFehler || zahlungsverzugFristlos}');
+    // Seit 31.10.2026 nur mit einer Vorschau zu den jetzigen Eingaben (Unterzeichner eingeschlossen)
+    expect(dialog).toContain('disabled={isSubmitting || !kuendigungsdatum || !vorschauAktuell || !!raeumungsFehler || zahlungsverzugFristlos}');
     // Fristlos wegen Zahlungsverzug nur über die Mahnung Stufe 3 (Prüfung 29.10.2026)
     expect(dialog).toContain("kuendigungstyp === 'ausserordentlich_fristlos' && kuendigungsgrund === 'Zahlungsverzug'");
     expect(dialog).toMatch(/if \(raeumungsFehler\) \{\s*toast\(/);

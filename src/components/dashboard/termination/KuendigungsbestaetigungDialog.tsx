@@ -17,7 +17,9 @@ import { useActivityLog } from "@/hooks/useActivityLog";
 import { supabase } from "@/integrations/supabase/client";
 import { getVertragsende } from "@/utils/contractUtils";
 import { formatDatum } from "@/utils/pdf/briefLayout";
-import { generateKuendigungsbestaetigungPdf } from "@/utils/kuendigungPdfGenerator";
+import { generateKuendigungsbestaetigungPdf, type KuendigungsbestaetigungPdfData } from "@/utils/kuendigungPdfGenerator";
+import { useUnterzeichnerWahl } from "@/hooks/useUnterzeichnerWahl";
+import { UnterzeichnerAuswahl } from "../UnterzeichnerAuswahl";
 import {
   anredeAusDatenbank,
   bestaetigungsAbsaetze,
@@ -26,7 +28,6 @@ import {
   mailadressenDerMieter,
   vorausgewaehlteEmpfaenger,
   type Anrede,
-  type BestaetigungsDaten,
 } from "@/utils/kuendigungsbestaetigung";
 
 interface KuendigungsbestaetigungDialogProps {
@@ -154,6 +155,8 @@ export const KuendigungsbestaetigungDialog = ({
   const [freitext, setFreitext] = useState("");
   const [bemerkungen, setBemerkungen] = useState("");
   const [ausgewaehlt, setAusgewaehlt] = useState<string[]>([]);
+  // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen. Ohne Wahl entsteht kein Schreiben.
+  const { unterzeichner, unterzeichnerEmail, setUnterzeichnerEmail } = useUnterzeichnerWahl(isOpen);
 
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   /** Formularstand, aus dem `pdfBlob` erzeugt wurde. */
@@ -199,8 +202,8 @@ export const KuendigungsbestaetigungDialog = ({
   const adressen = useMemo(() => mailadressenDerMieter(vertrag?.mieter ?? []), [vertrag]);
   const versandEmpfaenger = useMemo(() => empfaengerDerAuswahl(ausgewaehlt, adressen), [ausgewaehlt, adressen]);
 
-  const pdfDaten = useMemo((): BestaetigungsDaten | null => {
-    if (!vertrag?.vertragsende) return null;
+  const pdfDaten = useMemo((): KuendigungsbestaetigungPdfData | null => {
+    if (!vertrag?.vertragsende || !unterzeichner) return null;
     return {
       mieter: vertrag.mieter.map(m => ({
         vorname: m.vorname ?? "",
@@ -222,8 +225,9 @@ export const KuendigungsbestaetigungDialog = ({
       neueAnschriftBekannt: vertrag.neueAnschriftBekannt,
       freitext: useFreitext ? freitext : undefined,
       bemerkungen: bemerkungen || undefined,
+      unterzeichner,
     };
-  }, [vertrag, anreden, strasse, plzOrt, einheitBezeichnung, schreibenVom, eingangAm, useFreitext, freitext, bemerkungen]);
+  }, [vertrag, unterzeichner, anreden, strasse, plzOrt, einheitBezeichnung, schreibenVom, eingangAm, useFreitext, freitext, bemerkungen]);
 
   const vorschauErzeugen = useCallback(async () => {
     if (!pdfDaten) return;
@@ -454,6 +458,13 @@ export const KuendigungsbestaetigungDialog = ({
                 <Separator />
 
                 <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Unterzeichner</h3>
+                  <UnterzeichnerAuswahl wert={unterzeichnerEmail} onChange={setUnterzeichnerEmail} />
+                </div>
+
+                <Separator />
+
+                <div>
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Empfänger im Brief</h3>
                   {vertrag.mieter.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Diesem Vertrag ist kein Mieter zugeordnet — der Brief grüßt allgemein.</p>
@@ -588,7 +599,7 @@ export const KuendigungsbestaetigungDialog = ({
                 )}
 
                 <div className="flex flex-wrap gap-2 pb-4">
-                  <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfUrl}>
+                  <Button variant="outline" size="sm" onClick={handleDownload} disabled={!pdfUrl || !vorschauAktuell}>
                     <Download className="h-4 w-4 mr-1.5" />Download
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleSpeichern} disabled={!vorschauAktuell || beschaeftigt || istGespeichert}>
@@ -617,7 +628,11 @@ export const KuendigungsbestaetigungDialog = ({
                 <span>PDF-Vorschau</span>
               </div>
               <div className="flex-1 p-4 overflow-auto">
-                {vorschauFehler ? (
+                {!unterzeichner ? (
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                    <p className="text-sm">Bitte zuerst wählen, wer unterzeichnet.</p>
+                  </div>
+                ) : vorschauFehler ? (
                   <div className="flex flex-col items-center justify-center h-full gap-2 text-center">
                     <AlertTriangle className="h-8 w-8 text-destructive" />
                     <p className="text-sm">Das Schreiben konnte nicht erzeugt werden.</p>
