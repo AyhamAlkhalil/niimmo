@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { pruefeErhoehungsdaten, erhoehungsAnrede, generateMieterhoehungPdf, mieterhoehungBetreff, BEGRUENDUNGS_BEZEICHNUNG, type MieterhoehungPdfData } from './mieterhoehungPdfGenerator';
-import { COMPANY } from '@/config/company';
+import type { Unterzeichner } from './unterzeichner';
+
+// Erfundene Unterzeichner; die echten stehen seit 02.11.2026 in der Tabelle briefunterzeichner
+const UNTERZEICHNER_A: Unterzeichner = { email: 'muster@niimmo.de', kontaktname: 'Frau Maria Muster, M. A.', unterschrift: 'Maria Muster (M. A.)', funktion: 'Hausverwaltung', telefon: '05138 - 600 72 70' };
+const UNTERZEICHNER_B: Unterzeichner = { email: 'vogel@niimmo.de', kontaktname: 'Herr Bernd Vogel', unterschrift: 'Bernd Vogel', funktion: 'Prokurist', telefon: '05138 - 600 72 77' };
 
 const BASIS: MieterhoehungPdfData = {
   anrede: 'Herr',
@@ -20,7 +24,7 @@ const BASIS: MieterhoehungPdfData = {
   wirksamDatum: '01.12.2026',
   begruendungsart: 'mietspiegel',
   begruendungText: 'Mietspiegel Sehnde 2025, Feld C3: 8,10–9,40 €/m².',
-  unterzeichner: COMPANY.unterzeichner[0],
+  unterzeichner: UNTERZEICHNER_A,
 };
 
 /** Textstücke des PDFs; Oktal-Escapes sind WinAnsi-Bytes, „\(“ maskierte Zeichen */
@@ -82,7 +86,7 @@ describe('Erhöhungsverlangen im Briefbogen der Vorlage', () => {
   });
 
   it('unterschreibt der gewählte Unterzeichner, nicht ein fester Name', async () => {
-    for (const [gewaehlt, anderer] of [[COMPANY.unterzeichner[0], COMPANY.unterzeichner[1]], [COMPANY.unterzeichner[1], COMPANY.unterzeichner[0]]]) {
+    for (const [gewaehlt, anderer] of [[UNTERZEICHNER_A, UNTERZEICHNER_B], [UNTERZEICHNER_B, UNTERZEICHNER_A]]) {
       const texte = await pdfTexte({ ...BASIS, unterzeichner: gewaehlt });
       expect(texte).toContain(gewaehlt.unterschrift);
       expect(texte).toContain(gewaehlt.kontaktname);

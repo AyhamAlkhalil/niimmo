@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.4",
+    datum: "2026-11-02",
+    aenderungen: [
+      { art: "neu", titel: "Unterzeichner: Weitere Personen tragen sich bei Mahnung, Kündigung und Mieterhöhung mit Name, Funktion, Telefon und E-Mail selbst ein" },
+      { art: "neu", titel: "Vertragsbearbeitung: Trifft eine geänderte Laufzeit Monate vor der letzten Mieterhöhung, zeigt ein Hinweis die Beträge und lässt wählen – anpassen oder unverändert lassen" },
+    ],
+  },
+  {
     version: "1.9.3",
     datum: "2026-10-31",
     aenderungen: [

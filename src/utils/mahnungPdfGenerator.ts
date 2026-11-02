@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import type { Unterzeichner } from '@/config/company';
+import type { Unterzeichner } from './unterzeichner';
 import { anredeFuerSchreiben, anschriftDerMietsache } from './kuendigungsbestaetigung';
 import { beginneBrief, ladeBriefbilder, type Briefbilder } from './pdf/briefbogen';
 

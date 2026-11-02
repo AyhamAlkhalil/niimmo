@@ -181,7 +181,7 @@ export function MahnungErstellungModal({
   const [freitext, setFreitext] = useState<string>("");
 
   // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen. Ohne Wahl entsteht kein Schreiben.
-  const { unterzeichner, unterzeichnerEmail, setUnterzeichnerEmail } = useUnterzeichnerWahl(isOpen);
+  const { unterzeichner, unterzeichnerId, setUnterzeichnerId } = useUnterzeichnerWahl(isOpen);
 
   // Reset when modal opens
   useEffect(() => {
@@ -1057,7 +1057,7 @@ export function MahnungErstellungModal({
                   {/* Unterzeichner */}
                   <div>
                     <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">Unterzeichner</h3>
-                    <UnterzeichnerAuswahl wert={unterzeichnerEmail} onChange={setUnterzeichnerEmail} />
+                    <UnterzeichnerAuswahl wert={unterzeichnerId} onChange={setUnterzeichnerId} />
                   </div>
 
                   <Separator />

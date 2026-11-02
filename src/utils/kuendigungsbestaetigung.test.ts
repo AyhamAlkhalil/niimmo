@@ -16,9 +16,11 @@ import {
   type BestaetigungsDaten,
 } from './kuendigungsbestaetigung';
 import { generateKuendigungPdf, generateKuendigungsbestaetigungPdf, kuendigungBetreff } from './kuendigungPdfGenerator';
-import { COMPANY } from '@/config/company';
+import type { Unterzeichner } from './unterzeichner';
 
-const [YEYREK_ODER_ERSTER, MIKYAS_ODER_ZWEITER] = COMPANY.unterzeichner;
+// Erfundene Unterzeichner; die echten stehen seit 02.11.2026 in der Tabelle briefunterzeichner
+const UNTERZEICHNER_A: Unterzeichner = { email: 'muster@niimmo.de', kontaktname: 'Frau Maria Muster, M. A.', unterschrift: 'Maria Muster (M. A.)', funktion: 'Hausverwaltung', telefon: '05138 - 600 72 70' };
+const UNTERZEICHNER_B: Unterzeichner = { email: 'vogel@niimmo.de', kontaktname: 'Herr Bernd Vogel', unterschrift: 'Bernd Vogel', funktion: 'Prokurist', telefon: '05138 - 600 72 77' };
 
 const BASIS: BestaetigungsDaten = {
   mieter: [{ vorname: 'Anna', nachname: 'Beispiel', anrede: 'Frau' }],
@@ -176,7 +178,7 @@ describe('Kündigungsbestätigung als PDF', () => {
   it('trägt Betreff, Anschrift, Anrede, Vertragsende und Unterschrift', async () => {
     const text = textAusPdf(await bytesVon(await generateKuendigungsbestaetigungPdf({
       ...BASIS,
-      unterzeichner: MIKYAS_ODER_ZWEITER,
+      unterzeichner: UNTERZEICHNER_B,
       mieter: [
         { vorname: 'Anna', nachname: 'Beispiel', anrede: 'Frau' },
         { vorname: 'Max', nachname: 'Probe', anrede: 'Herr' },
@@ -190,17 +192,17 @@ describe('Kündigungsbestätigung als PDF', () => {
     expect(text).toContain('Sehr geehrte Frau Beispiel, sehr geehrter Herr Probe,');
     expect(text).toContain('Sehnde, 16.09.2026');
     expect(text).toContain('endet damit zum 31.12.2026.');
-    expect(text).toContain(MIKYAS_ODER_ZWEITER.unterschrift);
-    expect(text).toContain(MIKYAS_ODER_ZWEITER.telefon);
-    // Beide Namen stehen in der Fußzeile bei den Geschäftsführern — unterscheiden lässt sich am Rückfragenblock
-    expect(text).not.toContain(YEYREK_ODER_ERSTER.kontaktname);
-    expect(text).not.toContain(YEYREK_ODER_ERSTER.telefon);
+    expect(text).toContain(UNTERZEICHNER_B.unterschrift);
+    expect(text).toContain(UNTERZEICHNER_B.telefon);
+    for (const wert of [UNTERZEICHNER_A.kontaktname, UNTERZEICHNER_A.unterschrift, UNTERZEICHNER_A.telefon]) {
+      expect(text).not.toContain(wert);
+    }
     expect(text).toContain('HRB 208111');
   });
 
   it('schreibt nach einem Seitenumbruch in Brieftextschrift weiter, nicht in der Fußzeilenschrift', async () => {
     const lang = Array.from({ length: 45 }, (_, i) => `Absatz ${i} mit etwas Text, der eine Zeile füllt.`).join('\n\n');
-    const roh = rohtext(await bytesVon(await generateKuendigungsbestaetigungPdf({ ...BASIS, unterzeichner: YEYREK_ODER_ERSTER, freitext: lang })));
+    const roh = rohtext(await bytesVon(await generateKuendigungsbestaetigungPdf({ ...BASIS, unterzeichner: UNTERZEICHNER_A, freitext: lang })));
     const seiten = roh.split(/\bstream\b/).filter(s => s.includes(' Tf'));
     expect(seiten.length).toBeGreaterThan(1);
     // Briefschrift der Vorlage seit 31.10.2026: 11 pt
@@ -224,7 +226,7 @@ describe('Kündigungsbestätigung als PDF', () => {
       kuendigungstyp: 'ordentlich',
       datum: '16.09.2026',
       auszugsdatum: '31.12.2026',
-      unterzeichner: YEYREK_ODER_ERSTER,
+      unterzeichner: UNTERZEICHNER_A,
     })));
     expect(text).toContain('Kündigung des Mietvertrages – Musterstraße 1, 31319 Sehnde');
     // Seit 27.10.2026 gebeugt statt „Sehr geehrte/r Herr Probe,“, Anschrift „Herrn“ (anredeFuerSchreiben)
@@ -235,10 +237,10 @@ describe('Kündigungsbestätigung als PDF', () => {
     expect(text).toContain('Mit freundlichem Gruß');
     // Seit 31.10.2026 ohne „in der“, das nur zu einer Straße passte
     expect(text).toContain('über die Wohnung Musterstraße 1, 31319 Sehnde, WE 03, begründet');
-    expect(text).toContain(YEYREK_ODER_ERSTER.kontaktname);
-    expect(text).toContain(YEYREK_ODER_ERSTER.unterschrift);
-    expect(text).not.toContain(MIKYAS_ODER_ZWEITER.kontaktname);
-    expect(text).not.toContain(MIKYAS_ODER_ZWEITER.telefon);
+    expect(text).toContain(UNTERZEICHNER_A.kontaktname);
+    expect(text).toContain(UNTERZEICHNER_A.unterschrift);
+    expect(text).not.toContain(UNTERZEICHNER_B.kontaktname);
+    expect(text).not.toContain(UNTERZEICHNER_B.telefon);
   });
 
   it('Betreff wie in der Vorlage: Art der Kündigung – Anschrift', () => {

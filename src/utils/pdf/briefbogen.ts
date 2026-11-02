@@ -11,7 +11,8 @@
  * kommen aus COMPANY, nicht aus der Vorlage (deren Steuernummer ist die falsche, siehe company.ts).
  */
 import type jsPDF from 'jspdf';
-import { COMPANY, type Unterzeichner } from '@/config/company';
+import { COMPANY } from '@/config/company';
+import type { Unterzeichner } from '../unterzeichner';
 import type { RGB } from './briefLayout';
 import { pdfText } from './pdfText';
 

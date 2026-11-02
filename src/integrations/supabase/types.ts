@@ -358,6 +358,39 @@ export type Database = {
         }
         Relationships: []
       }
+      briefunterzeichner: {
+        Row: {
+          created_at: string
+          email: string
+          funktion: string
+          id: string
+          kontaktname: string
+          telefon: string
+          unterschrift: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          funktion: string
+          id?: string
+          kontaktname: string
+          telefon: string
+          unterschrift: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          funktion?: string
+          id?: string
+          kontaktname?: string
+          telefon?: string
+          unterschrift?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       csv_uploads: {
         Row: {
           anzahl_datensaetze: number | null

@@ -4,7 +4,11 @@ import { fristloseKuendigungFelder } from './contractUtils';
 import { generateMahnungPdf, mahnungBetreff, type MahnungPdfData } from './mahnungPdfGenerator';
 import { jsPDF } from 'jspdf';
 import { anredeZeilen, beginneBrief, druckBreite, freitextBloecke, geschuetzt, ladeBriefbilder } from './pdf/briefbogen';
-import { COMPANY } from '@/config/company';
+import type { Unterzeichner } from './unterzeichner';
+
+// Erfundene Unterzeichner; die echten stehen seit 02.11.2026 in der Tabelle briefunterzeichner
+const UNTERZEICHNER_A: Unterzeichner = { email: 'muster@niimmo.de', kontaktname: 'Frau Maria Muster, M. A.', unterschrift: 'Maria Muster (M. A.)', funktion: 'Hausverwaltung', telefon: '05138 - 600 72 70' };
+const UNTERZEICHNER_B: Unterzeichner = { email: 'vogel@niimmo.de', kontaktname: 'Herr Bernd Vogel', unterschrift: 'Bernd Vogel', funktion: 'Prokurist', telefon: '05138 - 600 72 77' };
 
 /**
  * Ab Stufe 3 enthält das Mahnschreiben eine echte Kündigungserklärung
@@ -83,7 +87,7 @@ describe('Mahnung im Layout der Briefvorlage', () => {
     zahlungsfristDatum: '13.11.2026',
     zahlungsfristTage: 14,
     raeumungsfristDatum: '30.11.2026',
-    unterzeichner: COMPANY.unterzeichner[0],
+    unterzeichner: UNTERZEICHNER_A,
   };
 
   /** Seiteninhalte mit Schriftgröße je Textstück; in Node lädt kein Bild, die Streams sind nur Seiten */
@@ -154,7 +158,7 @@ describe('Mahnung im Layout der Briefvorlage', () => {
     for (let fuellung = 0; fuellung < 24; fuellung++) {
       const brief = beginneBrief(new jsPDF('p', 'mm', 'a4'), { logo: null, ihk: null, creditreform: null }, {
         name: 'Erika Mustermann', zeilen: ['Musterweg 1', '29221 Celle'], datum: '31.10.2026', betreff: 'Test',
-        unterzeichner: COMPANY.unterzeichner[0],
+        unterzeichner: UNTERZEICHNER_A,
       });
       for (let i = 0; i < fuellung; i++) brief.absatz('Füllabsatz mit genug Text, damit er eine ganze Zeile einnimmt und umbricht, zwei Zeilen lang insgesamt.');
       brief.tabelle(['', 'Alt', 'Neu'], [
@@ -173,7 +177,7 @@ describe('Mahnung im Layout der Briefvorlage', () => {
     const kaputt = 'data:image/png;base64,PGh0bWw+';
     const brief = beginneBrief(doc, { logo: kaputt, ihk: kaputt, creditreform: kaputt }, {
       name: 'Erika Mustermann', zeilen: ['Musterweg 1', '29221 Celle'], datum: '30.10.2026', betreff: 'Erste Mahnung',
-      unterzeichner: COMPANY.unterzeichner[0],
+      unterzeichner: UNTERZEICHNER_A,
     });
     brief.anrede('Guten Tag Erika Mustermann,');
     expect(brief.fertig().size).toBeGreaterThan(0);
@@ -194,7 +198,7 @@ describe('Mahnung im Layout der Briefvorlage', () => {
   });
 
   it('Rückfragenblock und Unterschrift nennen den gewählten Unterzeichner, nicht einen festen', async () => {
-    const [eins, zwei] = COMPANY.unterzeichner;
+    const [eins, zwei] = [UNTERZEICHNER_A, UNTERZEICHNER_B];
     for (const [gewaehlt, anderer] of [[eins, zwei], [zwei, eins]]) {
       const texte = (await seiten({ ...basis, unterzeichner: gewaehlt })).flat().map((s) => s.text);
       for (const wert of [gewaehlt.kontaktname, gewaehlt.telefon, gewaehlt.email, gewaehlt.unterschrift, gewaehlt.funktion]) {

@@ -71,7 +71,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
   const queryClient = useQueryClient();
   const { vpi: aktuellerVpi } = useAktuellerVpi();
   // Unterschreibt, wer angemeldet ist; Buchhaltung und Entwicklung wählen. Ohne Wahl entsteht kein Schreiben.
-  const { unterzeichner, unterzeichnerEmail, setUnterzeichnerEmail } = useUnterzeichnerWahl(isOpen);
+  const { unterzeichner, unterzeichnerId, setUnterzeichnerId } = useUnterzeichnerWahl(isOpen);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
@@ -739,7 +739,7 @@ export function RentIncreaseModal({ isOpen, onClose, contractData }: RentIncreas
 
                 <div className="space-y-3">
                   <h3 className="text-sm font-semibold">Unterzeichner</h3>
-                  <UnterzeichnerAuswahl wert={unterzeichnerEmail} onChange={setUnterzeichnerEmail} className="h-8 text-sm" />
+                  <UnterzeichnerAuswahl wert={unterzeichnerId} onChange={setUnterzeichnerId} className="h-8 text-sm" />
                 </div>
 
                 <Separator />
