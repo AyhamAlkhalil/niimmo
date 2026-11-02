@@ -16,6 +16,7 @@ import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
 import { berechneMietkontostand, nurFaelligeForderungen } from "@/utils/rueckstandsberechnung";
 import { offenePosten } from "@/utils/rueckstandSeit";
 import { MietaenderungBestaetigung } from "./rent-increase/MietaenderungBestaetigung";
+import { VormonateErhoehungBestaetigung } from "./rent-increase/VormonateErhoehungBestaetigung";
 import { getVertragsende } from "@/utils/contractUtils";
 
 interface MietvertragDetailsModalProps {
@@ -48,7 +49,7 @@ export default function MietvertragDetailsModal({
   const [bestaetigungVorbelegung, setBestaetigungVorbelegung] = useState<{ schreibenVom: string | null; eingangAm: string | null } | null>(null);
 
   // All editing state + mutations
-  const mutations = useMietvertragMutations({ vertragId, vertrag, einheitData, mieter });
+  const mutations = useMietvertragMutations({ vertragId, vertrag, einheitData, mieter, forderungen });
 
   // Utility functions
   const formatDatum = (datum: string) => {
@@ -305,6 +306,16 @@ export default function MietvertragDetailsModal({
       onKorrektur={() => mutations.handleRentIncreaseConfirm(null)}
       onErhoehung={(giltAb) => mutations.handleRentIncreaseConfirm(giltAb)}
       onAbbrechen={mutations.handleRentIncreaseCancel}
+    />
+
+    {/* Laufzeit geändert, Monate vor der letzten Mieterhöhung betroffen: anpassen oder unverändert (02.11.2026) */}
+    <VormonateErhoehungBestaetigung
+      open={mutations.vormonateFrage !== null}
+      monate={mutations.vormonateFrage?.monate ?? []}
+      erhoehungAb={mutations.vormonateFrage?.erhoehungAb ?? null}
+      onAnpassen={() => mutations.handleVormonateWahl(true)}
+      onUnveraendert={() => mutations.handleVormonateWahl(false)}
+      onAbbrechen={mutations.handleVormonateAbbrechen}
     />
     </>
   );

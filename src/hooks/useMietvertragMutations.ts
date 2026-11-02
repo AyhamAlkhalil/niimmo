@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,8 @@ import { geaenderteKaution, kautionFeldBezeichnung, leseKautionsbetrag } from "@
 import { geaenderteMietbetraege, mietFeldBezeichnung, mietfeldVorbelegung } from "@/utils/vertragMiete";
 import { EURO_BETRAG_HINWEIS, leseEuroBetrag } from "@/utils/euroBetrag";
 import { istPlausiblesDatum } from "@/utils/pdf/briefLayout";
+import { erhoehungsMonat, monateVorErhoehung, type MonatVorErhoehung } from "@/utils/monateVorErhoehung";
+import type { KontoForderung } from "@/utils/rueckstandsberechnung";
 import type { Database } from "@/integrations/supabase/types";
 
 type Mietvertrag = Database["public"]["Tables"]["mietvertrag"]["Row"];
@@ -33,9 +35,11 @@ interface UseMietvertragMutationsProps {
   vertrag: Mietvertrag | null;
   einheitData: Einheit | null;
   mieter: Mieter[] | undefined;
+  /** Forderungen des Vertrags, für den Hinweis auf Monate vor der letzten Mieterhöhung */
+  forderungen?: readonly KontoForderung[];
 }
 
-export function useMietvertragMutations({ vertragId, vertrag, einheitData, mieter }: UseMietvertragMutationsProps) {
+export function useMietvertragMutations({ vertragId, vertrag, einheitData, mieter, forderungen }: UseMietvertragMutationsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
@@ -55,6 +59,16 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   const [pendingKaltmieteValue, setPendingKaltmieteValue] = useState<number | null>(null);
   const [pendingGlobalUpdates, setPendingGlobalUpdates] = useState<Partial<Mietvertrag> | null>(null);
 
+  // Monate vor der letzten Mieterhöhung (02.11.2026, Kunde: „kurz hinweisen und dem User die Wahl lassen“): Trifft eine
+  // Änderung von Beginn oder Ende solche Monate, fragt der Dialog, ob sie angepasst werden. Die Wahl gilt für das eine
+  // Speichern; unverändert speichert über die RPC mietvertrag_speichern, sonst wie gewohnt.
+  const [vormonateFrage, setVormonateFrage] = useState<{
+    monate: MonatVorErhoehung[];
+    erhoehungAb: string | null;
+    fortsetzen: (anpassen: boolean) => Promise<void>;
+  } | null>(null);
+  const vormonateAnpassen = useRef(true);
+
   // Dialog visibility state
   const [showCreateForderungModal, setShowCreateForderungModal] = useState(false);
   const [showTerminationDialog, setShowTerminationDialog] = useState(false);
@@ -67,6 +81,51 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail'] }),
     queryClient.invalidateQueries({ queryKey: ['alle-mietvertrag-immobilie'] }),
   ]);
+
+  /** Schreibt Felder des Vertrags; nach der Wahl „unverändert lassen“ über die RPC, die die Vormonate auslässt */
+  const speichereVertrag = async (aenderungen: Partial<Mietvertrag>) => {
+    const anpassen = vormonateAnpassen.current;
+    vormonateAnpassen.current = true;
+    if (anpassen) return supabase.from('mietvertrag').update(aenderungen).eq('id', vertragId);
+    return supabase.rpc('mietvertrag_speichern', {
+      p_id: vertragId,
+      p_aenderungen: aenderungen as unknown as Database["public"]["Functions"]["mietvertrag_speichern"]["Args"]["p_aenderungen"],
+      p_vor_erhoehung_anpassen: false,
+    });
+  };
+
+  /** Fragt nach, wenn die neue Laufzeit Monate vor der letzten Mieterhöhung träfe; sonst gleich weiter */
+  const mitVormonatenWeiter = async (
+    neu: { start_datum: string | null; ende_datum: string | null; kuendigungsdatum?: string | null },
+    weiter: () => Promise<void>
+  ) => {
+    const monate = monateVorErhoehung(vertrag, neu, forderungen ?? []);
+    if (monate.length === 0) {
+      vormonateAnpassen.current = true;
+      await weiter();
+      return;
+    }
+    setVormonateFrage({
+      monate,
+      erhoehungAb: erhoehungsMonat(vertrag?.letzte_mieterhoehung_am),
+      fortsetzen: async (anpassen) => {
+        vormonateAnpassen.current = anpassen;
+        try {
+          await weiter();
+        } catch (error) {
+          vormonateAnpassen.current = true;
+          toast({ title: "Fehler", description: "Die Änderungen konnten nicht gespeichert werden.", variant: "destructive" });
+        }
+      },
+    });
+  };
+
+  const handleVormonateWahl = async (anpassen: boolean) => {
+    const frage = vormonateFrage;
+    setVormonateFrage(null);
+    if (frage) await frage.fortsetzen(anpassen);
+  };
+  const handleVormonateAbbrechen = () => setVormonateFrage(null);
 
   const invalidateAll = () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] }),
@@ -168,13 +227,17 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, vertrag.start_datum, ende, vertragId))) return;
         }
         const isPast = istVergangenerTag(newEndForDb);
-        const neuerStatus = statusNachMietende(vertrag.status, getVertragsende(vertrag), newEndForDb, 'kuendigungsdatum' in felder ? felder.kuendigungsdatum : vertrag.kuendigungsdatum);
-        const { error } = await supabase.from('mietvertrag').update({ ...felder, ...(neuerStatus ? { status: neuerStatus } : {}) }).eq('id', vertragId);
-        if (error) throw error;
-        toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
-        setEditingMietvertrag(null);
-        await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
-        await invalidateObjektansicht();
+        const neuesKuendigungsdatum = 'kuendigungsdatum' in felder ? felder.kuendigungsdatum : vertrag.kuendigungsdatum;
+        const neuerStatus = statusNachMietende(vertrag.status, getVertragsende(vertrag), newEndForDb, neuesKuendigungsdatum);
+        await mitVormonatenWeiter({ start_datum: vertrag.start_datum, ende_datum: felder.ende_datum, kuendigungsdatum: neuesKuendigungsdatum }, async () => {
+          const { error } = await speichereVertrag({ ...felder, ...(neuerStatus ? { status: neuerStatus } : {}) });
+          if (error) throw error;
+          toast({ title: "✅ Mietende aktualisiert", description: newEndForDb ? `Mietende wurde auf ${new Date(newEndForDb).toLocaleDateString('de-DE')} gesetzt.${isPast ? ' Vertrag wird als beendet behandelt.' : ''}` : "Mietvertrag wurde auf unbefristet gesetzt." });
+          setEditingMietvertrag(null);
+          await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
+          await queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] });
+          await invalidateObjektansicht();
+        });
         return;
       }
 
@@ -191,12 +254,15 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         }
         const { bestaetigeUeberschneidung } = await import('@/utils/contractOverlapValidation');
         if (!(await bestaetigeUeberschneidung(vertrag.einheit_id, value, getVertragsende(vertrag), vertragId))) return;
-        const { error } = await supabase.from('mietvertrag').update({ start_datum: value }).eq('id', vertragId);
-        if (error) throw error;
-        toast({ title: "✅ Startdatum aktualisiert", description: "Startdatum wurde erfolgreich aktualisiert." });
-        setEditingMietvertrag(null);
-        await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
-        await invalidateObjektansicht();
+        await mitVormonatenWeiter({ start_datum: value, ende_datum: vertrag.ende_datum, kuendigungsdatum: vertrag.kuendigungsdatum }, async () => {
+          const { error } = await speichereVertrag({ start_datum: value });
+          if (error) throw error;
+          toast({ title: "✅ Startdatum aktualisiert", description: "Startdatum wurde erfolgreich aktualisiert." });
+          setEditingMietvertrag(null);
+          await queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
+          await queryClient.invalidateQueries({ queryKey: ['mietforderungen', vertragId] });
+          await invalidateObjektansicht();
+        });
         return;
       }
 
@@ -250,6 +316,8 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     } else {
       await mieterhoehungVereinbaren(giltAb);
     }
+    // Ohne weiteres Speichern (nur der Vorgang) bliebe die Wahl zu den Vormonaten sonst für das nächste stehen
+    vormonateAnpassen.current = true;
     setShowRentIncreaseConfirm(false);
     setPendingKaltmieteValue(null);
   };
@@ -573,15 +641,31 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
       });
       Object.assign(mietvertragUpdates, zaehler.aenderungen, kaution.aenderungen, miete.aenderungen);
 
-      // Check if kaltmiete changed
-      if (miete.aenderungen.kaltmiete !== undefined) {
-        setPendingGlobalUpdates(mietvertragUpdates);
-        setPendingKaltmieteValue(miete.aenderungen.kaltmiete);
-        setShowRentIncreaseConfirm(true);
+      const weiter = async () => {
+        // Check if kaltmiete changed
+        if (miete.aenderungen.kaltmiete !== undefined) {
+          setPendingGlobalUpdates(mietvertragUpdates);
+          setPendingKaltmieteValue(miete.aenderungen.kaltmiete);
+          setShowRentIncreaseConfirm(true);
+          return;
+        }
+        await finishGlobalSave(mietvertragUpdates);
+      };
+
+      // Laufzeit geändert: erst die Frage nach Monaten vor der letzten Mieterhöhung, die Wahl gilt bis zum Speichern
+      if (startDatumChanged || endDatumChanged) {
+        const ende = endDatumChanged && !('fehler' in endeFelder)
+          ? endeFelder
+          : { ende_datum: vertrag?.ende_datum ?? null, kuendigungsdatum: vertrag?.kuendigungsdatum ?? null };
+        await mitVormonatenWeiter({
+          start_datum: startForDb,
+          ende_datum: ende.ende_datum,
+          kuendigungsdatum: 'kuendigungsdatum' in ende ? ende.kuendigungsdatum : vertrag?.kuendigungsdatum,
+        }, weiter);
         return;
       }
-
-      await finishGlobalSave(mietvertragUpdates);
+      vormonateAnpassen.current = true;
+      await weiter();
     } catch (error) {
       toast({ title: "Fehler", description: "Die Änderungen konnten nicht gespeichert werden.", variant: "destructive" });
     }
@@ -590,8 +674,10 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   const finishGlobalSave = async (mietvertragUpdates: Partial<Mietvertrag>) => {
     try {
       if (Object.keys(mietvertragUpdates).length > 0) {
-        const { error } = await supabase.from('mietvertrag').update(mietvertragUpdates).eq('id', vertragId);
+        const { error } = await speichereVertrag(mietvertragUpdates);
         if (error) throw error;
+      } else {
+        vormonateAnpassen.current = true;
       }
 
       // Zählernummern nur, wenn geändert -- bis 26.10.2026 wurde jede fehlende Nummer als '' zurückgeschrieben.
@@ -685,6 +771,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
   };
 
   const handleRentIncreaseCancel = () => {
+    vormonateAnpassen.current = true;
     setShowRentIncreaseConfirm(false);
     setPendingKaltmieteValue(null);
     setPendingGlobalUpdates(null);
@@ -712,6 +799,9 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
 
     // Rent increase confirmation
     showRentIncreaseConfirm, handleRentIncreaseConfirm, handleRentIncreaseCancel, pendingKaltmieteValue,
+
+    // Monate vor der letzten Mieterhöhung (02.11.2026)
+    vormonateFrage, handleVormonateWahl, handleVormonateAbbrechen,
 
     // Dialog visibility
     showCreateForderungModal, setShowCreateForderungModal,

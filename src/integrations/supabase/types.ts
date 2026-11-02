@@ -2981,6 +2981,14 @@ export type Database = {
         Args: { p_mietvertrag_id: string }
         Returns: number
       }
+      mietvertrag_speichern: {
+        Args: {
+          p_aenderungen: Json
+          p_id: string
+          p_vor_erhoehung_anpassen?: boolean
+        }
+        Returns: undefined
+      }
       monatsanteil: {
         Args: {
           p_betrag: number
