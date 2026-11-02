@@ -19,7 +19,7 @@ import {
   betragInWorten,
   type TabellenZeile,
 } from '../pdf/briefLayout';
-import type { MietvertragDaten } from './typen';
+import { verteilerschluesselName, type MietvertragDaten } from './typen';
 
 export interface Absatz {
   /** Gliederungsziffer wie „1." oder „2.1" — optional. */
@@ -161,6 +161,12 @@ export const AENDERUNGEN: Aenderung[] = [
     bestand: '„Sonstige Betriebskosten" als Sammelposition ohne Benennung; Umlageausfallwagnis von 2 %.',
     neu: 'Sonstige Betriebskosten werden einzeln benannt; das Umlageausfallwagnis entfällt bei nicht preisgebundenem Wohnraum.',
     grund: 'Nicht benannte sonstige Betriebskosten sind nach § 556 Abs. 1 BGB nicht umlagefähig. Das Umlageausfallwagnis ist nur im preisgebundenen Wohnraum zulässig.',
+  },
+  {
+    paragraph: '§ 4 Ziff. 2',
+    bestand: 'Wasserversorgung (2.2) nach erfasstem Verbrauch, Antenne und Kabel (2.15) nach Nutzerzahl.',
+    neu: 'Jede Position nennt den Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt; ohne Pflege dort die NiImmo-Vorgabe (Wasser nach Personenzahl, Kabel zu gleichen Teilen).',
+    grund: 'Die Abrechnung muss dem vereinbarten Schlüssel folgen (§ 556a Abs. 1 BGB). Sie verteilt nach Wohnfläche, Personentagen oder Einheiten; einen Verbrauch je Kostenart erfasst sie nicht.',
   },
 ];
 
@@ -898,32 +904,19 @@ function verteilerschluesselZeilen(d: MietvertragDaten): string[] {
 
   for (const pos of d.betriebskostenPositionen) {
     if (!pos.umgelegt) continue;
-    const label = schluesselLabel(pos.schluessel);
+    const label = verteilerschluesselName(pos.schluessel);
     const bisher = gruppen.get(label) ?? [];
     bisher.push(pos.nummer);
     gruppen.set(label, bisher);
   }
 
   const sortiert = [...gruppen.entries()].sort((a, b) => {
-    const ia = reihenfolge.findIndex(k => schluesselLabel(k) === a[0]);
-    const ib = reihenfolge.findIndex(k => schluesselLabel(k) === b[0]);
+    const ia = reihenfolge.findIndex(k => verteilerschluesselName(k) === a[0]);
+    const ib = reihenfolge.findIndex(k => verteilerschluesselName(k) === b[0]);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
   });
 
   return sortiert.map(([label, nummern]) => `${nummern.join(', ')} — Verteilung nach ${label}`);
-}
-
-function schluesselLabel(s: string): string {
-  const m: Record<string, string> = {
-    qm: 'Wohnfläche',
-    personen: 'Personenzahl',
-    einheit: 'Einheit zu gleichen Teilen',
-    verbrauch: 'erfasstem Verbrauch',
-    nutzer: 'Nutzerzahl',
-    gleich: 'Einheit zu gleichen Teilen',
-    individuell: 'gesonderter Vereinbarung',
-  };
-  return m[s] ?? s;
 }
 
 function uebergabezustandText(d: MietvertragDaten): string {

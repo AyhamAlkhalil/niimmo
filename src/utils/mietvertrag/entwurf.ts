@@ -329,7 +329,9 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
     if (heizkosten !== null) h = setze(h, 'heizkostenVorauszahlung', 'vorvertrag');
   }
 
-  const positionen = betriebskostenPositionen(g.nebenkostenarten, vorvertrag?.betriebskosten_positionen ?? null);
+  const positionen = betriebskostenPositionen(g.nebenkostenarten, vorvertrag?.betriebskosten_positionen ?? null, {
+    schluesselVomObjekt: true,
+  });
   if (Array.isArray(vorvertrag?.betriebskosten_positionen) && vorvertrag.betriebskosten_positionen.length > 0) {
     h = setze(h, 'betriebskostenPositionen', 'vorvertrag');
   }

@@ -48,7 +48,7 @@ import type { TablesUpdate } from '@/integrations/supabase/types';
 import { OCRProcessingService } from '@/services/ocrProcessingService';
 import { speichereEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
 import { getVertragsende } from '@/utils/contractUtils';
-import { objektDaten, vermieterDaten } from '@/utils/mietvertrag/datenAusDb';
+import { mitSchluesselnDesObjekts, objektDaten, vermieterDaten } from '@/utils/mietvertrag/datenAusDb';
 import {
   baueEntwurf,
   hatNamen,
@@ -332,6 +332,7 @@ export function MietvertragEntwurfDialog({
         },
         schliessanlageArt: g.immobilie.schliessanlage_art ?? z.daten.schliessanlageArt,
         mitbenutzungEinrichtungen: einrichtungen.length > 0 ? einrichtungen.join(', ') : z.daten.mitbenutzungEinrichtungen,
+        betriebskostenPositionen: mitSchluesselnDesObjekts(z.daten.betriebskostenPositionen, g.nebenkostenarten),
       };
       setStand({ daten, herkunft: z.herkunft });
       // Haben sich Objekt oder Vermieter seitdem geändert, ist der gespeicherte Stand

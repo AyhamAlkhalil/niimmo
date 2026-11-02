@@ -7,7 +7,7 @@
  * Abs. 1 S. 2 BGB), die Kaution und den Übergabezustand.
  */
 import { istIbanGueltig, istPlausiblesDatum } from '../pdf/briefLayout';
-import type { MietvertragDaten } from './typen';
+import { gleicherSchluessel, verteilerschluesselName, type MietvertragDaten } from './typen';
 import { format } from 'date-fns';
 
 export type Schwere = 'blocker' | 'warnung';
@@ -260,6 +260,27 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
           'Betrag ergänzen oder Position von der Umlage ausnehmen.'
         );
       }
+    }
+  }
+
+  // Die Abrechnung verteilt nach dem Schlüssel am Objekt. Nennt der Vertrag
+  // einen anderen, rechnet sie gegen den Vertrag ab (§ 556a Abs. 1 BGB) — von
+  // Hand abweichen bleibt erlaubt, aber nicht unbemerkt (02.11.2026).
+  if (d.betriebskostenModus === 'vorauszahlung') {
+    const abweichend = d.betriebskostenPositionen.filter(
+      p => p.umgelegt && p.schluesselObjekt && !gleicherSchluessel(p.schluessel, p.schluesselObjekt)
+    );
+    if (abweichend.length > 0) {
+      warnung(
+        'betriebskostenPositionen',
+        `Verteilerschlüssel weicht von der Betriebskostenabrechnung des Objekts ab: ${abweichend
+          .map(
+            p =>
+              `${p.nummer} im Vertrag nach ${verteilerschluesselName(p.schluessel)}, in der Abrechnung nach ${verteilerschluesselName(p.schluesselObjekt ?? '')}`
+          )
+          .join('; ')}.`,
+        'Schlüssel im Vertrag angleichen oder den Schlüssel am Objekt in der Betriebskostenabrechnung ändern.'
+      );
     }
   }
 

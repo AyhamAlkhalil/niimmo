@@ -18,14 +18,17 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { plusMonate, positionenSumme, SCHLUESSEL_ARTEN } from '@/utils/mietvertrag/entwurf';
-import type {
-  BetriebskostenPosition,
-  Heizungsart,
-  MietanpassungArt,
-  MietvertragDaten,
-  SchliessanlageArt,
-  Uebergabezustand,
-  Warmwasserart,
+import {
+  gleicherSchluessel,
+  VERTEILERSCHLUESSEL,
+  verteilerschluesselName,
+  type BetriebskostenPosition,
+  type Heizungsart,
+  type MietanpassungArt,
+  type MietvertragDaten,
+  type SchliessanlageArt,
+  type Uebergabezustand,
+  type Warmwasserart,
 } from '@/utils/mietvertrag/typen';
 import { Feldname, ZahlFeld, type AbschnittProps } from './Bausteine';
 
@@ -490,29 +493,69 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
       </div>
       <p className="text-xs text-muted-foreground">
         Nur angehakte Positionen werden umgelegt. Nicht benannte Kosten sind nach § 556 Abs. 1 BGB nicht umlagefähig.
-        Die Einzelbeträge müssen die vereinbarte Vorauszahlung ergeben.
+        Die Einzelbeträge müssen die vereinbarte Vorauszahlung ergeben. Der Verteilerschlüssel ist aus der
+        Betriebskostenabrechnung des Objekts übernommen.
       </p>
       <div className="space-y-1 rounded border p-2">
-        {entwurf.betriebskostenPositionen.map(pos => (
-          <div key={pos.nummer} className="grid grid-cols-[24px_1fr_96px] items-center gap-2">
-            <Checkbox
-              checked={pos.umgelegt}
-              aria-label={`${pos.nummer} umlegen`}
-              onCheckedChange={c => aendere(pos.nummer, { umgelegt: c === true, betrag: c === true ? pos.betrag : null })}
-            />
-            <span className="truncate text-xs" title={pos.bezeichnung}>
-              <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
-            </span>
-            <ZahlFeld
-              art="betrag"
-              className="h-8 text-right text-xs"
-              placeholder="—"
-              disabled={!pos.umgelegt}
-              wert={pos.betrag}
-              onWert={n => aendere(pos.nummer, { betrag: n })}
-            />
-          </div>
-        ))}
+        {entwurf.betriebskostenPositionen.map(pos => {
+          // Wie die Pflichtprüfung: Nur bei Vorauszahlung wird abgerechnet, bei Pauschale zählt keine Abweichung
+          const abweichend =
+            entwurf.betriebskostenModus === 'vorauszahlung' &&
+            pos.umgelegt &&
+            !!pos.schluesselObjekt &&
+            !gleicherSchluessel(pos.schluessel, pos.schluesselObjekt);
+          return (
+            <div key={pos.nummer} className="grid grid-cols-[24px_1fr_96px] items-center gap-2">
+              <Checkbox
+                checked={pos.umgelegt}
+                aria-label={`${pos.nummer} umlegen`}
+                onCheckedChange={c => aendere(pos.nummer, { umgelegt: c === true, betrag: c === true ? pos.betrag : null })}
+              />
+              <div className="min-w-0 space-y-1">
+                <p className="truncate text-xs" title={pos.bezeichnung}>
+                  <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
+                </p>
+                {/* Der Schlüssel zählt nur für umgelegte Positionen — als zweite Zeile, damit die schmale Formularspalte reicht */}
+                {pos.umgelegt && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Select value={pos.schluessel} onValueChange={v => aendere(pos.nummer, { schluessel: v })}>
+                      <SelectTrigger
+                        aria-label={`${pos.nummer} Verteilerschlüssel`}
+                        className={abweichend ? 'h-7 w-[220px] max-w-full border-warning text-xs' : 'h-7 w-[220px] max-w-full text-xs'}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VERTEILERSCHLUESSEL.map(v => (
+                          <SelectItem key={v.key} value={v.key}>
+                            nach {v.name}
+                          </SelectItem>
+                        ))}
+                        {/* Altwert eines gespeicherten Vertrags sichtbar lassen statt eines leeren Feldes */}
+                        {!VERTEILERSCHLUESSEL.some(v => v.key === pos.schluessel) && (
+                          <SelectItem value={pos.schluessel}>nach {verteilerschluesselName(pos.schluessel)}</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {abweichend && (
+                      <span className="text-xs text-warning">
+                        Abrechnung: {verteilerschluesselName(pos.schluesselObjekt ?? '')}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <ZahlFeld
+                art="betrag"
+                className="h-8 text-right text-xs"
+                placeholder="—"
+                disabled={!pos.umgelegt}
+                wert={pos.betrag}
+                onWert={n => aendere(pos.nummer, { betrag: n })}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

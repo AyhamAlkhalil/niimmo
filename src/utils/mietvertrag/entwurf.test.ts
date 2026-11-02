@@ -37,6 +37,10 @@ import {
   type VorvertragAuslese,
 } from './entwurf';
 import { pruefeVertragsdaten } from './pflichtpruefung';
+import { BETRKV_STANDARD, betriebskostenPositionen, mitSchluesselnDesObjekts, schluesselDesObjekts } from './datenAusDb';
+import { wohnraumParagraphen } from './wohnraumKlauseln';
+import type { MietvertragDaten } from './typen';
+import { BETRKV_KATEGORIEN } from '@/components/dashboard/nebenkosten/nebenkostenKategorien';
 
 const IMMOBILIE = {
   id: 'imm-5',
@@ -795,5 +799,120 @@ describe('Auslese fragt vonHand mit den Schlüsseln der Formulare', () => {
     });
     expect([...gefragt].filter(f => !formularSchluessel.has(f))).toEqual([]);
     expect(gefragt.size).toBeGreaterThanOrEqual(8);
+  });
+});
+
+describe('Verteilerschlüssel aus der Betriebskostenabrechnung des Objekts', () => {
+  type Art = EntwurfGrundlagen['nebenkostenarten'][number];
+  const art = (name: string, verteilerschluessel_art: string | null): Art => ({
+    name,
+    verteilerschluessel_art,
+    ist_umlagefaehig: true,
+  });
+  const schluessel = (positionen: { nummer: string; schluessel: string }[], nummer: string) =>
+    positionen.find(p => p.nummer === nummer)!.schluessel;
+
+  it('jede Vertragsposition hängt an einer Kostenart der Abrechnung', () => {
+    const ids = new Set(BETRKV_KATEGORIEN.map(k => k.id));
+    expect(BETRKV_STANDARD.filter(p => !ids.has(p.kategorie))).toEqual([]);
+  });
+
+  it('nimmt ohne Pflege am Objekt die Kundenvorgabe statt Verbrauch und Nutzerzahl', () => {
+    const { daten } = baueEntwurf(grundlagen());
+    const p = daten.betriebskostenPositionen;
+    expect(schluessel(p, '2.1')).toBe('gleich');
+    expect(schluessel(p, '2.2')).toBe('personen');
+    expect(schluessel(p, '2.3')).toBe('qm');
+    expect(schluessel(p, '2.15')).toBe('gleich');
+    expect(schluessel(p, '2.17')).toBe('qm');
+    expect(schluessel(p, '2.18')).toBe('gleich');
+    expect(p.every(x => ['qm', 'personen', 'gleich'].includes(x.schluessel))).toBe(true);
+  });
+
+  it('übernimmt den am Objekt gepflegten Schlüssel, zugeordnet wie in der Abrechnung', () => {
+    const arten = [art('Wasserversorgung', 'qm'), art('Müllabfuhr', 'gleich'), art('Versicherungen', 'personen')];
+    const { daten } = baueEntwurf(grundlagen({ nebenkostenarten: arten }));
+    const p = daten.betriebskostenPositionen;
+    expect(schluessel(p, '2.2')).toBe('qm');
+    // „Müllabfuhr" und „Versicherungen" trifft der Namensvergleich des Vertrags nicht, die Abrechnung schon
+    expect(schluessel(p, '2.8')).toBe('gleich');
+    expect(schluessel(p, '2.13')).toBe('personen');
+    expect(p.find(x => x.nummer === '2.2')!.schluesselObjekt).toBe('qm');
+  });
+
+  it('nimmt bei mehreren Arten einer Kostenart den gepflegten Schlüssel einer umlagefähigen Art', () => {
+    expect(schluesselDesObjekts([art('Heizung', null), art('Heizkosten', 'qm')], 'heizkosten')).toBe('qm');
+    const nichtUmlagefaehig = { ...art('Heizung', 'personen'), ist_umlagefaehig: false };
+    expect(schluesselDesObjekts([nichtUmlagefaehig, art('Heizkosten', 'qm')], 'heizkosten')).toBe('qm');
+    expect(schluesselDesObjekts([nichtUmlagefaehig], 'heizkosten')).toBe('gleich');
+  });
+
+  it('rechnet einen nicht berechenbaren Altwert wie die Abrechnung nach Wohnfläche', () => {
+    expect(schluesselDesObjekts([art('Wasserversorgung', 'verbrauch')], 'wasserversorgung')).toBe('qm');
+    expect(schluesselDesObjekts([art('Wasserversorgung', null)], 'wasserversorgung')).toBe('personen');
+  });
+
+  it('nimmt beim neuen Vertrag Umlage und Betrag vom Vorvertrag, den Schlüssel aber vom Objekt', () => {
+    const vorvertrag = {
+      ...VORVERTRAG,
+      betriebskosten_positionen: [
+        { nummer: '2.2', bezeichnung: 'Kosten der Wasserversorgung', schluessel: 'verbrauch', umgelegt: true, betrag: 30 },
+      ],
+    } as unknown as Tables<'mietvertrag'>;
+    const { daten } = baueEntwurf(grundlagen({ vorvertrag }));
+    expect(daten.betriebskostenPositionen.find(p => p.nummer === '2.2')).toMatchObject({
+      umgelegt: true,
+      betrag: 30,
+      schluessel: 'personen',
+    });
+  });
+
+  it('druckt einen unterschriebenen Vertrag mit seinem gespeicherten Schlüssel nach', () => {
+    const gespeichert = [{ nummer: '2.2', schluessel: 'verbrauch', umgelegt: true, betrag: 30 }];
+    const p = betriebskostenPositionen([], gespeichert).find(x => x.nummer === '2.2')!;
+    expect(p.schluessel).toBe('verbrauch');
+    expect(p.schluesselObjekt).toBe('personen');
+  });
+
+  it('frischt am gespeicherten Entwurf nur den Vergleichswert auf', () => {
+    const { daten } = baueEntwurf(grundlagen());
+    const positionen = daten.betriebskostenPositionen.map(p => (p.nummer === '2.2' ? { ...p, schluessel: 'qm' } : p));
+    const frisch = mitSchluesselnDesObjekts(positionen, [art('Wasserversorgung', 'gleich')]);
+    expect(frisch.find(p => p.nummer === '2.2')).toMatchObject({ schluessel: 'qm', schluesselObjekt: 'gleich' });
+  });
+
+  it('nennt die übernommenen Schlüssel in § 4', () => {
+    const { daten } = baueEntwurf(grundlagen());
+    daten.betriebskostenPositionen = daten.betriebskostenPositionen.map(p =>
+      ['2.1', '2.2', '2.3', '2.15'].includes(p.nummer) ? { ...p, umgelegt: true } : p
+    );
+    const p4 = wohnraumParagraphen(daten).find(p => p.absaetze.some(a => a.text.includes('Verteilung nach')))!;
+    const text = p4.absaetze.map(a => a.text).join('\n');
+    expect(text).toContain('2.1, 2.15 — Verteilung nach Einheit zu gleichen Teilen');
+    expect(text).toContain('2.3 — Verteilung nach Wohnfläche');
+    expect(text).toContain('2.2 — Verteilung nach Personenzahl');
+    expect(text).not.toMatch(/Verbrauch|Nutzerzahl/);
+  });
+
+  it('warnt, wenn der Vertrag von der Abrechnung des Objekts abweicht', () => {
+    const { daten } = baueEntwurf(grundlagen());
+    const mit = (s: string, modus: MietvertragDaten['betriebskostenModus'] = 'vorauszahlung'): MietvertragDaten => ({
+      ...daten,
+      betriebskostenModus: modus,
+      betriebskostenPositionen: daten.betriebskostenPositionen.map(p =>
+        p.nummer === '2.2' ? { ...p, umgelegt: true, schluessel: s } : p
+      ),
+    });
+    const warnung = (d: MietvertragDaten) =>
+      pruefeVertragsdaten(d).find(f => f.text.startsWith('Verteilerschlüssel weicht'));
+
+    expect(warnung(mit('qm'))).toMatchObject({ schwere: 'warnung', feld: 'betriebskostenPositionen' });
+    expect(warnung(mit('qm'))!.text).toContain('2.2 im Vertrag nach Wohnfläche, in der Abrechnung nach Personenzahl');
+    expect(warnung(mit('personen'))).toBeUndefined();
+    // Pauschale: Es wird nicht abgerechnet, der Schlüssel spielt keine Rolle
+    expect(warnung(mit('qm', 'pauschale'))).toBeUndefined();
+    // „einheit" ist der Altname von „gleich"
+    const gleich = { ...daten, betriebskostenPositionen: [{ ...daten.betriebskostenPositionen[0], umgelegt: true, schluessel: 'einheit' }] };
+    expect(warnung(gleich)).toBeUndefined();
   });
 });

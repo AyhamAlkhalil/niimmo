@@ -106,8 +106,13 @@ export interface BetriebskostenPosition {
   bezeichnung: string;
   /** Wird diese Position umgelegt? */
   umgelegt: boolean;
-  /** qm | personen | einheit | verbrauch | nutzer */
+  /** qm | personen | gleich; in älteren Daten auch einheit | verbrauch | nutzer */
   schluessel: string;
+  /**
+   * Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt —
+   * nur zum Vergleich, wird nicht mit dem Vertrag gespeichert.
+   */
+  schluesselObjekt?: string;
   /**
    * Monatlicher Vorauszahlungsanteil dieser Position in Euro.
    * `null` heißt: Position ist benannt, aber ohne eigenen Betrag ausgewiesen.
@@ -115,6 +120,33 @@ export interface BetriebskostenPosition {
    * `pflichtpruefung` blockiert den Druck, wenn die Spalte nicht aufgeht.
    */
   betrag: number | null;
+}
+
+/**
+ * Verteilerschlüssel, die die Betriebskostenabrechnung rechnen kann — nur diese
+ * bietet der Vertrag zur Auswahl an. Die Namen stehen so auch in § 4.
+ */
+export const VERTEILERSCHLUESSEL: { key: string; name: string }[] = [
+  { key: 'qm', name: 'Wohnfläche' },
+  { key: 'personen', name: 'Personenzahl' },
+  { key: 'gleich', name: 'Einheit zu gleichen Teilen' },
+];
+
+/** Altwerte gleicher Bedeutung zusammenführen: „einheit" verteilt wie „gleich". */
+export function gleicherSchluessel(a: string | null | undefined, b: string | null | undefined): boolean {
+  const n = (s: string | null | undefined) => (s === 'einheit' ? 'gleich' : s ?? '');
+  return n(a) === n(b);
+}
+
+const ALTE_SCHLUESSEL = new Map([
+  ['einheit', 'Einheit zu gleichen Teilen'],
+  ['verbrauch', 'erfasstem Verbrauch'],
+  ['nutzer', 'Nutzerzahl'],
+  ['individuell', 'gesonderter Vereinbarung'],
+]);
+
+export function verteilerschluesselName(s: string): string {
+  return VERTEILERSCHLUESSEL.find(v => v.key === s)?.name ?? ALTE_SCHLUESSEL.get(s) ?? s;
 }
 
 export interface SchluesselAngabe {

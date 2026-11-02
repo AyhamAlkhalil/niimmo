@@ -11,6 +11,11 @@
  * Pflichtprüfung schlägt an. Der Vertrag darf nichts behaupten, was nicht
  * erfasst ist.
  */
+import {
+  BETRKV_KATEGORIEN,
+  findeKategorieNachName,
+  istBerechenbarerSchluessel,
+} from '@/components/dashboard/nebenkosten/nebenkostenKategorien';
 import type { Tables } from '@/integrations/supabase/types';
 import type {
   BetriebskostenPosition,
@@ -39,28 +44,66 @@ type Nebenkostenart = Pick<Tables<'nebenkostenarten'>, 'name' | 'verteilerschlue
  * sind dort eigene Zeilen. Genau so muessen sie im Vertrag stehen — nicht
  * benannte sonstige Betriebskosten sind nach § 556 Abs. 1 BGB nicht
  * umlagefaehig, eine Sammelzeile „sonstige" traegt also nichts.
+ *
+ * `kategorie` ist die Kostenart der Betriebskostenabrechnung, unter der diese
+ * Kosten gebucht werden; deren Verteilerschlüssel gilt auch im Vertrag
+ * (02.11.2026). Die Abrechnung muss dem vereinbarten Schlüssel folgen und kennt
+ * nur Wohnfläche, Personen und Einheit. Bis dahin druckte der Vertrag eigene
+ * Vorgaben — Wasser „nach erfasstem Verbrauch", Kabel „nach Nutzerzahl" —,
+ * während die Abrechnung nach Personentagen und Einheiten verteilte.
+ * Rauchwarnmelder laufen dort unter „Sonstige Betriebskosten", die
+ * Abgasmessung unter der Schornsteinreinigung (Kehr- und Messgebühren).
  */
-export const BETRKV_STANDARD: { nummer: string; bezeichnung: string; schluessel: string }[] = [
-  { nummer: '2.1', bezeichnung: 'Laufende öffentliche Lasten des Grundstücks (Grundsteuer)', schluessel: 'einheit' },
-  { nummer: '2.2', bezeichnung: 'Kosten der Wasserversorgung', schluessel: 'verbrauch' },
-  { nummer: '2.3', bezeichnung: 'Kosten der Entwässerung', schluessel: 'qm' },
-  { nummer: '2.4', bezeichnung: 'Kosten des Betriebs und der Wartung der Heizungsanlage', schluessel: 'einheit' },
-  { nummer: '2.5', bezeichnung: 'Kosten des Betriebs und der Wartung der Warmwasserversorgung', schluessel: 'einheit' },
-  { nummer: '2.6', bezeichnung: 'Kosten verbundener Heizungs- und Warmwasserversorgungsanlagen', schluessel: 'einheit' },
-  { nummer: '2.7', bezeichnung: 'Kosten des Betriebs des Personen- oder Lastenaufzugs', schluessel: 'qm' },
-  { nummer: '2.8', bezeichnung: 'Kosten der Straßenreinigung und Müllbeseitigung', schluessel: 'qm' },
-  { nummer: '2.9', bezeichnung: 'Kosten der Gebäudereinigung und Ungezieferbekämpfung', schluessel: 'qm' },
-  { nummer: '2.10', bezeichnung: 'Kosten der Gartenpflege', schluessel: 'qm' },
-  { nummer: '2.11', bezeichnung: 'Kosten der Beleuchtung', schluessel: 'qm' },
-  { nummer: '2.12', bezeichnung: 'Kosten der Schornsteinreinigung', schluessel: 'einheit' },
-  { nummer: '2.13', bezeichnung: 'Kosten der Sach- und Haftpflichtversicherung', schluessel: 'qm' },
-  { nummer: '2.14', bezeichnung: 'Kosten für den Hauswart', schluessel: 'qm' },
-  { nummer: '2.15', bezeichnung: 'Kosten für Antennen- und Kabelanschluss', schluessel: 'nutzer' },
-  { nummer: '2.16', bezeichnung: 'Kosten des Betriebs der Einrichtungen für die Wäschepflege', schluessel: 'qm' },
-  { nummer: '2.17', bezeichnung: 'Kosten des Betriebs der Rauchwarnmeldeeinrichtung', schluessel: 'qm' },
-  { nummer: '2.18', bezeichnung: 'Kosten der Abgasmessung', schluessel: 'einheit' },
-  { nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten', schluessel: 'qm' },
+const POSITIONEN: { nummer: string; bezeichnung: string; kategorie: string }[] = [
+  { nummer: '2.1', bezeichnung: 'Laufende öffentliche Lasten des Grundstücks (Grundsteuer)', kategorie: 'grundsteuer' },
+  { nummer: '2.2', bezeichnung: 'Kosten der Wasserversorgung', kategorie: 'wasserversorgung' },
+  { nummer: '2.3', bezeichnung: 'Kosten der Entwässerung', kategorie: 'entwaesserung' },
+  { nummer: '2.4', bezeichnung: 'Kosten des Betriebs und der Wartung der Heizungsanlage', kategorie: 'heizkosten' },
+  { nummer: '2.5', bezeichnung: 'Kosten des Betriebs und der Wartung der Warmwasserversorgung', kategorie: 'warmwasserkosten' },
+  { nummer: '2.6', bezeichnung: 'Kosten verbundener Heizungs- und Warmwasserversorgungsanlagen', kategorie: 'verbundene_anlagen' },
+  { nummer: '2.7', bezeichnung: 'Kosten des Betriebs des Personen- oder Lastenaufzugs', kategorie: 'aufzug' },
+  { nummer: '2.8', bezeichnung: 'Kosten der Straßenreinigung und Müllbeseitigung', kategorie: 'strassenreinigung_muell' },
+  { nummer: '2.9', bezeichnung: 'Kosten der Gebäudereinigung und Ungezieferbekämpfung', kategorie: 'gebaeudereinigung' },
+  { nummer: '2.10', bezeichnung: 'Kosten der Gartenpflege', kategorie: 'gartenpflege' },
+  { nummer: '2.11', bezeichnung: 'Kosten der Beleuchtung', kategorie: 'beleuchtung' },
+  { nummer: '2.12', bezeichnung: 'Kosten der Schornsteinreinigung', kategorie: 'schornsteinreinigung' },
+  { nummer: '2.13', bezeichnung: 'Kosten der Sach- und Haftpflichtversicherung', kategorie: 'versicherungen' },
+  { nummer: '2.14', bezeichnung: 'Kosten für den Hauswart', kategorie: 'hauswart' },
+  { nummer: '2.15', bezeichnung: 'Kosten für Antennen- und Kabelanschluss', kategorie: 'antenne_kabel' },
+  { nummer: '2.16', bezeichnung: 'Kosten des Betriebs der Einrichtungen für die Wäschepflege', kategorie: 'waeschepflege' },
+  { nummer: '2.17', bezeichnung: 'Kosten des Betriebs der Rauchwarnmeldeeinrichtung', kategorie: 'sonstige_betriebskosten' },
+  { nummer: '2.18', bezeichnung: 'Kosten der Abgasmessung', kategorie: 'schornsteinreinigung' },
+  { nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten', kategorie: 'sonstige_betriebskosten' },
 ];
+
+/** Verbindliche Kundenvorgabe der Abrechnung für eine Kostenart. */
+function vorgabeSchluessel(kategorie: string): string {
+  return BETRKV_KATEGORIEN.find(k => k.id === kategorie)?.schluessel ?? 'qm';
+}
+
+export const BETRKV_STANDARD: { nummer: string; bezeichnung: string; kategorie: string; schluessel: string }[] =
+  POSITIONEN.map(p => ({ ...p, schluessel: vorgabeSchluessel(p.kategorie) }));
+
+/**
+ * Schlüssel, nach dem die Betriebskostenabrechnung dieses Objekts die
+ * Kostenart verteilt — mit derselben Zuordnung und derselben Rangfolge wie
+ * Schritt 3 der Abrechnung: der an der Nebenkostenart gepflegte, sonst die
+ * Kundenvorgabe. Einen dort nicht berechenbaren Altwert rechnet die Abrechnung
+ * nach Wohnfläche, also steht er auch hier so.
+ *
+ * Mehrere Arten einer Kostenart („Heizung" und „Heizkosten"): Die Abrechnung
+ * nimmt den Schlüssel der Art, an der die erste Kostenposition hängt. Hier
+ * zählen nur umlagefähige Arten, und ein gepflegter Schlüssel geht einer Art
+ * ohne Schlüssel vor (Review 02.11.2026). Live hatten alle Doppelungen
+ * denselben Schlüssel.
+ */
+export function schluesselDesObjekts(nebenkostenarten: Nebenkostenart[], kategorie: string): string {
+  const gepflegt = nebenkostenarten.find(
+    n => n.ist_umlagefaehig !== false && !!n.verteilerschluessel_art && findeKategorieNachName(n.name)?.id === kategorie
+  )?.verteilerschluessel_art;
+  if (!gepflegt) return vorgabeSchluessel(kategorie);
+  return istBerechenbarerSchluessel(gepflegt) ? gepflegt : 'qm';
+}
 
 /** Eine im Vertrag gespeicherte Position — Schnappschuss aus der Datenbank. */
 interface GespeichertePosition {
@@ -167,10 +210,17 @@ export function mieterDaten(m: Mieter): MieterDaten {
  * die Kostenarten der Immobilie später geändert werden. Sonst bestimmen die am
  * Objekt gepflegten Arten, was umgelegt wird; ohne Pflege wird nichts
  * vorausgewählt.
+ *
+ * Der Verteilerschlüssel kommt aus der Betriebskostenabrechnung des Objekts
+ * (`schluesselDesObjekts`). Ein neuer Vertrag übernimmt vom Vorvertrag nur, was
+ * umgelegt wird und mit welchem Betrag (`schluesselVomObjekt`): Das Haus wird
+ * für alle Mieter nach demselben Schlüssel abgerechnet, ein abweichender
+ * Schlüssel aus einem alten Vertrag liefe in die nächste Abrechnung.
  */
 export function betriebskostenPositionen(
   nebenkostenarten: Nebenkostenart[],
-  gespeichertRoh: unknown
+  gespeichertRoh: unknown,
+  { schluesselVomObjekt = false }: { schluesselVomObjekt?: boolean } = {}
 ): BetriebskostenPosition[] {
   const gepflegt = new Map(nebenkostenarten.map(n => [normalisiere(n.name), n]));
   const gespeichert = new Map(
@@ -180,13 +230,15 @@ export function betriebskostenPositionen(
   );
 
   return BETRKV_STANDARD.map(pos => {
+    const schluesselObjekt = schluesselDesObjekts(nebenkostenarten, pos.kategorie);
     const gespeicherteZeile = gespeichert.get(pos.nummer);
     if (gespeicherteZeile) {
       return {
         nummer: pos.nummer,
         bezeichnung: gespeicherteZeile.bezeichnung || pos.bezeichnung,
         umgelegt: gespeicherteZeile.umgelegt === true,
-        schluessel: gespeicherteZeile.schluessel || pos.schluessel,
+        schluessel: (!schluesselVomObjekt && gespeicherteZeile.schluessel) || schluesselObjekt,
+        schluesselObjekt,
         betrag: zuZahl(gespeicherteZeile.betrag),
       };
     }
@@ -195,9 +247,25 @@ export function betriebskostenPositionen(
       nummer: pos.nummer,
       bezeichnung: pos.bezeichnung,
       umgelegt: treffer ? treffer.ist_umlagefaehig !== false : false,
-      schluessel: treffer?.verteilerschluessel_art || pos.schluessel,
+      schluessel: schluesselObjekt,
+      schluesselObjekt,
       betrag: null,
     };
+  });
+}
+
+/**
+ * Frischt den Vergleichswert `schluesselObjekt` am aktuellen Stand des Objekts
+ * auf, etwa für einen gespeicherten Entwurf. Den im Vertrag gewählten
+ * Schlüssel fasst sie nicht an — eine Abweichung zeigt die Pflichtprüfung.
+ */
+export function mitSchluesselnDesObjekts(
+  positionen: BetriebskostenPosition[],
+  nebenkostenarten: Nebenkostenart[]
+): BetriebskostenPosition[] {
+  return positionen.map(p => {
+    const kategorie = BETRKV_STANDARD.find(s => s.nummer === p.nummer)?.kategorie;
+    return kategorie ? { ...p, schluesselObjekt: schluesselDesObjekts(nebenkostenarten, kategorie) } : p;
   });
 }
 
