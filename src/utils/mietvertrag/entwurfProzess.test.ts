@@ -218,7 +218,7 @@ describe('Schlüssel und Index', () => {
         { art: 'Briefkastenschlüssel', anzahl: 0 },
         { art: 'Dachboden', anzahl: 1 },
       ])
-    ).toEqual({ haustuer: 2, wohnung: 2, dachboden: 1 });
+    ).toEqual({ haustuer: 2, wohnung: 2, Dachboden: 1 });
   });
 
   it('landet am aktivierten Vertrag', () => {
@@ -354,13 +354,20 @@ describe('Befunde der QA vom 20.10.2026', () => {
       .flatMap(p => p.absaetze.map(a => a.text))
       .find(t => t.includes('folgende Schlüssel'));
     expect(text).toContain('folgende Schlüssel ausgehändigt: 2 Haustürschlüssel, 1 Müllplatzschlüssel.');
-    expect(schluesselFuerDb(daten.schluessel)).toEqual({ haustuer: 2, müllplatzschlüssel: 1 });
-    // Beim Nachdruck kommt der Name lesbar zurück und bleibt frei bearbeitbar
-    expect(leseSchluessel({ haustuer: 2, müllplatzschlüssel: 1, fahrrad_raum: 1 })).toEqual([
+    expect(schluesselFuerDb(daten.schluessel)).toEqual({ haustuer: 2, Müllplatzschlüssel: 1 });
+    // Beim Nachdruck kommt der Name unverändert zurück und bleibt frei bearbeitbar; Altform lesbar
+    expect(leseSchluessel({ haustuer: 2, 'Tor 2 (Hof)': 1, fahrrad_raum: 1 })).toEqual([
       { art: 'Haustürschlüssel', anzahl: 2 },
-      { art: 'Müllplatzschlüssel', anzahl: 1, frei: true },
+      { art: 'Tor 2 (Hof)', anzahl: 1, frei: true },
       { art: 'Fahrrad raum', anzahl: 1, frei: true },
     ]);
+    // Gleiche Namen ergeben im Vertrag und in der Spalte dieselbe Summe
+    const doppelt = [
+      { art: 'Haustürschlüssel', anzahl: 2 },
+      { art: 'Haustürschlüssel', anzahl: 1, frei: true },
+    ];
+    expect(ausgehaendigteSchluessel(doppelt)).toEqual([{ art: 'Haustürschlüssel', anzahl: 3 }]);
+    expect(schluesselFuerDb(doppelt)).toEqual({ haustuer: 3 });
   });
 
   it('verweist ohne benannten Schlüssel auf das Übergabeprotokoll', () => {

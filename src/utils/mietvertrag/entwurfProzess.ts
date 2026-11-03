@@ -86,7 +86,7 @@ export function nurAmObjekt(feld: string): boolean {
 
 /** In welchem Schritt lässt sich ein Feld der Pflichtprüfung beheben? */
 export function schrittFuerFeld(feld: string): SchrittId {
-  if (feld.startsWith('vermieter') || feld === 'objekt.adresse') return 'grundlagen';
+  if (feld.startsWith('vermieter') || feld === 'objekt.adresse' || feld === 'unterzeichnerVermieter') return 'grundlagen';
   if (feld.startsWith('mieter') || feld === 'anzahlPersonen') return 'mieter';
   if (feld.startsWith('einheit.') || feld.startsWith('objekt.') || feld === 'schliessanlageArt' || feld === 'mitbenutzungEinrichtungen' || feld === 'schluessel') {
     return 'mietsache';
@@ -295,9 +295,9 @@ export function platzhalterUebersicht(
     zeilen: [
       zeile('vermieter', 'Vermieter', d.vermieter.firmenname, 'grundlagen', { pruef: ['vermieter'] }),
       brauchtUnterzeichnerWahl(d.vermieter)
-        ? zeile('vermieter.unterzeichner', 'unterschreibt', gewaehlterUnterzeichner(d) ?? '', 'grundlagen', {
+        ? zeile('unterzeichnerVermieter', 'unterschreibt', gewaehlterUnterzeichner(d) ?? '', 'grundlagen', {
             quelle: gewaehlterUnterzeichner(d) ? 'eingabe' : null,
-            pruef: ['vermieter.unterzeichner', 'vermieter.vertretenDurch'],
+            pruef: ['unterzeichnerVermieter', 'vermieter.vertretenDurch'],
           })
         : zeile('vermieter.vertretenDurch', 'vertreten durch', d.vermieter.vertretenDurch.join(', '), 'grundlagen', {
             quelle: d.vermieter.vertretenDurch.length > 0 ? 'stammdaten' : null,

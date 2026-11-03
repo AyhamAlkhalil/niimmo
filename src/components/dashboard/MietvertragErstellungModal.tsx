@@ -8,7 +8,7 @@
  * Die Formularabschnitte teilt sich der Dialog mit dem Vertragsentwurf
  * (`mietvertrag-formular/`); neue Verträge entstehen seit 18.10.2026 dort.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FileText, Loader2, Save } from 'lucide-react';
 
@@ -32,8 +32,6 @@ import { AENDERUNGEN } from '@/utils/mietvertrag/wohnraumKlauseln';
 import { positionFuerDb, VORLAGE_VERSION, type MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
-import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
-import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from '@/utils/mietvertrag/vertretung';
 import { PruefungsHinweise, UngueltigeZahlFelder, VertragsVorschau } from './mietvertrag-formular/Bausteine';
 import {
   BetriebskostenEditor,
@@ -66,19 +64,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
   const setEntwurf = (aenderung: (d: MietvertragDaten) => MietvertragDaten) =>
     setEntwurfRoh(d => (d ? aenderung(d) : d));
 
-  // Wer für den Vermieter unterschreibt: je Öffnen einmal der Angemeldete, solange nichts gewählt ist (03.11.2026)
-  const unterzeichner = useVermieterUnterzeichnerVorschlag(entwurf?.vermieter.vertretenDurch);
-  const unterzeichnerVorbelegt = useRef(false);
-  useEffect(() => {
-    if (!isOpen) unterzeichnerVorbelegt.current = false;
-  }, [isOpen]);
-  useEffect(() => {
-    if (!isOpen || !entwurf || !unterzeichner.bereit || unterzeichnerVorbelegt.current) return;
-    unterzeichnerVorbelegt.current = true;
-    const name = unterzeichner.vorschlag;
-    if (!name || !brauchtUnterzeichnerWahl(entwurf.vermieter) || gewaehlterUnterzeichner(entwurf)) return;
-    setEntwurfRoh(d => (d ? { ...d, unterzeichnerVermieter: name } : d));
-  }, [isOpen, entwurf, unterzeichner.bereit, unterzeichner.vorschlag]);
+  // Wer für den Vermieter unterschrieben hat, steht nicht am Vertrag — beim Nachdruck wird bewusst
+  // gewählt statt mit dem Angemeldeten vorbelegt, sonst stünde womöglich der Falsche darin (Review 03.11.2026)
 
   const befunde: Befund[] = useMemo(() => (entwurf ? pruefeVertragsdaten(entwurf) : []), [entwurf]);
   const blockiert = hatBlocker(befunde);

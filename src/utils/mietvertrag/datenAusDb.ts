@@ -240,8 +240,8 @@ export function betriebskostenPositionen(
   const gepflegt = new Map(nebenkostenarten.map(n => [normalisiere(n.name), n]));
   const gespeichert = new Map(
     (Array.isArray(gespeichertRoh) ? (gespeichertRoh as GespeichertePosition[]) : [])
-      .filter(x => typeof x?.nummer === 'string')
-      .map(x => [x.nummer as string, x])
+      .filter(x => typeof x?.nummer === 'string' && x.nummer.trim() !== '')
+      .map(x => [(x.nummer as string).trim(), { ...x, nummer: (x.nummer as string).trim() }])
   );
 
   const standard = BETRKV_STANDARD.map<BetriebskostenPosition>(pos => {
@@ -479,8 +479,10 @@ export function leseSchluessel(v: unknown): SchluesselAngabe[] {
     garage: 'Garagenschlüssel',
     transponder: 'Transponder',
   };
-  // Frei benannte Schlüssel (seit 03.11.2026) stehen als „müllplatzschlüssel“ in der Spalte — zurück in Lesbar
+  // Frei benannte Schlüssel stehen seit 03.11.2026 unter ihrem Namen in der Spalte; ältere
+  // Einträge in der Kurzform („dachboden“) werden lesbar gemacht
   const lesbar = (k: string) => {
+    if (!/^[a-z0-9äöüß_]+$/.test(k)) return k.trim();
     const text = k.replace(/_+/g, ' ').trim();
     return text.charAt(0).toUpperCase() + text.slice(1);
   };

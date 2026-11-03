@@ -65,7 +65,7 @@ export function unterzeichnerVorschlag(
 ): string | null {
   const gesucht = email?.trim().toLowerCase();
   if (!gesucht) return null;
-  const eintrag = briefunterzeichner.find(u => u.email === gesucht);
+  const eintrag = briefunterzeichner.find(u => u.email?.trim().toLowerCase() === gesucht);
   if (!eintrag) return null;
   const name = nachname(eintrag.unterschrift) || nachname(eintrag.kontaktname.replace(/^(Herrn?|Frau)\s+/, ''));
   if (!name) return null;

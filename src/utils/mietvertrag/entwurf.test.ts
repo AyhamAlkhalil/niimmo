@@ -993,6 +993,12 @@ describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
     expect(mitSchluesselnDesObjekts(gelesen, []).find(p => p.nummer === '2.20')?.schluesselObjekt).toBeTruthy();
   });
 
+  it('liest eine gespeicherte Nummer mit Leerzeichen als dieselbe Position (QA 03.11.2026)', () => {
+    const gelesen = betriebskostenPositionen([], [{ nummer: ' 2.19 ', umgelegt: true, betrag: 1, benennung: 'Lüftung' }]);
+    expect(gelesen.filter(p => p.nummer === '2.19')).toHaveLength(1);
+    expect(gelesen.find(p => p.nummer === '2.19')).toMatchObject({ umgelegt: true, betrag: 1, benennung: 'Lüftung' });
+  });
+
   it('warnt, wenn sonstige Betriebskosten unbenannt umgelegt werden', () => {
     const basis = baueEntwurf(grundlagen()).daten;
     const unbenannt = {

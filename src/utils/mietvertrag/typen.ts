@@ -203,11 +203,20 @@ export interface SchluesselAngabe {
   frei?: boolean;
 }
 
-/** Was im Vertrag steht und gespeichert wird: nur benannte Schlüssel mit Anzahl. */
+/**
+ * Was im Vertrag steht und gespeichert wird: nur benannte Schlüssel mit Anzahl.
+ * Gleich benannte Zeilen werden zusammengezählt — sonst stünden im Vertrag zwei
+ * Zeilen, in der Spalte `mietvertrag.schluessel` aber eine Summe (Review 03.11.2026).
+ */
 export function ausgehaendigteSchluessel(liste: readonly SchluesselAngabe[]): SchluesselAngabe[] {
-  return liste
-    .map(s => ({ art: s.art.trim(), anzahl: Math.round(s.anzahl) }))
-    .filter(s => s.art !== '' && s.anzahl > 0);
+  const summe = new Map<string, number>();
+  for (const s of liste) {
+    const art = s.art.trim();
+    const anzahl = Math.round(s.anzahl);
+    if (!/[\p{L}\p{N}]/u.test(art) || !(anzahl > 0)) continue;
+    summe.set(art, (summe.get(art) ?? 0) + anzahl);
+  }
+  return [...summe].map(([art, anzahl]) => ({ art, anzahl }));
 }
 
 export interface MietvertragDaten {

@@ -991,12 +991,9 @@ export function schluesselFuerDb(schluessel: MietvertragDaten['schluessel']): Re
   // Map statt Objekt: eine Art „constructor" träfe sonst die geerbte Eigenschaft
   const ergebnis = new Map<string, number>();
   for (const s of ausgehaendigteSchluessel(schluessel)) {
-    const anzahl = s.anzahl;
-    const key =
-      SCHLUESSEL_ARTEN.find(a => a.name === s.art)?.key ??
-      s.art.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '_').replace(/^_+|_+$/g, '');
-    if (!key) continue;
-    ergebnis.set(key, (ergebnis.get(key) ?? 0) + anzahl);
+    // Frei benannte Schlüssel unter ihrem Namen — „Tor 2 (Hof)“ muss beim Nachdruck so zurückkommen
+    const key = SCHLUESSEL_ARTEN.find(a => a.name === s.art)?.key ?? s.art;
+    ergebnis.set(key, (ergebnis.get(key) ?? 0) + s.anzahl);
   }
   return Object.fromEntries(ergebnis);
 }

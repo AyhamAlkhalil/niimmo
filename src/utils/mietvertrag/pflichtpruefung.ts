@@ -48,10 +48,11 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   }
   // Einzelvertretung mit mehreren Geschäftsführern: Im Vertrag steht nur, wer unterschreibt (03.11.2026)
   if (brauchtUnterzeichnerWahl(d.vermieter) && !gewaehlterUnterzeichner(d)) {
+    // Eigenes Feld statt „vermieter.…“: Behoben wird es in der Auswahl, nicht in den Stammdaten
     blocker(
-      'vermieter.unterzeichner',
+      'unterzeichnerVermieter',
       'Es ist nicht gewählt, wer für den Vermieter unterschreibt.',
-      'Unter „Grundlagen“ beim Vermieter den Unterzeichner wählen — nur er steht im Vertrag.'
+      'Unter „Unterschreibt für den Vermieter“ die Person wählen — nur sie steht im Vertrag.'
     );
   }
 

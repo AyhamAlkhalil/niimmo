@@ -82,6 +82,8 @@ describe('Unterzeichner des Vermieters', () => {
     expect(unterzeichnerVorschlag(alle, BRIEF, 'erste@probe.de')).toBe('Anna Erste');
     // Vorname unterschiedlich geschrieben (live: Denis/Dennis), Groß-/Kleinschreibung der E-Mail egal
     expect(unterzeichnerVorschlag(alle, BRIEF, ' Zweiter@Probe.de ')).toBe('Bernd Zweiter');
+    // Auch eine gespeicherte E-Mail mit Großbuchstaben oder Leerzeichen passt (QA 03.11.2026)
+    expect(unterzeichnerVorschlag(alle, [{ ...BRIEF[0], email: ' Erste@Probe.de ' }], 'erste@probe.de')).toBe('Anna Erste');
   });
 
   it('schlägt niemanden vor, der nicht vertreten darf, und rät nicht bei gleichem Nachnamen', () => {

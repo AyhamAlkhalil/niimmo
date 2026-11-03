@@ -280,7 +280,7 @@ describe('PDF-Erzeugung', () => {
       vermieter: { ...WOHNRAUM.vermieter, vertretungArt: 'einzel' },
       unterzeichnerVermieter: 'Ayhan Yeyrek',
     };
-    expect(pruefeVertragsdaten(daten).filter(b => b.feld === 'vermieter.unterzeichner')).toEqual([]);
+    expect(pruefeVertragsdaten(daten).filter(b => b.feld === 'unterzeichnerVermieter')).toEqual([]);
     const t = textAusPdf(await bytesVon(await generateMietvertragPdf(daten)));
     expect(t).toContain('vertreten durch Ayhan Yeyrek');
     expect(t).not.toContain('gemeinsam vertreten durch');
@@ -288,7 +288,7 @@ describe('PDF-Erzeugung', () => {
 
     // Ohne Wahl kein PDF: die Pflichtprüfung sperrt
     const ohneWahl = { ...daten, unterzeichnerVermieter: null };
-    expect(pruefeVertragsdaten(ohneWahl).some(b => b.feld === 'vermieter.unterzeichner' && b.schwere === 'blocker')).toBe(true);
+    expect(pruefeVertragsdaten(ohneWahl).some(b => b.feld === 'unterzeichnerVermieter' && b.schwere === 'blocker')).toBe(true);
   });
 
   it('lässt bei Gesamtvertretung beide Geschäftsführer zeichnen', async () => {

@@ -243,6 +243,9 @@ export function SchluesselFelder({ entwurf, setEntwurf, markierung, geaendert }:
           {s.anzahl > 0 && !s.art.trim() && (
             <p className="text-xs text-destructive">Ohne Bezeichnung steht dieser Schlüssel nicht im Vertrag.</p>
           )}
+          {!!s.art.trim() && !(s.anzahl > 0) && (
+            <p className="text-xs text-muted-foreground">Mit 0 steht dieser Schlüssel nicht im Vertrag.</p>
+          )}
         </div>
       ))}
       <Button
