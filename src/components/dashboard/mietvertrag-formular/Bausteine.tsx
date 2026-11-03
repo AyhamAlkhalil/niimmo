@@ -70,8 +70,10 @@ export function ZahlFeld({
   className,
   disabled,
   art = 'zahl',
+  'aria-label': ariaLabel,
 }: {
   id?: string;
+  'aria-label'?: string;
   wert: number | null;
   onWert: (n: number | null) => void;
   placeholder?: string;
@@ -102,6 +104,7 @@ export function ZahlFeld({
   return (
     <Input
       id={id}
+      aria-label={ariaLabel}
       type="number"
       className={cn(className, ungueltig && 'border-destructive focus-visible:border-destructive')}
       placeholder={placeholder}

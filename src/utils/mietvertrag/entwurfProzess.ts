@@ -21,7 +21,7 @@ import {
   type Herkunft,
   type HerkunftKarte,
 } from './entwurf';
-import type { MietvertragDaten } from './typen';
+import { ausgehaendigteSchluessel, type MietvertragDaten } from './typen';
 import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from './vertretung';
 
 // ─── Schritte ───────────────────────────────────────────────────────────────
@@ -307,6 +307,7 @@ export function platzhalterUebersicht(
   ]
     .filter(Boolean)
     .join(', ');
+  const schluessel = ausgehaendigteSchluessel(d.schluessel);
   const mietsache: PlatzhalterZeile[] = [
     zeile('objekt.adresse', 'Anschrift', adresse, 'grundlagen', { quelle: adresse ? 'objekt' : null }),
     zeile('einheit.bezeichnung', 'Einheit', d.einheit.bezeichnung, 'mietsache'),
@@ -330,9 +331,9 @@ export function platzhalterUebersicht(
       zeile(
         'schluessel',
         'Schlüssel',
-        d.schluessel.length > 0 ? d.schluessel.map(s => `${s.anzahl} ${s.art}`).join(', ') : 'laut Übergabeprotokoll',
+        schluessel.length > 0 ? schluessel.map(s => `${s.anzahl} ${s.art}`).join(', ') : 'laut Übergabeprotokoll',
         'mietsache',
-        { quelle: herkunft.schluessel ?? (d.schluessel.length > 0 ? 'eingabe' : 'vorgabe') }
+        { quelle: herkunft.schluessel ?? (schluessel.length > 0 ? 'eingabe' : 'vorgabe') }
       )
     );
   }

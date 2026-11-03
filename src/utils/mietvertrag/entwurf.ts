@@ -21,7 +21,14 @@ import { alsIsoTag, getVertragsende, istLaufenderVertrag } from '@/utils/contrac
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from '@/constants/config';
 import { istPlausiblesDatum } from '../pdf/briefLayout';
 import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, ersteIban, objektDaten, vermieterDaten } from './datenAusDb';
-import { VORLAGE_VERSION, type Anrede, type MieterDaten, type MietvertragDaten, type Vertragsart } from './typen';
+import {
+  ausgehaendigteSchluessel,
+  VORLAGE_VERSION,
+  type Anrede,
+  type MieterDaten,
+  type MietvertragDaten,
+  type Vertragsart,
+} from './typen';
 
 // ─── Typen ──────────────────────────────────────────────────────────────────
 
@@ -982,9 +989,8 @@ export const SCHLUESSEL_ARTEN: { key: string; name: string }[] = [
 export function schluesselFuerDb(schluessel: MietvertragDaten['schluessel']): Record<string, number> {
   // Map statt Objekt: eine Art „constructor" träfe sonst die geerbte Eigenschaft
   const ergebnis = new Map<string, number>();
-  for (const s of schluessel) {
-    const anzahl = Math.round(s.anzahl);
-    if (!(anzahl > 0)) continue;
+  for (const s of ausgehaendigteSchluessel(schluessel)) {
+    const anzahl = s.anzahl;
     const key =
       SCHLUESSEL_ARTEN.find(a => a.name === s.art)?.key ??
       s.art.toLowerCase().replace(/[^a-z0-9äöüß]+/g, '_').replace(/^_+|_+$/g, '');

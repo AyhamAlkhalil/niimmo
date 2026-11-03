@@ -19,7 +19,7 @@ import {
   betragInWorten,
   type TabellenZeile,
 } from '../pdf/briefLayout';
-import { verteilerschluesselName, type MietvertragDaten } from './typen';
+import { ausgehaendigteSchluessel, verteilerschluesselName, type MietvertragDaten } from './typen';
 
 export interface Absatz {
   /** Gliederungsziffer wie „1." oder „2.1" — optional. */
@@ -214,9 +214,10 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       : 'Gemeinschaftseinrichtungen werden nicht zur Mitbenutzung überlassen.',
   });
 
+  const schluessel = ausgehaendigteSchluessel(d.schluessel);
   const schluesselText =
-    d.schluessel.length > 0
-      ? d.schluessel.map(s => `${s.anzahl} ${s.art}`).join(', ')
+    schluessel.length > 0
+      ? schluessel.map(s => `${s.anzahl} ${s.art}`).join(', ')
       : 'die im Übergabeprotokoll aufgeführten Schlüssel';
   p1.push({
     nummer: '3.',

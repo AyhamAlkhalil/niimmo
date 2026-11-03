@@ -24,6 +24,7 @@ import type {
   MieterDaten,
   MietvertragDaten,
   ObjektDaten,
+  SchluesselAngabe,
   StaffelStufe,
   VermieterDaten,
   Warmwasserart,
@@ -426,7 +427,7 @@ function leseStaffelplan(v: unknown): StaffelStufe[] | null {
     .map(s => ({ gueltigAb: String(s.gueltig_ab), kaltmiete: Number(s.kaltmiete) }));
 }
 
-function leseSchluessel(v: unknown): { art: string; anzahl: number }[] {
+export function leseSchluessel(v: unknown): SchluesselAngabe[] {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return [];
   const namen: Record<string, string> = {
     haustuer: 'Haustürschlüssel',
@@ -436,7 +437,12 @@ function leseSchluessel(v: unknown): { art: string; anzahl: number }[] {
     garage: 'Garagenschlüssel',
     transponder: 'Transponder',
   };
+  // Frei benannte Schlüssel (seit 03.11.2026) stehen als „müllplatzschlüssel“ in der Spalte — zurück in Lesbar
+  const lesbar = (k: string) => {
+    const text = k.replace(/_+/g, ' ').trim();
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
   return Object.entries(v as Record<string, number>)
     .filter(([, n]) => Number(n) > 0)
-    .map(([k, n]) => ({ art: namen[k] ?? k, anzahl: Number(n) }));
+    .map(([k, n]) => (namen[k] ? { art: namen[k], anzahl: Number(n) } : { art: lesbar(k), anzahl: Number(n), frei: true }));
 }

@@ -36,6 +36,9 @@ import {
   schrittZustaende,
 } from './entwurfProzess';
 import { pruefeVertragsdaten } from './pflichtpruefung';
+import { leseSchluessel } from './datenAusDb';
+import { ausgehaendigteSchluessel } from './typen';
+import { wohnraumParagraphen } from './wohnraumKlauseln';
 
 const IMMOBILIE = {
   id: 'imm', name: 'Haus', strasse: 'Musterstraße', hausnummer: '12', plz: '30851', ort: 'Langenhagen', ortsteil: null,
@@ -332,6 +335,40 @@ describe('Befunde der QA vom 20.10.2026', () => {
     // Die Umkehrung findet die Monate auch dann
     expect(verschiebeKuendigungsverzicht('2026-01-31', '2026-03-01', '2026-02-28')).toBe('2026-03-31');
     expect(verschiebeKuendigungsverzicht('2026-03-31', '2026-05-01', '2026-04-30')).toBe('2026-05-31');
+  });
+
+  it('druckt frei benannte Schlüssel und lässt halbe Zeilen weg (03.11.2026)', () => {
+    const { daten } = entwurf();
+    daten.schluessel = [
+      { art: 'Haustürschlüssel', anzahl: 2 },
+      { art: ' Müllplatzschlüssel ', anzahl: 1, frei: true },
+      { art: '', anzahl: 3, frei: true },
+      { art: 'Fahrradraum', anzahl: 0, frei: true },
+    ];
+    expect(ausgehaendigteSchluessel(daten.schluessel)).toEqual([
+      { art: 'Haustürschlüssel', anzahl: 2 },
+      { art: 'Müllplatzschlüssel', anzahl: 1 },
+    ]);
+    const text = wohnraumParagraphen(daten)
+      .flatMap(p => p.absaetze.map(a => a.text))
+      .find(t => t.includes('folgende Schlüssel'));
+    expect(text).toContain('folgende Schlüssel ausgehändigt: 2 Haustürschlüssel, 1 Müllplatzschlüssel.');
+    expect(schluesselFuerDb(daten.schluessel)).toEqual({ haustuer: 2, müllplatzschlüssel: 1 });
+    // Beim Nachdruck kommt der Name lesbar zurück und bleibt frei bearbeitbar
+    expect(leseSchluessel({ haustuer: 2, müllplatzschlüssel: 1, fahrrad_raum: 1 })).toEqual([
+      { art: 'Haustürschlüssel', anzahl: 2 },
+      { art: 'Müllplatzschlüssel', anzahl: 1, frei: true },
+      { art: 'Fahrrad raum', anzahl: 1, frei: true },
+    ]);
+  });
+
+  it('verweist ohne benannten Schlüssel auf das Übergabeprotokoll', () => {
+    const { daten } = entwurf();
+    daten.schluessel = [{ art: '', anzahl: 2, frei: true }];
+    const text = wohnraumParagraphen(daten)
+      .flatMap(p => p.absaetze.map(a => a.text))
+      .find(t => t.includes('folgende Schlüssel'));
+    expect(text).toContain('die im Übergabeprotokoll aufgeführten Schlüssel');
   });
 
   it('nimmt nur ganze Schlüssel und keine geerbten Eigenschaften', () => {

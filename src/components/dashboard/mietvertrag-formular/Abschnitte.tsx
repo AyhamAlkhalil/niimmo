@@ -27,6 +27,7 @@ import {
   type MietanpassungArt,
   type MietvertragDaten,
   type SchliessanlageArt,
+  type SchluesselAngabe,
   type Uebergabezustand,
   type Warmwasserart,
 } from '@/utils/mietvertrag/typen';
@@ -157,20 +158,38 @@ export function PersonenzahlFeld({ entwurf, setEntwurf, markierung, geaendert }:
   );
 }
 
-/** Schlüssel für § 1 Ziff. 3; ohne Angabe nennt der Vertrag das Übergabeprotokoll. */
+/**
+ * Schlüssel für § 1 Ziff. 3; ohne Angabe nennt der Vertrag das Übergabeprotokoll.
+ * Neben den sechs festen Arten lassen sich weitere frei benennen (03.11.2026:
+ * „in Celle … einen Müllplatz, dafür geben wir Schlüssel raus“). Was 0 ist oder
+ * keinen Namen hat, steht nicht im Vertrag.
+ */
 export function SchluesselFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
-  const anzahl = (name: string) => entwurf.schluessel.find(s => s.art === name)?.anzahl ?? 0;
+  const istFest = (s: SchluesselAngabe) => !s.frei && SCHLUESSEL_ARTEN.some(a => a.name === s.art);
+  const anzahl = (name: string) => entwurf.schluessel.find(s => istFest(s) && s.art === name)?.anzahl ?? 0;
   const setze = (name: string, n: number) => {
     setEntwurf(d => {
-      const uebrige = d.schluessel.filter(s => s.art !== name);
+      const uebrige = d.schluessel.filter(s => !(istFest(s) && s.art === name));
       const neu = n > 0 ? [...uebrige, { art: name, anzahl: n }] : uebrige;
-      // Reihenfolge wie in der Vorlage, frei benannte Schlüssel ans Ende
-      const rang = (art: string) => {
-        const i = SCHLUESSEL_ARTEN.findIndex(a => a.name === art);
+      // Reihenfolge wie in der Vorlage, frei benannte Schlüssel in ihrer Reihenfolge ans Ende
+      const rang = (s: SchluesselAngabe) => {
+        const i = istFest(s) ? SCHLUESSEL_ARTEN.findIndex(a => a.name === s.art) : -1;
         return i < 0 ? 99 : i;
       };
-      return { ...d, schluessel: neu.sort((a, b) => rang(a.art) - rang(b.art)) };
+      return { ...d, schluessel: neu.sort((a, b) => rang(a) - rang(b)) };
     });
+    geaendert?.('schluessel');
+  };
+  const weitere = entwurf.schluessel.map((s, index) => ({ s, index })).filter(({ s }) => !istFest(s));
+  const aendereWeitere = (index: number, teil: Partial<SchluesselAngabe>) => {
+    setEntwurf(d => ({
+      ...d,
+      schluessel: d.schluessel.map((s, i) => (i === index ? { ...s, ...teil, frei: true } : s)),
+    }));
+    geaendert?.('schluessel');
+  };
+  const entferne = (index: number) => {
+    setEntwurf(d => ({ ...d, schluessel: d.schluessel.filter((_, i) => i !== index) }));
     geaendert?.('schluessel');
   };
 
@@ -192,6 +211,50 @@ export function SchluesselFelder({ entwurf, setEntwurf, markierung, geaendert }:
           </div>
         ))}
       </div>
+      {weitere.map(({ s, index }, nr) => (
+        <div key={index} className="space-y-1">
+          <div className="grid grid-cols-[1fr_80px_32px] items-center gap-2">
+            <Input
+              aria-label={`Weiterer Schlüssel ${nr + 1}: Bezeichnung`}
+              placeholder="Bezeichnung, z. B. Müllplatzschlüssel"
+              value={s.art}
+              onChange={e => aendereWeitere(index, { art: e.target.value })}
+            />
+            <ZahlFeld
+              aria-label={`Weiterer Schlüssel ${nr + 1}: Anzahl`}
+              placeholder="0"
+              wert={s.anzahl || null}
+              onWert={n => aendereWeitere(index, { anzahl: Math.max(0, Math.round(n ?? 0)) })}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              aria-label={`Weiteren Schlüssel ${nr + 1} entfernen`}
+              onClick={() => entferne(index)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          {s.anzahl > 0 && !s.art.trim() && (
+            <p className="text-xs text-destructive">Ohne Bezeichnung steht dieser Schlüssel nicht im Vertrag.</p>
+          )}
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 text-xs"
+        onClick={() => {
+          setEntwurf(d => ({ ...d, schluessel: [...d.schluessel, { art: '', anzahl: 1, frei: true }] }));
+          geaendert?.('schluessel');
+        }}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Weiteren Schlüssel hinzufügen
+      </Button>
       <p className="text-xs text-muted-foreground">
         Leer gelassen verweist der Vertrag auf die im Übergabeprotokoll aufgeführten Schlüssel.
       </p>

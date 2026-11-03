@@ -152,6 +152,19 @@ export function verteilerschluesselName(s: string): string {
 export interface SchluesselAngabe {
   art: string;
   anzahl: number;
+  /**
+   * Von Hand benannt (seit 03.11.2026, etwa „Müllplatzschlüssel“). Solche Zeilen
+   * dürfen beim Bearbeiten noch ohne Namen oder mit 0 dastehen — in den Vertrag
+   * kommt nur, was `ausgehaendigteSchluessel` durchlässt.
+   */
+  frei?: boolean;
+}
+
+/** Was im Vertrag steht und gespeichert wird: nur benannte Schlüssel mit Anzahl. */
+export function ausgehaendigteSchluessel(liste: readonly SchluesselAngabe[]): SchluesselAngabe[] {
+  return liste
+    .map(s => ({ art: s.art.trim(), anzahl: Math.round(s.anzahl) }))
+    .filter(s => s.art !== '' && s.anzahl > 0);
 }
 
 export interface MietvertragDaten {
