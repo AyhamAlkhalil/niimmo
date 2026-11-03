@@ -85,13 +85,11 @@ import {
 } from '@/utils/mietvertrag/entwurfProzess';
 import { hatBlocker, pruefeVertragsdaten } from '@/utils/mietvertrag/pflichtpruefung';
 import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from '@/utils/mietvertrag/vertretung';
-import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { EURO_BETRAG_HINWEIS } from '@/utils/euroBetrag';
 import {
   AnlagenFelder,
   BetriebskostenEditor,
-  EnergieausweisFelder,
   KleinreparaturFelder,
   MietsacheFelder,
   ObjektAngabenFelder,
@@ -177,7 +175,6 @@ const FELDER_AM_OBJEKT = [
   'objekt.gesamtwohnflaecheQm',
   'schliessanlageArt',
   'mitbenutzungEinrichtungen',
-  'objekt.energieausweis',
 ];
 const FELDER_AN_EINHEIT = ['einheit.nebenraeume', 'einheit.einbaukueche'];
 
@@ -606,16 +603,7 @@ export function MietvertragEntwurfDialog({
     ) {
       objekt.gemeinschaftseinrichtungen = einrichtungen;
     }
-    if (geaendertJetzt('objekt.energieausweis')) {
-      // Die fünf Angaben gehören zusammen — von Hand geändert, gehen sie gemeinsam ans Objekt
-      objekt.energieausweis_typ = d.objekt.energieausweisTyp;
-      objekt.energie_kennwert = d.objekt.energieausweisTyp ? d.objekt.energieKennwert : null;
-      objekt.energietraeger = d.objekt.energieausweisTyp ? d.objekt.energietraeger?.trim() || null : null;
-      objekt.energieeffizienzklasse = d.objekt.energieausweisTyp ? d.objekt.energieeffizienzklasse : null;
-      // Ein halb getipptes Datum wird nicht geschrieben — das bisherige am Objekt bleibt stehen
-      const gueltigBis = d.objekt.energieausweisGueltigBis;
-      if (!gueltigBis || istPlausiblesDatum(gueltigBis)) objekt.energieausweis_gueltig_bis = gueltigBis || null;
-    }
+    // Den Energieausweis pflegt seit 03.11.2026 nur das Objekt („Für Mietverträge“) — er steht nicht im Vertrag
     if (Object.keys(objekt).length > 0) {
       const { data, error } = await supabase.from('immobilien').update(objekt).eq('id', imm.id).select('id');
       if (error || !data?.length) {
@@ -884,8 +872,6 @@ export function MietvertragEntwurfDialog({
             <SchluesselFelder {...formularProps} />
             <Separator />
             <ObjektAngabenFelder {...formularProps} gesamtflaecheVorschlag={g.summeEinheitenQm} />
-            <Separator />
-            <EnergieausweisFelder {...formularProps} />
           </div>
         );
       case 'betriebskosten':

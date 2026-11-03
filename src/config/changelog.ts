@@ -45,6 +45,7 @@ export const RELEASES: Release[] = [
       { art: "neu", titel: "Mietvertrag: Weitere Schlüssel lassen sich frei benennen, etwa für den Müllplatz" },
       { art: "neu", titel: "Mietvertrag: Sonstige Betriebskosten unter 2.19 benennen, auch mehrere – etwa die Lüftungsanlage" },
       { art: "verbessert", titel: "Neuer Mietvertrag: Die Verteilerschlüssel kommen fest vom Objekt und stehen bei jeder Position zur Kontrolle" },
+      { art: "verbessert", titel: "Neuer Mietvertrag: Der Energieausweis wird nur noch am Objekt gepflegt, nicht mehr im Ablauf" },
     ],
   },
   {

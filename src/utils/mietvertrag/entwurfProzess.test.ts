@@ -32,6 +32,7 @@ import {
   quellenZaehlung,
   schritteFuer,
   teilVon,
+  nurAmObjekt,
   schrittFuerFeld,
   schrittZustaende,
 } from './entwurfProzess';
@@ -520,7 +521,16 @@ describe('Befunde der QA vom 20.10.2026', () => {
   it('führt ohne Wohnraum-Vorlage nur in vorhandene Schritte', () => {
     const vorhanden = schritteFuer(false);
     expect(vorhanden).not.toContain('mietsache');
-    // Energieausweis wird im Schritt „Mietsache & Haus" gepflegt
-    expect(schrittFuerFeld('objekt.energieausweis')).toBe('mietsache');
+  });
+
+  it('führt beim Energieausweis in keinen Schritt, weil er nur am Objekt gepflegt wird (03.11.2026)', () => {
+    expect(nurAmObjekt('objekt.energieausweis')).toBe(true);
+    expect(nurAmObjekt('objekt.energieausweisGueltigBis')).toBe(true);
+    expect(nurAmObjekt('objekt.heizungsart')).toBe(false);
+    const zustand = schrittZustaende(
+      [{ schwere: 'warnung', feld: 'objekt.energieausweis', text: 'fehlt', loesung: '' }],
+      []
+    );
+    expect(zustand.mietsache).toBe('ok');
   });
 });

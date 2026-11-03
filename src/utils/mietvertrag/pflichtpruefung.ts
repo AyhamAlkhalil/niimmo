@@ -451,23 +451,24 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   }
 
   // ─── Energieausweis ─────────────────────────────────────────────────────
+  // Steht nicht im Vertrag; seit 03.11.2026 nur noch am Objekt gepflegt („Für Mietverträge“ im Objektdetail)
   if (d.vertragsart === 'wohnraum' && !d.objekt.energieausweisTyp) {
     warnung(
       'objekt.energieausweis',
       'Für das Objekt ist kein Energieausweis hinterlegt.',
-      'Energieausweis erfassen und dem Mieter spätestens bei Vertragsabschluss vorlegen (§ 80 Abs. 4 GEG). Verstoß: Bußgeld bis 10.000 €.'
+      'Im Objekt unter „Für Mietverträge“ erfassen und dem Mieter spätestens bei Vertragsabschluss vorlegen (§ 80 Abs. 4 GEG). Verstoß: Bußgeld bis 10.000 €.'
     );
   } else if (d.objekt.energieausweisGueltigBis && !istPlausiblesDatum(d.objekt.energieausweisGueltigBis)) {
     warnung(
       'objekt.energieausweisGueltigBis',
       'Das Ablaufdatum des Energieausweises ist kein gültiges Datum.',
-      'Datum vollständig eingeben — sonst wird es am Objekt nicht gespeichert.'
+      'Im Objekt unter „Für Mietverträge“ vollständig eingeben.'
     );
   } else if (d.objekt.energieausweisGueltigBis && d.objekt.energieausweisGueltigBis < heute()) {
     warnung(
       'objekt.energieausweisGueltigBis',
       'Der hinterlegte Energieausweis ist abgelaufen.',
-      'Neuen Energieausweis ausstellen lassen.'
+      'Neuen Energieausweis ausstellen lassen und im Objekt unter „Für Mietverträge“ eintragen.'
     );
   }
 

@@ -15,6 +15,7 @@ import {
   quellenZaehlung,
   quelleText,
   SCHRITT_TITEL,
+  nurAmObjekt,
   schrittFuerFeld,
   type PlatzhalterGruppe,
   type PlatzhalterQuelle,
@@ -63,7 +64,8 @@ export function PruefenSchritt({ gruppen, befunde, luecken, wohnraum, schritte, 
     ...blocker.map(b => ({ text: b.text, loesung: b.loesung, schritt: schrittFuerFeld(b.feld), feld: b.feld })),
   ];
   const zaehlung = quellenZaehlung(gruppen);
-  const aenderbar = (feld: string, schritt: SchrittId) => feld.startsWith('vermieter') || schritte.includes(schritt);
+  const aenderbar = (feld: string, schritt: SchrittId) =>
+    !nurAmObjekt(feld) && (feld.startsWith('vermieter') || schritte.includes(schritt));
 
   return (
     <div className="space-y-5">

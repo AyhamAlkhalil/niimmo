@@ -76,6 +76,14 @@ export function istSchrittId(wert: unknown): wert is SchrittId {
   return typeof wert === 'string' && (ALLE as string[]).includes(wert);
 }
 
+/**
+ * Befunde, die sich nicht im Ablauf beheben lassen, sondern nur am Objekt: der
+ * Energieausweis steht nicht im Vertrag und wird seit 03.11.2026 nur dort gepflegt.
+ */
+export function nurAmObjekt(feld: string): boolean {
+  return feld.startsWith('objekt.energieausweis');
+}
+
 /** In welchem Schritt lässt sich ein Feld der Pflichtprüfung beheben? */
 export function schrittFuerFeld(feld: string): SchrittId {
   if (feld.startsWith('vermieter') || feld === 'objekt.adresse') return 'grundlagen';
@@ -110,6 +118,7 @@ export type SchrittZustand = 'ok' | 'fehlt' | 'hinweis';
 export function schrittZustaende(befunde: Befund[], entwurfFehler: { feld: string }[]): Record<SchrittId, SchrittZustand> {
   const zustand = Object.fromEntries(ALLE.map(s => [s, 'ok'])) as Record<SchrittId, SchrittZustand>;
   for (const f of befunde) {
+    if (nurAmObjekt(f.feld)) continue;
     const s = schrittFuerFeld(f.feld);
     if (f.schwere === 'blocker') zustand[s] = 'fehlt';
     else if (zustand[s] === 'ok') zustand[s] = 'hinweis';
