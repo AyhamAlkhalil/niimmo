@@ -158,6 +158,12 @@ export interface MietvertragDaten {
   vertragsart: Vertragsart;
 
   vermieter: VermieterDaten;
+  /**
+   * Wer bei Einzelvertretung für den Vermieter unterschreibt — einer der Namen aus
+   * `vermieter.vertretenDurch` (seit 03.11.2026). Steht neben `vermieter`, weil der
+   * Entwurf die Vermieterangaben bei jedem Öffnen frisch aus den Stammdaten lädt.
+   */
+  unterzeichnerVermieter?: string | null;
   mieter: MieterDaten[];
   objekt: ObjektDaten;
   einheit: EinheitDaten;

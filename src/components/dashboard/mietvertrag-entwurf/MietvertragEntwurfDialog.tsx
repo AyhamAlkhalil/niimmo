@@ -44,6 +44,7 @@ import {
   type EntwurfGrundlagenDaten,
 } from '@/hooks/useMietvertragEntwurf';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
+import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
 import { supabase } from '@/integrations/supabase/client';
 import type { TablesUpdate } from '@/integrations/supabase/types';
 import { OCRProcessingService } from '@/services/ocrProcessingService';
@@ -83,6 +84,7 @@ import {
   type SchrittId,
 } from '@/utils/mietvertrag/entwurfProzess';
 import { hatBlocker, pruefeVertragsdaten } from '@/utils/mietvertrag/pflichtpruefung';
+import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from '@/utils/mietvertrag/vertretung';
 import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { EURO_BETRAG_HINWEIS } from '@/utils/euroBetrag';
@@ -97,6 +99,7 @@ import {
   SchluesselFelder,
   UebergabeFelder,
   UnterzeichnungFelder,
+  VermieterUnterzeichnerFeld,
   ZusatzvereinbarungFeld,
 } from '../mietvertrag-formular/Abschnitte';
 import {
@@ -215,6 +218,8 @@ export function MietvertragEntwurfDialog({
   const [frageSchliessen, setFrageSchliessen] = useState<Verlassen | null>(null);
   const [zuletztGespeichert, setZuletztGespeichert] = useState<Date | null>(null);
   const initialisiert = useRef(false);
+  /** Der Unterzeichner des Vermieters wird je Öffnen einmal mit dem Angemeldeten vorbelegt. */
+  const unterzeichnerVorbelegt = useRef(false);
   /** Felder, die in dieser Sitzung von Hand geändert wurden — nur die gehen ans Objekt zurück. */
   /** Je Feld ein Zähler: So erkennt das Speichern, ob ein Feld währenddessen erneut geändert wurde. */
   const sitzungGeaendert = useRef(new Map<string, number>());
@@ -239,6 +244,7 @@ export function MietvertragEntwurfDialog({
     if (isOpen) return;
     sitzung.current += 1;
     initialisiert.current = false;
+    unterzeichnerVorbelegt.current = false;
     sitzungGeaendert.current = new Map();
     vonHandGeaendert.current = new Set();
     aenderungen.current = 0;
@@ -399,6 +405,18 @@ export function MietvertragEntwurfDialog({
       };
     });
   }, [personen]);
+
+  // ─── Unterzeichner des Vermieters: der Angemeldete, solange nichts gewählt ist ─
+  const unterzeichner = useVermieterUnterzeichnerVorschlag(stand?.daten.vermieter.vertretenDurch);
+  useEffect(() => {
+    if (!isOpen || !stand || !unterzeichner.bereit || unterzeichnerVorbelegt.current) return;
+    unterzeichnerVorbelegt.current = true;
+    const d = stand.daten;
+    if (!unterzeichner.vorschlag || !brauchtUnterzeichnerWahl(d.vermieter) || gewaehlterUnterzeichner(d)) return;
+    setStand(s => (s ? { ...s, daten: { ...s.daten, unterzeichnerVermieter: unterzeichner.vorschlag } } : s));
+    // Ein gespeichertes PDF zeigt noch keinen Unterzeichner
+    if (gespeichert) markiereUngespeichert();
+  }, [isOpen, stand, unterzeichner.bereit, unterzeichner.vorschlag, gespeichert, markiereUngespeichert]);
 
   // Beim Schrittwechsel oben beginnen
   useEffect(() => {
@@ -794,6 +812,9 @@ export function MietvertragEntwurfDialog({
             ausleseStatus={ausleseStatus}
             onAuslesen={() => vorvertragPfad && void liesVorvertrag(g, vorvertragPfad, true)}
             onVermieterBearbeiten={() => setZeigeVermieter(true)}
+            unterzeichnerFeld={
+              wohnraum && brauchtUnterzeichnerWahl(stand.daten.vermieter) ? <VermieterUnterzeichnerFeld {...formularProps} /> : undefined
+            }
           />
         );
       case 'mieter':

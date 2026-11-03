@@ -22,6 +22,7 @@ import {
   type HerkunftKarte,
 } from './entwurf';
 import type { MietvertragDaten } from './typen';
+import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from './vertretung';
 
 // ─── Schritte ───────────────────────────────────────────────────────────────
 
@@ -284,9 +285,14 @@ export function platzhalterUebersicht(
     titel: 'Vertragsparteien',
     zeilen: [
       zeile('vermieter', 'Vermieter', d.vermieter.firmenname, 'grundlagen', { pruef: ['vermieter'] }),
-      zeile('vermieter.vertretenDurch', 'vertreten durch', d.vermieter.vertretenDurch.join(', '), 'grundlagen', {
-        quelle: d.vermieter.vertretenDurch.length > 0 ? 'stammdaten' : null,
-      }),
+      brauchtUnterzeichnerWahl(d.vermieter)
+        ? zeile('vermieter.unterzeichner', 'unterschreibt', gewaehlterUnterzeichner(d) ?? '', 'grundlagen', {
+            quelle: gewaehlterUnterzeichner(d) ? 'eingabe' : null,
+            pruef: ['vermieter.unterzeichner', 'vermieter.vertretenDurch'],
+          })
+        : zeile('vermieter.vertretenDurch', 'vertreten durch', d.vermieter.vertretenDurch.join(', '), 'grundlagen', {
+            quelle: d.vermieter.vertretenDurch.length > 0 ? 'stammdaten' : null,
+          }),
       ...(mieterZeilen.length > 0
         ? mieterZeilen
         : [zeile('mieter', 'Mieter', '', 'mieter', { quelle: null, pruef: ['mieter'] })]),

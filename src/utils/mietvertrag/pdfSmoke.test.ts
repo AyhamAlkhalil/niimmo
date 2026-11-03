@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { generateMietvertragPdf } from './mietvertragPdfGenerator';
+import { pruefeVertragsdaten } from './pflichtpruefung';
 import {
   generateGewerbeVertragPdf,
   generateNebenvertragPdf,
@@ -271,6 +272,28 @@ describe('PDF-Erzeugung', () => {
 
     // Unterschriftsblock mit Ort/Datum je Partei
     expect(t).toContain('(Ort, Datum)');
+  });
+
+  it('nennt bei Einzelvertretung nur den gewählten Unterzeichner (03.11.2026)', async () => {
+    const daten: MietvertragDaten = {
+      ...WOHNRAUM,
+      vermieter: { ...WOHNRAUM.vermieter, vertretungArt: 'einzel' },
+      unterzeichnerVermieter: 'Ayhan Yeyrek',
+    };
+    expect(pruefeVertragsdaten(daten).filter(b => b.feld === 'vermieter.unterzeichner')).toEqual([]);
+    const t = textAusPdf(await bytesVon(await generateMietvertragPdf(daten)));
+    expect(t).toContain('vertreten durch Ayhan Yeyrek');
+    expect(t).not.toContain('gemeinsam vertreten durch');
+    expect(t).not.toContain('Dennis Mikyas');
+
+    // Ohne Wahl kein PDF: die Pflichtprüfung sperrt
+    const ohneWahl = { ...daten, unterzeichnerVermieter: null };
+    expect(pruefeVertragsdaten(ohneWahl).some(b => b.feld === 'vermieter.unterzeichner' && b.schwere === 'blocker')).toBe(true);
+  });
+
+  it('lässt bei Gesamtvertretung beide Geschäftsführer zeichnen', async () => {
+    const t = textAusPdf(await bytesVon(await generateMietvertragPdf({ ...WOHNRAUM, unterzeichnerVermieter: 'Ayhan Yeyrek' })));
+    expect(t).toContain('gemeinsam vertreten durch Ayhan Yeyrek und Dennis Mikyas');
   });
 
   it('paginiert und nummeriert die Seiten', async () => {

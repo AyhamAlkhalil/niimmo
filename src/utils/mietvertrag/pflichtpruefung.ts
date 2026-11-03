@@ -8,6 +8,7 @@
  */
 import { istIbanGueltig, istPlausiblesDatum } from '../pdf/briefLayout';
 import { gleicherSchluessel, verteilerschluesselName, type MietvertragDaten } from './typen';
+import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from './vertretung';
 import { format } from 'date-fns';
 
 export type Schwere = 'blocker' | 'warnung';
@@ -43,6 +44,14 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       'vermieter.vertretenDurch',
       'Es ist nicht hinterlegt, wer den Vermieter vertritt.',
       'Vertretungsberechtigte Person(en) in den Vermieterstammdaten eintragen.'
+    );
+  }
+  // Einzelvertretung mit mehreren Geschäftsführern: Im Vertrag steht nur, wer unterschreibt (03.11.2026)
+  if (brauchtUnterzeichnerWahl(d.vermieter) && !gewaehlterUnterzeichner(d)) {
+    blocker(
+      'vermieter.unterzeichner',
+      'Es ist nicht gewählt, wer für den Vermieter unterschreibt.',
+      'Unter „Grundlagen“ beim Vermieter den Unterzeichner wählen — nur er steht im Vertrag.'
     );
   }
 

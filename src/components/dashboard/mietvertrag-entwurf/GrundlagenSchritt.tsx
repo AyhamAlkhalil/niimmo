@@ -21,9 +21,23 @@ interface Props {
   ausleseStatus: AusleseStatus;
   onAuslesen: () => void;
   onVermieterBearbeiten: () => void;
+  /** Auswahl, wer für den Vermieter unterschreibt — nur bei Einzelvertretung mit mehreren Vertretern. */
+  unterzeichnerFeld?: ReactNode;
 }
 
-function Karte({ titel, symbol, children, aktion }: { titel: string; symbol: ReactNode; children: ReactNode; aktion?: ReactNode }) {
+function Karte({
+  titel,
+  symbol,
+  children,
+  aktion,
+  fuss,
+}: {
+  titel: string;
+  symbol: ReactNode;
+  children: ReactNode;
+  aktion?: ReactNode;
+  fuss?: ReactNode;
+}) {
   return (
     <div className="space-y-2 rounded-lg border p-3">
       <div className="flex items-center justify-between gap-2">
@@ -34,6 +48,7 @@ function Karte({ titel, symbol, children, aktion }: { titel: string; symbol: Rea
         {aktion}
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">{children}</dl>
+      {fuss && <div className="border-t pt-2">{fuss}</div>}
     </div>
   );
 }
@@ -72,6 +87,7 @@ export function GrundlagenSchritt({
   ausleseStatus,
   onAuslesen,
   onVermieterBearbeiten,
+  unterzeichnerFeld,
 }: Props) {
   const imm = g.immobilie;
   const adresse = [`${imm.strasse ?? ''} ${imm.hausnummer ?? ''}`.trim(), `${imm.plz ?? ''} ${imm.ort ?? ''}`.trim()]
@@ -117,6 +133,7 @@ export function GrundlagenSchritt({
       <Karte
         titel="Vermieter"
         symbol={<Landmark className="h-4 w-4 text-primary" />}
+        fuss={unterzeichnerFeld}
         aktion={
           <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={onVermieterBearbeiten}>
             Stammdaten bearbeiten

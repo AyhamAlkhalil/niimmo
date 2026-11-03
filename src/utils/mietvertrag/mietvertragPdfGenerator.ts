@@ -15,6 +15,7 @@ import { DARK, GRAY, PAGE_WIDTH, createLayout, formatDatum } from '../pdf/briefL
 import { anlagenFuerVertrag, type Anlage } from './anlagen';
 import { wohnraumParagraphen, type Absatz, type Paragraph } from './wohnraumKlauseln';
 import type { MieterDaten, MietvertragDaten } from './typen';
+import { vermieterVertretung } from './vertretung';
 
 const ML = 20;
 const MR = 20;
@@ -78,9 +79,10 @@ function titelseite(doc: jsPDF, d: MietvertragDaten): number {
   doc.setFont('helvetica', 'normal');
   y += 5;
 
-  if (v.vertretenDurch.length > 0) {
-    const wort = v.vertretungArt === 'einzel' ? 'vertreten durch' : 'gemeinsam vertreten durch';
-    doc.text(`${wort} ${v.vertretenDurch.join(' und ')}`, RUBRUM_X, y);
+  const vertretung = vermieterVertretung(d);
+  if (vertretung.namen.length > 0) {
+    const wort = vertretung.gemeinsam ? 'gemeinsam vertreten durch' : 'vertreten durch';
+    doc.text(`${wort} ${vertretung.namen.join(' und ')}`, RUBRUM_X, y);
     y += 5;
   }
   doc.text(`${v.strasse} ${v.hausnummer}`, RUBRUM_X, y);
@@ -206,9 +208,10 @@ function unterschriftsblock(
 ): number {
   // Aufbau der Word-Vorlage: je Partei eine Ort/Datum-Linie, darunter die
   // Unterschriftslinie. Bei Gesamtvertretung braucht die Vermieterseite so
-  // viele Linien, wie Geschaeftsfuehrer gemeinsam zeichnen muessen.
-  const vermieterLinien =
-    d.vermieter.vertretungArt === 'gesamt' ? d.vermieter.vertretenDurch.length || 1 : 1;
+  // viele Linien, wie Geschaeftsfuehrer gemeinsam zeichnen muessen; bei
+  // Einzelvertretung eine mit dem gewaehlten Unterzeichner (03.11.2026).
+  const vertretung = vermieterVertretung(d);
+  const vermieterLinien = vertretung.linien;
   const zeilen = Math.max(vermieterLinien, d.mieter.length);
 
   y = layout.umbruchPruefen(y + 10, 26 + zeilen * 22);
@@ -243,7 +246,7 @@ function unterschriftsblock(
         i === 0 ? 'Vermieter' : '',
         ML,
         y + 4,
-        d.vermieter.vertretenDurch[i] ?? d.vermieter.firmenname
+        vertretung.namen[i] ?? d.vermieter.firmenname
       );
     }
     if (i < d.mieter.length) {

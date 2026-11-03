@@ -41,6 +41,7 @@ export const RELEASES: Release[] = [
     datum: "2026-11-03",
     aenderungen: [
       { art: "verbessert", titel: "Neuer Mietvertrag: Zuerst wird der Mieter erfasst und gespeichert, danach folgt der Vertrag" },
+      { art: "neu", titel: "Mietvertrag: Auswahl, welcher Geschäftsführer unterschreibt – nur er steht im Vertrag, vorbelegt mit dem Angemeldeten" },
     ],
   },
   {

@@ -30,6 +30,7 @@ import {
   type Uebergabezustand,
   type Warmwasserart,
 } from '@/utils/mietvertrag/typen';
+import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner, vertreterListe } from '@/utils/mietvertrag/vertretung';
 import { Feldname, ZahlFeld, type AbschnittProps } from './Bausteine';
 
 function eur(n: number): string {
@@ -940,6 +941,47 @@ export function UnterzeichnungFelder({ entwurf, setEntwurf, geaendert }: Abschni
   );
 }
 
+/**
+ * Wer bei Einzelvertretung für den Vermieter unterschreibt (03.11.2026: „nicht beide
+ * Namen … entweder Ayhan oder Dennis“). Nur diese Person steht im Vertrag; ohne Wahl
+ * sperrt die Pflichtprüfung das PDF. Bei Gesamtvertretung oder nur einem Vertreter
+ * gibt es nichts zu wählen.
+ */
+export function VermieterUnterzeichnerFeld({ entwurf, setEntwurf, geaendert }: AbschnittProps) {
+  if (!brauchtUnterzeichnerWahl(entwurf.vermieter)) return null;
+  const wert = gewaehlterUnterzeichner(entwurf) ?? '';
+  return (
+    <div className="space-y-1">
+      <Label htmlFor="unterzeichner-vermieter" className="text-xs">
+        Unterschreibt für den Vermieter
+      </Label>
+      <Select
+        value={wert}
+        onValueChange={name => {
+          setEntwurf(d => ({ ...d, unterzeichnerVermieter: name }));
+          geaendert?.('unterzeichnerVermieter');
+        }}
+      >
+        <SelectTrigger id="unterzeichner-vermieter" className="h-9">
+          <SelectValue placeholder="Bitte wählen" />
+        </SelectTrigger>
+        <SelectContent>
+          {vertreterListe(entwurf.vermieter).map(name => (
+            <SelectItem key={name} value={name}>
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className={wert ? 'text-xs text-muted-foreground' : 'text-xs text-destructive'} role={wert ? undefined : 'alert'}>
+        {wert
+          ? 'Nur diese Person steht im Vertrag und unter der Unterschriftslinie des Vermieters.'
+          : 'Bitte wählen, wer den Vertrag für den Vermieter unterschreibt.'}
+      </p>
+    </div>
+  );
+}
+
 /** Alle Klauselfelder in einem Block — für den Generator am bestehenden Vertrag. */
 export function KlauselFelder(props: AbschnittProps) {
   return (
@@ -950,6 +992,7 @@ export function KlauselFelder(props: AbschnittProps) {
       <ZahlungsterminFelder {...props} />
       <AnlagenFelder {...props} />
       <ZusatzvereinbarungFeld {...props} />
+      <VermieterUnterzeichnerFeld {...props} />
       <UnterzeichnungFelder {...props} />
     </div>
   );
