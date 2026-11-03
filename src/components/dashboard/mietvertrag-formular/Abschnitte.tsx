@@ -526,8 +526,19 @@ export function EnergieausweisFelder({ entwurf, setEntwurf, markierung, geaender
 
 // ─── Betriebskosten ─────────────────────────────────────────────────────────
 
-/** Aufstellung wie in § 4 der Hausvorlage; die Spalte muss die Vorauszahlung ergeben. */
-export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+/**
+ * Aufstellung wie in § 4 der Hausvorlage; die Spalte muss die Vorauszahlung ergeben.
+ * `schluesselFest` (neuer Vertrag): Der Verteilerschlüssel kommt vom Objekt und wird nur
+ * zur Kontrolle angezeigt (03.11.2026). Am bestehenden Vertrag bleibt er wählbar, weil ein
+ * Nachdruck den unterschriebenen Schlüssel zeigen muss.
+ */
+export function BetriebskostenEditor({
+  entwurf,
+  setEntwurf,
+  markierung,
+  geaendert,
+  schluesselFest = false,
+}: AbschnittProps & { schluesselFest?: boolean }) {
   if (entwurf.betriebskostenModus === 'inklusiv') {
     return (
       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
@@ -587,8 +598,10 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
       </div>
       <p className="text-xs text-muted-foreground">
         Nur angehakte Positionen werden umgelegt. Nicht benannte Kosten sind nach § 556 Abs. 1 BGB nicht umlagefähig.
-        Die Einzelbeträge müssen die vereinbarte Vorauszahlung ergeben. Der Verteilerschlüssel ist aus der
-        Betriebskostenabrechnung des Objekts übernommen.
+        Die Einzelbeträge müssen die vereinbarte Vorauszahlung ergeben.{' '}
+        {schluesselFest
+          ? 'Der Verteilerschlüssel steht fest am Objekt und wird hier nur zur Kontrolle gezeigt — ändern lässt er sich in der Betriebskostenabrechnung des Objekts.'
+          : 'Der Verteilerschlüssel ist aus der Betriebskostenabrechnung des Objekts übernommen.'}
       </p>
       <div className="space-y-1 rounded border p-2">
         {entwurf.betriebskostenPositionen.map(pos => {
@@ -633,7 +646,12 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
                   />
                 )}
                 {/* Der Schlüssel zählt nur für umgelegte Positionen — als zweite Zeile, damit die schmale Formularspalte reicht */}
-                {pos.umgelegt && (
+                {pos.umgelegt && schluesselFest && (
+                  <p className="text-xs text-muted-foreground">
+                    Verteilung nach {verteilerschluesselName(pos.schluessel)}
+                  </p>
+                )}
+                {pos.umgelegt && !schluesselFest && (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Select value={pos.schluessel} onValueChange={v => aendere(pos.nummer, { schluessel: v })}>
                       <SelectTrigger

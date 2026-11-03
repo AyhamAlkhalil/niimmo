@@ -880,11 +880,21 @@ describe('Verteilerschlüssel aus der Betriebskostenabrechnung des Objekts', () 
     expect(p.schluesselObjekt).toBe('personen');
   });
 
-  it('frischt am gespeicherten Entwurf nur den Vergleichswert auf', () => {
+  it('frischt beim Nachdruck nur den Vergleichswert auf', () => {
     const { daten } = baueEntwurf(grundlagen());
     const positionen = daten.betriebskostenPositionen.map(p => (p.nummer === '2.2' ? { ...p, schluessel: 'qm' } : p));
     const frisch = mitSchluesselnDesObjekts(positionen, [art('Wasserversorgung', 'gleich')]);
     expect(frisch.find(p => p.nummer === '2.2')).toMatchObject({ schluessel: 'qm', schluesselObjekt: 'gleich' });
+  });
+
+  it('übernimmt im neuen Vertrag den Schlüssel des Objekts, auch einen früher abweichenden (03.11.2026)', () => {
+    const { daten } = baueEntwurf(grundlagen());
+    const positionen = daten.betriebskostenPositionen.map(p => (p.nummer === '2.2' ? { ...p, schluessel: 'qm' } : p));
+    const frisch = mitSchluesselnDesObjekts(positionen, [art('Wasserversorgung', 'gleich')], { uebernehmen: true });
+    expect(frisch.find(p => p.nummer === '2.2')).toMatchObject({ schluessel: 'gleich', schluesselObjekt: 'gleich' });
+    expect(frisch.every(p => p.schluessel === p.schluesselObjekt)).toBe(true);
+    const unbekannt = { nummer: '9.9', bezeichnung: 'x', umgelegt: true, schluessel: 'qm', betrag: null };
+    expect(mitSchluesselnDesObjekts([unbekannt], [], { uebernehmen: true })[0]).toBe(unbekannt);
   });
 
   it('nennt die übernommenen Schlüssel in § 4', () => {

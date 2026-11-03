@@ -157,6 +157,8 @@ function stammdatenTeil(d: MietvertragDaten) {
   return {
     vermieter: d.vermieter,
     objekt: d.objekt,
+    // Seit 03.11.2026 fest vom Objekt: Hat sich ein Schlüssel dort geändert, ist das PDF veraltet
+    verteilerschluessel: d.betriebskostenPositionen.map(p => `${p.nummer}:${p.schluessel}`),
     schliessanlageArt: d.schliessanlageArt,
     // Am Objekt als Liste gespeichert — „Waschkeller,Hof" und „Waschkeller, Hof" sind dasselbe
     mitbenutzungEinrichtungen: (d.mitbenutzungEinrichtungen ?? '')
@@ -340,7 +342,7 @@ export function MietvertragEntwurfDialog({
         },
         schliessanlageArt: g.immobilie.schliessanlage_art ?? z.daten.schliessanlageArt,
         mitbenutzungEinrichtungen: einrichtungen.length > 0 ? einrichtungen.join(', ') : z.daten.mitbenutzungEinrichtungen,
-        betriebskostenPositionen: mitSchluesselnDesObjekts(z.daten.betriebskostenPositionen, g.nebenkostenarten),
+        betriebskostenPositionen: mitSchluesselnDesObjekts(z.daten.betriebskostenPositionen, g.nebenkostenarten, { uebernehmen: true }),
       };
       setStand({ daten, herkunft: z.herkunft });
       // Haben sich Objekt oder Vermieter seitdem geändert, ist der gespeicherte Stand
@@ -887,7 +889,7 @@ export function MietvertragEntwurfDialog({
           </div>
         );
       case 'betriebskosten':
-        return <BetriebskostenEditor {...formularProps} />;
+        return <BetriebskostenEditor {...formularProps} schluesselFest />;
       case 'vereinbarungen':
         return (
           <div className="space-y-5">

@@ -293,16 +293,22 @@ export function betriebskostenPositionen(
 
 /**
  * Frischt den Vergleichswert `schluesselObjekt` am aktuellen Stand des Objekts
- * auf, etwa für einen gespeicherten Entwurf. Den im Vertrag gewählten
- * Schlüssel fasst sie nicht an — eine Abweichung zeigt die Pflichtprüfung.
+ * auf. Ohne `uebernehmen` (Nachdruck eines unterschriebenen Vertrags) bleibt
+ * der im Vertrag stehende Schlüssel, eine Abweichung zeigt die Pflichtprüfung.
+ * Mit `uebernehmen` (neuer Vertrag, seit 03.11.2026) gilt der Schlüssel des
+ * Objekts auch im Vertrag — der Kunde: „fix pro Objekt … einmal in den
+ * Stammdaten des Objektes angelegt“.
  */
 export function mitSchluesselnDesObjekts(
   positionen: BetriebskostenPosition[],
-  nebenkostenarten: Nebenkostenart[]
+  nebenkostenarten: Nebenkostenart[],
+  { uebernehmen = false }: { uebernehmen?: boolean } = {}
 ): BetriebskostenPosition[] {
   return positionen.map(p => {
     const kategorie = kategorieDerPosition(p.nummer);
-    return kategorie ? { ...p, schluesselObjekt: schluesselDesObjekts(nebenkostenarten, kategorie) } : p;
+    if (!kategorie) return p;
+    const schluesselObjekt = schluesselDesObjekts(nebenkostenarten, kategorie);
+    return { ...p, schluesselObjekt, ...(uebernehmen ? { schluessel: schluesselObjekt } : {}) };
   });
 }
 
