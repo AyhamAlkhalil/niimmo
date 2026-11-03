@@ -7,7 +7,7 @@
  * einbetten.
  */
 import type { Absatz, Paragraph } from './wohnraumKlauseln';
-import type { MietvertragDaten } from './typen';
+import { positionsText, type MietvertragDaten } from './typen';
 
 export interface Anlage {
   kennung: string;
@@ -152,7 +152,7 @@ function betriebskostenkatalog(d: MietvertragDaten): Anlage {
       nummer: 'A',
       titel: 'Umgelegte Betriebskosten',
       absaetze: umgelegt.map<Absatz>(p => ({
-        text: `${p.nummer}  ${p.bezeichnung}`,
+        text: `${p.nummer}  ${positionsText(p)}`,
         linksbuendig: true,
       })),
     },
@@ -165,7 +165,7 @@ function betriebskostenkatalog(d: MietvertragDaten): Anlage {
       absaetze: [
         { text: 'Die folgenden Positionen werden nicht auf den Mieter umgelegt:' },
         ...nichtUmgelegt.map<Absatz>(p => ({
-          text: `${p.nummer}  ${p.bezeichnung}`,
+          text: `${p.nummer}  ${positionsText(p)}`,
           linksbuendig: true,
         })),
       ],

@@ -29,6 +29,7 @@ import type {
   VermieterDaten,
   Warmwasserart,
 } from './typen';
+import { istSonstigePosition } from './typen';
 
 type Immobilie = Tables<'immobilien'>;
 type Einheit = Tables<'einheiten'>;
@@ -113,6 +114,19 @@ interface GespeichertePosition {
   schluessel?: string;
   umgelegt?: boolean;
   betrag?: number | string | null;
+  benennung?: string | null;
+}
+
+/** Kostenart der Abrechnung zu einer Vertragsposition; weitere sonstige (ab 2.20) wie 2.19. */
+function kategorieDerPosition(nummer: string): string | undefined {
+  return (
+    BETRKV_STANDARD.find(s => s.nummer === nummer)?.kategorie ??
+    (istSonstigePosition(nummer) ? 'sonstige_betriebskosten' : undefined)
+  );
+}
+
+function benennungAus(z: GespeichertePosition): string | null {
+  return typeof z.benennung === 'string' && z.benennung.trim() ? z.benennung.trim() : null;
 }
 
 export function zuZahl(v: number | string | null | undefined): number | null {
@@ -230,10 +244,11 @@ export function betriebskostenPositionen(
       .map(x => [x.nummer as string, x])
   );
 
-  return BETRKV_STANDARD.map(pos => {
+  const standard = BETRKV_STANDARD.map<BetriebskostenPosition>(pos => {
     const schluesselObjekt = schluesselDesObjekts(nebenkostenarten, pos.kategorie);
     const gespeicherteZeile = gespeichert.get(pos.nummer);
     if (gespeicherteZeile) {
+      const benennung = benennungAus(gespeicherteZeile);
       return {
         nummer: pos.nummer,
         bezeichnung: gespeicherteZeile.bezeichnung || pos.bezeichnung,
@@ -241,6 +256,7 @@ export function betriebskostenPositionen(
         schluessel: (!schluesselVomObjekt && gespeicherteZeile.schluessel) || schluesselObjekt,
         schluesselObjekt,
         betrag: zuZahl(gespeicherteZeile.betrag),
+        ...(benennung && istSonstigePosition(pos.nummer) ? { benennung } : {}),
       };
     }
     const treffer = findeArt(gepflegt, pos.bezeichnung);
@@ -253,6 +269,26 @@ export function betriebskostenPositionen(
       betrag: null,
     };
   });
+
+  // Weitere sonstige Betriebskosten (ab 2.20, seit 03.11.2026) gehen mit, sonst fiele z. B. die
+  // Lüftungsanlage beim Nachdruck oder beim nächsten Vertrag still heraus
+  const schluesselSonstige = schluesselDesObjekts(nebenkostenarten, 'sonstige_betriebskosten');
+  const weitere = [...gespeichert.values()]
+    .filter(z => istSonstigePosition(z.nummer as string) && !BETRKV_STANDARD.some(s => s.nummer === z.nummer))
+    .sort((a, b) => Number((a.nummer as string).split('.')[1]) - Number((b.nummer as string).split('.')[1]))
+    .map<BetriebskostenPosition>(z => {
+      const benennung = benennungAus(z);
+      return {
+        nummer: (z.nummer as string).trim(),
+        bezeichnung: z.bezeichnung || 'Sonstige Betriebskosten',
+        umgelegt: z.umgelegt === true,
+        schluessel: (!schluesselVomObjekt && z.schluessel) || schluesselSonstige,
+        schluesselObjekt: schluesselSonstige,
+        betrag: zuZahl(z.betrag),
+        ...(benennung ? { benennung } : {}),
+      };
+    });
+  return [...standard, ...weitere];
 }
 
 /**
@@ -265,7 +301,7 @@ export function mitSchluesselnDesObjekts(
   nebenkostenarten: Nebenkostenart[]
 ): BetriebskostenPosition[] {
   return positionen.map(p => {
-    const kategorie = BETRKV_STANDARD.find(s => s.nummer === p.nummer)?.kategorie;
+    const kategorie = kategorieDerPosition(p.nummer);
     return kategorie ? { ...p, schluesselObjekt: schluesselDesObjekts(nebenkostenarten, kategorie) } : p;
   });
 }

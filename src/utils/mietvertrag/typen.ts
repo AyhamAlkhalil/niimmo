@@ -120,6 +120,49 @@ export interface BetriebskostenPosition {
    * `pflichtpruefung` blockiert den Druck, wenn die Spalte nicht aufgeht.
    */
   betrag: number | null;
+  /**
+   * Nur bei sonstigen Betriebskosten (2.19 und weitere ab 2.20): was genau
+   * umgelegt wird, z. B. „Lüftungsanlage“ (seit 03.11.2026). Unbenannt sind
+   * sonstige Betriebskosten nicht umlagefähig.
+   */
+  benennung?: string | null;
+}
+
+/** Letzte feste Position der Hausvorlage; ab hier folgen weitere sonstige Betriebskosten. */
+export const SONSTIGE_NUMMER = '2.19';
+
+/** Sonstige Betriebskosten: 2.19 und die von Hand angefügten ab 2.20. */
+export function istSonstigePosition(nummer: string): boolean {
+  const m = /^2\.(\d+)$/.exec(nummer.trim());
+  return !!m && Number(m[1]) >= 19;
+}
+
+/** Die Zeile, wie sie im Vertrag steht: „Sonstige Betriebskosten: Lüftungsanlage“. */
+export function positionsText(pos: Pick<BetriebskostenPosition, 'nummer' | 'bezeichnung' | 'benennung'>): string {
+  const benennung = istSonstigePosition(pos.nummer) ? pos.benennung?.trim() : '';
+  return benennung ? `${pos.bezeichnung}: ${benennung}` : pos.bezeichnung;
+}
+
+/** Nächste freie Nummer für eine weitere sonstige Position (2.20, 2.21, …). */
+export function naechsteSonstigeNummer(positionen: readonly Pick<BetriebskostenPosition, 'nummer'>[]): string {
+  const hoechste = positionen.reduce((max, p) => {
+    const m = /^2\.(\d+)$/.exec(p.nummer.trim());
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 19);
+  return `2.${hoechste + 1}`;
+}
+
+/** Für den Schnappschuss am Vertrag: die Benennung nur, wo es eine gibt. */
+export function positionFuerDb(p: BetriebskostenPosition) {
+  const benennung = istSonstigePosition(p.nummer) ? p.benennung?.trim() : '';
+  return {
+    nummer: p.nummer,
+    bezeichnung: p.bezeichnung,
+    schluessel: p.schluessel,
+    umgelegt: p.umgelegt,
+    betrag: p.betrag,
+    ...(benennung ? { benennung } : {}),
+  };
 }
 
 /**

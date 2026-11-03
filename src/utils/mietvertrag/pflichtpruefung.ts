@@ -7,7 +7,7 @@
  * Abs. 1 S. 2 BGB), die Kaution und den Übergabezustand.
  */
 import { istIbanGueltig, istPlausiblesDatum } from '../pdf/briefLayout';
-import { gleicherSchluessel, verteilerschluesselName, type MietvertragDaten } from './typen';
+import { gleicherSchluessel, istSonstigePosition, verteilerschluesselName, type MietvertragDaten } from './typen';
 import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from './vertretung';
 import { format } from 'date-fns';
 
@@ -244,6 +244,18 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       'Es ist keine einzige Betriebskostenart zur Umlage ausgewählt.',
       'Umzulegende Positionen auswählen — ohne Benennung sind sie nach § 556 Abs. 1 BGB nicht umlagefähig.'
     );
+  }
+  // Sonstige Betriebskosten sind nur umlagefähig, wenn der Vertrag sie einzeln benennt (BGH, VIII ZR 167/03).
+  // Warnung statt Sperre: Der Vertrag bleibt wirksam, nur die Zeile trägt nichts (03.11.2026).
+  if (d.betriebskostenModus !== 'inklusiv') {
+    const unbenannt = d.betriebskostenPositionen.filter(p => p.umgelegt && istSonstigePosition(p.nummer) && !p.benennung?.trim());
+    if (unbenannt.length > 0) {
+      warnung(
+        'betriebskostenPositionen',
+        `Sonstige Betriebskosten werden umgelegt, aber nicht benannt: ${unbenannt.map(p => p.nummer).join(', ')}.`,
+        'Eintragen, welche Kosten es sind (z. B. Lüftungsanlage) — unbenannt sind sie nicht umlagefähig. Sonst die Position nicht umlegen.'
+      );
+    }
   }
   // Die Kostenspalte muss aufgehen. Ein Vertrag, dessen Einzelbeträge eine
   // andere Summe ergeben als die vereinbarte Vorauszahlung, ist in sich

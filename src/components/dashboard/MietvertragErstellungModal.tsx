@@ -29,7 +29,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { hatBlocker, pruefeVertragsdaten, type Befund } from '@/utils/mietvertrag/pflichtpruefung';
 import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
 import { AENDERUNGEN } from '@/utils/mietvertrag/wohnraumKlauseln';
-import { VORLAGE_VERSION, type MietvertragDaten } from '@/utils/mietvertrag/typen';
+import { positionFuerDb, VORLAGE_VERSION, type MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
 import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
@@ -153,13 +153,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           // Schnappschuss der Kostenaufstellung: Ein Nachdruck muss dieselbe
           // Spalte ergeben, auch wenn die Kostenarten der Immobilie später
           // geändert werden.
-          betriebskosten_positionen: entwurf.betriebskostenPositionen.map(pos => ({
-            nummer: pos.nummer,
-            bezeichnung: pos.bezeichnung,
-            schluessel: pos.schluessel,
-            umgelegt: pos.umgelegt,
-            betrag: pos.betrag,
-          })),
+          betriebskosten_positionen: entwurf.betriebskostenPositionen.map(positionFuerDb),
         })
         .eq('id', vertragId);
       if (updateError) throw updateError;

@@ -19,7 +19,7 @@ import {
   betragInWorten,
   type TabellenZeile,
 } from '../pdf/briefLayout';
-import { ausgehaendigteSchluessel, verteilerschluesselName, type MietvertragDaten } from './typen';
+import { ausgehaendigteSchluessel, positionsText, verteilerschluesselName, type MietvertragDaten } from './typen';
 
 export interface Absatz {
   /** Gliederungsziffer wie „1." oder „2.1" — optional. */
@@ -875,7 +875,7 @@ function betriebskostenTabelle(
 
   for (const pos of d.betriebskostenPositionen) {
     zeilen.push({
-      links: `${pos.nummer}  ${pos.bezeichnung}`,
+      links: `${pos.nummer}  ${positionsText(pos)}`,
       // Umgelegt ohne Einzelbetrag: ausdrücklich „umgelegt“ statt eines leeren Feldes
       rechts: pos.umgelegt ? (pos.betrag === null ? 'umgelegt' : betragSpalte(pos.betrag)) : '– – –',
     });

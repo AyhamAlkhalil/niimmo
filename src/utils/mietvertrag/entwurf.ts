@@ -23,6 +23,7 @@ import { istPlausiblesDatum } from '../pdf/briefLayout';
 import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, ersteIban, objektDaten, vermieterDaten } from './datenAusDb';
 import {
   ausgehaendigteSchluessel,
+  positionFuerDb,
   VORLAGE_VERSION,
   type Anrede,
   type MieterDaten,
@@ -1036,13 +1037,7 @@ export function vertragsZeile(a: VertragsZeileArgs): TablesInsert<'mietvertrag'>
     betriebskosten: rund2((d.betriebskostenModus === 'inklusiv' ? 0 : d.betriebskostenVorauszahlung) + (heizkosten ?? 0)),
     heizkosten_vorauszahlung: heizkosten,
     betriebskosten_modus: d.betriebskostenModus,
-    betriebskosten_positionen: d.betriebskostenPositionen.map(p => ({
-      nummer: p.nummer,
-      bezeichnung: p.bezeichnung,
-      schluessel: p.schluessel,
-      umgelegt: p.umgelegt,
-      betrag: p.betrag,
-    })),
+    betriebskosten_positionen: d.betriebskostenPositionen.map(positionFuerDb),
 
     kaution_betrag: d.kautionArt === 'keine' ? null : rund2(d.kautionBetrag) || null,
     kaution_art: d.kautionArt,

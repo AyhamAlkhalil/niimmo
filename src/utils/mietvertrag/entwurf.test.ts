@@ -39,7 +39,13 @@ import {
 import { pruefeVertragsdaten } from './pflichtpruefung';
 import { BETRKV_STANDARD, betriebskostenPositionen, mitSchluesselnDesObjekts, schluesselDesObjekts } from './datenAusDb';
 import { wohnraumParagraphen } from './wohnraumKlauseln';
-import type { MietvertragDaten } from './typen';
+import {
+  istSonstigePosition,
+  naechsteSonstigeNummer,
+  positionsText,
+  SONSTIGE_NUMMER,
+  type MietvertragDaten,
+} from './typen';
 import { BETRKV_KATEGORIEN } from '@/components/dashboard/nebenkosten/nebenkostenKategorien';
 
 const IMMOBILIE = {
@@ -914,5 +920,80 @@ describe('Verteilerschlüssel aus der Betriebskostenabrechnung des Objekts', () 
     // „einheit" ist der Altname von „gleich"
     const gleich = { ...daten, betriebskostenPositionen: [{ ...daten.betriebskostenPositionen[0], umgelegt: true, schluessel: 'einheit' }] };
     expect(warnung(gleich)).toBeUndefined();
+  });
+});
+
+describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
+  const mitLueftung = (daten: MietvertragDaten): MietvertragDaten => ({
+    ...daten,
+    betriebskostenPositionen: [
+      ...daten.betriebskostenPositionen.map(p =>
+        p.nummer === SONSTIGE_NUMMER ? { ...p, umgelegt: true, benennung: ' Lüftungsanlage ', betrag: null } : p
+      ),
+      {
+        nummer: naechsteSonstigeNummer(daten.betriebskostenPositionen),
+        bezeichnung: 'Sonstige Betriebskosten',
+        benennung: 'Dachrinnenreinigung',
+        umgelegt: true,
+        schluessel: 'qm',
+        betrag: null,
+      },
+    ],
+  });
+
+  it('erkennt 2.19 und die angefügten Positionen und zählt weiter', () => {
+    expect(istSonstigePosition('2.19')).toBe(true);
+    expect(istSonstigePosition('2.20')).toBe(true);
+    expect(istSonstigePosition('2.18')).toBe(false);
+    expect(istSonstigePosition('2.1')).toBe(false);
+    expect(naechsteSonstigeNummer(BETRKV_STANDARD)).toBe('2.20');
+    expect(naechsteSonstigeNummer([...BETRKV_STANDARD, { nummer: '2.20' }, { nummer: '2.21' }])).toBe('2.22');
+  });
+
+  it('druckt die Benennung in § 4 und im Betriebskostenkatalog', () => {
+    const daten = mitLueftung(baueEntwurf(grundlagen()).daten);
+    const zeilen = daten.betriebskostenPositionen.map(positionsText);
+    expect(zeilen).toContain('Sonstige Betriebskosten: Lüftungsanlage');
+    expect(zeilen).toContain('Sonstige Betriebskosten: Dachrinnenreinigung');
+    // Nur bei sonstigen: eine verirrte Benennung an 2.4 erscheint nicht
+    expect(positionsText({ nummer: '2.4', bezeichnung: 'Heizung', benennung: 'x' })).toBe('Heizung');
+    const text = JSON.stringify(wohnraumParagraphen(daten));
+    expect(text).toContain('2.19  Sonstige Betriebskosten: Lüftungsanlage');
+    expect(text).toContain('2.20  Sonstige Betriebskosten: Dachrinnenreinigung');
+  });
+
+  it('speichert die Benennung am Vertrag und liest weitere Positionen zurück', () => {
+    const basis = baueEntwurf(grundlagen());
+    const daten = mitLueftung(basis.daten);
+    const zeile = vertragsZeile({ id: 'v', einheitId: 'e', daten, herkunft: basis.herkunft, vorvertragId: null, mitVorlage: true });
+    const gespeichert = zeile.betriebskosten_positionen as { nummer: string; benennung?: string }[];
+    expect(gespeichert.find(p => p.nummer === '2.19')?.benennung).toBe('Lüftungsanlage');
+    expect(gespeichert.find(p => p.nummer === '2.20')?.benennung).toBe('Dachrinnenreinigung');
+    expect(gespeichert.find(p => p.nummer === '2.1')).not.toHaveProperty('benennung');
+
+    const gelesen = betriebskostenPositionen([], gespeichert);
+    expect(gelesen.map(p => p.nummer).slice(-2)).toEqual(['2.19', '2.20']);
+    expect(gelesen.find(p => p.nummer === '2.19')?.benennung).toBe('Lüftungsanlage');
+    expect(gelesen.find(p => p.nummer === '2.20')).toMatchObject({
+      benennung: 'Dachrinnenreinigung',
+      umgelegt: true,
+      schluesselObjekt: schluesselDesObjekts([], 'sonstige_betriebskosten'),
+    });
+    // Auch der Vergleichswert der Abrechnung kommt an die angefügte Position
+    expect(mitSchluesselnDesObjekts(gelesen, []).find(p => p.nummer === '2.20')?.schluesselObjekt).toBeTruthy();
+  });
+
+  it('warnt, wenn sonstige Betriebskosten unbenannt umgelegt werden', () => {
+    const basis = baueEntwurf(grundlagen()).daten;
+    const unbenannt = {
+      ...basis,
+      betriebskostenPositionen: basis.betriebskostenPositionen.map(p =>
+        p.nummer === SONSTIGE_NUMMER ? { ...p, umgelegt: true, benennung: '  ' } : p
+      ),
+    };
+    const befund = pruefeVertragsdaten(unbenannt).find(b => b.text.startsWith('Sonstige Betriebskosten werden umgelegt'));
+    expect(befund?.schwere).toBe('warnung');
+    expect(befund?.text).toContain('2.19');
+    expect(pruefeVertragsdaten(mitLueftung(basis)).some(b => b.text.startsWith('Sonstige Betriebskosten werden'))).toBe(false);
   });
 });

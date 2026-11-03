@@ -20,6 +20,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { plusMonate, positionenSumme, SCHLUESSEL_ARTEN } from '@/utils/mietvertrag/entwurf';
 import {
   gleicherSchluessel,
+  istSonstigePosition,
+  naechsteSonstigeNummer,
+  SONSTIGE_NUMMER,
   VERTEILERSCHLUESSEL,
   verteilerschluesselName,
   type BetriebskostenPosition,
@@ -543,6 +546,33 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
     }));
     geaendert?.('betriebskostenPositionen');
   };
+  // Weitere sonstige Betriebskosten ab 2.20 (03.11.2026: „manchmal kommen mehrere sonstige Betriebskosten“)
+  const weitereSonstige = () => {
+    setEntwurf(d => {
+      const basis = d.betriebskostenPositionen.find(p => p.nummer === SONSTIGE_NUMMER);
+      const schluessel = basis?.schluesselObjekt ?? basis?.schluessel ?? 'qm';
+      return {
+        ...d,
+        betriebskostenPositionen: [
+          ...d.betriebskostenPositionen,
+          {
+            nummer: naechsteSonstigeNummer(d.betriebskostenPositionen),
+            bezeichnung: basis?.bezeichnung ?? 'Sonstige Betriebskosten',
+            benennung: '',
+            umgelegt: true,
+            schluessel,
+            schluesselObjekt: basis?.schluesselObjekt,
+            betrag: null,
+          },
+        ],
+      };
+    });
+    geaendert?.('betriebskostenPositionen');
+  };
+  const entferne = (nummer: string) => {
+    setEntwurf(d => ({ ...d, betriebskostenPositionen: d.betriebskostenPositionen.filter(p => p.nummer !== nummer) }));
+    geaendert?.('betriebskostenPositionen');
+  };
 
   return (
     <div className="space-y-3">
@@ -576,9 +606,32 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
                 onCheckedChange={c => aendere(pos.nummer, { umgelegt: c === true, betrag: c === true ? pos.betrag : null })}
               />
               <div className="min-w-0 space-y-1">
-                <p className="truncate text-xs" title={pos.bezeichnung}>
-                  <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
-                </p>
+                <div className="flex items-center gap-1">
+                  <p className="min-w-0 flex-1 truncate text-xs" title={pos.bezeichnung}>
+                    <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
+                  </p>
+                  {istSonstigePosition(pos.nummer) && pos.nummer !== SONSTIGE_NUMMER && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0"
+                      aria-label={`${pos.nummer} entfernen`}
+                      onClick={() => entferne(pos.nummer)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+                {istSonstigePosition(pos.nummer) && pos.umgelegt && (
+                  <Input
+                    aria-label={`${pos.nummer} welche Kosten`}
+                    className={pos.benennung?.trim() ? 'h-7 text-xs' : 'h-7 border-warning text-xs'}
+                    placeholder="Welche Kosten? z. B. Lüftungsanlage"
+                    value={pos.benennung ?? ''}
+                    onChange={e => aendere(pos.nummer, { benennung: e.target.value })}
+                  />
+                )}
                 {/* Der Schlüssel zählt nur für umgelegte Positionen — als zweite Zeile, damit die schmale Formularspalte reicht */}
                 {pos.umgelegt && (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -621,6 +674,10 @@ export function BetriebskostenEditor({ entwurf, setEntwurf, markierung, geaender
           );
         })}
       </div>
+      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={weitereSonstige}>
+        <Plus className="h-3.5 w-3.5" />
+        Weitere sonstige Betriebskosten
+      </Button>
     </div>
   );
 }
