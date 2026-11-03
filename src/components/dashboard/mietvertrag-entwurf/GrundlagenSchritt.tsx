@@ -1,6 +1,7 @@
 /**
- * Schritt 1 „Grundlagen": die Quellen, aus denen die Platzhalter der Vorlage
- * befüllt werden — Objekt, Einheit, Vermieterstammdaten und Vorvertrag.
+ * „Grundlagen", der erste Schritt des Vertragsteils: die Quellen, aus denen die
+ * Platzhalter der Vorlage befüllt werden — Objekt, Einheit, Vermieterstammdaten
+ * und Vorvertrag.
  */
 import type { ReactNode } from 'react';
 import { Building2, DoorOpen, Landmark } from 'lucide-react';
@@ -20,7 +21,6 @@ interface Props {
   ausleseStatus: AusleseStatus;
   onAuslesen: () => void;
   onVermieterBearbeiten: () => void;
-  onDirektErfassen?: () => void;
 }
 
 function Karte({ titel, symbol, children, aktion }: { titel: string; symbol: ReactNode; children: ReactNode; aktion?: ReactNode }) {
@@ -72,7 +72,6 @@ export function GrundlagenSchritt({
   ausleseStatus,
   onAuslesen,
   onVermieterBearbeiten,
-  onDirektErfassen,
 }: Props) {
   const imm = g.immobilie;
   const adresse = [`${imm.strasse ?? ''} ${imm.hausnummer ?? ''}`.trim(), `${imm.plz ?? ''} ${imm.ort ?? ''}`.trim()]
@@ -141,14 +140,6 @@ export function GrundlagenSchritt({
         onAuslesen={onAuslesen}
       />
 
-      {onDirektErfassen && (
-        <p className="text-xs text-muted-foreground">
-          Der Vertrag ist schon unterschrieben und soll nur erfasst werden?{' '}
-          <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onDirektErfassen}>
-            Bestehenden Vertrag direkt erfassen
-          </Button>
-        </p>
-      )}
     </div>
   );
 }

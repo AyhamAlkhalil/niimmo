@@ -31,6 +31,7 @@ import {
   platzhalterUebersicht,
   quellenZaehlung,
   schritteFuer,
+  teilVon,
   schrittFuerFeld,
   schrittZustaende,
 } from './entwurfProzess';
@@ -240,7 +241,10 @@ describe('Schlüssel und Index', () => {
 describe('Schritte', () => {
   it('kennt ohne Wohnraum-Vorlage nur die Grundschritte', () => {
     expect(schritteFuer(true)).toHaveLength(8);
-    expect(schritteFuer(false)).toEqual(['grundlagen', 'mieter', 'miete', 'pruefen', 'start']);
+    expect(schritteFuer(false)).toEqual(['mieter', 'grundlagen', 'miete', 'pruefen', 'start']);
+    // Erst der Mieter, dann der Vertrag (03.11.2026)
+    expect(schritteFuer(true)[0]).toBe('mieter');
+    expect(schritteFuer(true).slice(1).every(s => teilVon(s) === 'vertrag')).toBe(true);
   });
 
   it('ordnet jeden Prüfbefund einem Schritt zu, in dem er sich beheben lässt', () => {

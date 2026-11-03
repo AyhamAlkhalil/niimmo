@@ -1,11 +1,12 @@
 /**
  * Schrittleiste des Ablaufs „Neuer Mietvertrag". Jeder Schritt ist direkt
- * anwählbar — der Ablauf führt, sperrt aber nicht.
+ * anwählbar — der Ablauf führt, sperrt aber nicht. Eine Linie trennt den
+ * Mieter vom Vertrag (03.11.2026).
  */
 import { AlertCircle, Check } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { schrittTitel, type SchrittId, type SchrittZustand } from '@/utils/mietvertrag/entwurfProzess';
+import { schrittTitel, teilVon, type SchrittId, type SchrittZustand } from '@/utils/mietvertrag/entwurfProzess';
 
 interface Props {
   schritte: SchrittId[];
@@ -25,9 +26,17 @@ export function Schrittleiste({ schritte, aktuell, zustaende, besucht, wohnraum,
           const istAktuell = s === aktuell;
           const zustand = zustaende[s];
           const zeigeZustand = besucht.has(s) && !istAktuell;
+          const neuerTeil = i > 0 && teilVon(schritte[i - 1]) !== teilVon(s);
           return (
             <li key={s} className="flex shrink-0 items-center">
-              {i > 0 && <span className="mx-1 h-px w-4 bg-border" aria-hidden />}
+              {neuerTeil ? (
+                <span className="ml-2 mr-1 flex items-center gap-2">
+                  <span className="h-6 w-px bg-border" aria-hidden />
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mietvertrag</span>
+                </span>
+              ) : (
+                i > 0 && <span className="mx-1 h-px w-4 bg-border" aria-hidden />
+              )}
               <button
                 type="button"
                 onClick={() => onWaehle(s)}

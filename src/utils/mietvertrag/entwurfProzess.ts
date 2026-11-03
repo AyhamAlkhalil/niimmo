@@ -51,11 +51,24 @@ export function schrittTitel(schritt: SchrittId, wohnraum: boolean): string {
   return schritt === 'pruefen' && !wohnraum ? 'Prüfen' : SCHRITT_TITEL[schritt];
 }
 
-const ALLE: SchrittId[] = ['grundlagen', 'mieter', 'miete', 'mietsache', 'betriebskosten', 'vereinbarungen', 'pruefen', 'start'];
+/**
+ * Zuerst der Mieter, dann der Vertrag (Kundenwunsch 03.11.2026: „Erster Step,
+ * Mieter anlegen … und dann Mietvertrag erstellen“). Gespeichert wird der
+ * Mieter im Entwurf; im Bestand entsteht er erst beim Aktivieren.
+ */
+const ALLE: SchrittId[] = ['mieter', 'grundlagen', 'miete', 'mietsache', 'betriebskosten', 'vereinbarungen', 'pruefen', 'start'];
 
 /** Ohne Wohnraum-Vorlage (Gewerbe, Garage, Stellplatz) entfallen die Vertragsklauseln. */
 export function schritteFuer(wohnraum: boolean): SchrittId[] {
-  return wohnraum ? ALLE : ['grundlagen', 'mieter', 'miete', 'pruefen', 'start'];
+  return wohnraum ? ALLE : ['mieter', 'grundlagen', 'miete', 'pruefen', 'start'];
+}
+
+/** Der erste Teil des Ablaufs; alles danach gehört zum Vertrag. */
+export const ERSTER_SCHRITT: SchrittId = 'mieter';
+
+/** Teil des Ablaufs, zu dem ein Schritt gehört — die Schrittleiste trennt beide. */
+export function teilVon(schritt: SchrittId): 'mieter' | 'vertrag' {
+  return schritt === 'mieter' ? 'mieter' : 'vertrag';
 }
 
 export function istSchrittId(wert: unknown): wert is SchrittId {

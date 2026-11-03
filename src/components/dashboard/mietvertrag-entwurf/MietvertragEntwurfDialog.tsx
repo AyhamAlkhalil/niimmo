@@ -3,9 +3,10 @@
  *
  * Die Vorlage ist fest; der Ablauf befüllt ihre Platzhalter aus Objekt,
  * Einheit, Vorvertrag, Selbstauskunft und Eingaben — jeder Wert bleibt
- * änderbar und zeigt seine Quelle. Am Ende steht das PDF:
+ * änderbar und zeigt seine Quelle. Am Ende steht das PDF. Seit 03.11.2026
+ * zuerst der Mieter, dann der Vertrag (Kundenwunsch):
  *
- *   Grundlagen → Mieter → Miete & Laufzeit → Mietsache & Haus →
+ *   Mieter │ Grundlagen → Miete & Laufzeit → Mietsache & Haus →
  *   Betriebskosten → Vereinbarungen → Prüfen & PDF → Unterschrift & Start
  *
  * Bis zum Aktivieren ist alles ein Entwurf (`mietvertrag_entwuerfe`): Die
@@ -72,6 +73,7 @@ import {
   type VorvertragAuslese,
 } from '@/utils/mietvertrag/entwurf';
 import {
+  ERSTER_SCHRITT,
   entwurfLuecken,
   istSchrittId,
   platzhalterUebersicht,
@@ -207,8 +209,8 @@ export function MietvertragEntwurfDialog({
   const [zeigeVermieter, setZeigeVermieter] = useState(false);
   const [zeigeHinweise, setZeigeHinweise] = useState(false);
   const [aktualisiertAm, setAktualisiertAm] = useState<string | null>(null);
-  const [schritt, setSchritt] = useState<SchrittId>('grundlagen');
-  const [besucht, setBesucht] = useState<Set<SchrittId>>(new Set(['grundlagen']));
+  const [schritt, setSchritt] = useState<SchrittId>(ERSTER_SCHRITT);
+  const [besucht, setBesucht] = useState<Set<SchrittId>>(new Set([ERSTER_SCHRITT]));
   const [ungespeichert, setUngespeichert] = useState(false);
   const [frageSchliessen, setFrageSchliessen] = useState<Verlassen | null>(null);
   const [zuletztGespeichert, setZuletztGespeichert] = useState<Date | null>(null);
@@ -248,8 +250,8 @@ export function MietvertragEntwurfDialog({
     setNeueSelbstauskuenfte([]);
     setVorvertragPfad(null);
     setAusleseStatus({ art: 'bereit' });
-    setSchritt('grundlagen');
-    setBesucht(new Set(['grundlagen']));
+    setSchritt(ERSTER_SCHRITT);
+    setBesucht(new Set([ERSTER_SCHRITT]));
     setUngespeichert(false);
     setFrageSchliessen(null);
     setZuletztGespeichert(null);
@@ -306,7 +308,7 @@ export function MietvertragEntwurfDialog({
     if (!isOpen || initialisiert.current || !g || grundlagen.isFetching) return;
     const verfuegbar = schritteFuer(istWohnraumEinheit(g.einheit.einheitentyp));
     const beginneBei = (s: SchrittId) => {
-      const ziel = verfuegbar.includes(s) ? s : 'grundlagen';
+      const ziel = verfuegbar.includes(s) ? s : ERSTER_SCHRITT;
       setSchritt(ziel);
       setBesucht(new Set(verfuegbar.slice(0, verfuegbar.indexOf(ziel) + 1)));
     };
@@ -350,7 +352,7 @@ export function MietvertragEntwurfDialog({
       setPersonen(z.personen.length > 0 ? z.personen : [leerePerson()]);
       setDateien(z.dateien);
       setVorvertragPfad(wahrscheinlichsterVertrag(g.vorvertragDokumente)?.pfad ?? null);
-      beginneBei(startSchritt ?? (istSchrittId(z.schritt) ? z.schritt : 'grundlagen'));
+      beginneBei(startSchritt ?? (istSchrittId(z.schritt) ? z.schritt : ERSTER_SCHRITT));
       initialisiert.current = true;
       return;
     }
@@ -370,7 +372,7 @@ export function MietvertragEntwurfDialog({
     setDateien([]);
     const vorschlag = wahrscheinlichsterVertrag(g.vorvertragDokumente);
     setVorvertragPfad(vorschlag?.pfad ?? null);
-    beginneBei(startSchritt ?? 'grundlagen');
+    beginneBei(startSchritt ?? ERSTER_SCHRITT);
     initialisiert.current = true;
 
     // Was nur im alten Dokument steht, gleich mitlesen — solange der
@@ -792,12 +794,16 @@ export function MietvertragEntwurfDialog({
             ausleseStatus={ausleseStatus}
             onAuslesen={() => vorvertragPfad && void liesVorvertrag(g, vorvertragPfad, true)}
             onVermieterBearbeiten={() => setZeigeVermieter(true)}
-            onDirektErfassen={!gespeichert && onDirektErfassen ? () => versucheSchliessen('direkt') : undefined}
           />
         );
       case 'mieter':
         return (
           <div className="space-y-5">
+            <p className="text-sm">
+              Zuerst den Mieter: Selbstauskunft hochladen oder einen vorhandenen Mieter wählen und die Angaben prüfen. Mit
+              „Mieter speichern“ geht es weiter zum Mietvertrag. Im Mieterbestand erscheint er erst, wenn der
+              unterschriebene Vertrag aktiviert ist.
+            </p>
             {(bestand.error || blacklist.error) && (
               <Alert variant="destructive">
                 <AlertTriangle className="h-4 w-4" />
@@ -822,6 +828,20 @@ export function MietvertragEntwurfDialog({
             />
             <Separator />
             <PersonenzahlFeld {...formularProps} />
+            {!gespeichert && onDirektErfassen && (
+              <p className="text-xs text-muted-foreground">
+                Der Vertrag ist schon unterschrieben und soll nur erfasst werden?{' '}
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-xs"
+                  onClick={() => versucheSchliessen('direkt')}
+                >
+                  Bestehenden Vertrag direkt erfassen
+                </Button>
+              </p>
+            )}
           </div>
         );
       case 'miete':
@@ -1037,7 +1057,13 @@ export function MietvertragEntwurfDialog({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {wohnraum && schritt !== 'start' && (
+                  {blockiertWeil && !speichert && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {liestSelbstauskunft ? 'Selbstauskunft wird gelesen …' : 'Vorvertrag wird gelesen …'}
+                    </span>
+                  )}
+                  {wohnraum && schritt !== 'start' && schritt !== 'mieter' && (
                     <span className="hidden text-xs text-muted-foreground md:inline">
                       {blockiert || luecken.length > 0
                         ? 'PDF: Pflichtangaben offen'
@@ -1066,6 +1092,16 @@ export function MietvertragEntwurfDialog({
                   ) : schritt === 'start' ? (
                     <Button variant="outline" onClick={() => versucheSchliessen()} disabled={speichert}>
                       Schließen
+                    </Button>
+                  ) : schritt === 'mieter' ? (
+                    <Button
+                      onClick={() => void speichern({ naechsterSchritt: schritte[index + 1] })}
+                      disabled={speichert || blockiertWeil || zahlFehler || !hauptmieter}
+                      title={!hauptmieter ? 'Erst mindestens einen Mitmieter mit Namen erfassen' : undefined}
+                    >
+                      {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Mieter speichern
+                      <ArrowRight className="h-4 w-4" />
                     </Button>
                   ) : (
                     <Button onClick={() => geheZu(schritte[index + 1])} disabled={speichert || zahlFehler}>
