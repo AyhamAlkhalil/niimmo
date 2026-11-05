@@ -28,6 +28,14 @@ describe('Geschützte Leerzeichen', () => {
     );
     // Normale Wörter bleiben trennbar
     expect(schuetzeUmbrueche('Der Mieter zahlt')).toBe('Der Mieter zahlt');
+    // Ein kurzes Wort hinter einer IBAN mit voller letzter Gruppe gehört nicht dazu (QA 05.11.2026)
+    expect(schuetzeUmbrueche('AT61 1904 3002 3457 3201 UND Co')).toBe(`AT61${NBSP}1904${NBSP}3002${NBSP}3457${NBSP}3201 UND Co`);
+    // Zwei IBANs hintereinander werden beide gebunden, aber nicht aneinander
+    expect(schuetzeUmbrueche('DE08 2559 1413 3155 4105 04 DE89 2559 1413 3155 4105 01')).toBe(
+      `DE08${NBSP}2559${NBSP}1413${NBSP}3155${NBSP}4105${NBSP}04 DE89${NBSP}2559${NBSP}1413${NBSP}3155${NBSP}4105${NBSP}01`
+    );
+    // Eine IBAN mit falscher Prüfziffer bleibt trennbar, statt ein Wort zu verschlucken
+    expect(schuetzeUmbrueche('DE89 2559 1413 3155 4105 02 BIC')).toBe('DE89 2559 1413 3155 4105 02 BIC');
   });
 });
 
@@ -65,6 +73,15 @@ describe('Verteilerschlüssel je Kostenart am Objekt', () => {
     // Sonstige tragen im Vertrag Rauchwarnmelder (2.17) und 2.19
     expect(zeilen.find(z => z.kategorie.id === 'sonstige_betriebskosten')!.vertragsPositionen).toEqual(['2.17', '2.19']);
     expect(zeilen).toHaveLength(17);
+  });
+
+  it('sperrt Kostenarten, die am Objekt nicht umlagefähig sind, und kündigt das Anlegen an (Review 05.11.2026)', () => {
+    const zeilen = schluesselJeKategorie([{ ...art('a1', 'Hauswart', 'gleich'), ist_umlagefaehig: false }]);
+    const hauswart = zeilen.find(z => z.kategorie.id === 'hauswart')!;
+    expect(hauswart).toMatchObject({ umlagefaehig: false, artIds: [], wirdAngelegt: false });
+    // Eine Wahl dort würde nirgends wirken — sie wird nicht geschrieben
+    expect(geaenderteSchluessel(zeilen, { hauswart: 'personen' })).toEqual([]);
+    expect(zeilen.find(z => z.kategorie.id === 'aufzug')).toMatchObject({ umlagefaehig: true, wirdAngelegt: true });
   });
 
   it('schreibt nur, was sich geändert hat', () => {
@@ -124,5 +141,32 @@ describe('PDF mit Carlito und Logo', () => {
     expect(text).toContain('Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04');
     expect(text).not.toContain('nach fünf Jahren seit Überlassung');
     expect(text).not.toContain('Vereinbarungen über besondere Einrichtungen');
+    // Mit eingebetteter Schrift komprimiert
+    expect(roh).toContain('/FlateDecode');
+  }, 20_000);
+
+  it('wiederholt den Kopf der Kostentabelle auf der Folgeseite (Review 05.11.2026)', async () => {
+    const quelle = readFileSync('src/utils/mietvertrag/hausvorlage.test.ts', 'utf8');
+    const anfang = quelle.indexOf('const REFERENZ: MietvertragDaten = {');
+    const literal = quelle.slice(quelle.indexOf('{', anfang), quelle.indexOf('\n};', anfang) + 2);
+    const referenz = new Function(`return (${literal});`)() as MietvertragDaten;
+    const weitere = Array.from({ length: 40 }, (_, i) => ({
+      nummer: `2.${20 + i}`,
+      bezeichnung: 'Sonstige Betriebskosten',
+      benennung: `Posten ${i + 1}`,
+      umgelegt: true,
+      schluessel: 'qm',
+      betrag: 0,
+    }));
+    const d: MietvertragDaten = { ...referenz, betriebskostenPositionen: [...referenz.betriebskostenPositionen, ...weitere] };
+    const b64 = (pfad: string) => readFileSync(pfad).toString('base64');
+    const text = await textMitPdfJs(
+      await generateMietvertragPdf(d, {
+        schrift: { regular: b64('public/fonts/Carlito-Regular.ttf'), bold: b64('public/fonts/Carlito-Bold.ttf') },
+        logo: null,
+      })
+    );
+    expect(text.match(/Vorauszahlung Verteilung EUR monatlich/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(text).toContain('Summe der monatlichen Vorauszahlung');
   }, 20_000);
 });

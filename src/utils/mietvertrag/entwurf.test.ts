@@ -1036,6 +1036,8 @@ describe('Vorgaben neuer Entwürfe (04.11.2026)', () => {
     const { daten } = baueEntwurf(grundlagen({ vpi: null }));
     expect(daten.mietanpassungArt).toBe('keine');
     expect(daten.indexBasisWert).toBeNull();
+    // Ein Stichtag ohne Datum ergibt keinen Basismonat „abc-01“ (QA 05.11.2026)
+    expect(baueEntwurf(grundlagen({ vpi: { wert: 100, stichtag: 'abc' } })).daten.mietanpassungArt).toBe('keine');
   });
 
   it('nimmt das Mietkonto aus den Stammdaten, auch wenn am Objekt eine Kontonummer steht', () => {

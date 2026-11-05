@@ -243,7 +243,8 @@ export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeiche
               <Input
                 value={(entwurf.vertreten_durch ?? []).join(', ')}
                 onChange={e =>
-                  setze('vertreten_durch', e.target.value.split(',').map(x => x.trim()))
+                  // Ein Komma in der Klammer („(Dr., LL.M.)“) trennt keine zweite Person
+                  setze('vertreten_durch', e.target.value.split(/,(?![^()]*\))/).map(x => x.trim()))
                 }
                 placeholder="Ayhan Yeyrek (M. Sc.), Denis Mikyas (B. Sc.)"
               />

@@ -1167,7 +1167,7 @@ export function indexVorschlag(vpi: { wert: number | string | null; stichtag: st
   wert: number;
   monat: string;
 } | null {
-  if (!vpi?.stichtag || vpi.wert === null || vpi.wert === undefined) return null;
+  if (!vpi?.stichtag || !/^\d{4}-\d{2}/.test(vpi.stichtag) || vpi.wert === null || vpi.wert === undefined) return null;
   const wert = Number(vpi.wert);
   if (!Number.isFinite(wert) || wert <= 0) return null;
   return { wert, monat: `${vpi.stichtag.slice(0, 7)}-01` };

@@ -16,7 +16,7 @@
  */
 import type jsPDF from 'jspdf';
 
-import type { TabellenZeile } from '../pdf/briefLayout';
+import { istIbanGueltig, type TabellenZeile } from '../pdf/briefLayout';
 
 export const SEITE_BREITE = 210;
 export const SEITE_HOEHE = 297;
@@ -89,13 +89,46 @@ export function ladeVertragsschrift(): Promise<Vertragsschrift | null> {
 const NBSP = '\u00a0';
 
 /**
+ * Bindet die Vierergruppen einer IBAN — aber nur so viele, wie zusammen eine
+ * gültige IBAN ergeben. Ein kurzes Wort dahinter („BIC“, „UND“) oder eine
+ * zweite IBAN sähe sonst wie eine weitere Gruppe aus (QA 05.11.2026). Wörter
+ * werden einzeln durchlaufen, damit zwei IBANs hintereinander beide gebunden werden.
+ */
+function ibanGruppenBinden(text: string): string {
+  const woerter = text.split(' ');
+  const aus: string[] = [];
+  for (let i = 0; i < woerter.length; i++) {
+    if (/^[A-Z]{2}\d{2}$/.test(woerter[i])) {
+      let laenge = 0;
+      for (let n = Math.min(9, woerter.length - i); n >= 3; n--) {
+        const gruppen = woerter.slice(i + 1, i + n);
+        if (gruppen.every(g => /^[0-9A-Z]{1,4}[,.;:)]?$/.test(g))) {
+          const kandidat = woerter.slice(i, i + n).join('').replace(/[,.;:)]$/, '');
+          // Satzzeichen nur an der letzten Gruppe
+          if (gruppen.slice(0, -1).every(g => /^[0-9A-Z]{1,4}$/.test(g)) && istIbanGueltig(kandidat)) {
+            laenge = n;
+            break;
+          }
+        }
+      }
+      if (laenge > 0) {
+        aus.push(woerter.slice(i, i + laenge).join(NBSP));
+        i += laenge - 1;
+        continue;
+      }
+    }
+    aus.push(woerter[i]);
+  }
+  return aus.join(' ');
+}
+
+/**
  * Geschützte Leerzeichen, wo ein Umbruch den Sinn zerreißt: „70 %“, „1.200,00 €“,
  * „§ 573“, „Abs. 3“, „Ziff. 1“ und die Vierergruppen einer IBAN. Nur mit
  * Carlito — Helvetica misst das geschützte Leerzeichen in jsPDF falsch.
  */
 export function schuetzeUmbrueche(text: string): string {
-  return text
-    .replace(/\b([A-Z]{2}\d{2}(?: [0-9A-Z]{4}){3,7}(?: [0-9A-Z]{1,4})?)\b/g, iban => iban.replace(/ /g, NBSP))
+  return ibanGruppenBinden(text)
     .replace(/\b(IBAN|BIC) (?=[A-Z0-9])/g, `$1${NBSP}`)
     .replace(/(\d) (€|%)/g, `$1${NBSP}$2`)
     .replace(/(§§?) (?=\d)/g, `$1${NBSP}`)
@@ -252,24 +285,31 @@ export function vertragsLayout(
     const xVerteilung = rechts - 22 - 30;
     const textbreite = xVerteilung - xText - 3;
 
-    y = umbruch(y, 3 * ZEILE);
-    setzeSchrift(GROESSE, true);
-    doc.text(t.kopf.bezeichnung, xNummer, y);
-    doc.text(t.kopf.verteilung, xVerteilung, y);
-    doc.text(t.kopf.betrag, rechts, y, { align: 'right' });
-    y += ZEILE + 0.8;
+    const kopf = (yKopf: number): number => {
+      setzeSchrift(GROESSE, true);
+      doc.text(t.kopf.bezeichnung, xNummer, yKopf);
+      doc.text(t.kopf.verteilung, xVerteilung, yKopf);
+      doc.text(t.kopf.betrag, rechts, yKopf, { align: 'right' });
+      return yKopf + ZEILE + 0.8;
+    };
+    y = kopf(umbruch(y, 3 * ZEILE));
 
-    for (const z of t.zeilen) {
+    t.zeilen.forEach((z, i) => {
       setzeSchrift(GROESSE, false);
       const zeilen = doc.splitTextToSize(z.bezeichnung, textbreite) as string[];
-      y = umbruch(y, zeilen.length * ZEILE);
+      // Die letzte Position bleibt mit der Summe zusammen
+      const benoetigt = zeilen.length * ZEILE + (i === t.zeilen.length - 1 ? ZEILE + 2.4 : 0);
+      const vorher = doc.getNumberOfPages();
+      y = umbruch(y, benoetigt);
+      // Auf der Folgeseite steht der Spaltenkopf erneut
+      if (doc.getNumberOfPages() !== vorher) y = kopf(y);
       setzeSchrift(GROESSE, false);
       doc.text(z.nummer, xNummer, y);
       zeilen.forEach((zeile, i) => doc.text(zeile, xText, y + i * ZEILE));
       if (z.verteilung) doc.text(z.verteilung, xVerteilung, y);
       doc.text(z.betrag, rechts, y, { align: 'right' });
       y += zeilen.length * ZEILE;
-    }
+    });
 
     y = umbruch(y + 1.2, ZEILE + 2);
     linie(xNummer, y - 3.4, rechts - xNummer);

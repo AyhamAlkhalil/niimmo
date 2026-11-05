@@ -332,7 +332,7 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       warnung(
         'vermieter.kautionIban',
         'Es ist kein getrenntes Kautionskonto hinterlegt.',
-        'Kautionskonto erfassen. Der Vertrag sagt sonst keine getrennte Anlage nach § 551 Abs. 3 BGB zu.'
+        'Kautionskonto in den Vermieter-Stammdaten erfassen — sonst nennt § 7 kein Konto für die Kaution.'
       );
     }
   }

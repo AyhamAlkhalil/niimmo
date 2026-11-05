@@ -195,6 +195,9 @@ export function verteilerschluesselName(s: string): string {
 /** Kurzform für die Spalte „Verteilung“ der Kostentabelle in § 4 (seit 04.11.2026). */
 export function verteilungKurz(s: string): string {
   if (s === 'gleich' || s === 'einheit') return 'je Einheit';
+  if (s === 'verbrauch') return 'Verbrauch';
+  if (s === 'nutzer') return 'Nutzerzahl';
+  if (s === 'individuell') return 'Vereinbarung';
   return verteilerschluesselName(s);
 }
 
@@ -307,4 +310,5 @@ export interface MietvertragDaten {
 }
 
 /** Fassung der Klauseltexte. Wandert in mietvertrag.vorlage_version. */
-export const VORLAGE_VERSION = 'wohnraum-2026.1';
+// 2026.2 (05.11.2026): Seitenbild der Word-Vorlage, § 24 entfallen, § 14 aus der Vorlage, Kautionskonto
+export const VORLAGE_VERSION = 'wohnraum-2026.2';

@@ -85,7 +85,8 @@ export function VerteilerschluesselDialog({ immobilieId, offen, onOpenChange, on
           <DialogTitle>Verteilerschlüssel je Kostenart</DialogTitle>
           <DialogDescription>
             Gilt für das ganze Haus: Jeder neue Mietvertrag nennt diese Schlüssel in § 4, und die
-            Betriebskostenabrechnung verteilt danach.
+            Betriebskostenabrechnung verteilt danach. Wählt ihr einen Schlüssel für eine Kostenart, die am Objekt
+            noch nicht angelegt ist, wird sie angelegt und in neuen Verträgen als umgelegt vorgeschlagen.
           </DialogDescription>
         </DialogHeader>
 
@@ -107,13 +108,19 @@ export function VerteilerschluesselDialog({ immobilieId, offen, onOpenChange, on
                   <p className="truncate text-sm">{z.kategorie.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {z.vertragsPositionen.length > 0 ? `im Vertrag ${z.vertragsPositionen.join(', ')}` : ''}
-                    {!z.gepflegt && ' · Vorgabe'}
+                    {!z.umlagefaehig
+                      ? ' · am Objekt nicht umlagefähig'
+                      : z.wirdAngelegt
+                        ? auswahl[z.kategorie.id] && auswahl[z.kategorie.id] !== z.schluessel
+                          ? ' · wird am Objekt angelegt'
+                          : ' · Vorgabe, am Objekt nicht angelegt'
+                        : !z.gepflegt && ' · Vorgabe'}
                   </p>
                 </div>
                 <Select
                   value={auswahl[z.kategorie.id] ?? z.schluessel}
                   onValueChange={v => setAuswahl(a => ({ ...a, [z.kategorie.id]: v }))}
-                  disabled={speichert}
+                  disabled={speichert || !z.umlagefaehig}
                 >
                   <SelectTrigger aria-label={`${z.kategorie.name}: Verteilerschlüssel`} className="h-8 text-xs">
                     <SelectValue />

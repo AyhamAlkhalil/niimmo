@@ -42,11 +42,17 @@ export interface PdfMittel {
 
 export async function generateMietvertragPdf(d: MietvertragDaten, mittel: PdfMittel = {}): Promise<Blob> {
   const [schrift, logo] = await Promise.all([
-    mittel.schrift !== undefined ? mittel.schrift : ladeVertragsschrift(),
+    mittel.schrift !== undefined ? mittel.schrift : ladeSchriftMitWiederholung(),
     mittel.logo !== undefined ? mittel.logo : ladeBild('/brief/niimmo-logo.png'),
   ]);
+  // Im Browser kein PDF in Ersatzschrift: Es hätte andere Umbrüche und Seiten als die Vorschau zuvor und
+  // würde unbemerkt gespeichert (Review 05.11.2026). In Node und den Tests gibt es kein fetch auf /fonts.
+  if (mittel.schrift === undefined && !schrift && typeof window !== 'undefined') {
+    throw new Error('Die Schrift des Vertrags konnte nicht geladen werden. Bitte die Seite neu laden und erneut versuchen.');
+  }
 
-  const doc = new jsPDF('p', 'mm', 'a4');
+  // Komprimiert nur mit eingebetteter Schrift — die Tests lesen den Helvetica-Text direkt aus dem PDF
+  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: !!schrift });
   const layout = vertragsLayout(doc, { schrift, logo });
 
   let y = titelseite(doc, layout, d);
@@ -63,6 +69,10 @@ export async function generateMietvertragPdf(d: MietvertragDaten, mittel: PdfMit
 
   layout.seitenzahlen();
   return doc.output('blob');
+}
+
+async function ladeSchriftMitWiederholung(): Promise<Vertragsschrift | null> {
+  return (await ladeVertragsschrift()) ?? (typeof window !== 'undefined' ? ladeVertragsschrift() : null);
 }
 
 // ─── Titelseite ──────────────────────────────────────────────────────────────
@@ -105,6 +115,7 @@ function titelseite(doc: jsPDF, layout: VertragsLayout, d: MietvertragDaten): nu
   doc.text('und', RAND, y);
   d.mieter.forEach((m, i) => {
     if (i > 0) y += 4;
+    y = layout.umbruch(y, 26);
     y = mieterZeilen(doc, layout, m, y);
   });
 

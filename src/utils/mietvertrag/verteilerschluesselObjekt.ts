@@ -30,8 +30,15 @@ export interface SchluesselZeile {
   schluessel: string;
   /** true: am Objekt festgelegt; false: Kundenvorgabe, weil die Kostenart dort noch nicht gepflegt ist */
   gepflegt: boolean;
-  /** Nebenkostenarten des Objekts, die zu dieser Kostenart gehören */
+  /** Umlagefähige Nebenkostenarten des Objekts zu dieser Kostenart — nur sie tragen den Schlüssel */
   artIds: string[];
+  /**
+   * false: Am Objekt gibt es die Kostenart nur als nicht umlagefähig. Dann zählt
+   * ihr Schlüssel nirgends; ändern wäre ein Speichern ohne Wirkung (Review 05.11.2026).
+   */
+  umlagefaehig: boolean;
+  /** Die Kostenart fehlt am Objekt; Speichern legt sie an — neue Verträge schlagen sie dann als umgelegt vor. */
+  wirdAngelegt: boolean;
   /** Positionen im Mietvertrag, die diesen Schlüssel tragen („2.12, 2.18“) */
   vertragsPositionen: string[];
 }
@@ -39,11 +46,14 @@ export interface SchluesselZeile {
 export function schluesselJeKategorie(arten: readonly Nebenkostenart[]): SchluesselZeile[] {
   return BETRKV_KATEGORIEN.map(kategorie => {
     const zugehoerig = arten.filter(a => findeKategorieNachName(a.name)?.id === kategorie.id);
+    const umlagefaehige = zugehoerig.filter(a => a.ist_umlagefaehig !== false);
     return {
       kategorie,
       schluessel: schluesselDesObjekts([...arten], kategorie.id),
-      gepflegt: zugehoerig.some(a => a.ist_umlagefaehig !== false && !!a.verteilerschluessel_art),
-      artIds: zugehoerig.map(a => a.id),
+      gepflegt: umlagefaehige.some(a => !!a.verteilerschluessel_art),
+      artIds: umlagefaehige.map(a => a.id),
+      umlagefaehig: zugehoerig.length === 0 || umlagefaehige.length > 0,
+      wirdAngelegt: zugehoerig.length === 0,
       vertragsPositionen: BETRKV_STANDARD.filter(p => p.kategorie === kategorie.id).map(p => p.nummer),
     };
   });
@@ -55,6 +65,6 @@ export function geaenderteSchluessel(
   auswahl: Readonly<Record<string, string>>
 ): { zeile: SchluesselZeile; schluessel: string }[] {
   return zeilen
-    .filter(z => auswahl[z.kategorie.id] && auswahl[z.kategorie.id] !== z.schluessel)
+    .filter(z => z.umlagefaehig && auswahl[z.kategorie.id] && auswahl[z.kategorie.id] !== z.schluessel)
     .map(z => ({ zeile: z, schluessel: auswahl[z.kategorie.id] }));
 }
