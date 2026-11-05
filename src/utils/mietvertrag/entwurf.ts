@@ -20,7 +20,7 @@ import type { Tables, TablesInsert } from '@/integrations/supabase/types';
 import { alsIsoTag, getVertragsende, istLaufenderVertrag } from '@/utils/contractUtils';
 import { RUECKLASTSCHRIFT_GEBUEHR_EUR } from '@/constants/config';
 import { istPlausiblesDatum } from '../pdf/briefLayout';
-import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, ersteIban, objektDaten, vermieterDaten } from './datenAusDb';
+import { BETRKV_STANDARD, betriebskostenPositionen, einheitDaten, objektDaten, vermieterDaten } from './datenAusDb';
 import {
   ausgehaendigteSchluessel,
   positionFuerDb,
@@ -140,6 +140,8 @@ export interface EntwurfGrundlagen {
   vorvertrag: Tables<'mietvertrag'> | null;
   /** YYYY-MM-DD */
   heute: string;
+  /** Letzter Verbraucherpreisindex aus den Marktdaten — Ausgangswert der Indexmiete */
+  vpi?: { wert: number | string | null; stichtag: string | null } | null;
 }
 
 // ─── Kleine Helfer ──────────────────────────────────────────────────────────
@@ -300,6 +302,7 @@ export function herkunftText(quelle: Herkunft, vorvertragBeginn: string | null):
  * Mieter kommen später aus der Selbstauskunft oder von Hand dazu.
  */
 export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; herkunft: HerkunftKarte } {
+  const index = indexVorschlag(g.vpi ?? null);
   const { immobilie, einheit, vorvertrag } = g;
   let h: HerkunftKarte = {};
 
@@ -360,9 +363,10 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
   // Was nicht aus einer Quelle kommt, ist ein Standardwert der Vorlage — auch
   // der soll als solcher erkennbar sein, bis jemand bewusst entscheidet.
   h = setze(h, 'vermieter', g.vermieter ? 'stammdaten' : null);
-  // Das Mietkonto kommt vom Objekt, wenn dort eins steht — sonst aus den Vermieterstammdaten
-  h = setze(h, 'vermieter.mietIban', ersteIban(immobilie['Kontonr.']) ? 'objekt' : g.vermieter?.miet_iban ? 'stammdaten' : null);
+  // Das Mietkonto kommt immer aus den Vermieterstammdaten (04.11.2026)
+  h = setze(h, 'vermieter.mietIban', g.vermieter?.miet_iban ? 'stammdaten' : null);
   h = setze(h, 'objekt.heizkostenSchluessel', 'objekt');
+  if (index) h = setze(h, 'indexBasisWert', 'marktdaten');
   for (const feld of [
     'betriebskostenModus',
     'kautionArt',
@@ -379,7 +383,7 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
 
   const daten: MietvertragDaten = {
     vertragsart: vertragsartFuer(einheit.einheitentyp),
-    vermieter: vermieterDaten(g.vermieter, immobilie),
+    vermieter: vermieterDaten(g.vermieter),
     mieter: [],
     objekt,
     einheit: einheitWerte,
@@ -410,10 +414,12 @@ export function baueEntwurf(g: EntwurfGrundlagen): { daten: MietvertragDaten; he
     lastschriftBic: null,
     sepaMandatsreferenz: null,
 
-    mietanpassungArt: 'keine',
+    // Vorgabe Indexmiete (Kundenwunsch 04.11.2026: „Index-Klausel … oder ortsüblich“ — der Kunde behandelt
+    // seine Verträge als Indexmieten); ohne veröffentlichten Index bleibt es bei der ortsüblichen Vergleichsmiete
+    mietanpassungArt: index ? 'index' : 'keine',
     staffelplan: null,
-    indexBasisWert: null,
-    indexBasisMonat: null,
+    indexBasisWert: index?.wert ?? null,
+    indexBasisMonat: index?.monat ?? null,
 
     anzahlPersonen: 0,
     schluessel: [],

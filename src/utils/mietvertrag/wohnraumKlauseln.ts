@@ -18,8 +18,10 @@ import {
   formatIban,
   betragInWorten,
   type TabellenZeile,
+  kreditinstitut,
 } from '../pdf/briefLayout';
-import { ausgehaendigteSchluessel, positionsText, verteilerschluesselName, type MietvertragDaten } from './typen';
+import { ausgehaendigteSchluessel, positionsText, verteilungKurz, type MietvertragDaten } from './typen';
+import type { Kostentabelle } from './vertragsLayout';
 
 export interface Absatz {
   /** Gliederungsziffer wie „1." oder „2.1" — optional. */
@@ -34,6 +36,8 @@ export interface Absatz {
    * Spalte, nicht in einen Satz.
    */
   tabelle?: TabellenZeile[];
+  /** Betriebskostenaufstellung des § 4 mit Nummer, Kostenart, Verteilerschlüssel und Betrag. */
+  kosten?: Kostentabelle;
 }
 
 export interface Paragraph {
@@ -75,8 +79,8 @@ export const AENDERUNGEN: Aenderung[] = [
   {
     paragraph: '§ 7',
     bestand: 'Aufrechnungsverbot des Mieters während des laufenden Mietverhältnisses; Kosten der Kautionsverwahrung trägt der Mieter.',
-    neu: 'Aufrechnung mit unbestrittenen oder titulierten Forderungen zulässig, Rechte aus §§ 536a, 539 BGB und § 556b Abs. 2 BGB ausdrücklich unberührt. Verwahrkosten trägt der Vermieter.',
-    grund: '§ 556b Abs. 2 BGB ist zwingend. Die Anlagepflicht nach § 551 Abs. 3 BGB ist eine Vermieterpflicht, ihre Kosten sind nicht abwälzbar.',
+    neu: 'Aufrechnung mit unbestrittenen oder titulierten Forderungen zulässig, Rechte aus §§ 536a, 539 BGB und § 556b Abs. 2 BGB ausdrücklich unberührt. Zur Verwahrung keine Regelung; seit 04.11.2026 auf Kundenwunsch auch keine Absätze zu Teilzahlung und getrennter Anlage, dafür das Kautionskonto mit Kreditinstitut.',
+    grund: '§ 556b Abs. 2 BGB ist zwingend. Teilzahlung (§ 551 Abs. 2) und getrennte Anlage (§ 551 Abs. 3 BGB) gelten kraft Gesetzes; die Kosten der Anlage sind nicht abwälzbar.',
   },
   {
     paragraph: '§ 9 Ziff. 2',
@@ -92,9 +96,9 @@ export const AENDERUNGEN: Aenderung[] = [
   },
   {
     paragraph: '§ 14',
-    bestand: 'Starre Fristen (5 Jahre Nassräume / 7 Jahre Wohnräume), Quotenabgeltung mit Prozentstaffel, Kostenvoranschlag eines vom Vermieter ausgewählten Malerbetriebs.',
-    neu: 'Weicher Fristenplan („in der Regel", 5/8/10 Jahre) abhängig vom tatsächlichen Zustand; Quotenabgeltung und Betriebsbindung vollständig gestrichen. Bei nicht renovierter Übergabe entfällt der Paragraph ganz.',
-    grund: 'BGH VIII ZR 185/14 und VIII ZR 242/13: Starre Fristen, Quotenabgeltung und die Übertragung bei unrenovierter Übergabe sind unwirksam — und zwar jeweils mit der Folge, dass die gesamte Klausel entfällt.',
+    bestand: 'Fristen „im Allgemeinen und nach Notwendigkeit“ (5 Jahre Nassräume / 7 Jahre Wohnräume), Quotenabgeltung mit Prozentstaffel nach Kostenvoranschlag eines vom Vermieter ausgewählten Malerbetriebs.',
+    neu: 'Seit 04.11.2026 auf Kundenwunsch Ziff. 1 bis 3 im Wortlaut der Vorlage; die Quotenabgeltung (Kostenvoranschlag, Prozentstaffel, Gegenangebot, Umbaufall) ist gestrichen. Bei nicht renovierter Übergabe werden die Schönheitsreparaturen nicht übertragen.',
+    grund: 'BGH VIII ZR 242/13: Quotenabgeltungsklauseln sind unwirksam. BGH VIII ZR 185/14: Bei unrenovierter Übergabe ohne Ausgleich ist die Übertragung unwirksam.',
   },
   {
     paragraph: '§ 15',
@@ -164,9 +168,15 @@ export const AENDERUNGEN: Aenderung[] = [
   },
   {
     paragraph: '§ 4 Ziff. 2',
-    bestand: 'Wasserversorgung (2.2) nach erfasstem Verbrauch, Antenne und Kabel (2.15) nach Nutzerzahl.',
-    neu: 'Jede Position nennt den Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt; ohne Pflege dort die NiImmo-Vorgabe (Wasser nach Personenzahl, Kabel zu gleichen Teilen).',
-    grund: 'Die Abrechnung muss dem vereinbarten Schlüssel folgen (§ 556a Abs. 1 BGB). Sie verteilt nach Wohnfläche, Personentagen oder Einheiten; einen Verbrauch je Kostenart erfasst sie nicht.',
+    bestand: 'Wasserversorgung (2.2) nach erfasstem Verbrauch, Antenne und Kabel (2.15) nach Nutzerzahl; Verteilungsschlüssel als Sammelzeilen über der Tabelle.',
+    neu: 'Jede Position nennt den Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt — seit 04.11.2026 in einer eigenen Spalte der Tabelle, festgelegt je Kostenart am Objekt; ohne Pflege dort die NiImmo-Vorgabe (Wasser nach Personenzahl, Kabel zu gleichen Teilen).',
+    grund: 'Die Abrechnung muss dem vereinbarten Schlüssel folgen (§ 556a Abs. 1 BGB); ohne Vereinbarung gälte überall die Wohnfläche. Die Abrechnung verteilt nach Wohnfläche, Personentagen oder Einheiten; einen Verbrauch je Kostenart erfasst sie nicht.',
+  },
+  {
+    paragraph: '§ 24',
+    bestand: 'Vereinbarungen über besondere Einrichtungen: Heizperiode und Messeinrichtungen, Etagenheizung, Warmwasser, Fahrstuhl, Rundfunk- und Fernsehempfang.',
+    neu: 'Entfällt seit 04.11.2026 auf Kundenwunsch; die folgenden Paragraphen rücken auf. Die Abrechnung der Heizkosten nach der Heizkostenverordnung regelt § 4 Ziff. 3.',
+    grund: 'Kundenentscheidung. Die Pflichten aus HeizkostenV und BetrKV gelten unabhängig davon.',
   },
 ];
 
@@ -274,7 +284,7 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     absaetze: [
       {
         nummer: '1.',
-        text: 'Ist das Mietverhältnis auf unbestimmte Zeit geschlossen, kann es von beiden Parteien nach den gesetzlichen Vorschriften gekündigt werden. Für den Mieter beträgt die Kündigungsfrist drei Monate. Für den Vermieter verlängert sie sich nach fünf Jahren seit Überlassung auf sechs und nach acht Jahren auf neun Monate (§ 573c Abs. 1 BGB).',
+        text: 'Ist das Mietverhältnis auf unbestimmte Zeit geschlossen, kann es von beiden Parteien nach den gesetzlichen Vorschriften gekündigt werden. Für den Mieter beträgt die Kündigungsfrist drei Monate.',
       },
       {
         nummer: '2.',
@@ -324,18 +334,16 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       text: `Neben der Miete trägt der Mieter die nachstehend im Einzelnen benannten Betriebskosten im Sinne des § 556 Abs. 1 BGB in Verbindung mit § 2 der Betriebskostenverordnung. Hierauf leistet er eine monatliche ${modusWort}. Kosten, die hier nicht benannt sind, werden nicht umgelegt.`,
     });
 
-    p4.push({ text: '', tabelle: betriebskostenTabelle(d, betriebskosten) });
+    p4.push({ text: '', kosten: betriebskostenTabelle(d, betriebskosten) });
 
     p4.push({
       // Bis zum 27.10.2026: „Positionen ohne Betrag sind … nicht Gegenstand der Umlage“ — umgelegte
       // Positionen ohne Einzelbetrag standen aber mit leerem Betrag in der Tabelle und galten damit
       // in § 4 als nicht umgelegt, in Verteilerschlüssel und Anlage 2 als umgelegt (§ 305c BGB).
-      text: 'Mit „– – –“ gekennzeichnete Positionen sind benannt, aber derzeit nicht Gegenstand der Umlage. Für die Verteilung gilt:',
-      linksbuendig: true,
+      // Seit 04.11.2026 steht der Verteilerschlüssel je Zeile in der Tabelle; die Sammelzeilen darunter
+      // sind auf Kundenwunsch entfallen. Ohne Schlüssel im Vertrag gälte überall die Wohnfläche (§ 556a BGB).
+      text: 'Mit „– – –“ gekennzeichnete Positionen sind benannt, aber derzeit nicht Gegenstand der Umlage. Die Kosten werden nach dem in der Tabelle je Position genannten Schlüssel verteilt.',
     });
-    for (const zeile of verteilerschluesselZeilen(d)) {
-      p4.push({ text: zeile, linksbuendig: true });
-    }
 
     p4.push({
       text: `Abrechnungszeitraum ist ${d.abrechnungszeitraum.replace(/\.$/, '')}. Über die Vorauszahlungen wird jährlich abgerechnet; die Abrechnung ist dem Mieter spätestens zwölf Monate nach Ende des Abrechnungszeitraums mitzuteilen (§ 556 Abs. 3 BGB). Der Mieter kann die Abrechnungsunterlagen nach Terminvereinbarung einsehen. Die Anlage „Betriebskostenverordnung“ ist Bestandteil dieses Vertrages.`,
@@ -396,7 +404,7 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
   p4.push({ text: '', tabelle: summenZeilen });
 
   p4.push({
-    text: `Die Zahlung erfolgt auf das Konto ${formatIban(d.vermieter.mietIban)}${d.vermieter.mietBic ? `, BIC ${d.vermieter.mietBic}` : ''}, Kontoinhaber ${d.vermieter.firmenname}. Als Verwendungszweck sind ${d.einheit.bezeichnung} und der Name des Mieters anzugeben.`,
+    text: `Die Zahlung erfolgt an: ${kontoText(d.vermieter.firmenname, d.vermieter.mietIban, d.vermieter.mietBic)}. Als Verwendungszweck sind ${d.einheit.bezeichnung} und der Name des Mieters anzugeben.`,
   });
 
   p.push({
@@ -558,7 +566,6 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
   p.push({ nummer: '§ 14', titel: 'Schönheitsreparaturen', absaetze: schoenheitsreparaturAbsaetze(d) });
 
   // ─── § 15 Kleinreparaturen ─────────────────────────────────────────────
-  const jahresgrenze = (d.kaltmiete * 12 * d.kleinreparaturJahresgrenzeProzent) / 100;
   p.push({
     nummer: '§ 15',
     titel: 'Kleinreparaturen',
@@ -569,7 +576,9 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       },
       {
         nummer: '2.',
-        text: `Innerhalb eines Kalenderjahres ist die Kostentragung auf ${d.kleinreparaturJahresgrenzeProzent.toLocaleString('de-DE')} % der Jahresnettokaltmiete begrenzt, derzeit ${formatEur(jahresgrenze)}.`,
+        // Wie in der Vorlage ohne ausgerechneten Betrag: „derzeit 1.440,00 €“ (8 % von 12 × 1.500 €) wurde
+        // am 04.11.2026 für die Miete aus dem alten Vertrag gehalten
+        text: `Innerhalb eines Kalenderjahres ist die Kostentragung auf ${d.kleinreparaturJahresgrenzeProzent.toLocaleString('de-DE')} % der Jahresnettokaltmiete nach § 4 Ziff. 1 begrenzt.`,
       },
       {
         nummer: '3.',
@@ -757,20 +766,11 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     absaetze: p23,
   });
 
-  // ─── § 24 Besondere Einrichtungen ──────────────────────────────────────
-  // Umfasst wie die Hausvorlage Heizung, Warmwasser, Fahrstuhl und
-  // Gemeinschaftsempfangsanlage. Aufzugs- und Antennenkosten (2.7 und 2.15)
-  // dürfen nur umgelegt werden, wenn der Vertrag die Einrichtung auch regelt —
-  // ohne diesen Abschnitt stünde ein Kostenposten ohne Grundlage da.
+  // ─── Zustand bei Übergabe ──────────────────────────────────────────────
+  // „§ 24 Vereinbarungen über besondere Einrichtungen“ ist am 04.11.2026 auf Kundenwunsch entfallen;
+  // die Nummern ab hier vergibt das Ende dieser Funktion.
   p.push({
-    nummer: '§ 24',
-    titel: 'Vereinbarungen über besondere Einrichtungen',
-    absaetze: besondereEinrichtungenAbsaetze(d),
-  });
-
-  // ─── § 25 Zustand bei Übergabe ─────────────────────────────────────────
-  p.push({
-    nummer: '§ 25',
+    nummer: '',
     titel: 'Zustand der Mieträume bei Übergabe',
     absaetze: [
       {
@@ -788,9 +788,9 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     ],
   });
 
-  // ─── § 26 Individuelle Vereinbarungen ──────────────────────────────────
+  // ─── Individuelle Vereinbarungen ───────────────────────────────────────
   p.push({
-    nummer: '§ 26',
+    nummer: '',
     titel: 'Individuelle Vereinbarungen',
     absaetze: d.zusatzvereinbarungen?.trim()
       ? d.zusatzvereinbarungen
@@ -801,9 +801,9 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       : [{ text: 'Individuelle Vereinbarungen wurden nicht getroffen.' }],
   });
 
-  // ─── § 27 Datenschutz ──────────────────────────────────────────────────
+  // ─── Datenschutz ───────────────────────────────────────────────────────
   p.push({
-    nummer: '§ 27',
+    nummer: '',
     titel: 'Datenschutz',
     absaetze: [
       {
@@ -815,9 +815,9 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     ],
   });
 
-  // ─── § 28 Schlussbestimmungen ──────────────────────────────────────────
+  // ─── Schlussbestimmungen ───────────────────────────────────────────────
   p.push({
-    nummer: '§ 28',
+    nummer: '',
     titel: 'Schlussbestimmungen',
     absaetze: [
       {
@@ -835,7 +835,9 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
     ],
   });
 
-  return p;
+  // Fortlaufend nummerieren — fällt ein Paragraph weg, entsteht keine Lücke. Verweise im Text
+  // (§ 1, § 4, §§ 14 bis 16) liegen vor jedem weggefallenen Paragraphen.
+  return p.map((x, i) => ({ ...x, nummer: `§ ${i + 1}` }));
 }
 
 // ─── Bausteine ───────────────────────────────────────────────────────────────
@@ -865,59 +867,28 @@ function betragSpalte(v: number | null): string {
  * gesprochen wurde und der Mieter sie nicht schuldet — verschwiegene
  * Positionen ließen später offen, ob sie nur vergessen wurden.
  */
-function betriebskostenTabelle(
-  d: MietvertragDaten,
-  vorauszahlung: number
-): TabellenZeile[] {
-  const zeilen: TabellenZeile[] = [
-    { links: 'Umlagefähige Betriebskosten', rechts: 'EUR monatlich', bold: true },
-  ];
-
-  for (const pos of d.betriebskostenPositionen) {
-    zeilen.push({
-      links: `${pos.nummer}  ${positionsText(pos)}`,
+function betriebskostenTabelle(d: MietvertragDaten, vorauszahlung: number): Kostentabelle {
+  return {
+    kopf: { bezeichnung: 'Vorauszahlung', verteilung: 'Verteilung', betrag: 'EUR monatlich' },
+    zeilen: d.betriebskostenPositionen.map(pos => ({
+      nummer: pos.nummer,
+      bezeichnung: positionsText(pos),
+      // Der Schlüssel steht nur bei umgelegten Positionen — die übrigen werden nicht verteilt
+      verteilung: pos.umgelegt ? verteilungKurz(pos.schluessel) : '',
       // Umgelegt ohne Einzelbetrag: ausdrücklich „umgelegt“ statt eines leeren Feldes
-      rechts: pos.umgelegt ? (pos.betrag === null ? 'umgelegt' : betragSpalte(pos.betrag)) : '– – –',
-    });
-  }
-
-  zeilen.push({
-    links:
-      d.betriebskostenModus === 'pauschale'
-        ? 'Betriebskostenpauschale'
-        : 'Summe der monatlichen Vorauszahlung',
-    rechts: betragSpalte(vorauszahlung),
-    bold: true,
-    linieOben: true,
-  });
-
-  return zeilen;
+      betrag: pos.umgelegt ? (pos.betrag === null ? 'umgelegt' : betragSpalte(pos.betrag)) : '– – –',
+    })),
+    summe: {
+      text: d.betriebskostenModus === 'pauschale' ? 'Betriebskostenpauschale' : 'Summe der monatlichen Vorauszahlung',
+      betrag: betragSpalte(vorauszahlung),
+    },
+  };
 }
 
-/**
- * Verteilerschlüssel gebündelt statt hinter jeder Zeile — so steht jeder
- * Schlüssel einmal da und die Kostenspalte bleibt lesbar. Reihenfolge der
- * Hausvorlage: Verbrauch, direkt zugeordnet, Fläche, nutzerbezogen.
- */
-function verteilerschluesselZeilen(d: MietvertragDaten): string[] {
-  const reihenfolge = ['verbrauch', 'einheit', 'gleich', 'qm', 'personen', 'nutzer', 'individuell'];
-  const gruppen = new Map<string, string[]>();
-
-  for (const pos of d.betriebskostenPositionen) {
-    if (!pos.umgelegt) continue;
-    const label = verteilerschluesselName(pos.schluessel);
-    const bisher = gruppen.get(label) ?? [];
-    bisher.push(pos.nummer);
-    gruppen.set(label, bisher);
-  }
-
-  const sortiert = [...gruppen.entries()].sort((a, b) => {
-    const ia = reihenfolge.findIndex(k => verteilerschluesselName(k) === a[0]);
-    const ib = reihenfolge.findIndex(k => verteilerschluesselName(k) === b[0]);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
-  });
-
-  return sortiert.map(([label, nummern]) => `${nummern.join(', ')} — Verteilung nach ${label}`);
+/** Kontoangabe wie vom Kunden vorgegeben: Inhaber, IBAN, BIC, Kreditinstitut. */
+function kontoText(inhaber: string, iban: string | null, bic: string | null): string {
+  const bank = kreditinstitut(iban);
+  return [inhaber, iban ? `IBAN ${formatIban(iban)}` : '', bic ? `BIC ${bic}` : '', bank ?? ''].filter(Boolean).join(', ');
 }
 
 function uebergabezustandText(d: MietvertragDaten): string {
@@ -937,10 +908,6 @@ function mietanpassungAbsaetze(d: MietvertragDaten): Absatz[] {
     for (const s of [...d.staffelplan].sort((x, y) => x.gueltigAb.localeCompare(y.gueltigAb))) {
       a.push({ text: `ab ${formatDatum(s.gueltigAb)}:  ${formatEur(s.kaltmiete)}`, linksbuendig: true });
     }
-    a.push({
-      nummer: '2.',
-      text: 'Betriebskostenvorauszahlungen können unabhängig hiervon nach § 560 Abs. 4 BGB angepasst werden.',
-    });
     return a;
   }
 
@@ -960,7 +927,7 @@ function mietanpassungAbsaetze(d: MietvertragDaten): Absatz[] {
       },
       {
         nummer: '4.',
-        text: 'Während der Geltung der Indexmiete sind Mieterhöhungen nach § 558 BGB ausgeschlossen. Erhöhungen nach §§ 559 bis 559c BGB sind nur zulässig, soweit der Vermieter die baulichen Maßnahmen aufgrund von Umständen durchgeführt hat, die er nicht zu vertreten hat (§ 557b Abs. 2 BGB). Betriebskostenvorauszahlungen können nach § 560 Abs. 4 BGB angepasst werden.',
+        text: 'Während der Geltung der Indexmiete sind Mieterhöhungen nach § 558 BGB ausgeschlossen. Erhöhungen nach §§ 559 bis 559c BGB sind nur zulässig, soweit der Vermieter die baulichen Maßnahmen aufgrund von Umständen durchgeführt hat, die er nicht zu vertreten hat (§ 557b Abs. 2 BGB).',
       },
     ];
   }
@@ -977,11 +944,6 @@ function mietanpassungAbsaetze(d: MietvertragDaten): Absatz[] {
     text: d.objekt.istAngespannt
       ? `Die Wohnung liegt in ${d.objekt.ort}, einem Gebiet mit angespanntem Wohnungsmarkt nach der Niedersächsischen Mieterschutzverordnung. Die Miete darf sich innerhalb von drei Jahren um höchstens 15 % erhöhen (§ 558 Abs. 3 S. 2 BGB).`
       : 'Die Miete darf sich innerhalb von drei Jahren um höchstens 20 % erhöhen (§ 558 Abs. 3 BGB).',
-  });
-
-  a.push({
-    nummer: '3.',
-    text: 'Betriebskostenvorauszahlungen können nach einer Abrechnung durch Erklärung in Textform auf eine angemessene Höhe angepasst werden (§ 560 Abs. 4 BGB).',
   });
 
   return a;
@@ -1001,39 +963,43 @@ function kautionAbsaetze(d: MietvertragDaten): Absatz[] {
           ? 'durch Übergabe eines auf den Namen des Mieters lautenden Sparbuchs'
           : 'als Barkaution';
 
+  // Die Absätze zu Teilzahlungen (§ 551 Abs. 2 BGB) und getrennter Anlage (§ 551 Abs. 3 BGB) sind am
+  // 04.11.2026 auf Kundenwunsch entfallen. Beides gilt kraft Gesetzes und kann nicht abbedungen werden.
   const a: Absatz[] = [
     {
       nummer: '1.',
       text: `Der Mieter leistet eine Mietsicherheit in Höhe von ${formatEur(d.kautionBetrag)} ${artText}. Die Sicherheit übersteigt nicht das Dreifache der Nettokaltmiete (§ 551 Abs. 1 BGB).`,
     },
-    {
-      nummer: '2.',
-      text: `Der Mieter kann die Sicherheit in ${d.kautionRaten} gleichen monatlichen Teilzahlungen leisten. Die erste Teilzahlung ist zu Beginn des Mietverhältnisses fällig, die weiteren mit den unmittelbar folgenden Mieten (§ 551 Abs. 2 BGB).`,
-    },
   ];
 
-  if (d.kautionArt === 'barkaution') {
+  if (d.kautionArt === 'barkaution' && d.vermieter.kautionIban) {
     a.push({
-      nummer: '3.',
-      text: d.vermieter.kautionIban
-        ? `Die Barkaution ist auf das Kautionskonto ${formatIban(d.vermieter.kautionIban)}${d.vermieter.kautionBic ? `, BIC ${d.vermieter.kautionBic}` : ''} zu zahlen. Der Vermieter legt sie getrennt von seinem Vermögen bei einem Kreditinstitut zu dem für Spareinlagen mit dreimonatiger Kündigungsfrist üblichen Zinssatz an (§ 551 Abs. 3 BGB). Die Zinsen stehen dem Mieter zu und erhöhen die Sicherheit. Die Kosten der Anlage trägt der Vermieter.`
-        : 'Der Vermieter legt die Barkaution getrennt von seinem Vermögen bei einem Kreditinstitut zu dem für Spareinlagen mit dreimonatiger Kündigungsfrist üblichen Zinssatz an (§ 551 Abs. 3 BGB). Die Zinsen stehen dem Mieter zu und erhöhen die Sicherheit. Die Kosten der Anlage trägt der Vermieter.',
+      nummer: '2.',
+      text: `Kautionskonto: ${kontoText(d.vermieter.firmenname, d.vermieter.kautionIban, d.vermieter.kautionBic)}.`,
     });
   }
 
   a.push({
-    nummer: d.kautionArt === 'barkaution' ? '4.' : '3.',
+    nummer: `${a.length + 1}.`,
     text: 'Der Vermieter darf die Sicherheit während des laufenden Mietverhältnisses nur wegen unbestrittener oder rechtskräftig festgestellter Forderungen verwerten. Nach Beendigung des Mietverhältnisses hat er über die Sicherheit abzurechnen; er darf einen angemessenen Teil zurückbehalten, solange eine Betriebskostenabrechnung noch aussteht.',
   });
 
   a.push({
-    nummer: d.kautionArt === 'barkaution' ? '5.' : '4.',
+    nummer: `${a.length + 1}.`,
     text: 'Gegen Mietforderungen kann der Mieter nur mit unbestrittenen oder rechtskräftig festgestellten Forderungen aufrechnen. Unberührt bleibt sein Recht, mit Forderungen aus §§ 536a, 539 BGB oder aus ungerechtfertigter Bereicherung wegen zu viel gezahlter Miete aufzurechnen oder ein Zurückbehaltungsrecht auszuüben, wenn er die Absicht mindestens einen Monat vor Fälligkeit in Textform angezeigt hat (§ 556b Abs. 2 BGB).',
   });
 
   return a;
 }
 
+/**
+ * § 14 im Wortlaut der Word-Vorlage, Ziffern 1 bis 3 (Kundenwunsch 04.11.2026).
+ * Die Absätze zur anteiligen Kostenbeteiligung bei vorzeitigem Auszug
+ * (Quotenabgeltung nach Kostenvoranschlag) sind bewusst nicht übernommen: Der
+ * BGH hält sie für unwirksam (VIII ZR 242/13) — Kundenentscheidung vom selben
+ * Tag. Bei unrenovierter Übergabe dürfen die Schönheitsreparaturen nicht
+ * übertragen werden (BGH VIII ZR 185/14); dann bleibt es beim Hinweis.
+ */
 function schoenheitsreparaturAbsaetze(d: MietvertragDaten): Absatz[] {
   if (!d.schoenheitsreparaturen) {
     return [
@@ -1049,98 +1015,17 @@ function schoenheitsreparaturAbsaetze(d: MietvertragDaten): Absatz[] {
   return [
     {
       nummer: '1.',
-      text: 'Der Mieter führt die Schönheitsreparaturen während der Mietzeit auf eigene Kosten durch. Schönheitsreparaturen sind ausschließlich das Tapezieren, Anstreichen oder Kalken der Wände und Decken, das Streichen der Fußböden, der Heizkörper einschließlich der Heizrohre, der Innentüren sowie der Fenster und der Außentüren von innen. Weitere Arbeiten schuldet der Mieter nicht, insbesondere nicht das Streichen von Außenflächen, Einbaumöbeln und Versorgungsleitungen sowie das Abschleifen oder Versiegeln von Parkett.',
+      text: 'Der Mieter führt auf eigene Kosten die Schönheitsreparaturen fachgerecht durch. Die Schönheitsreparaturen umfassen insbesondere Tapezieren, Anstreichen der Wände und Decken, das Streichen der Fußböden, Heizkörper sowie sämtlicher Versorgungsleitungen, Innenanstrich der Fenster, Türen sowie sämtlicher anderer Holzteile der Mieträume einschließlich der Einbaumöbel.',
     },
     {
       nummer: '2.',
-      text: 'Die Arbeiten sind fachgerecht in mittlerer Art und Güte auszuführen. Der Mieter darf sie selbst ausführen oder durch Dritte ausführen lassen; eine Bindung an einen bestimmten Betrieb wird nicht vereinbart.',
+      text: 'Während der Dauer des Mietverhältnisses hat der Mieter die Schönheitsreparaturen im Allgemeinen und nach Notwendigkeit in folgenden Zeitabständen durchzuführen:',
     },
+    { text: 'alle 5 Jahre: Küchen, Bäder, Duschen und Toiletten', linksbuendig: true },
+    { text: 'alle 7 Jahre: Wohn- und Schlafräume, Flure, Dielen und alle Nebenräume.', linksbuendig: true },
     {
       nummer: '3.',
-      text: 'Schönheitsreparaturen sind fällig, wenn sie nach dem tatsächlichen Erhaltungszustand erforderlich sind. Als Anhaltspunkt gelten in der Regel folgende Zeitabstände: fünf Jahre für Küchen, Bäder und Duschen, acht Jahre für Wohn- und Schlafräume, Flure und Dielen, zehn Jahre für sonstige Nebenräume. Diese Zeiträume sind unverbindlich; maßgeblich bleibt der tatsächliche Zustand.',
-    },
-    {
-      nummer: '4.',
-      text: 'Bei Beendigung des Mietverhältnisses schuldet der Mieter Schönheitsreparaturen nur, soweit sie nach dem tatsächlichen Erhaltungszustand erforderlich sind. Eine Verpflichtung zur Zahlung anteiliger Kosten für noch nicht fällige Schönheitsreparaturen besteht nicht. Veränderungen und Verschlechterungen durch den vertragsgemäßen Gebrauch hat der Mieter nicht zu vertreten (§ 538 BGB).',
-    },
-  ];
-}
-
-/**
- * § 24 der Hausvorlage: Heizung, Warmwasser, Fahrstuhl, Empfangsanlage.
- *
- * Die Abschnitte erscheinen nur, wenn die Einrichtung im Vertrag auch eine
- * Rolle spielt — der Fahrstuhl also, wenn Position 2.7 umgelegt wird, die
- * Empfangsanlage bei 2.15. Ist nichts davon vorhanden, sagt der Paragraph
- * genau das, statt zu verschwinden und eine Lücke in der Zählung zu lassen.
- */
-function besondereEinrichtungenAbsaetze(d: MietvertragDaten): Absatz[] {
-  const a: Absatz[] = [];
-  const umgelegt = (nummer: string) =>
-    d.betriebskostenPositionen.some(p => p.nummer === nummer && p.umgelegt);
-
-  if (d.objekt.heizungsart !== 'keine') {
-    a.push({ text: 'I. Heizung und Warmwasser', bold: true, linksbuendig: true });
-    a.push(...heizungAbsaetze(d));
-  }
-
-  if (umgelegt('2.7')) {
-    a.push({ text: 'II. Fahrstuhl', bold: true, linksbuendig: true });
-    a.push({
-      text: 'Der Mieter und seine Besucher dürfen den vorhandenen Fahrstuhl nach Maßgabe der Betriebsvorschriften und der Hausordnung benutzen. Die Betriebskosten trägt der Mieter nach dem in § 4 vereinbarten Schlüssel. Bei einer Störung, die der Vermieter nicht zu vertreten hat, bleiben die gesetzlichen Rechte des Mieters unberührt.',
-    });
-  }
-
-  if (umgelegt('2.15')) {
-    a.push({ text: `${umgelegt('2.7') ? 'III' : 'II'}. Rundfunk- und Fernsehempfang`, bold: true, linksbuendig: true });
-    a.push({
-      text: 'Der Mieter darf die bauseits vorhandene Gemeinschaftsempfangsanlage nutzen. Die Betriebskosten trägt er nach dem in § 4 vereinbarten Schlüssel. Die Errichtung einer Gemeinschaftsanlage hat der Mieter nach § 555d BGB zu dulden; Ersatz für eine selbst installierte Anlage kann er nicht verlangen. Entfällt die Nutzungsmöglichkeit aus einem Grund, den der Vermieter nicht zu vertreten hat, bleiben die gesetzlichen Rechte des Mieters unberührt.',
-    });
-  }
-
-  if (a.length === 0) {
-    a.push({
-      text: 'Besondere Einrichtungen im Sinne dieses Paragraphen — zentrale Heizungs- oder Warmwasseranlage, Fahrstuhl, Gemeinschaftsempfangsanlage — sind nicht Gegenstand dieses Mietverhältnisses.',
-    });
-  }
-
-  return a;
-}
-
-function heizungAbsaetze(d: MietvertragDaten): Absatz[] {
-  if (d.objekt.heizungsart === 'etage') {
-    return [
-      {
-        text: 'Die Wohnung wird über eine Etagenheizung beheizt, die der Mieter eigenverantwortlich auf eigene Kosten betreibt. Der Mieter trägt die Kosten der jährlichen Reinigung und Wartung als Betriebskosten; hierzu gehören die Prüfung von Betriebsbereitschaft und Betriebssicherheit, die damit verbundene Einstellung durch eine Fachkraft sowie die Messungen nach dem Bundes-Immissionsschutzgesetz. Die Instandhaltung und Instandsetzung der Anlage obliegt dem Vermieter.',
-      },
-    ];
-  }
-
-  const quelle = d.objekt.heizungsart === 'fernwaerme' ? 'Fernwärme' : 'eine zentrale Heizungsanlage';
-  const [verbrauch, flaeche] = d.objekt.heizkostenSchluessel.split('/');
-  const dezentral = d.objekt.warmwasser === 'dezentral';
-
-  return [
-    {
-      nummer: '1.',
-      text: `Die Wohnung wird über ${quelle} mit ${dezentral ? 'Wärme' : 'Wärme und Warmwasser'} versorgt. Der Vermieter hält die Anlage vom 1. Oktober bis 30. April in Betrieb und darüber hinaus, wenn die Witterung es erfordert. Er stellt sicher, dass tagsüber eine Raumtemperatur von mindestens 20 °C erreicht werden kann.${
-        // Wortlaut nach § 24 der Word-Hausvorlage (dezentrale Warmwasserversorgung)
-        dezentral
-          ? ' Das Warmwasser wird dezentral in der Wohnung bereitet. Der Mieter betreibt die Warmwassergeräte auf eigene Kosten; die Kosten ihrer Reinigung und Wartung trägt er als Betriebskosten nach § 4.'
-          : ''
-      }`,
-    },
-    {
-      nummer: '2.',
-      text: `Die Kosten werden ausschließlich nach den Bestimmungen der Heizkostenverordnung abgerechnet. Der verbrauchsabhängige Anteil beträgt ${verbrauch} %, der übrige Anteil von ${flaeche} % wird nach der Wohnfläche verteilt.`,
-    },
-    {
-      nummer: '3.',
-      text: 'Endet das Mietverhältnis während der Abrechnungsperiode, werden die Kosten nach den anerkannten Regeln der Technik auf die Nutzer verteilt. Die Kosten einer Zwischenablesung trägt der ausziehende Mieter.',
-    },
-    {
-      nummer: '4.',
-      text: 'Kommt es zu einer Unterbrechung der Versorgung, die der Vermieter nicht zu vertreten hat, bleiben die gesetzlichen Rechte des Mieters unberührt.',
+      text: 'Der Mieter ist auch bei Beendigung des Mietverhältnisses, gem. § 14 Nr. 2, verpflichtet, die allgemeinen Schönheitsreparaturen bei Notwendigkeit durchzuführen, wenn die Zeitabstände nach den vorstehenden Punkten 1) und 2) seit Übergabe der Mietsache bzw. seit den letzten durchgeführten Schönheitsreparaturen verstrichen sind und die Arbeiten eine Notwendigkeit darstellen.',
     },
   ];
 }

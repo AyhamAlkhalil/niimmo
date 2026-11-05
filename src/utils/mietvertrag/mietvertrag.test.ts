@@ -277,11 +277,14 @@ describe('Klauseltexte', () => {
     expect(text).not.toMatch(/keine Minderungsrechte/i);
   });
 
-  it('enthält keine Quotenabgeltungsklausel', () => {
+  it('übernimmt § 14 aus der Vorlage, aber ohne Quotenabgeltung (04.11.2026)', () => {
     const text = alleAbsaetze(basisVertrag());
-    expect(text).toMatch(/Verpflichtung zur Zahlung anteiliger Kosten für noch nicht fällige Schönheitsreparaturen besteht nicht/);
+    expect(text).toMatch(/Der Mieter führt auf eigene Kosten die Schönheitsreparaturen fachgerecht durch/);
+    expect(text).toMatch(/im Allgemeinen und nach Notwendigkeit/);
+    expect(text).toMatch(/alle 5 Jahre: Küchen, Bäder, Duschen und Toiletten/);
     expect(text).not.toMatch(/Kostenbeteiligungsquote/i);
     expect(text).not.toMatch(/Malerfachgeschäft/i);
+    expect(text).not.toMatch(/Kostenvoranschlag/i);
   });
 
   it('lässt § 14 bei unrenovierter Übergabe zum Vermieter zurückfallen', () => {
@@ -357,12 +360,8 @@ describe('Klauseltexte', () => {
       /Eine Umlage von Heiz- und Warmwasserkosten findet nicht statt/
     );
 
-    // … und § 24 beschreibt die Anlage als vom Mieter betrieben,
-    // ohne einen Verteilerschlüssel nach HeizkostenV zu nennen.
-    const p24 = wohnraumParagraphen(d).find(p => p.nummer === '§ 24');
-    const text24 = p24!.absaetze.map(a => a.text).join(' ');
-    expect(text24).toMatch(/eigenverantwortlich auf eigene Kosten betreibt/);
-    expect(text24).not.toMatch(/Heizkostenverordnung abgerechnet/);
+    // § 24 „besondere Einrichtungen“ ist seit 04.11.2026 entfallen — nirgends ein Schlüssel nach HeizkostenV
+    expect(alleAbsaetze(d)).not.toMatch(/Heizkostenverordnung abgerechnet/);
   });
 
   it('beschreibt dezentrales Warmwasser als Sache des Mieters', () => {
@@ -372,9 +371,13 @@ describe('Klauseltexte', () => {
     const text4 = wohnraumParagraphen(d).find(p => p.nummer === '§ 4')!.absaetze.map(a => a.text).join(' ');
     expect(text4).toMatch(/Versorgung mit Wärme leistet der Mieter/);
     expect(text4).not.toMatch(/Wärme und Warmwasser/);
+  });
 
-    const text24 = wohnraumParagraphen(d).find(p => p.nummer === '§ 24')!.absaetze.map(a => a.text).join(' ');
-    expect(text24).toMatch(/Warmwasser wird dezentral in der Wohnung bereitet/);
+  it('druckt keine besonderen Einrichtungen mehr und nummeriert lückenlos (04.11.2026)', () => {
+    const p = wohnraumParagraphen(basisVertrag());
+    expect(p.map(x => x.titel)).not.toContain('Vereinbarungen über besondere Einrichtungen');
+    expect(p.map(x => x.nummer)).toEqual(p.map((_, i) => `§ ${i + 1}`));
+    expect(p.find(x => x.nummer === '§ 24')?.titel).toBe('Zustand der Mieträume bei Übergabe');
   });
 
   it('nennt die Gesamtwohnfläche nur, wenn sie am Objekt gepflegt ist', () => {
@@ -447,3 +450,58 @@ function alleAbsaetze(d: MietvertragDaten): string {
     .flatMap(p => p.absaetze.map(a => a.text))
     .join('\n');
 }
+
+describe('Kundenvorgaben zum Vertragstext (04.11.2026)', () => {
+  const kostenText = (d: MietvertragDaten) =>
+    JSON.stringify(wohnraumParagraphen(d).flatMap(p => p.absaetze).find(a => a.kosten)?.kosten);
+
+  it('nennt die längeren Kündigungsfristen des Vermieters nicht mehr', () => {
+    expect(alleAbsaetze(basisVertrag())).not.toMatch(/nach fünf Jahren seit Überlassung/);
+    expect(alleAbsaetze(basisVertrag())).toMatch(/Für den Mieter beträgt die Kündigungsfrist drei Monate\./);
+  });
+
+  it('führt in § 4 keine Sammelzeilen der Verteilerschlüssel mehr', () => {
+    const text = alleAbsaetze(basisVertrag());
+    expect(text).not.toMatch(/— Verteilung nach/);
+    expect(kostenText(basisVertrag())).toContain('Verteilung');
+  });
+
+  it('druckt in § 5 nur die gewählte Klausel, ohne Betriebskostensatz', () => {
+    const index = wohnraumParagraphen(basisVertrag({ mietanpassungArt: 'index', indexBasisWert: 121.7, indexBasisMonat: '2026-09-01' }))
+      .find(p => p.titel === 'Änderung der Miete')!;
+    const text = index.absaetze.map(a => a.text).join(' ');
+    expect(text).toMatch(/Indexmiete im Sinne des § 557b BGB/);
+    expect(text).not.toMatch(/§ 560/);
+    expect(text).not.toMatch(/ortsüblichen Vergleichsmiete nach §§ 558/);
+
+    const ortsueblich = wohnraumParagraphen(basisVertrag({ mietanpassungArt: 'keine' })).find(p => p.titel === 'Änderung der Miete')!;
+    const text2 = ortsueblich.absaetze.map(a => a.text).join(' ');
+    expect(text2).toMatch(/ortsüblichen Vergleichsmiete/);
+    expect(text2).not.toMatch(/§ 560/);
+  });
+
+  it('nennt bei der Kaution das Konto mit Kreditinstitut statt Teilzahlung und Anlage', () => {
+    const d = basisVertrag({ kautionArt: 'barkaution', kautionBetrag: 1500 });
+    d.vermieter = { ...d.vermieter, kautionIban: 'DE08255914133155410504', kautionBic: 'GENODEF1BCK' };
+    const p7 = wohnraumParagraphen(d).find(p => p.titel === 'Mietkaution')!;
+    const text = p7.absaetze.map(a => a.text).join('\n');
+    expect(text).toContain(
+      'Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG.'
+    );
+    expect(text).not.toMatch(/Teilzahlung/);
+    expect(text).not.toMatch(/getrennt von seinem Vermögen/);
+    expect(p7.absaetze.map(a => a.nummer)).toEqual(['1.', '2.', '3.', '4.']);
+  });
+
+  it('nennt die Zahlung an das Mietkonto aus den Stammdaten mit Kreditinstitut', () => {
+    const text = alleAbsaetze(basisVertrag());
+    expect(text).toMatch(/Die Zahlung erfolgt an: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE76 2559 1413 3155 4105 41, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG\./);
+  });
+
+  it('rechnet in § 15 keinen Betrag mehr aus', () => {
+    const p15 = wohnraumParagraphen(basisVertrag()).find(p => p.titel === 'Kleinreparaturen')!;
+    const text = p15.absaetze.map(a => a.text).join(' ');
+    expect(text).toMatch(/% der Jahresnettokaltmiete nach § 4 Ziff\. 1 begrenzt\./);
+    expect(text).not.toMatch(/derzeit|€ begrenzt/);
+  });
+});

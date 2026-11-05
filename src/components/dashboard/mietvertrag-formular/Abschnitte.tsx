@@ -514,7 +514,7 @@ export function BetriebskostenEditor({
         Nur angehakte Positionen werden umgelegt. Nicht benannte Kosten sind nach § 556 Abs. 1 BGB nicht umlagefähig.
         Die Einzelbeträge müssen die vereinbarte Vorauszahlung ergeben.{' '}
         {schluesselFest
-          ? 'Der Verteilerschlüssel steht fest am Objekt und wird hier nur zur Kontrolle gezeigt — ändern lässt er sich in der Betriebskostenabrechnung des Objekts.'
+          ? 'Der Verteilerschlüssel steht je Kostenart fest am Objekt und wird hier zur Kontrolle gezeigt; der Vertrag nennt ihn in der Tabelle des § 4.'
           : 'Der Verteilerschlüssel ist aus der Betriebskostenabrechnung des Objekts übernommen.'}
       </p>
       <div className="space-y-1 rounded border p-2">
@@ -772,7 +772,7 @@ export function MietanpassungFelder({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="keine">gesetzlich (§ 558 BGB)</SelectItem>
+            <SelectItem value="keine">ortsübliche Vergleichsmiete (§ 558 BGB)</SelectItem>
             <SelectItem value="staffel">Staffelmiete</SelectItem>
             <SelectItem value="index">Indexmiete</SelectItem>
           </SelectContent>

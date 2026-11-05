@@ -192,6 +192,12 @@ export function verteilerschluesselName(s: string): string {
   return VERTEILERSCHLUESSEL.find(v => v.key === s)?.name ?? ALTE_SCHLUESSEL.get(s) ?? s;
 }
 
+/** Kurzform für die Spalte „Verteilung“ der Kostentabelle in § 4 (seit 04.11.2026). */
+export function verteilungKurz(s: string): string {
+  if (s === 'gleich' || s === 'einheit') return 'je Einheit';
+  return verteilerschluesselName(s);
+}
+
 export interface SchluesselAngabe {
   art: string;
   anzahl: number;

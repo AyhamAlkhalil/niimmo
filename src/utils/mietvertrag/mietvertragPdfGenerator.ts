@@ -1,351 +1,302 @@
 /**
- * Erzeugt den Mietvertrag als PDF.
+ * Erzeugt den Mietvertrag als PDF im Seitenbild der Word-Vorlage
+ * „20250601 MV.docx“ (seit 04.11.2026, Kundenwunsch „genau so nachbilden,
+ * Logo fehlt“): Logo rechts oben auf jeder Seite, Titel zentriert, Rubrum mit
+ * Tabstopp und den Feldbeschriftungen unter den Werten, Paragraphen mit
+ * hängenden Ziffern im Blocksatz, Unterschriftszeilen in zwei Spalten.
+ * Maße und Schrift in `vertragsLayout`.
  *
- * Die Optik folgt bewusst der Word-Hausvorlage und nicht der NiImmo-Briefvorlage:
- * schlichter Titel, Rubrum in Tabulatorform mit den Feldbeschriftungen unter den
- * Werten, „als Vermieter" bzw. „als Mieter" rechtsbündig. Kein Logo, keine
- * Farbflächen — ein Nachmieter soll dasselbe Dokument in der Hand halten wie
- * sein Vormieter.
- *
- * Seitenmechanik aus `briefLayout`. Die Länge ist nicht vorhersagbar, deshalb
- * paginiert jeder Absatz selbst und die Seitenzahlen entstehen erst am Ende.
+ * Die Länge ist nicht vorhersagbar, deshalb paginiert jeder Absatz selbst und
+ * die Seitenzahlen entstehen erst am Ende.
  */
 import jsPDF from 'jspdf';
-import { DARK, GRAY, PAGE_WIDTH, createLayout, formatDatum } from '../pdf/briefLayout';
+import { formatDatum } from '../pdf/briefLayout';
+import { ladeBild } from '../pdf/briefbogen';
 import { anlagenFuerVertrag, type Anlage } from './anlagen';
 import { wohnraumParagraphen, type Absatz, type Paragraph } from './wohnraumKlauseln';
 import type { MieterDaten, MietvertragDaten } from './typen';
-import { vermieterVertretung } from './vertretung';
+import { vermieterVertretung, vertreterTeile } from './vertretung';
+import {
+  ABSTAND,
+  GROESSE,
+  RAND,
+  RUBRUM_EINZUG,
+  SEITE_BREITE,
+  TEXTBREITE,
+  ZEILE,
+  ladeVertragsschrift,
+  vertragsLayout,
+  type Vertragsschrift,
+  type VertragsLayout,
+} from './vertragsLayout';
 
-const ML = 20;
-const MR = 20;
-/** Spalte, in der die Werte des Rubrums beginnen — entspricht dem Tabstopp in Word. */
-const RUBRUM_X = ML + 28;
+const RUBRUM_X = RAND + RUBRUM_EINZUG;
+const RECHTS = RAND + TEXTBREITE;
 
-export async function generateMietvertragPdf(d: MietvertragDaten): Promise<Blob> {
+export interface PdfMittel {
+  /** Carlito als Base64; ohne Angabe wird sie geladen, null erzwingt Helvetica */
+  schrift?: Vertragsschrift | null;
+  /** Logo als Data-URL; ohne Angabe wird es geladen */
+  logo?: string | null;
+}
+
+export async function generateMietvertragPdf(d: MietvertragDaten, mittel: PdfMittel = {}): Promise<Blob> {
+  const [schrift, logo] = await Promise.all([
+    mittel.schrift !== undefined ? mittel.schrift : ladeVertragsschrift(),
+    mittel.logo !== undefined ? mittel.logo : ladeBild('/brief/niimmo-logo.png'),
+  ]);
+
   const doc = new jsPDF('p', 'mm', 'a4');
+  const layout = vertragsLayout(doc, { schrift, logo });
 
-  const bezug = `Mietvertrag · ${d.objekt.strasse} ${d.objekt.hausnummer}, ${d.objekt.plz} ${d.objekt.ort} · ${d.einheit.bezeichnung}`;
-
-  const layout = createLayout(doc, {
-    marginLeft: ML,
-    marginRight: MR,
-    maxY: 262,
-    folgeseiteStartY: 28,
-    folgeseitenKopf: bezug,
-    zeilenhoehe: 4.6,
-  });
-
-  let y = titelseite(doc, d);
+  let y = titelseite(doc, layout, d);
 
   for (const p of wohnraumParagraphen(d)) {
     y = paragraphRendern(layout, p, y);
   }
 
-  y = unterschriftsblock(doc, layout, d, y);
+  unterschriftsblock(doc, layout, d, y);
 
   for (const anlage of anlagenFuerVertrag(d)) {
-    doc.addPage();
-    y = anlageRendern(doc, layout, anlage, d);
+    anlageRendern(doc, layout, anlage);
   }
 
-  layout.seitenzahlenSetzen();
+  layout.seitenzahlen();
   return doc.output('blob');
 }
 
 // ─── Titelseite ──────────────────────────────────────────────────────────────
 
-function titelseite(doc: jsPDF, d: MietvertragDaten): number {
-  // Der Titel steht in der Word-Vorlage eingerückt, nicht zentriert.
-  let y = 28;
-  doc.setFontSize(15);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...DARK);
-  doc.text('Mietvertrag', RUBRUM_X + 22, y);
+function titelseite(doc: jsPDF, layout: VertragsLayout, d: MietvertragDaten): number {
+  let y = 44;
+  layout.schrift(18, true);
+  doc.text('Mietvertrag', SEITE_BREITE / 2, y, { align: 'center' });
   y += 14;
 
-  // ── Vermieterseite
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text('zwischen', ML, y);
-
+  // ── Vermieterseite, wie in der Vorlage „Firma“ und Firmenname fett
+  layout.schrift();
+  doc.text('zwischen', RAND, y);
   const v = d.vermieter;
   if (v.rechtsform) {
+    layout.schrift(GROESSE, true);
     doc.text('Firma', RUBRUM_X, y);
-    y += 5;
+    y += ZEILE;
   }
-  doc.setFont('helvetica', 'bold');
+  layout.schrift(GROESSE, true);
   doc.text(v.firmenname, RUBRUM_X, y);
-  doc.setFont('helvetica', 'normal');
-  y += 5;
+  layout.schrift();
+  y += ZEILE;
 
   const vertretung = vermieterVertretung(d);
   if (vertretung.namen.length > 0) {
     const wort = vertretung.gemeinsam ? 'gemeinsam vertreten durch' : 'vertreten durch';
-    doc.text(`${wort} ${vertretung.namen.join(' und ')}`, RUBRUM_X, y);
-    y += 5;
+    const namen = vertretung.namen.map(n => vertreterTeile(n).name).join(' und ');
+    y = mehrzeilig(doc, `${wort} ${namen}`, y);
   }
-  doc.text(`${v.strasse} ${v.hausnummer}`, RUBRUM_X, y);
-  y += 5;
-  doc.text(`${v.plz} ${v.ort}`, RUBRUM_X, y);
-  y += 8;
+  doc.text(`${v.strasse} ${v.hausnummer}`.trim(), RUBRUM_X, y);
+  y += ZEILE;
+  doc.text(`${v.plz} ${v.ort}`.trim(), RUBRUM_X, y);
+  y += ZEILE + 3;
 
-  doc.text('als Vermieter', PAGE_WIDTH - MR, y, { align: 'right' });
-  y += 10;
+  doc.text('als Vermieter', RECHTS, y, { align: 'right' });
+  y += ZEILE + 6;
 
   // ── Mieterseite
-  doc.text('und', ML, y);
+  doc.text('und', RAND, y);
   d.mieter.forEach((m, i) => {
     if (i > 0) y += 4;
-    y = mieterZeilen(doc, m, y);
+    y = mieterZeilen(doc, layout, m, y);
   });
 
-  y += 3;
-  doc.text('als Mieter', PAGE_WIDTH - MR, y, { align: 'right' });
-  y += 12;
+  y += 2;
+  layout.schrift();
+  doc.text('als Mieter', RECHTS, y, { align: 'right' });
+  y += ZEILE + 6;
 
-  doc.text('wird folgender Mietvertrag vereinbart:', ML, y);
-
-  return y + 10;
+  doc.text('wird folgender Mietvertrag vereinbart:', RAND, y);
+  return y + ZEILE + 2;
 }
 
-/** Beschriftung unter dem Wert, wie in der Word-Vorlage („Vor- und Zuname"). */
-function feldbeschriftung(doc: jsPDF, text: string, y: number): number {
-  doc.setFontSize(8);
-  doc.setTextColor(...GRAY);
-  doc.text(text, RUBRUM_X, y);
-  doc.setFontSize(10);
-  doc.setTextColor(...DARK);
-  return y + 6;
+/** Rubrumszeile, die bei langen Namen auf der Tabstoppspalte weiterläuft. */
+function mehrzeilig(doc: jsPDF, text: string, y: number): number {
+  const zeilen = doc.splitTextToSize(text, RECHTS - RUBRUM_X) as string[];
+  zeilen.forEach(z => {
+    doc.text(z, RUBRUM_X, y);
+    y += ZEILE;
+  });
+  return y;
 }
 
-function mieterZeilen(doc: jsPDF, m: MieterDaten, y: number): number {
-  doc.setFontSize(10);
-  doc.setTextColor(...DARK);
+/** Wert und darunter die kleine Beschriftung, wie in der Vorlage („Vor- und Zuname“). */
+function wertMitBeschriftung(doc: jsPDF, layout: VertragsLayout, wert: string, beschriftung: string, y: number): number {
+  layout.schrift();
+  y = mehrzeilig(doc, wert, y);
+  layout.schrift(8);
+  doc.text(beschriftung, RUBRUM_X, y - 0.9);
+  layout.schrift();
+  return y + 3.6;
+}
 
+function mieterZeilen(doc: jsPDF, layout: VertragsLayout, m: MieterDaten, y: number): number {
   if (m.istUnternehmen) {
-    doc.setFont('helvetica', 'normal');
+    layout.schrift(GROESSE, true);
     doc.text('Firma', RUBRUM_X, y);
-    y += 5;
-    doc.setFont('helvetica', 'bold');
-    doc.text(m.firmenname ?? '', RUBRUM_X, y);
-    doc.setFont('helvetica', 'normal');
-    y += 5;
-    if (m.vertretenDurch) {
-      doc.text(`vertreten durch ${m.vertretenDurch}`, RUBRUM_X, y);
-      y += 5;
-    }
+    y += ZEILE;
+    y = mehrzeilig(doc, m.firmenname ?? '', y);
+    layout.schrift();
+    if (m.vertretenDurch) y = mehrzeilig(doc, `vertreten durch ${m.vertretenDurch}`, y);
+    y += 1.5;
   } else {
-    doc.setFont('helvetica', 'normal');
-    if (m.anrede && m.anrede !== 'Divers') {
-      doc.text(m.anrede, RUBRUM_X, y);
-      y += 5;
-    }
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${m.vorname} ${m.nachname}`.trim(), RUBRUM_X, y);
-    doc.setFont('helvetica', 'normal');
-    y += 4;
-    y = feldbeschriftung(doc, 'Vor- und Zuname', y);
-
-    if (m.geburtsdatum) {
-      doc.text(formatDatum(m.geburtsdatum), RUBRUM_X, y);
-      y += 4;
-      y = feldbeschriftung(doc, 'Geburtsdatum', y);
-    }
+    y = wertMitBeschriftung(doc, layout, `${m.vorname} ${m.nachname}`.trim(), 'Vor- und Zuname', y);
+    if (m.geburtsdatum) y = wertMitBeschriftung(doc, layout, formatDatum(m.geburtsdatum), 'Geburtsdatum', y);
   }
 
   if (m.strasse) {
-    const anschrift = `${m.strasse} ${m.hausnummer ?? ''}`.trim() +
-      `, ${`${m.plz ?? ''} ${m.ort ?? ''}`.trim()}`;
-    doc.text(anschrift, RUBRUM_X, y);
-    y += 4;
-    y = feldbeschriftung(doc, 'Zur Zeit wohnhaft in', y);
+    const anschrift = `${`${m.strasse} ${m.hausnummer ?? ''}`.trim()}, ${`${m.plz ?? ''} ${m.ort ?? ''}`.trim()}`;
+    y = wertMitBeschriftung(doc, layout, anschrift, 'Zur Zeit wohnhaft in', y);
   }
-
   return y;
 }
 
 // ─── Paragraphen ─────────────────────────────────────────────────────────────
 
-function paragraphRendern(
-  layout: ReturnType<typeof createLayout>,
-  p: Paragraph,
-  y: number
-): number {
+function paragraphRendern(layout: VertragsLayout, p: Paragraph, y: number): number {
   y = layout.ueberschrift(`${p.nummer} ${p.titel}`, y);
+  // Was nach einer Ziffer ohne eigene Ziffer folgt, gehört zu ihr und steht auf dem Tabstopp
+  let nachZiffer = false;
   for (const a of p.absaetze) {
-    y = absatzRendern(layout, a, y);
+    y = absatzRendern(layout, a, y, nachZiffer);
+    if (a.nummer) nachZiffer = true;
   }
-  return y + 2;
+  return y;
 }
 
-function absatzRendern(
-  layout: ReturnType<typeof createLayout>,
-  a: Absatz,
-  y: number
-): number {
-  if (a.tabelle) {
-    // Beträge stehen in einer eigenen Spalte, nicht im Fließtext.
-    return layout.betragstabelle(a.tabelle, y + 1) + 3;
-  }
-
-  if (!a.text.trim()) return y + 3;
-
-  const text = a.nummer ? `${a.nummer}  ${a.text}` : a.text;
-
-  y = a.linksbuendig ? layout.absatz(text, y) : layout.blocksatz(text, y);
-
-  return y + 2;
+function absatzRendern(layout: VertragsLayout, a: Absatz, y: number, nachZiffer: boolean): number {
+  if (a.kosten) return layout.kostentabelle(a.kosten, y + 1) + ABSTAND;
+  if (a.tabelle) return layout.summentabelle(a.tabelle, y + 1) + ABSTAND;
+  if (!a.text.trim()) return y + ABSTAND;
+  return (
+    layout.absatz(a.text, y, {
+      nummer: a.nummer,
+      einzug: !a.nummer && nachZiffer,
+      fett: a.bold,
+      linksbuendig: a.linksbuendig,
+    }) + ABSTAND
+  );
 }
 
 // ─── Unterschriften ──────────────────────────────────────────────────────────
 
-function unterschriftsblock(
-  doc: jsPDF,
-  layout: ReturnType<typeof createLayout>,
-  d: MietvertragDaten,
-  y: number
-): number {
-  // Aufbau der Word-Vorlage: je Partei eine Ort/Datum-Linie, darunter die
-  // Unterschriftslinie. Bei Gesamtvertretung braucht die Vermieterseite so
-  // viele Linien, wie Geschaeftsfuehrer gemeinsam zeichnen muessen; bei
-  // Einzelvertretung eine mit dem gewaehlten Unterzeichner (03.11.2026).
+/**
+ * Zwei Spalten wie in der Vorlage: Ort/Datum-Linie, darunter die
+ * Unterschriftslinie mit „Vermieter“ bzw. „Mieter“. Unter „Vermieter“ stehen
+ * Name und Titel des Unterzeichners (Kundenwunsch 04.11.2026), bei
+ * Gesamtvertretung jeder auf seiner eigenen Linie.
+ */
+function unterschriftsblock(doc: jsPDF, layout: VertragsLayout, d: MietvertragDaten, y: number): number {
   const vertretung = vermieterVertretung(d);
-  const vermieterLinien = vertretung.linien;
-  const zeilen = Math.max(vermieterLinien, d.mieter.length);
+  const vermieter = vertretung.namen.length > 0 ? vertretung.namen.map(vertreterTeile) : [{ name: d.vermieter.firmenname, titel: null }];
+  const linien = Math.max(vertretung.linien, d.mieter.length);
 
-  y = layout.umbruchPruefen(y + 10, 26 + zeilen * 22);
+  const links = RAND + 6;
+  const spalte2 = RAND + 88;
+  const breite = 66;
 
-  const spalte2 = PAGE_WIDTH / 2 + 5;
-  const breite = 68;
+  y = layout.umbruch(y + 14, 26 + linien * 24);
 
-  doc.setFontSize(9.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...DARK);
-
-  const ortDatum =
-    d.unterschriftOrt && d.vertragsdatum
-      ? `${d.unterschriftOrt}, den ${formatDatum(d.vertragsdatum)}`
-      : '';
-
-  // Ort/Datum fuer beide Seiten
-  for (const x of [ML, spalte2]) {
+  const ortDatum = d.unterschriftOrt && d.vertragsdatum ? `${d.unterschriftOrt}, den ${formatDatum(d.vertragsdatum)}` : '';
+  for (const x of [links, spalte2]) {
+    layout.schrift();
     if (ortDatum) doc.text(ortDatum, x, y - 1.5);
-    linie(doc, x, y, breite);
-    beschriftung(doc, '(Ort, Datum)', x, y + 4);
+    layout.linie(x, y, breite);
+    doc.text('(Ort, Datum)', x, y + ZEILE);
   }
-  y += 20;
+  y += 22;
 
-  for (let i = 0; i < zeilen; i++) {
-    y = layout.umbruchPruefen(y, 22);
-
-    if (i < vermieterLinien) {
-      linie(doc, ML, y, breite);
-      beschriftung(
-        doc,
-        i === 0 ? 'Vermieter' : '',
-        ML,
-        y + 4,
-        vertretung.namen[i] ?? d.vermieter.firmenname
-      );
+  for (let i = 0; i < linien; i++) {
+    y = layout.umbruch(y, 24);
+    if (i < vertretung.linien) {
+      const person = vermieter[i] ?? vermieter[0];
+      layout.linie(links, y, breite);
+      beschriftung(doc, layout, i === 0 ? 'Vermieter' : '', links, y, person.name, person.titel);
     }
     if (i < d.mieter.length) {
       const m = d.mieter[i];
       const name = m.istUnternehmen ? (m.firmenname ?? '') : `${m.vorname} ${m.nachname}`.trim();
-      linie(doc, spalte2, y, breite);
-      beschriftung(doc, i === 0 ? 'Mieter' : '', spalte2, y + 4, name);
+      layout.linie(spalte2, y, breite);
+      beschriftung(doc, layout, i === 0 ? 'Mieter' : '', spalte2, y, name, null);
     }
-    y += 22;
+    y += 24;
   }
-
   return y;
 }
 
-function linie(doc: jsPDF, x: number, y: number, breite: number): void {
-  doc.setDrawColor(60, 60, 60);
-  doc.setLineWidth(0.3);
-  doc.line(x, y, x + breite, y);
-}
-
-/** Rollenbezeichnung unter der Linie, darunter optional der Name. */
+/** Rolle unter der Linie, darunter Name und — falls hinterlegt — der Titel. */
 function beschriftung(
   doc: jsPDF,
+  layout: VertragsLayout,
   rolle: string,
   x: number,
   y: number,
-  name?: string
+  name: string,
+  titel: string | null
 ): void {
+  let zeile = y + ZEILE;
   if (rolle) {
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...DARK);
-    doc.text(rolle, x, y);
+    layout.schrift();
+    doc.text(rolle, x, zeile);
+    zeile += ZEILE;
   }
   if (name) {
-    doc.setFontSize(7.5);
-    doc.setTextColor(...GRAY);
-    doc.text(name, x, y + (rolle ? 4 : 0));
-    doc.setTextColor(...DARK);
+    layout.schrift(9);
+    doc.text(name, x, zeile);
+    zeile += 3.8;
+  }
+  if (titel) {
+    layout.schrift(9);
+    doc.text(titel, x, zeile);
   }
 }
 
 // ─── Anlagen ─────────────────────────────────────────────────────────────────
 
-function anlageRendern(
-  doc: jsPDF,
-  layout: ReturnType<typeof createLayout>,
-  anlage: Anlage,
-  d: MietvertragDaten
-): number {
-  let y = 28;
+/** Wie „Allgemeine Hausordnung“ in der Vorlage: Titel fett und zentriert, Zwischenüberschriften fett. */
+function anlageRendern(doc: jsPDF, layout: VertragsLayout, anlage: Anlage): void {
+  let y = layout.neueSeite() + 4;
 
-  doc.setFontSize(13);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(...DARK);
-  doc.text(anlage.titel, ML, y);
-  y += 5;
+  layout.schrift(11, true);
+  doc.text(anlage.titel, SEITE_BREITE / 2, y, { align: 'center' });
+  y += 4.5;
+  layout.schrift(8.5, false, true);
+  doc.text(`${anlage.kennung} zum Mietvertrag`, SEITE_BREITE / 2, y, { align: 'center' });
+  y += 8;
 
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...GRAY);
-  doc.text(`${anlage.kennung} zum Mietvertrag`, ML, y);
-  doc.setTextColor(...DARK);
-  y += 9;
-
-  if (anlage.vorspann) {
-    y = layout.blocksatz(anlage.vorspann, y, { fontSize: 9 });
-    y += 3;
-  }
+  if (anlage.vorspann) y = layout.absatz(anlage.vorspann, y) + ABSTAND;
 
   for (const abschnitt of anlage.abschnitte) {
     if (abschnitt.titel) {
-      y = layout.ueberschrift(
-        abschnitt.nummer ? `${abschnitt.nummer} ${abschnitt.titel}` : abschnitt.titel,
-        y
-      );
+      y = layout.umbruch(y + 1, 3 * ZEILE);
+      layout.schrift(GROESSE, true);
+      doc.text(abschnitt.nummer ? `${abschnitt.nummer} ${abschnitt.titel}` : abschnitt.titel, RAND, y);
+      y += ZEILE + 0.6;
     }
+    let nachZiffer = false;
     for (const a of abschnitt.absaetze) {
-      y = absatzRendern(layout, a, y);
+      y = absatzRendern(layout, a, y, nachZiffer);
+      if (a.nummer) nachZiffer = true;
     }
-    y += 1;
   }
 
   if (anlage.unterschrift) {
-    // Dreispaltig wie in der Word-Vorlage: Datum, Vermieter, Mieter
-    y = layout.umbruchPruefen(y + 12, 26);
-    const spalten = [ML, ML + 58, ML + 116];
-    const breiten = [50, 50, 50];
+    // Dreispaltig wie in der Vorlage: Datum, Vermieter, Mieter
+    y = layout.umbruch(y + 14, 14);
+    const spalten = [RAND, RAND + 46, RAND + 104];
+    const breiten = [40, 52, 52];
     const rollen = ['(Datum)', '(Vermieter)', '(Mieter)'];
-
     spalten.forEach((x, i) => {
-      linie(doc, x, y, breiten[i]);
-      doc.setFontSize(8.5);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...DARK);
-      doc.text(rollen[i], x, y + 4);
+      layout.linie(x, y, breiten[i]);
+      layout.schrift();
+      doc.text(rollen[i], x, y + ZEILE);
     });
-    y += 14;
   }
-
-  return y;
 }

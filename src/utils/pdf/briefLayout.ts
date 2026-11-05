@@ -105,6 +105,22 @@ export function formatIban(iban: string | null | undefined): string {
 }
 
 /**
+ * Kreditinstitut zur Bankleitzahl einer deutschen IBAN (Stellen 5–12), nach dem
+ * Bankleitzahlenverzeichnis der Bundesbank. Geführt sind nur die Banken der
+ * NiImmo-Konten; bei anderen bleibt der Name weg (Kundenvorgabe 04.11.2026:
+ * „Kautionskonto: … GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG“).
+ */
+const KREDITINSTITUTE: Record<string, string> = {
+  '25591413': 'Volksbank in Schaumburg und Nienburg eG',
+};
+
+export function kreditinstitut(iban: string | null | undefined): string | null {
+  const clean = (iban ?? '').replace(/\s+/g, '').toUpperCase();
+  if (!/^DE\d{20}$/.test(clean)) return null;
+  return KREDITINSTITUTE[clean.slice(4, 12)] ?? null;
+}
+
+/**
  * IBAN-Prüfziffer nach ISO 7064 (MOD 97-10).
  *
  * Die Word-Vorlage nennt als Mietkonto `DE89 2559 1413 3155 4105 00` — diese

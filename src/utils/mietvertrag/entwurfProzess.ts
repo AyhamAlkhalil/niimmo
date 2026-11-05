@@ -438,7 +438,7 @@ export function platzhalterUebersicht(
         ? `Staffelmiete (${d.staffelplan?.length ?? 0} Stufen)`
         : d.mietanpassungArt === 'index'
           ? `Indexmiete${d.indexBasisWert ? `, Basis ${d.indexBasisWert.toLocaleString('de-DE')}${formatMonat(d.indexBasisMonat) ? ` (${formatMonat(d.indexBasisMonat)})` : ''}` : ''}`
-          : 'gesetzlich (§ 558 BGB)',
+          : 'ortsübliche Vergleichsmiete (§ 558 BGB)',
       'miete',
       { pruef: ['mietanpassungArt', 'staffelplan', 'indexBasisWert', 'indexBasisMonat'] }
     )

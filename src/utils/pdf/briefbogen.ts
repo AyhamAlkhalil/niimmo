@@ -44,7 +44,8 @@ export interface Briefbilder {
 
 const bildCache = new Map<string, string>();
 
-async function ladeBild(pfad: string): Promise<string | null> {
+/** Bild aus public/ als Data-URL; null, wenn es fehlt oder kein PNG/JPEG ist (in Node immer). */
+export async function ladeBild(pfad: string): Promise<string | null> {
   const vorhanden = bildCache.get(pfad);
   if (vorhanden) return vorhanden;
   try {

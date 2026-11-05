@@ -220,8 +220,8 @@ describe('Hausvorlage 01.06.2025', () => {
     const t = await textDesVertrags(REFERENZ);
     expect(t).toContain('\u20ac');
     expect(t).toContain('\u00a7');
-    // Gedankenstrich der Verteilerschl\u00fcssel-Zeilen
-    expect(t).toContain('\u2014 Verteilung nach');
+    // Gedankenstrich der nicht umgelegten Positionen
+    expect(t).toContain('\u2013 \u2013 \u2013');
     // Deutsche Anf\u00fchrung unten in der Anlagenbezeichnung
     expect(t).toContain('\u201eBetriebskostenverordnung\u201c');
   });

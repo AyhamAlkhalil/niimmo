@@ -330,7 +330,7 @@ export function MietvertragEntwurfDialog({
       const einrichtungen = (g.immobilie.gemeinschaftseinrichtungen ?? []).filter(Boolean);
       const daten: MietvertragDaten = {
         ...z.daten,
-        vermieter: vermieterDaten(g.vermieter, g.immobilie),
+        vermieter: vermieterDaten(g.vermieter),
         objekt: {
           ...aktuell,
           heizungsart: aktuell.heizungsart ?? z.daten.objekt.heizungsart,
@@ -369,6 +369,7 @@ export function MietvertragEntwurfDialog({
       nebenkostenarten: g.nebenkostenarten,
       vorvertrag: g.vorvertrag,
       heute: heuteIso(),
+      vpi: g.vpi,
     });
     setId(crypto.randomUUID());
     setGespeichert(false);
@@ -1134,7 +1135,7 @@ export function MietvertragEntwurfDialog({
           // Die ergänzten Stammdaten gleich in den Entwurf übernehmen
           void grundlagen.refetch().then(r => {
             if (!r.data) return;
-            const neu = vermieterDaten(r.data.vermieter, r.data.immobilie);
+            const neu = vermieterDaten(r.data.vermieter);
             if (stand && stabil(neu) === stabil(stand.daten.vermieter)) return;
             setDaten(d => ({ ...d, vermieter: neu }));
             // Das gespeicherte PDF zeigt noch die alten Stammdaten — erst Speichern bringt beides zusammen

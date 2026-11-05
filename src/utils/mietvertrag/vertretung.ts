@@ -72,3 +72,15 @@ export function unterzeichnerVorschlag(
   const treffer = vertretenDurch.map(v => v.trim()).filter(v => v && nachname(v) === name);
   return treffer.length === 1 ? treffer[0] : null;
 }
+
+/**
+ * Name und akademischer Titel eines Vertreters. Der Titel steht in den
+ * Vermieter-Stammdaten in Klammern hinter dem Namen, etwa „Ayhan Yeyrek (M. Sc.)“
+ * (Kundenwunsch 04.11.2026: unter der Unterschrift Name und darunter der Titel).
+ * Im Rubrum steht nur der Name, wie in der Vorlage.
+ */
+export function vertreterTeile(eintrag: string): { name: string; titel: string | null } {
+  const treffer = /^(.*?)\s*\(([^()]*)\)\s*$/.exec(eintrag.trim());
+  if (!treffer || !treffer[1].trim()) return { name: eintrag.trim(), titel: null };
+  return { name: treffer[1].trim(), titel: treffer[2].trim() || null };
+}

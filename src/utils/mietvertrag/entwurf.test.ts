@@ -37,6 +37,7 @@ import {
   type VorvertragAuslese,
 } from './entwurf';
 import { pruefeVertragsdaten } from './pflichtpruefung';
+import { anlagenFuerVertrag } from './anlagen';
 import { BETRKV_STANDARD, betriebskostenPositionen, mitSchluesselnDesObjekts, schluesselDesObjekts } from './datenAusDb';
 import { wohnraumParagraphen } from './wohnraumKlauseln';
 import {
@@ -902,11 +903,18 @@ describe('Verteilerschlüssel aus der Betriebskostenabrechnung des Objekts', () 
     daten.betriebskostenPositionen = daten.betriebskostenPositionen.map(p =>
       ['2.1', '2.2', '2.3', '2.15'].includes(p.nummer) ? { ...p, umgelegt: true } : p
     );
-    const p4 = wohnraumParagraphen(daten).find(p => p.absaetze.some(a => a.text.includes('Verteilung nach')))!;
+    const p4 = wohnraumParagraphen(daten).find(p => p.absaetze.some(a => a.kosten))!;
+    // Seit 04.11.2026 je Zeile in der Tabelle statt als Sammelzeilen darunter (Kundenentscheidung)
+    const zeilen = p4.absaetze.find(a => a.kosten)!.kosten!.zeilen;
+    const verteilung = (nummer: string) => zeilen.find(z => z.nummer === nummer)?.verteilung;
+    expect(verteilung('2.1')).toBe('je Einheit');
+    expect(verteilung('2.15')).toBe('je Einheit');
+    expect(verteilung('2.3')).toBe('Wohnfläche');
+    expect(verteilung('2.2')).toBe('Personenzahl');
+    // Nicht umgelegte Positionen bekommen keinen Schlüssel
+    expect(verteilung('2.7')).toBe('');
     const text = p4.absaetze.map(a => a.text).join('\n');
-    expect(text).toContain('2.1, 2.15 — Verteilung nach Einheit zu gleichen Teilen');
-    expect(text).toContain('2.3 — Verteilung nach Wohnfläche');
-    expect(text).toContain('2.2 — Verteilung nach Personenzahl');
+    expect(text).not.toContain('— Verteilung nach');
     expect(text).not.toMatch(/Verbrauch|Nutzerzahl/);
   });
 
@@ -967,9 +975,10 @@ describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
     expect(zeilen).toContain('Sonstige Betriebskosten: Dachrinnenreinigung');
     // Nur bei sonstigen: eine verirrte Benennung an 2.4 erscheint nicht
     expect(positionsText({ nummer: '2.4', bezeichnung: 'Heizung', benennung: 'x' })).toBe('Heizung');
-    const text = JSON.stringify(wohnraumParagraphen(daten));
-    expect(text).toContain('2.19  Sonstige Betriebskosten: Lüftungsanlage');
-    expect(text).toContain('2.20  Sonstige Betriebskosten: Dachrinnenreinigung');
+    const tabelle = wohnraumParagraphen(daten).flatMap(p => p.absaetze).find(a => a.kosten)!.kosten!;
+    expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten: Lüftungsanlage' }));
+    expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.20', bezeichnung: 'Sonstige Betriebskosten: Dachrinnenreinigung' }));
+    expect(JSON.stringify(anlagenFuerVertrag(daten))).toContain('2.19  Sonstige Betriebskosten: Lüftungsanlage');
   });
 
   it('speichert die Benennung am Vertrag und liest weitere Positionen zurück', () => {
@@ -1011,5 +1020,32 @@ describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
     expect(befund?.schwere).toBe('warnung');
     expect(befund?.text).toContain('2.19');
     expect(pruefeVertragsdaten(mitLueftung(basis)).some(b => b.text.startsWith('Sonstige Betriebskosten werden'))).toBe(false);
+  });
+});
+
+describe('Vorgaben neuer Entwürfe (04.11.2026)', () => {
+  it('beginnt mit Indexmiete und dem letzten Verbraucherpreisindex', () => {
+    const { daten, herkunft } = baueEntwurf(grundlagen({ vpi: { wert: '121.7', stichtag: '2026-09-30' } }));
+    expect(daten.mietanpassungArt).toBe('index');
+    expect(daten.indexBasisWert).toBe(121.7);
+    expect(daten.indexBasisMonat).toBe('2026-09-01');
+    expect(herkunft.indexBasisWert).toBe('marktdaten');
+  });
+
+  it('bleibt ohne veröffentlichten Index bei der ortsüblichen Vergleichsmiete', () => {
+    const { daten } = baueEntwurf(grundlagen({ vpi: null }));
+    expect(daten.mietanpassungArt).toBe('keine');
+    expect(daten.indexBasisWert).toBeNull();
+  });
+
+  it('nimmt das Mietkonto aus den Stammdaten, auch wenn am Objekt eine Kontonummer steht', () => {
+    // IMMOBILIE trägt eine Kontonummer; bis 04.11.2026 ging sie vor (Celle: …4105 46 statt des Mietkontos)
+    expect(IMMOBILIE['Kontonr.']).toBeTruthy();
+    const ohne = baueEntwurf(grundlagen());
+    expect(ohne.daten.vermieter.mietIban).toBeNull();
+    expect(ohne.herkunft['vermieter.mietIban']).toBeUndefined();
+    const mit = baueEntwurf(grundlagen({ vermieter: { ...VERMIETER, miet_iban: 'DE62255914133155410502' } as Tables<'vermieter'> }));
+    expect(mit.daten.vermieter.mietIban).toBe('DE62255914133155410502');
+    expect(mit.herkunft['vermieter.mietIban']).toBe('stammdaten');
   });
 });

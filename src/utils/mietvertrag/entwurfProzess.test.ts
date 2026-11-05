@@ -420,8 +420,8 @@ describe('Befunde der QA vom 20.10.2026', () => {
     const z = (feld: string) => zeilen.find(x => x.feld === feld)!;
     expect(z('mietanpassungArt').wert).toBe('Indexmiete, Basis 125,6');
     expect(z('zusatzvereinbarungen').wert).toBe('2 Vereinbarung(en)');
-    // Mietkonto steht am Objekt
-    expect(z('lastschrift').quelle).toBe('objekt');
+    // Mietkonto kommt seit 04.11.2026 immer aus den Vermieterstammdaten, nie vom Objekt
+    expect(z('lastschrift').quelle).toBe('stammdaten');
   });
 
   it('führt die Prüfangaben der Mietpreisbremse getrennt von den Platzhaltern', () => {

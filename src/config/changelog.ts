@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.6",
+    datum: "2026-11-05",
+    aenderungen: [
+      { art: "verbessert", titel: "Mietvertrag im Bild der Word-Vorlage: Logo auf jeder Seite, Schrift und Aufbau wie gewohnt, unter der Unterschrift Name und Titel" },
+      { art: "verbessert", titel: "Mietvertrag: § 14 aus der Vorlage, Kautionskonto mit Bank, Indexmiete als Vorgabe, Mietkonto aus den Vermieter-Stammdaten" },
+    ],
+  },
+  {
     version: "1.9.5",
     datum: "2026-11-03",
     aenderungen: [

@@ -138,7 +138,7 @@ export function zuZahl(v: number | string | null | undefined): number | null {
 const HEIZUNGSARTEN: Heizungsart[] = ['zentral', 'etage', 'fernwaerme', 'keine'];
 const WARMWASSERARTEN: Warmwasserart[] = ['zentral', 'dezentral'];
 
-export function vermieterDaten(vermieter: Vermieter | null, immobilie: Immobilie): VermieterDaten {
+export function vermieterDaten(vermieter: Vermieter | null): VermieterDaten {
   return {
     firmenname: vermieter?.firmenname ?? '',
     rechtsform: vermieter?.rechtsform ?? null,
@@ -155,8 +155,9 @@ export function vermieterDaten(vermieter: Vermieter | null, immobilie: Immobilie
     telefon: vermieter?.telefon ?? null,
     fax: vermieter?.fax ?? null,
     email: vermieter?.email ?? null,
-    // Miete geht auf das Objektkonto, sofern eins hinterlegt ist
-    mietIban: ersteIban(immobilie['Kontonr.']) ?? vermieter?.miet_iban ?? null,
+    // Immer das Mietkonto aus den Stammdaten (Kundenentscheidung 04.11.2026). Bis dahin ging die Kontonummer
+    // am Objekt vor — in Celle stand so …4105 46 im Vertrag statt des Mietkontos …4105 02.
+    mietIban: vermieter?.miet_iban ?? null,
     mietBic: vermieter?.miet_bic ?? null,
     kautionIban: vermieter?.kaution_iban ?? null,
     kautionBic: vermieter?.kaution_bic ?? null,
@@ -329,7 +330,7 @@ export function vertragsDaten(z: VertragsZeilen): MietvertragDaten {
 
   return {
     vertragsart: vertrag.vertragsart ?? 'wohnraum',
-    vermieter: vermieterDaten(z.vermieter, z.immobilie),
+    vermieter: vermieterDaten(z.vermieter),
     mieter: z.mieter.map(mieterDaten),
     objekt: objektDaten(z.immobilie),
     einheit: einheitDaten(z.einheit, vertrag.raumaufstellung),
@@ -425,19 +426,6 @@ function findeArt<T>(map: Map<string, T>, bezeichnung: string): T | undefined {
     if (gesucht.includes(name) || name.includes(gesucht)) return wert;
   }
   return undefined;
-}
-
-/**
- * `immobilien."Kontonr."` enthält teils mehrere IBAN in einem Textfeld,
- * getrennt durch Semikolon oder Zeilenumbruch. Für den Vertrag zählt die erste.
- */
-export function ersteIban(feld: string | null): string | null {
-  if (!feld) return null;
-  const erste = feld
-    .split(/[;\r\n]+/)
-    .map(s => s.trim())
-    .filter(Boolean)[0];
-  return erste ? erste.replace(/\s+/g, '') : null;
 }
 
 export function raumaufstellungAus(raeume: unknown, anzahlZimmer: number | null): string {

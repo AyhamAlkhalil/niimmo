@@ -245,8 +245,12 @@ export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeiche
                 onChange={e =>
                   setze('vertreten_durch', e.target.value.split(',').map(x => x.trim()))
                 }
-                placeholder="Ayhan Yeyrek, Dennis Mikyas"
+                placeholder="Ayhan Yeyrek (M. Sc.), Denis Mikyas (B. Sc.)"
               />
+              <p className="text-xs text-muted-foreground">
+                Akademischer Titel in Klammern hinter dem Namen: Im Mietvertrag steht er unter der Unterschrift, im
+                Vertragskopf nur der Name.
+              </p>
               <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
                 <Checkbox
                   checked={entwurf.vertretung_art === 'gesamt'}
