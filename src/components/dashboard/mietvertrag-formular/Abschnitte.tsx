@@ -452,7 +452,8 @@ export function BetriebskostenEditor({
   markierung,
   geaendert,
   schluesselFest = false,
-}: AbschnittProps & { schluesselFest?: boolean }) {
+  onSchluesselAendern,
+}: AbschnittProps & { schluesselFest?: boolean; onSchluesselAendern?: () => void }) {
   if (entwurf.betriebskostenModus === 'inklusiv') {
     return (
       <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
@@ -517,6 +518,11 @@ export function BetriebskostenEditor({
           ? 'Der Verteilerschlüssel steht je Kostenart fest am Objekt und wird hier zur Kontrolle gezeigt; der Vertrag nennt ihn in der Tabelle des § 4.'
           : 'Der Verteilerschlüssel ist aus der Betriebskostenabrechnung des Objekts übernommen.'}
       </p>
+      {schluesselFest && onSchluesselAendern && (
+        <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={onSchluesselAendern}>
+          Verteilerschlüssel des Objekts ändern
+        </Button>
+      )}
       <div className="space-y-1 rounded border p-2">
         {entwurf.betriebskostenPositionen.map(pos => {
           // Wie die Pflichtprüfung: Nur bei Vorauszahlung wird abgerechnet, bei Pauschale zählt keine Abweichung

@@ -33,6 +33,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
+import { VerteilerschluesselDialog } from '@/components/dashboard/VerteilerschluesselDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
 import {
@@ -209,6 +210,7 @@ export function MietvertragEntwurfDialog({
   const [ausleseStatus, setAusleseStatus] = useState<AusleseStatus>({ art: 'bereit' });
   const [speichert, setSpeichert] = useState(false);
   const [zeigeVermieter, setZeigeVermieter] = useState(false);
+  const [zeigeSchluessel, setZeigeSchluessel] = useState(false);
   const [zeigeHinweise, setZeigeHinweise] = useState(false);
   const [aktualisiertAm, setAktualisiertAm] = useState<string | null>(null);
   const [schritt, setSchritt] = useState<SchrittId>(ERSTER_SCHRITT);
@@ -876,7 +878,7 @@ export function MietvertragEntwurfDialog({
           </div>
         );
       case 'betriebskosten':
-        return <BetriebskostenEditor {...formularProps} schluesselFest />;
+        return <BetriebskostenEditor {...formularProps} schluesselFest onSchluesselAendern={() => setZeigeSchluessel(true)} />;
       case 'vereinbarungen':
         return (
           <div className="space-y-5">
@@ -1127,6 +1129,25 @@ export function MietvertragEntwurfDialog({
       </Dialog>
 
       {/* Neben dem Dialog, nicht darin: sonst schließt das Speichern der Stammdaten auch den Entwurf. */}
+      {g && (
+        <VerteilerschluesselDialog
+          immobilieId={g.immobilie.id}
+          offen={zeigeSchluessel}
+          onOpenChange={setZeigeSchluessel}
+          onGespeichert={() => {
+            // Die neuen Schlüssel gleich in den Entwurf übernehmen — das gespeicherte PDF zeigt noch die alten
+            void grundlagen.refetch().then(r => {
+              if (!r.data) return;
+              const arten = r.data.nebenkostenarten;
+              setDaten(d => ({
+                ...d,
+                betriebskostenPositionen: mitSchluesselnDesObjekts(d.betriebskostenPositionen, arten, { uebernehmen: true }),
+              }));
+              markiereUngespeichert();
+            });
+          }}
+        />
+      )}
       <VermieterStammdatenDialog
         isOpen={zeigeVermieter}
         onClose={() => setZeigeVermieter(false)}

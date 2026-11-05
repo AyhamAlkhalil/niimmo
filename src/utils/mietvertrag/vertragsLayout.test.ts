@@ -1,6 +1,6 @@
 /**
  * Seitenbild nach der Word-Vorlage (04.11.2026): Schrift, Umbrüche, Konten,
- * Titel der Vertreter.
+ * Titel der Vertreter und die Verteilerschlüssel je Kostenart am Objekt.
  * Der PDF-Test bettet Carlito aus public/fonts ein und liest den Text mit
  * pdf.js zurück — so wie ihn der Mieter kopieren würde.
  */
@@ -11,6 +11,7 @@ import { kreditinstitut } from '../pdf/briefLayout';
 import { generateMietvertragPdf } from './mietvertragPdfGenerator';
 import type { MietvertragDaten } from './typen';
 import { schuetzeUmbrueche } from './vertragsLayout';
+import { geaenderteSchluessel, schluesselJeKategorie } from './verteilerschluesselObjekt';
 import { vertreterTeile } from './vertretung';
 
 const NBSP = '\u00a0';
@@ -43,6 +44,38 @@ describe('Konten und Vertreter', () => {
     expect(vertreterTeile(' Denis Mikyas ')).toEqual({ name: 'Denis Mikyas', titel: null });
     expect(vertreterTeile('Denis Mikyas ()')).toEqual({ name: 'Denis Mikyas', titel: null });
     expect(vertreterTeile('(M. Sc.)')).toEqual({ name: '(M. Sc.)', titel: null });
+  });
+});
+
+describe('Verteilerschlüssel je Kostenart am Objekt', () => {
+  const art = (id: string, name: string, schluessel: string | null) => ({
+    id,
+    name,
+    verteilerschluessel_art: schluessel,
+    ist_umlagefaehig: true,
+  });
+
+  it('zeigt gepflegte Schlüssel und sonst die Kundenvorgabe', () => {
+    const zeilen = schluesselJeKategorie([art('a1', 'Wasserversorgung', 'qm'), art('a2', 'Wasser', 'qm')]);
+    const wasser = zeilen.find(z => z.kategorie.id === 'wasserversorgung')!;
+    expect(wasser).toMatchObject({ schluessel: 'qm', gepflegt: true, vertragsPositionen: ['2.2'] });
+    expect(wasser.artIds).toContain('a1');
+    const grundsteuer = zeilen.find(z => z.kategorie.id === 'grundsteuer')!;
+    expect(grundsteuer).toMatchObject({ schluessel: 'gleich', gepflegt: false, artIds: [] });
+    // Sonstige tragen im Vertrag Rauchwarnmelder (2.17) und 2.19
+    expect(zeilen.find(z => z.kategorie.id === 'sonstige_betriebskosten')!.vertragsPositionen).toEqual(['2.17', '2.19']);
+    expect(zeilen).toHaveLength(17);
+  });
+
+  it('schreibt nur, was sich geändert hat', () => {
+    const zeilen = schluesselJeKategorie([art('a1', 'Wasserversorgung', 'personen')]);
+    expect(geaenderteSchluessel(zeilen, {})).toEqual([]);
+    expect(geaenderteSchluessel(zeilen, { wasserversorgung: 'personen', grundsteuer: 'gleich' })).toEqual([]);
+    const geaendert = geaenderteSchluessel(zeilen, { wasserversorgung: 'qm', grundsteuer: 'qm' });
+    expect(geaendert.map(g => [g.zeile.kategorie.id, g.schluessel])).toEqual([
+      ['grundsteuer', 'qm'],
+      ['wasserversorgung', 'qm'],
+    ]);
   });
 });
 

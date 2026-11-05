@@ -42,6 +42,7 @@ export const RELEASES: Release[] = [
     aenderungen: [
       { art: "verbessert", titel: "Mietvertrag im Bild der Word-Vorlage: Logo auf jeder Seite, Schrift und Aufbau wie gewohnt, unter der Unterschrift Name und Titel" },
       { art: "verbessert", titel: "Mietvertrag: § 14 aus der Vorlage, Kautionskonto mit Bank, Indexmiete als Vorgabe, Mietkonto aus den Vermieter-Stammdaten" },
+      { art: "neu", titel: "Verteilerschlüssel je Kostenart am Objekt festlegen – gilt für Mietvertrag und Betriebskostenabrechnung" },
     ],
   },
   {

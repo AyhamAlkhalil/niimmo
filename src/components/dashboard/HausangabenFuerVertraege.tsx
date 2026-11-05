@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { FileSignature, Loader2, Pencil } from 'lucide-react';
+import { FileSignature, Loader2, Pencil, Scale } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -21,6 +21,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
 import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import { ZahlFeld } from './mietvertrag-formular/Bausteine';
+import { VerteilerschluesselDialog } from './VerteilerschluesselDialog';
 
 type Angaben = Pick<
   Tables<'immobilien'>,
@@ -68,6 +69,7 @@ export function HausangabenFuerVertraege({ immobilie, summeEinheitenQm }: { immo
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [offen, setOffen] = useState(false);
+  const [schluesselOffen, setSchluesselOffen] = useState(false);
   const [speichert, setSpeichert] = useState(false);
   const [werte, setWerte] = useState(() => anfangswerte(immobilie));
 
@@ -140,11 +142,19 @@ export function HausangabenFuerVertraege({ immobilie, summeEinheitenQm }: { immo
             {teile.length > 0 ? teile.join(' · ') : 'noch nicht erfasst — der nächste Vertragsentwurf fragt danach'}
           </span>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 shrink-0 text-xs" onClick={() => setOffen(true)}>
-          <Pencil className="h-3 w-3" />
-          Bearbeiten
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSchluesselOffen(true)}>
+            <Scale className="h-3 w-3" />
+            Verteilerschlüssel
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setOffen(true)}>
+            <Pencil className="h-3 w-3" />
+            Bearbeiten
+          </Button>
+        </div>
       </div>
+
+      <VerteilerschluesselDialog immobilieId={immobilie.id} offen={schluesselOffen} onOpenChange={setSchluesselOffen} />
 
       <Dialog open={offen} onOpenChange={o => !speichert && setOffen(o)}>
         <DialogContent className="max-w-lg">
