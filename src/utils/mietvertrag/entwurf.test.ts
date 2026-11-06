@@ -38,7 +38,13 @@ import {
 } from './entwurf';
 import { pruefeVertragsdaten } from './pflichtpruefung';
 import { anlagenFuerVertrag } from './anlagen';
-import { BETRKV_STANDARD, betriebskostenPositionen, mitSchluesselnDesObjekts, schluesselDesObjekts } from './datenAusDb';
+import {
+  BETRKV_STANDARD,
+  betriebskostenPositionen,
+  mitSchluesselnDesObjekts,
+  nichtUmgelegteKategorien,
+  schluesselDesObjekts,
+} from './datenAusDb';
 import { wohnraumParagraphen } from './wohnraumKlauseln';
 import {
   istSonstigePosition,
@@ -1049,5 +1055,41 @@ describe('Vorgaben neuer Entwürfe (04.11.2026)', () => {
     const mit = baueEntwurf(grundlagen({ vermieter: { ...VERMIETER, miet_iban: 'DE62255914133155410502' } as Tables<'vermieter'> }));
     expect(mit.daten.vermieter.mietIban).toBe('DE62255914133155410502');
     expect(mit.herkunft['vermieter.mietIban']).toBe('stammdaten');
+  });
+});
+
+describe('Nicht umgelegte Kostenarten für die Abrechnung (06.11.2026)', () => {
+  it('ordnet Vertragspositionen über die Kostenart zu, nicht über die Nummer', () => {
+    // Rauchwarnmelder (2.17) nicht umgelegt, sonstige (2.19) schon: „Sonstige“ bleibt umgelegt
+    expect([
+      ...nichtUmgelegteKategorien([
+        { nummer: '2.17', umgelegt: false },
+        { nummer: '2.19', umgelegt: true, benennung: 'Lüftungsanlage' },
+      ]),
+    ]).toEqual([]);
+    // Abgasmessung (2.18) umgelegt hält die Schornsteinreinigung (2.12) in der Umlage
+    expect(nichtUmgelegteKategorien([{ nummer: '2.12', umgelegt: false }, { nummer: '2.18', umgelegt: true }]).size).toBe(0);
+  });
+
+  it('lässt eine Kostenart beim Vermieter, wenn keine ihrer Positionen umgelegt ist', () => {
+    const k = nichtUmgelegteKategorien([
+      { nummer: '2.7', umgelegt: false },
+      { nummer: '2.17', umgelegt: false },
+      { nummer: '2.19', umgelegt: false },
+      { nummer: '2.20', umgelegt: false },
+      { nummer: '2.12', umgelegt: false },
+      { nummer: '2.18', umgelegt: false },
+      { nummer: '2.1', umgelegt: true },
+      { nummer: '2.10' },
+    ]);
+    expect([...k].sort()).toEqual(['aufzug', 'schornsteinreinigung', 'sonstige_betriebskosten']);
+    // Eine weitere sonstige Position ab 2.20 hält „Sonstige“ in der Umlage
+    expect(nichtUmgelegteKategorien([{ nummer: '2.19', umgelegt: false }, { nummer: '2.21', umgelegt: true }]).size).toBe(0);
+  });
+
+  it('legt ohne Aufstellung alles um', () => {
+    expect(nichtUmgelegteKategorien(null).size).toBe(0);
+    expect(nichtUmgelegteKategorien('kaputt').size).toBe(0);
+    expect(nichtUmgelegteKategorien([{ umgelegt: false }, null, { nummer: '9.9', umgelegt: false }]).size).toBe(0);
   });
 });

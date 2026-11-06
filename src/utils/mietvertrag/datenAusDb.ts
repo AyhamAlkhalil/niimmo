@@ -125,6 +125,29 @@ function kategorieDerPosition(nummer: string): string | undefined {
   );
 }
 
+/**
+ * Kostenarten der Abrechnung (`BETRKV_KATEGORIEN`-ID), die ein Vertrag ausdrücklich nicht umlegt — ihr Anteil
+ * bleibt beim Vermieter. Eine Kostenart zählt nur dann, wenn der Vertrag sie nennt und keine ihrer Positionen
+ * umlegt: Rauchwarnmelder (2.17), sonstige (2.19 und ab 2.20) fallen gemeinsam unter „Sonstige“, die
+ * Abgasmessung (2.18) unter die Schornsteinreinigung. Bis 06.11.2026 verglich die Abrechnung die Vertragsnummer
+ * mit der BetrKV-Nummer — ein nicht umgelegter Rauchwarnmelder erließ dem Mieter damit alle sonstigen Kosten.
+ * Positionen ohne `umgelegt: false` gelten wie bisher als umgelegt; ohne Aufstellung (Altverträge) bleibt alles umgelegt.
+ */
+export function nichtUmgelegteKategorien(positionen: unknown): Set<string> {
+  const umgelegtJeKategorie = new Map<string, boolean>();
+  if (!Array.isArray(positionen)) return new Set();
+  for (const p of positionen) {
+    if (!p || typeof p !== 'object') continue;
+    const nummer = (p as { nummer?: unknown }).nummer;
+    if (typeof nummer !== 'string' || !nummer.trim()) continue;
+    const kategorie = kategorieDerPosition(nummer.trim());
+    if (!kategorie) continue;
+    const umgelegt = (p as { umgelegt?: unknown }).umgelegt !== false;
+    umgelegtJeKategorie.set(kategorie, (umgelegtJeKategorie.get(kategorie) ?? false) || umgelegt);
+  }
+  return new Set([...umgelegtJeKategorie].filter(([, umgelegt]) => !umgelegt).map(([kategorie]) => kategorie));
+}
+
 function benennungAus(z: GespeichertePosition): string | null {
   return typeof z.benennung === 'string' && z.benennung.trim() ? z.benennung.trim() : null;
 }

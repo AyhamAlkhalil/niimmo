@@ -478,22 +478,6 @@ export function ohneBetriebskostenabrechnung(
   return modus === 'pauschale' || modus === 'inklusiv' ? modus : null;
 }
 
-/**
- * BetrKV-Nummern („2.1“ … „2.17“), die der Vertrag ausdrücklich nicht umlegt (betriebskosten_positionen mit
- * umgelegt: false). Ihr Anteil bleibt beim Vermieter. Nicht aufgeführte Arten bleiben wie bisher umgelegt.
- */
-export function nichtUmgelegteNummern(positionen: unknown): Set<string> {
-  const nummern = new Set<string>();
-  if (!Array.isArray(positionen)) return nummern;
-  for (const p of positionen) {
-    if (p && typeof p === 'object' && (p as { umgelegt?: unknown }).umgelegt === false) {
-      const nummer = (p as { nummer?: unknown }).nummer;
-      if (typeof nummer === 'string' && nummer.trim()) nummern.add(nummer.trim());
-    }
-  }
-  return nummern;
-}
-
 export function istAbrechnungsfristAbgelaufen(
   abrechnungsjahr: number,
   heute: Date = new Date()

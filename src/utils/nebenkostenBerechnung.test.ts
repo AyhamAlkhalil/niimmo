@@ -7,7 +7,6 @@ import {
   betriebskostenImMonat,
   vorauszahlungText,
   ohneBetriebskostenabrechnung,
-  nichtUmgelegteNummern,
   bezugsgroesseFuerSchluessel,
   ermittlePerioden,
   istAbrechnungsfristAbgelaufen,
@@ -610,7 +609,7 @@ describe('Vorauszahlung mit Verlauf', () => {
   });
 });
 
-describe('ohneBetriebskostenabrechnung und nichtUmgelegteNummern', () => {
+describe('ohneBetriebskostenabrechnung', () => {
   it('rechnet Pauschal- und Inklusivmiete nicht ab', () => {
     expect(ohneBetriebskostenabrechnung('pauschale')).toBe('pauschale');
     expect(ohneBetriebskostenabrechnung('inklusiv')).toBe('inklusiv');
@@ -618,15 +617,4 @@ describe('ohneBetriebskostenabrechnung und nichtUmgelegteNummern', () => {
     expect(ohneBetriebskostenabrechnung(null)).toBeNull();
   });
 
-  it('nennt nur ausdrücklich nicht umgelegte Arten', () => {
-    const nummern = nichtUmgelegteNummern([
-      { nummer: '2.1', betrag: 50, umgelegt: true },
-      { nummer: '2.7', betrag: null, umgelegt: false },
-      { nummer: '2.14', umgelegt: false },
-      { nummer: '2.10' },
-    ]);
-    expect([...nummern].sort()).toEqual(['2.14', '2.7']);
-    expect(nichtUmgelegteNummern(null).size).toBe(0);
-    expect(nichtUmgelegteNummern('kaputt').size).toBe(0);
-  });
 });

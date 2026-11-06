@@ -60,7 +60,6 @@ import {
   betriebskostenImMonat,
   vorauszahlungText,
   ohneBetriebskostenabrechnung,
-  nichtUmgelegteNummern,
   type BetriebskostenAenderung,
   type VorauszahlungsAbschnitt,
   bezugsgroesseFuerSchluessel,
@@ -79,6 +78,7 @@ import {
   type Nutzungsperiode,
   type VerteilerSchluessel,
 } from "@/utils/nebenkostenBerechnung";
+import { nichtUmgelegteKategorien } from "@/utils/mietvertrag/datenAusDb";
 import { useKostenpositionen, positionenImZeitraum } from "@/hooks/useNebenkostenDaten";
 import { trenneKostenartenNachSumme } from "@/utils/nebenkostenGutschrift";
 import { mailadressenDerMieter } from "@/utils/kuendigungsbestaetigung";
@@ -408,14 +408,15 @@ export function NebenkostenStep3Abrechnung({
       let kostenAnteilGesamt = 0;
       let nichtUmgelegt = 0;
       const ohneAbrechnung = vertrag ? ohneBetriebskostenabrechnung(vertrag.betriebskosten_modus) : null;
-      const nichtVereinbart = nichtUmgelegteNummern(vertrag?.betriebskosten_positionen);
+      const nichtVereinbart = nichtUmgelegteKategorien(vertrag?.betriebskosten_positionen);
 
       kostenProKategorie.forEach((kategorie) => {
         const anteil = berechneAnteil(periode, kategorie.schluessel, bezugsgroessen);
         const anteilBetrag = (anteilCent.get(kategorie.kategorieId)?.[periodenIndex] ?? 0) / 100;
         if (anteilBetrag <= 0) return;
-        // Im Vertrag ausdrücklich nicht umgelegt (30.10.2026): Der Anteil bleibt beim Vermieter
-        if (kategorie.betrkvNummer && nichtVereinbart.has(kategorie.betrkvNummer)) {
+        // Im Vertrag ausdrücklich nicht umgelegt (30.10.2026): Der Anteil bleibt beim Vermieter. Zugeordnet über die
+        // Kostenart, nicht die Nummer — Vertrag und BetrKV zählen ab 2.17 verschieden (06.11.2026)
+        if (nichtVereinbart.has(kategorie.kategorieId)) {
           nichtUmgelegt += anteilBetrag;
           return;
         }
