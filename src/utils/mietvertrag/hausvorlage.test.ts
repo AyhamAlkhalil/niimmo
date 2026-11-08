@@ -178,15 +178,15 @@ describe('Hausvorlage 01.06.2025', () => {
 
     expect(t).toContain('EUR monatlich');
     // Stichproben aus der Vorlage
-    expect(t).toContain('2.1  laufende \u00f6ffentliche Lasten des Grundst\u00fccks');
-    expect(t).toContain('2.9  Kosten der Geb\u00e4udereinigung und Ungezieferbek\u00e4mpfung');
-    expect(t).toContain('2.18  Kosten der Abgasmessung');
+    expect(t).toContain('2.1 laufende \u00f6ffentliche Lasten des Grundst\u00fccks');
+    expect(t).toContain('2.9 Kosten der Geb\u00e4udereinigung und Ungezieferbek\u00e4mpfung');
+    expect(t).toContain('2.18 Kosten der Abgasmessung');
     expect(t).toContain('Summe der monatlichen Vorauszahlung');
     expect(t).toContain('Summe der monatlichen Zahlungen');
 
     // Alle 19 Positionen der Hausnummerierung stehen im Vertrag
     for (let n = 1; n <= 19; n++) {
-      expect(t).toContain(`2.${n}  `);
+      expect(t).toContain(`2.${n} `);
     }
   });
 

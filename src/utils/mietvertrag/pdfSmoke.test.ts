@@ -245,7 +245,8 @@ describe('PDF-Erzeugung', () => {
     // Anlagen
     expect(t).toContain('Hausordnung');
     expect(t).toContain('Datenschutzinformation');
-    expect(t).toContain('Betriebskostenkatalog');
+    expect(t).toContain('Verordnung über die Aufstellung von Betriebskosten');
+    expect(t).toContain('Betriebskosten im Sinne von § 1 sind:');
     // Besichtigt -> keine Widerrufsbelehrung
     expect(t).not.toContain('Widerrufsbelehrung');
 

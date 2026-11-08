@@ -343,11 +343,11 @@ describe('Klauseltexte', () => {
     });
     const p5 = wohnraumParagraphen(d).find(p => p.nummer === '§ 5');
     const text = p5!.absaetze.map(a => a.text).join(' ');
-    expect(text).toMatch(/Basis 2020 = 100/);
+    expect(text).toMatch(/Basis 2020=100/);
     expect(text).not.toMatch(/2000\s*=\s*100/);
     expect(text).not.toMatch(/Industrie und Handelskammer|Sachverständiger/i);
     // Der Platzhalter meint einen Monat — „des Monats 01.08.2026" las sich wie ein Stichtag (20.10.2026)
-    expect(text).toContain('Indexstand des Monats August 2026 mit 119,4 Punkten');
+    expect(text).toContain('Stand bei Vertragsabschluss: August 2026, 119,4 Punkte.');
   });
 
   it('bietet bei Etagenheizung keine Heizkostenumlage an', () => {
@@ -470,7 +470,9 @@ describe('Kundenvorgaben zum Vertragstext (04.11.2026)', () => {
     const index = wohnraumParagraphen(basisVertrag({ mietanpassungArt: 'index', indexBasisWert: 121.7, indexBasisMonat: '2026-09-01' }))
       .find(p => p.titel === 'Änderung der Miete')!;
     const text = index.absaetze.map(a => a.text).join(' ');
-    expect(text).toMatch(/Indexmiete im Sinne des § 557b BGB/);
+    expect(text).toMatch(/Wertsicherungsklausel gemäß § 557 b BGB/);
+    expect(text).toMatch(/Basis 2020=100/);
+    expect(text).toContain('Stand bei Vertragsabschluss: September 2026, 121,7 Punkte.');
     expect(text).not.toMatch(/§ 560/);
     expect(text).not.toMatch(/ortsüblichen Vergleichsmiete nach §§ 558/);
 
@@ -486,7 +488,7 @@ describe('Kundenvorgaben zum Vertragstext (04.11.2026)', () => {
     const p7 = wohnraumParagraphen(d).find(p => p.titel === 'Mietkaution')!;
     const text = p7.absaetze.map(a => a.text).join('\n');
     expect(text).toContain(
-      'Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG.'
+      'Die Barkaution ist auf ein gesondertes Konto zu überweisen. Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG.'
     );
     expect(text).not.toMatch(/Teilzahlung/);
     expect(text).not.toMatch(/getrennt von seinem Vermögen/);

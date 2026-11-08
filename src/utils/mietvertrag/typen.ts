@@ -311,4 +311,5 @@ export interface MietvertragDaten {
 
 /** Fassung der Klauseltexte. Wandert in mietvertrag.vorlage_version. */
 // 2026.2 (05.11.2026): Seitenbild der Word-Vorlage, § 24 entfallen, § 14 aus der Vorlage, Kautionskonto
-export const VORLAGE_VERSION = 'wohnraum-2026.2';
+// 2026.3 (08.11.2026): § 5 Wertsicherungsklausel im Wortlaut der Vorlage, Titel im Kopf, Anlage 2 = Verordnung
+export const VORLAGE_VERSION = 'wohnraum-2026.3';

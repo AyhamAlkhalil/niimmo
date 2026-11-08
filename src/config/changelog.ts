@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.7",
+    datum: "2026-11-08",
+    aenderungen: [
+      { art: "verbessert", titel: "Mietvertrag: § 5 im Wortlaut der Vorlage, Titel der Geschäftsführer im Vertragskopf, Betriebskostenverordnung als Anlage" },
+    ],
+  },
+  {
     version: "1.9.6",
     datum: "2026-11-05",
     aenderungen: [

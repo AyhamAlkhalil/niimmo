@@ -15,7 +15,7 @@ import { ladeBild } from '../pdf/briefbogen';
 import { anlagenFuerVertrag, type Anlage } from './anlagen';
 import { wohnraumParagraphen, type Absatz, type Paragraph } from './wohnraumKlauseln';
 import type { MieterDaten, MietvertragDaten } from './typen';
-import { vermieterVertretung, vertreterTeile } from './vertretung';
+import { vermieterVertretung, vertreterMitTitel, vertreterTeile } from './vertretung';
 import {
   ABSTAND,
   GROESSE,
@@ -32,6 +32,9 @@ import {
 
 const RUBRUM_X = RAND + RUBRUM_EINZUG;
 const RECHTS = RAND + TEXTBREITE;
+/** Linie und Beschriftung der dreispaltigen Unterschrift einer Anlage */
+const UNTERSCHRIFT_ANLAGE_ZEILE = ZEILE + 1.5;
+const UNTERSCHRIFT_ANLAGE_HOEHE = 14 + UNTERSCHRIFT_ANLAGE_ZEILE;
 
 export interface PdfMittel {
   /** Carlito als Base64; ohne Angabe wird sie geladen, null erzwingt Helvetica */
@@ -57,9 +60,11 @@ export async function generateMietvertragPdf(d: MietvertragDaten, mittel: PdfMit
 
   let y = titelseite(doc, layout, d);
 
-  for (const p of wohnraumParagraphen(d)) {
-    y = paragraphRendern(layout, p, y);
-  }
+  const paragraphen = wohnraumParagraphen(d);
+  const blockHoehe = unterschriftsblockHoehe(d);
+  paragraphen.forEach((p, i) => {
+    y = paragraphRendern(layout, p, y, i === paragraphen.length - 1 ? blockHoehe : 0);
+  });
 
   unterschriftsblock(doc, layout, d, y);
 
@@ -100,7 +105,7 @@ function titelseite(doc: jsPDF, layout: VertragsLayout, d: MietvertragDaten): nu
   const vertretung = vermieterVertretung(d);
   if (vertretung.namen.length > 0) {
     const wort = vertretung.gemeinsam ? 'gemeinsam vertreten durch' : 'vertreten durch';
-    const namen = vertretung.namen.map(n => vertreterTeile(n).name).join(' und ');
+    const namen = vertretung.namen.map(vertreterMitTitel).join(' und ');
     y = mehrzeilig(doc, `${wort} ${namen}`, y);
   }
   doc.text(`${v.strasse} ${v.hausnummer}`.trim(), RUBRUM_X, y);
@@ -171,15 +176,42 @@ function mieterZeilen(doc: jsPDF, layout: VertragsLayout, m: MieterDaten, y: num
 
 // ─── Paragraphen ─────────────────────────────────────────────────────────────
 
-function paragraphRendern(layout: VertragsLayout, p: Paragraph, y: number): number {
-  y = layout.ueberschrift(`${p.nummer} ${p.titel}`, y);
+/**
+ * Absätze eines Paragraphen. `reserve` ist die Höhe, die nach dem letzten Absatz auf derselben Seite frei bleiben muss:
+ * Eine Unterschrift steht nie allein auf einer Seite, ihr letzter Absatz wandert mit (Review und QA 08.11.2026).
+ */
+function absaetzeRendern(layout: VertragsLayout, absaetze: Absatz[], y: number, reserve: number): number {
   // Was nach einer Ziffer ohne eigene Ziffer folgt, gehört zu ihr und steht auf dem Tabstopp
   let nachZiffer = false;
-  for (const a of p.absaetze) {
+  absaetze.forEach((a, i) => {
+    if (reserve > 0 && i === absaetze.length - 1 && !a.kosten && !a.tabelle && a.text.trim()) {
+      const hoehe = layout.absatzHoehe(a.text, { nummer: a.nummer, einzug: !a.nummer && nachZiffer, fett: a.bold });
+      y = layout.umbruch(y, hoehe + ABSTAND + reserve);
+    }
     y = absatzRendern(layout, a, y, nachZiffer);
     if (a.nummer) nachZiffer = true;
-  }
+  });
   return y;
+}
+
+/** Höhe, die `absaetzeRendern` für diese Absätze belegt. Tabellen kommen in den zusammengehaltenen Formularen nicht vor. */
+function absaetzeHoehe(layout: VertragsLayout, absaetze: Absatz[]): number {
+  let nachZiffer = false;
+  let hoehe = 0;
+  for (const a of absaetze) {
+    if (a.text.trim()) {
+      hoehe += layout.absatzHoehe(a.text, { nummer: a.nummer, einzug: !a.nummer && nachZiffer, fett: a.bold }) + (a.eng ? 0.7 : ABSTAND);
+    } else {
+      hoehe += ABSTAND;
+    }
+    if (a.nummer) nachZiffer = true;
+  }
+  return hoehe;
+}
+
+function paragraphRendern(layout: VertragsLayout, p: Paragraph, y: number, reserve: number): number {
+  y = layout.ueberschrift(`${p.nummer} ${p.titel}`, y);
+  return absaetzeRendern(layout, p.absaetze, y, reserve);
 }
 
 function absatzRendern(layout: VertragsLayout, a: Absatz, y: number, nachZiffer: boolean): number {
@@ -192,11 +224,15 @@ function absatzRendern(layout: VertragsLayout, a: Absatz, y: number, nachZiffer:
       einzug: !a.nummer && nachZiffer,
       fett: a.bold,
       linksbuendig: a.linksbuendig,
-    }) + ABSTAND
+    }) + (a.eng ? 0.7 : ABSTAND)
   );
 }
 
 // ─── Unterschriften ──────────────────────────────────────────────────────────
+
+function unterschriftsblockHoehe(d: MietvertragDaten): number {
+  return 14 + 26 + Math.max(vermieterVertretung(d).linien, d.mieter.length) * 24;
+}
 
 /**
  * Zwei Spalten wie in der Vorlage: Ort/Datum-Linie, darunter die
@@ -275,32 +311,30 @@ function beschriftung(
 function anlageRendern(doc: jsPDF, layout: VertragsLayout, anlage: Anlage): void {
   let y = layout.neueSeite() + 4;
 
-  layout.schrift(11, true);
-  doc.text(anlage.titel, SEITE_BREITE / 2, y, { align: 'center' });
-  y += 4.5;
+  y = layout.absatz(anlage.titel, y, { fett: true, groesse: 11, zentriert: true });
   layout.schrift(8.5, false, true);
   doc.text(`${anlage.kennung} zum Mietvertrag`, SEITE_BREITE / 2, y, { align: 'center' });
   y += 8;
 
   if (anlage.vorspann) y = layout.absatz(anlage.vorspann, y) + ABSTAND;
 
-  for (const abschnitt of anlage.abschnitte) {
+  anlage.abschnitte.forEach((abschnitt, i) => {
+    const letzter = anlage.unterschrift && i === anlage.abschnitte.length - 1;
+    const reserve = letzter ? UNTERSCHRIFT_ANLAGE_HOEHE : 0;
+    // Ein Formular samt Unterschrift bleibt ganz auf einer Seite: Es wird ausgefüllt zurückgeschickt.
+    if (abschnitt.zusammenhalten) y = layout.umbruch(y, 1 + ZEILE + 0.6 + absaetzeHoehe(layout, abschnitt.absaetze) + reserve);
     if (abschnitt.titel) {
       y = layout.umbruch(y + 1, 3 * ZEILE);
       layout.schrift(GROESSE, true);
       doc.text(abschnitt.nummer ? `${abschnitt.nummer} ${abschnitt.titel}` : abschnitt.titel, RAND, y);
       y += ZEILE + 0.6;
     }
-    let nachZiffer = false;
-    for (const a of abschnitt.absaetze) {
-      y = absatzRendern(layout, a, y, nachZiffer);
-      if (a.nummer) nachZiffer = true;
-    }
-  }
+    y = absaetzeRendern(layout, abschnitt.absaetze, y, reserve);
+  });
 
   if (anlage.unterschrift) {
     // Dreispaltig wie in der Vorlage: Datum, Vermieter, Mieter
-    y = layout.umbruch(y + 14, 14);
+    y = layout.umbruch(y + 14, UNTERSCHRIFT_ANLAGE_ZEILE);
     const spalten = [RAND, RAND + 46, RAND + 104];
     const breiten = [40, 52, 52];
     const rollen = ['(Datum)', '(Vermieter)', '(Mieter)'];

@@ -37,7 +37,6 @@ import {
   type VorvertragAuslese,
 } from './entwurf';
 import { pruefeVertragsdaten } from './pflichtpruefung';
-import { anlagenFuerVertrag } from './anlagen';
 import {
   BETRKV_STANDARD,
   betriebskostenPositionen,
@@ -974,7 +973,7 @@ describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
     expect(naechsteSonstigeNummer([...BETRKV_STANDARD, { nummer: '2.20' }, { nummer: '2.21' }])).toBe('2.22');
   });
 
-  it('druckt die Benennung in § 4 und im Betriebskostenkatalog', () => {
+  it('druckt die Benennung in § 4', () => {
     const daten = mitLueftung(baueEntwurf(grundlagen()).daten);
     const zeilen = daten.betriebskostenPositionen.map(positionsText);
     expect(zeilen).toContain('Sonstige Betriebskosten: Lüftungsanlage');
@@ -984,7 +983,6 @@ describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
     const tabelle = wohnraumParagraphen(daten).flatMap(p => p.absaetze).find(a => a.kosten)!.kosten!;
     expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten: Lüftungsanlage' }));
     expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.20', bezeichnung: 'Sonstige Betriebskosten: Dachrinnenreinigung' }));
-    expect(JSON.stringify(anlagenFuerVertrag(daten))).toContain('2.19  Sonstige Betriebskosten: Lüftungsanlage');
   });
 
   it('speichert die Benennung am Vertrag und liest weitere Positionen zurück', () => {

@@ -518,7 +518,7 @@ export function platzhalterUebersicht(
     ];
     const anlagen = [
       d.anlagen.hausordnung && 'Hausordnung',
-      d.anlagen.betrkvKatalog && 'Betriebskostenkatalog',
+      d.anlagen.betrkvKatalog && 'Betriebskostenverordnung',
       d.anlagen.datenschutzhinweis && 'Datenschutzinformation',
       d.anlagen.widerrufsbelehrung && !d.besichtigtAm && 'Widerrufsbelehrung',
       d.anlagen.mietspiegelEinwilligung && 'Einwilligung Mietspiegel',

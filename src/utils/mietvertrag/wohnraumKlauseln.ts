@@ -38,6 +38,8 @@ export interface Absatz {
   tabelle?: TabellenZeile[];
   /** Betriebskostenaufstellung des § 4 mit Nummer, Kostenart, Verteilerschlüssel und Betrag. */
   kosten?: Kostentabelle;
+  /** Ohne Absatzabstand zum nächsten Absatz — für Gesetzestext mit vielen kurzen Zeilen. */
+  eng?: boolean;
 }
 
 export interface Paragraph {
@@ -61,7 +63,7 @@ export const AENDERUNGEN: Aenderung[] = [
   {
     paragraph: '§ 5',
     bestand: 'Wertsicherungsklausel auf Indexbasis 2000 = 100, dazu ein von der IHK zu benennender Sachverständiger, der die Miethöhe nach § 317 BGB bestimmt.',
-    neu: 'Indexmiete nach § 557b BGB auf Basis 2020 = 100 mit Nachfolgeindex-Regelung. Sachverständigenklausel gestrichen. Ohne Indexvereinbarung gilt die gesetzliche Mieterhöhung nach § 558 BGB.',
+    neu: 'Seit 08.11.2026 auf Kundenwunsch die Wertsicherungsklausel im Wortlaut der Vorlage, nur mit Basis 2020 = 100; wahlweise die ortsübliche Vergleichsmiete nach § 558 BGB oder eine Staffel. Sachverständigenklausel gestrichen.',
     grund: 'Die Basis 2000 = 100 wird vom Statistischen Bundesamt nicht mehr fortgeschrieben. Die Sachverständigenklausel stammt aus einem Gewerbeformular und ist im Wohnraummietrecht unwirksam.',
   },
   {
@@ -912,22 +914,19 @@ function mietanpassungAbsaetze(d: MietvertragDaten): Absatz[] {
   }
 
   if (d.mietanpassungArt === 'index') {
+    // Wortlaut der Kundenvorlage („Index-Klausel, sonst nichts … Unsere Vorlage wäre da super für“, Mail vom 02.11.2026).
+    // Abweichung nur bei der Basis: Das Statistische Bundesamt schreibt 2000 = 100 nicht mehr fort, der Kunde rechnet mit 2020 = 100.
     return [
       {
         nummer: '1.',
-        text: `Die Miete ist eine Indexmiete im Sinne des § 557b BGB. Maßgeblich ist der vom Statistischen Bundesamt veröffentlichte Verbraucherpreisindex für Deutschland (Basis 2020 = 100). Ausgangswert ist der Indexstand des Monats ${formatMonat(d.indexBasisMonat)} mit ${d.indexBasisWert?.toLocaleString('de-DE')} Punkten.`,
+        text: 'Wertsicherungsklausel gemäß § 557 b BGB: Verändert sich der vom Statistischen Bundesamt monatlich festgestellte Index für die Lebenshaltung aller privaten Haushalte in Deutschland, Basis 2020=100, gegenüber dem Stand des Vertragsabschlusses oder einer Neuregelung nach oben oder nach unten, so sind die Vertragspartner berechtigt, eine entsprechende prozentuale Erhöhung oder Ermäßigung des Mietzinses durch schriftliche Erklärung gegenüber dem jeweils anderen Vertragspartner geltend zu machen. Der Mietzins muss, von Erhöhungen nach §§ 559 bis 560 BGB abgesehen, jeweils mindestens 1 Jahr unverändert bleiben. Der Mieter schuldet den geänderten Mietzins von dem Beginn des übernächsten Monats an, der auf den Zugang der Erklärung folgt.',
       },
+      // Ohne Basiswerte sperrt die Pflichtprüfung das PDF; die Zeile bleibt dann weg, statt „undefined“ zu zeigen
+      ...(d.indexBasisMonat && d.indexBasisWert
+        ? [{ text: `Stand bei Vertragsabschluss: ${formatMonat(d.indexBasisMonat)}, ${d.indexBasisWert.toLocaleString('de-DE')} Punkte.` }]
+        : []),
       {
-        nummer: '2.',
-        text: 'Ändert sich der Index gegenüber dem Ausgangswert oder dem Stand der letzten Anpassung, kann jede Vertragspartei eine entsprechende prozentuale Änderung der Miete in Textform verlangen. Die Miete muss jeweils mindestens ein Jahr unverändert bleiben. Die geänderte Miete ist mit Beginn des übernächsten Monats nach Zugang der Erklärung zu zahlen.',
-      },
-      {
-        nummer: '3.',
-        text: 'Wird der Index auf eine neue Basis umgestellt oder durch einen anderen Index ersetzt, tritt der Nachfolgeindex an seine Stelle; die Umrechnung erfolgt nach den Vorgaben des Statistischen Bundesamtes.',
-      },
-      {
-        nummer: '4.',
-        text: 'Während der Geltung der Indexmiete sind Mieterhöhungen nach § 558 BGB ausgeschlossen. Erhöhungen nach §§ 559 bis 559c BGB sind nur zulässig, soweit der Vermieter die baulichen Maßnahmen aufgrund von Umständen durchgeführt hat, die er nicht zu vertreten hat (§ 557b Abs. 2 BGB).',
+        text: 'Während der Geltungsdauer einer Indexierung sind daneben nur Erhöhungen wegen baulicher Änderungen zulässig, die der Vermieter aufgrund von ihm nicht zu vertretender Umstände durchgeführt hat.',
       },
     ];
   }
@@ -975,7 +974,7 @@ function kautionAbsaetze(d: MietvertragDaten): Absatz[] {
   if (d.kautionArt === 'barkaution' && d.vermieter.kautionIban) {
     a.push({
       nummer: '2.',
-      text: `Kautionskonto: ${kontoText(d.vermieter.firmenname, d.vermieter.kautionIban, d.vermieter.kautionBic)}.`,
+      text: `Die Barkaution ist auf ein gesondertes Konto zu überweisen. Kautionskonto: ${kontoText(d.vermieter.firmenname, d.vermieter.kautionIban, d.vermieter.kautionBic)}. Als Verwendungszweck sind ${d.einheit.bezeichnung} und der Name des Mieters anzugeben.`,
     });
   }
 

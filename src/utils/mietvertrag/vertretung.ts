@@ -54,7 +54,7 @@ function nachname(name: string): string {
 /**
  * Vorschlag aus der Anmeldung: der Vertreter, dessen Nachname zum
  * Briefunterzeichner der angemeldeten E-Mail passt. Verglichen wird nur der
- * Nachname, weil die Schreibweisen auseinandergehen (live 03.11.2026:
+ * Nachname, weil Schreibweisen auseinandergehen können (bis 08.11.2026:
  * „Denis“ in den Vermieterstammdaten, „Dennis“ bei den Briefunterzeichnern).
  * Passt keiner oder mehr als einer, gibt es keinen Vorschlag — dann wird gewählt.
  */
@@ -77,10 +77,15 @@ export function unterzeichnerVorschlag(
  * Name und akademischer Titel eines Vertreters. Der Titel steht in den
  * Vermieter-Stammdaten in Klammern hinter dem Namen, etwa „Ayhan Yeyrek (M. Sc.)“
  * (Kundenwunsch 04.11.2026: unter der Unterschrift Name und darunter der Titel).
- * Im Rubrum steht nur der Name, wie in der Vorlage.
  */
 export function vertreterTeile(eintrag: string): { name: string; titel: string | null } {
   const treffer = /^(.*?)\s*\(([^()]*)\)\s*$/.exec(eintrag.trim());
   if (!treffer || !treffer[1].trim()) return { name: eintrag.trim(), titel: null };
   return { name: treffer[1].trim(), titel: treffer[2].trim() || null };
+}
+
+/** Für den Vertragskopf, wie im Vertrag des Kunden: „vertreten durch Ayhan Yeyrek, M. Sc.“ (Anmerkung vom 02.11.2026). */
+export function vertreterMitTitel(eintrag: string): string {
+  const { name, titel } = vertreterTeile(eintrag);
+  return titel ? `${name}, ${titel}` : name;
 }

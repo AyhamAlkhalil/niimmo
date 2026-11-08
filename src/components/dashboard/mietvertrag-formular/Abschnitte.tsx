@@ -913,7 +913,7 @@ export function ZahlungsterminFelder({ entwurf, setEntwurf, markierung, geaender
 
 const ANLAGEN = [
   ['hausordnung', 'Hausordnung'],
-  ['betrkvKatalog', 'Betriebskostenkatalog'],
+  ['betrkvKatalog', 'Betriebskostenverordnung'],
   ['datenschutzhinweis', 'Datenschutzinformation (Art. 13 DSGVO)'],
   ['widerrufsbelehrung', 'Widerrufsbelehrung'],
   ['mietspiegelEinwilligung', 'Einwilligung Mietspiegel (freiwillig)'],
@@ -1001,7 +1001,7 @@ export function UnterzeichnungFelder({ entwurf, setEntwurf, geaendert }: Abschni
 
 /**
  * Wer bei Einzelvertretung für den Vermieter unterschreibt (03.11.2026: „nicht beide
- * Namen … entweder Ayhan oder Dennis“). Nur diese Person steht im Vertrag; ohne Wahl
+ * Namen … entweder Ayhan oder Denis“). Nur diese Person steht im Vertrag; ohne Wahl
  * sperrt die Pflichtprüfung das PDF. Bei Gesamtvertretung oder nur einem Vertreter
  * gibt es nichts zu wählen.
  */

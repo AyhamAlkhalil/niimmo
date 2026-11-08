@@ -12,7 +12,7 @@ import { generateMietvertragPdf } from './mietvertragPdfGenerator';
 import type { MietvertragDaten } from './typen';
 import { schuetzeUmbrueche } from './vertragsLayout';
 import { geaenderteSchluessel, schluesselJeKategorie } from './verteilerschluesselObjekt';
-import { vertreterTeile } from './vertretung';
+import { vertreterMitTitel, vertreterTeile } from './vertretung';
 
 const NBSP = '\u00a0';
 
@@ -52,6 +52,8 @@ describe('Konten und Vertreter', () => {
     expect(vertreterTeile(' Denis Mikyas ')).toEqual({ name: 'Denis Mikyas', titel: null });
     expect(vertreterTeile('Denis Mikyas ()')).toEqual({ name: 'Denis Mikyas', titel: null });
     expect(vertreterTeile('(M. Sc.)')).toEqual({ name: '(M. Sc.)', titel: null });
+    expect(vertreterMitTitel('Ayhan Yeyrek (M. Sc.)')).toBe('Ayhan Yeyrek, M. Sc.');
+    expect(vertreterMitTitel('Denis Mikyas')).toBe('Denis Mikyas');
   });
 });
 
@@ -135,15 +137,77 @@ describe('PDF mit Carlito und Logo', () => {
     expect(roh).toMatch(/\/Subtype \/Image/);
 
     const text = await textMitPdfJs(blob);
-    expect(text).toContain('vertreten durch Bernd Zweiter');
+    expect(text).toContain('vertreten durch Bernd Zweiter, B. Sc.');
     expect(text).not.toContain('Anna Erste');
     expect(text).toMatch(/Vermieter Bernd Zweiter B\. Sc\./);
     expect(text).toContain('Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04');
+    // Anlage 2 ist die Verordnung aus der Kundenvorlage, vollständig bis zur Nummer 17
+    expect(text).toContain('Verordnung über die Aufstellung von Betriebskosten');
+    expect(text).toContain('17. sonstige Betriebskosten,');
+    expect(text).not.toContain('Betriebskostenkatalog');
     expect(text).not.toContain('nach fünf Jahren seit Überlassung');
     expect(text).not.toContain('Vereinbarungen über besondere Einrichtungen');
     // Mit eingebetteter Schrift komprimiert
     expect(roh).toContain('/FlateDecode');
   }, 20_000);
+
+  it('lässt keine Unterschrift allein auf einer Seite und hält das Widerrufsformular zusammen (QA 08.11.2026)', async () => {
+    const quelle = readFileSync('src/utils/mietvertrag/hausvorlage.test.ts', 'utf8');
+    const anfang = quelle.indexOf('const REFERENZ: MietvertragDaten = {');
+    const literal = quelle.slice(quelle.indexOf('{', anfang), quelle.indexOf('\n};', anfang) + 2);
+    const referenz = new Function(`return (${literal});`)() as MietvertragDaten;
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const b64 = (pfad: string) => readFileSync(pfad).toString('base64');
+    const schrift = { regular: b64('public/fonts/Carlito-Regular.ttf'), bold: b64('public/fonts/Carlito-Bold.ttf') };
+
+    // Ohne Besichtigung kommt die Widerrufsbelehrung dazu. Die lange Anschrift schiebt das Formular über die Seitengrenze.
+    for (const zusatz of [{}, { telefon: '05138 123456789', email: 'vermietung-und-verwaltung@beispiel-gruppe.example' }]) {
+      const d: MietvertragDaten = {
+        ...referenz,
+        vermieter: { ...referenz.vermieter, ...zusatz },
+        besichtigtAm: null,
+        anlagen: { ...referenz.anlagen, widerrufsbelehrung: true },
+      };
+      const blob = await generateMietvertragPdf(d, { schrift, logo: null });
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+      const seiten: string[] = [];
+      for (let i = 1; i <= doc.numPages; i++) {
+        const inhalt = await (await doc.getPage(i)).getTextContent();
+        seiten.push(inhalt.items.map(x => ('str' in x ? x.str : '')).join(' '));
+      }
+      seiten.forEach((text, i) => {
+        const rest = text.replace(/\(Datum\)|\(Vermieter\)|\(Mieter\)|Seite \d+ von \d+/g, '').trim();
+        expect(rest.length, `Seite ${i + 1} enthält nur die Unterschriftszeile`).toBeGreaterThan(40);
+      });
+      const formular = seiten.find(text => text.includes('3. Muster-Widerrufsformular'));
+      expect(formular, 'Anlage 4 fehlt').toBeDefined();
+      expect(formular).toContain('Anschrift des/der Verbraucher(s)');
+      expect(formular).toMatch(/Datum\s+Unterschrift/);
+      expect(formular).toContain('(Vermieter)');
+    }
+  }, 40_000);
+
+  it('hält den letzten Absatz des Vertrags bei der Unterschrift, wo auch immer die Seitengrenze liegt (Review 08.11.2026)', async () => {
+    const quelle = readFileSync('src/utils/mietvertrag/hausvorlage.test.ts', 'utf8');
+    const anfang = quelle.indexOf('const REFERENZ: MietvertragDaten = {');
+    const literal = quelle.slice(quelle.indexOf('{', anfang), quelle.indexOf('\n};', anfang) + 2);
+    const referenz = new Function(`return (${literal});`)() as MietvertragDaten;
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+
+    // Je Schritt rund vier Zeilen mehr: Das Vertragsende wandert so einmal über eine ganze Seite.
+    for (let schritt = 0; schritt < 15; schritt++) {
+      const d: MietvertragDaten = { ...referenz, zusatzvereinbarungen: 'Zusatz '.repeat(1 + 55 * schritt) };
+      const blob = await generateMietvertragPdf(d);
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+      const seiten: string[] = [];
+      for (let i = 1; i <= doc.numPages; i++) {
+        const inhalt = await (await doc.getPage(i)).getTextContent();
+        seiten.push(inhalt.items.map(x => ('str' in x ? x.str : '')).join(' ').replace(/\s+/g, ' '));
+      }
+      const unterschrift = seiten.find(text => text.includes('(Ort, Datum)'));
+      expect(unterschrift, `Schritt ${schritt}: Unterschrift ohne letzten Absatz`).toContain('An die Stelle der unwirksamen');
+    }
+  }, 40_000);
 
   it('wiederholt den Kopf der Kostentabelle auf der Folgeseite (Review 05.11.2026)', async () => {
     const quelle = readFileSync('src/utils/mietvertrag/hausvorlage.test.ts', 'utf8');

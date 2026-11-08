@@ -7,14 +7,16 @@
  * einbetten.
  */
 import type { Absatz, Paragraph } from './wohnraumKlauseln';
-import { positionsText, type MietvertragDaten } from './typen';
+import { BETRKV_EINLEITUNG, BETRKV_NUMMERN, BETRKV_SCHLUSS } from './betriebskostenverordnung';
+import type { MietvertragDaten } from './typen';
 
 export interface Anlage {
   kennung: string;
   titel: string;
   /** Einleitungstext über den Abschnitten. */
   vorspann?: string;
-  abschnitte: Paragraph[];
+  /** `zusammenhalten`: Der Abschnitt bleibt als Ganzes auf einer Seite (Formulare). */
+  abschnitte: (Paragraph & { zusammenhalten?: boolean })[];
   /** Eigener Unterschriftsblock am Ende der Anlage. */
   unterschrift: boolean;
 }
@@ -23,7 +25,7 @@ export function anlagenFuerVertrag(d: MietvertragDaten): Anlage[] {
   const a: Anlage[] = [];
 
   if (d.anlagen.hausordnung) a.push(hausordnung());
-  if (d.anlagen.betrkvKatalog) a.push(betriebskostenkatalog(d));
+  if (d.anlagen.betrkvKatalog) a.push(betriebskostenverordnung());
   if (d.anlagen.datenschutzhinweis) a.push(datenschutzinformation(d));
   if (d.anlagen.widerrufsbelehrung && widerrufsrechtBesteht(d)) a.push(widerrufsbelehrung(d));
   if (d.anlagen.mietspiegelEinwilligung) a.push(mietspiegelEinwilligung(d));
@@ -143,52 +145,24 @@ function hausordnung(): Anlage {
   };
 }
 
-function betriebskostenkatalog(d: MietvertragDaten): Anlage {
-  const umgelegt = d.betriebskostenPositionen.filter(p => p.umgelegt);
-  const nichtUmgelegt = d.betriebskostenPositionen.filter(p => !p.umgelegt);
-
-  const abschnitte: Paragraph[] = [
-    {
-      nummer: 'A',
-      titel: 'Umgelegte Betriebskosten',
-      absaetze: umgelegt.map<Absatz>(p => ({
-        text: `${p.nummer}  ${positionsText(p)}`,
-        linksbuendig: true,
-      })),
-    },
-  ];
-
-  if (nichtUmgelegt.length > 0) {
-    abschnitte.push({
-      nummer: 'B',
-      titel: 'Nicht umgelegte Positionen',
-      absaetze: [
-        { text: 'Die folgenden Positionen werden nicht auf den Mieter umgelegt:' },
-        ...nichtUmgelegt.map<Absatz>(p => ({
-          text: `${p.nummer}  ${positionsText(p)}`,
-          linksbuendig: true,
-        })),
-      ],
-    });
+/**
+ * Die Verordnung im Wortlaut der Kundenvorlage (05.11.2026, Anmerkung zum früheren „Betriebskostenkatalog“: „siehe unsere
+ * Verordnung über die Aufstellung von Betriebskosten“). Was umgelegt wird, steht in der Tabelle des § 4.
+ */
+function betriebskostenverordnung(): Anlage {
+  const absaetze: Absatz[] = [];
+  for (const { nummer, zeilen } of BETRKV_NUMMERN) {
+    zeilen.forEach((text, i) => absaetze.push({ ...(i === 0 ? { nummer } : {}), text, eng: i < zeilen.length - 1 }));
   }
-
-  abschnitte.push({
-    nummer: 'C',
-    titel: 'Nicht umlagefähige Kosten',
-    absaetze: [
-      {
-        text: 'Nicht umlagefähig und vom Vermieter zu tragen sind insbesondere die Kosten der Verwaltung sowie die Kosten der Instandhaltung und Instandsetzung (§ 1 Abs. 2 BetrKV). Reparaturen, Erneuerungen und die Beseitigung von Mängeln gehören dazu.',
-      },
-    ],
-  });
-
   return {
     kennung: 'Anlage 2',
-    titel: 'Betriebskostenkatalog',
-    vorspann:
-      'Umlagefähig sind nur die hier namentlich aufgeführten Betriebskosten im Sinne des § 556 Abs. 1 BGB in Verbindung mit § 2 der Betriebskostenverordnung. Sonstige Betriebskosten nach § 2 Nr. 17 BetrKV sind nur umlagefähig, soweit sie unten einzeln benannt sind.',
-    unterschrift: false,
-    abschnitte,
+    titel: 'Verordnung über die Aufstellung von Betriebskosten (Betriebskostenverordnung – BetrKV)',
+    vorspann: BETRKV_EINLEITUNG,
+    unterschrift: true,
+    abschnitte: [
+      { nummer: '', titel: '', absaetze },
+      { nummer: '', titel: '', absaetze: [{ text: BETRKV_SCHLUSS }] },
+    ],
   };
 }
 
@@ -298,6 +272,7 @@ function widerrufsbelehrung(d: MietvertragDaten): Anlage {
       {
         nummer: '3.',
         titel: 'Muster-Widerrufsformular',
+        zusammenhalten: true,
         absaetze: [
           {
             text: 'Wenn Sie den Vertrag widerrufen wollen, füllen Sie bitte dieses Formular aus und senden Sie es zurück.',
@@ -314,7 +289,8 @@ function widerrufsbelehrung(d: MietvertragDaten): Anlage {
           { text: 'Anschrift des/der Verbraucher(s): ______________________', linksbuendig: true },
           { text: '', linksbuendig: true },
           { text: '____________________          ____________________', linksbuendig: true },
-          { text: 'Datum                         Unterschrift', linksbuendig: true },
+          // Leerzeichen sind schmaler als Unterstriche: So steht „Unterschrift“ in der Vertragsschrift unter der zweiten Linie.
+          { text: `Datum${' '.repeat(42)}Unterschrift`, linksbuendig: true },
         ],
       },
     ],

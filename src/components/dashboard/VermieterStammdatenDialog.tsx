@@ -249,8 +249,8 @@ export default function VermieterStammdatenDialog({ isOpen, onClose, onGespeiche
                 placeholder="Ayhan Yeyrek (M. Sc.), Denis Mikyas (B. Sc.)"
               />
               <p className="text-xs text-muted-foreground">
-                Akademischer Titel in Klammern hinter dem Namen: Im Mietvertrag steht er unter der Unterschrift, im
-                Vertragskopf nur der Name.
+                Akademischer Titel in Klammern hinter dem Namen: Im Mietvertrag steht er im Vertragskopf und unter der
+                Unterschrift.
               </p>
               <label className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
                 <Checkbox

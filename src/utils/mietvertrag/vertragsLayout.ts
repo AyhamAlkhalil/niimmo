@@ -168,6 +168,8 @@ export interface VertragsLayout {
   /** Bricht um, wenn `benoetigt` mm nicht mehr passen. */
   umbruch(y: number, benoetigt: number): number;
   absatz(text: string, y: number, opts?: AbsatzOptionen): number;
+  /** Höhe, die `absatz` mit diesen Optionen belegen würde. */
+  absatzHoehe(text: string, opts?: AbsatzOptionen): number;
   /** „§ 4 Mietzins …“ — fett, bleibt mit den zwei folgenden Zeilen zusammen. */
   ueberschrift(text: string, y: number): number;
   kostentabelle(t: Kostentabelle, y: number): number;
@@ -233,14 +235,27 @@ export function vertragsLayout(
     }
   }
 
-  function absatz(text: string, y: number, opts: AbsatzOptionen = {}): number {
+  function umbrochen(text: string, opts: AbsatzOptionen): { zeilen: string[]; zeilenhoehe: number; x: number; breite: number; groesse: number } {
     const groesse = opts.groesse ?? GROESSE;
-    const zeilenhoehe = (ZEILE * groesse) / GROESSE;
     const eingerueckt = !!opts.nummer || !!opts.einzug;
-    const x = RAND + (eingerueckt ? EINZUG : 0);
     const breite = TEXTBREITE - (eingerueckt ? EINZUG : 0);
     setzeSchrift(groesse, opts.fett);
-    const zeilen = doc.splitTextToSize(familie === 'Carlito' ? schuetzeUmbrueche(text) : text, breite) as string[];
+    return {
+      zeilen: doc.splitTextToSize(familie === 'Carlito' ? schuetzeUmbrueche(text) : text, breite) as string[],
+      zeilenhoehe: (ZEILE * groesse) / GROESSE,
+      x: RAND + (eingerueckt ? EINZUG : 0),
+      breite,
+      groesse,
+    };
+  }
+
+  function absatzHoehe(text: string, opts: AbsatzOptionen = {}): number {
+    const { zeilen, zeilenhoehe } = umbrochen(text, opts);
+    return zeilen.length * zeilenhoehe;
+  }
+
+  function absatz(text: string, y: number, opts: AbsatzOptionen = {}): number {
+    const { zeilen, zeilenhoehe, x, breite, groesse } = umbrochen(text, opts);
     // Eine Ziffer nie allein am Seitenende: mindestens zwei Zeilen zusammenhalten
     y = umbruch(y, Math.min(zeilen.length, 2) * zeilenhoehe);
 
@@ -362,6 +377,7 @@ export function vertragsLayout(
     neueSeite,
     umbruch,
     absatz,
+    absatzHoehe,
     ueberschrift,
     kostentabelle,
     summentabelle,
