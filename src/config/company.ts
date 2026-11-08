@@ -38,8 +38,8 @@ export const COMPANY = {
   },
 
   ansprechpartner: {
-    name: "Dennis Baris Mikyas",
-    unterschrift: "Dennis Mikyas",
+    name: "Denis Baris Mikyas",
+    unterschrift: "Denis Mikyas",
     funktion: "Geschäftsführer",
     telefon: "05138 - 600 72 72",
     fax: "05138 - 600 72 79",
@@ -47,7 +47,7 @@ export const COMPANY = {
   },
 
   /** Geschäftsführer in der im Handelsregister eingetragenen Reihenfolge. */
-  geschaeftsfuehrer: "Ayhan Yeyrek, Dennis Mikyas",
+  geschaeftsfuehrer: "Ayhan Yeyrek, Denis Mikyas",
 
   register: {
     gericht: "Amtsgericht Hildesheim",

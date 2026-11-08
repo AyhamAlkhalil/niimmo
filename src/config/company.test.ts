@@ -34,7 +34,7 @@ describe('Firmenstammdaten', () => {
 
   it('führt die Fußzeilenangaben vollständig', () => {
     const zeilen = COMPANY.rechtliches.join(' ');
-    expect(zeilen).toContain('Ayhan Yeyrek, Dennis Mikyas');
+    expect(zeilen).toContain('Ayhan Yeyrek, Denis Mikyas');
     expect(zeilen).toContain('HRB 208111');
     expect(zeilen).toContain('§ 34c GewO');
     expect(zeilen).toContain(COMPANY.steuernummer);
