@@ -29,13 +29,17 @@ export const RUBRUM_EINZUG = 25.4;
 /** Erste Grundlinie einer Seite, unter dem Logo. */
 export const OBEN = 38;
 /** Letzte Grundlinie vor dem Fuß. */
-const UNTEN = 266;
+export const UNTEN = 266;
 
 export const GROESSE = 10;
 /** Einfacher Zeilenabstand bei Calibri 10 pt (12,2 pt). */
 export const ZEILE = 4.3;
 /** Abstand nach einem Absatz — die Vorlage trennt mit einer Leerzeile kleiner Schrift. */
 export const ABSTAND = 2.6;
+const UEBERSCHRIFT_VOR = 2.5;
+const UEBERSCHRIFT_NACH = 2.2;
+/** Was `ueberschrift` an Höhe belegt */
+export const UEBERSCHRIFT_HOEHE = UEBERSCHRIFT_VOR + ZEILE + UEBERSCHRIFT_NACH;
 
 const SCHWARZ: [number, number, number] = [0, 0, 0];
 const GRAU: [number, number, number] = [90, 90, 90];
@@ -276,10 +280,10 @@ export function vertragsLayout(
   }
 
   function ueberschrift(text: string, y: number): number {
-    y = umbruch(y + 2.5, 3 * ZEILE + 3);
+    y = umbruch(y + UEBERSCHRIFT_VOR, 3 * ZEILE + 3);
     setzeSchrift(GROESSE, true);
     doc.text(text, RAND, y);
-    return y + ZEILE + 2.2;
+    return y + ZEILE + UEBERSCHRIFT_NACH;
   }
 
   function linie(x: number, y: number, breite: number): void {

@@ -23,6 +23,7 @@ import {
   RUBRUM_EINZUG,
   SEITE_BREITE,
   TEXTBREITE,
+  UEBERSCHRIFT_HOEHE,
   ZEILE,
   ladeVertragsschrift,
   vertragsLayout,
@@ -35,6 +36,9 @@ const RECHTS = RAND + TEXTBREITE;
 /** Linie und Beschriftung der dreispaltigen Unterschrift einer Anlage */
 const UNTERSCHRIFT_ANLAGE_ZEILE = ZEILE + 1.5;
 const UNTERSCHRIFT_ANLAGE_HOEHE = 14 + UNTERSCHRIFT_ANLAGE_ZEILE;
+/** Abschnittstitel einer Anlage */
+const ABSCHNITT_KOPF_VOR = 1;
+const ABSCHNITT_KOPF_NACH = ZEILE + 0.6;
 
 export interface PdfMittel {
   /** Carlito als Base64; ohne Angabe wird sie geladen, null erzwingt Helvetica */
@@ -176,27 +180,28 @@ function mieterZeilen(doc: jsPDF, layout: VertragsLayout, m: MieterDaten, y: num
 
 // ─── Paragraphen ─────────────────────────────────────────────────────────────
 
+const hatText = (a: Absatz): boolean => !a.kosten && !a.tabelle && !!a.text.trim();
+
 /**
- * Absätze eines Paragraphen. `reserve` ist die Höhe, die nach dem letzten Absatz auf derselben Seite frei bleiben muss:
- * Eine Unterschrift steht nie allein auf einer Seite, ihr letzter Absatz wandert mit (Review und QA 08.11.2026).
+ * Absätze eines Paragraphen. `reserve` ist die Höhe, die danach auf derselben Seite frei bleiben muss: Eine Unterschrift
+ * steht nie allein auf einer Seite, der letzte Textabsatz wandert mit (Review und QA 08.11.2026). Tabellen lassen sich
+ * vorab nicht messen; hinter dem letzten Textabsatz steht vor einer Unterschrift keine.
  */
 function absaetzeRendern(layout: VertragsLayout, absaetze: Absatz[], y: number, reserve: number): number {
+  const anker = reserve > 0 ? absaetze.map(hatText).lastIndexOf(true) : -1;
   // Was nach einer Ziffer ohne eigene Ziffer folgt, gehört zu ihr und steht auf dem Tabstopp
   let nachZiffer = false;
   absaetze.forEach((a, i) => {
-    if (reserve > 0 && i === absaetze.length - 1 && !a.kosten && !a.tabelle && a.text.trim()) {
-      const hoehe = layout.absatzHoehe(a.text, { nummer: a.nummer, einzug: !a.nummer && nachZiffer, fett: a.bold });
-      y = layout.umbruch(y, hoehe + ABSTAND + reserve);
-    }
+    if (i === anker) y = layout.umbruch(y, absaetzeHoehe(layout, absaetze.slice(i), nachZiffer) + reserve);
     y = absatzRendern(layout, a, y, nachZiffer);
     if (a.nummer) nachZiffer = true;
   });
   return y;
 }
 
-/** Höhe, die `absaetzeRendern` für diese Absätze belegt. Tabellen kommen in den zusammengehaltenen Formularen nicht vor. */
-function absaetzeHoehe(layout: VertragsLayout, absaetze: Absatz[]): number {
-  let nachZiffer = false;
+/** Höhe, die `absaetzeRendern` für diese Absätze belegt. Tabellen zählen nur mit ihrem Abstand. */
+function absaetzeHoehe(layout: VertragsLayout, absaetze: Absatz[], nachZifferAmAnfang = false): number {
+  let nachZiffer = nachZifferAmAnfang;
   let hoehe = 0;
   for (const a of absaetze) {
     if (a.text.trim()) {
@@ -209,7 +214,15 @@ function absaetzeHoehe(layout: VertragsLayout, absaetze: Absatz[]): number {
   return hoehe;
 }
 
-function paragraphRendern(layout: VertragsLayout, p: Paragraph, y: number, reserve: number): number {
+/** Steht unter einer Überschrift nur der Absatz vor der Unterschrift, wandert die Überschrift mit ihm. */
+function einzigerAbsatzVorUnterschrift(absaetze: Absatz[], reserve: number): boolean {
+  return reserve > 0 && absaetze.filter(hatText).length === 1;
+}
+
+export function paragraphRendern(layout: VertragsLayout, p: Paragraph, y: number, reserve: number): number {
+  if (einzigerAbsatzVorUnterschrift(p.absaetze, reserve)) {
+    y = layout.umbruch(y, UEBERSCHRIFT_HOEHE + absaetzeHoehe(layout, p.absaetze) + reserve);
+  }
   y = layout.ueberschrift(`${p.nummer} ${p.titel}`, y);
   return absaetzeRendern(layout, p.absaetze, y, reserve);
 }
@@ -308,7 +321,7 @@ function beschriftung(
 // ─── Anlagen ─────────────────────────────────────────────────────────────────
 
 /** Wie „Allgemeine Hausordnung“ in der Vorlage: Titel fett und zentriert, Zwischenüberschriften fett. */
-function anlageRendern(doc: jsPDF, layout: VertragsLayout, anlage: Anlage): void {
+export function anlageRendern(doc: jsPDF, layout: VertragsLayout, anlage: Anlage): void {
   let y = layout.neueSeite() + 4;
 
   y = layout.absatz(anlage.titel, y, { fett: true, groesse: 11, zentriert: true });
@@ -322,12 +335,15 @@ function anlageRendern(doc: jsPDF, layout: VertragsLayout, anlage: Anlage): void
     const letzter = anlage.unterschrift && i === anlage.abschnitte.length - 1;
     const reserve = letzter ? UNTERSCHRIFT_ANLAGE_HOEHE : 0;
     // Ein Formular samt Unterschrift bleibt ganz auf einer Seite: Es wird ausgefüllt zurückgeschickt.
-    if (abschnitt.zusammenhalten) y = layout.umbruch(y, 1 + ZEILE + 0.6 + absaetzeHoehe(layout, abschnitt.absaetze) + reserve);
+    if (abschnitt.zusammenhalten || einzigerAbsatzVorUnterschrift(abschnitt.absaetze, reserve)) {
+      const kopf = abschnitt.titel ? ABSCHNITT_KOPF_VOR + ABSCHNITT_KOPF_NACH : 0;
+      y = layout.umbruch(y, kopf + absaetzeHoehe(layout, abschnitt.absaetze) + reserve);
+    }
     if (abschnitt.titel) {
-      y = layout.umbruch(y + 1, 3 * ZEILE);
+      y = layout.umbruch(y + ABSCHNITT_KOPF_VOR, 3 * ZEILE);
       layout.schrift(GROESSE, true);
       doc.text(abschnitt.nummer ? `${abschnitt.nummer} ${abschnitt.titel}` : abschnitt.titel, RAND, y);
-      y += ZEILE + 0.6;
+      y += ABSCHNITT_KOPF_NACH;
     }
     y = absaetzeRendern(layout, abschnitt.absaetze, y, reserve);
   });

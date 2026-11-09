@@ -5,12 +5,15 @@
  * pdf.js zurück — so wie ihn der Mieter kopieren würde.
  */
 import { readFileSync } from 'node:fs';
+import jsPDF from 'jspdf';
 import { describe, expect, it } from 'vitest';
 
 import { kreditinstitut } from '../pdf/briefLayout';
-import { generateMietvertragPdf } from './mietvertragPdfGenerator';
+import type { Anlage } from './anlagen';
+import { anlageRendern, generateMietvertragPdf, paragraphRendern } from './mietvertragPdfGenerator';
 import type { MietvertragDaten } from './typen';
-import { schuetzeUmbrueche } from './vertragsLayout';
+import { OBEN, UNTEN, schuetzeUmbrueche, vertragsLayout } from './vertragsLayout';
+import type { Absatz } from './wohnraumKlauseln';
 import { geaenderteSchluessel, schluesselJeKategorie } from './verteilerschluesselObjekt';
 import { vertreterMitTitel, vertreterTeile } from './vertretung';
 
@@ -232,5 +235,56 @@ describe('PDF mit Carlito und Logo', () => {
     );
     expect(text.match(/Vorauszahlung Verteilung EUR monatlich/g)?.length).toBeGreaterThanOrEqual(2);
     expect(text).toContain('Summe der monatlichen Vorauszahlung');
+  }, 20_000);
+});
+
+describe('Was vor einer Unterschrift steht, bleibt bei ihr (Review 08.11.2026)', () => {
+  const RESERVE = 30;
+  const TEXT = 'Wort '.repeat(60).trim();
+  const neu = () => {
+    const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+    return { doc, layout: vertragsLayout(doc, { schrift: null, logo: null }) };
+  };
+
+  it.each<[string, Absatz[], boolean]>([
+    ['einziger Absatz', [{ text: TEXT }], true],
+    ['einziger Absatz mit Leerzeile dahinter', [{ text: TEXT }, { text: '' }], true],
+    ['mehrere Absätze mit Leerzeile dahinter', [{ text: TEXT }, { text: TEXT }, { text: '' }], false],
+  ])('Paragraph: %s, an jeder Stelle der Seite', (_name, absaetze, kopfBleibtDabei) => {
+    for (let start = OBEN; start < UNTEN; start += 2) {
+      const { doc, layout } = neu();
+      let kopfSeite = 0;
+      const original = layout.ueberschrift;
+      layout.ueberschrift = (text, y) => {
+        const ergebnis = original(text, y);
+        kopfSeite = doc.getNumberOfPages();
+        return ergebnis;
+      };
+      const ende = paragraphRendern(layout, { nummer: '§ 1', titel: 'Titel', absaetze }, start, RESERVE);
+      expect(ende + RESERVE, `Start ${start}: Unterschrift passt nicht mehr auf die Seite`).toBeLessThanOrEqual(UNTEN + 0.001);
+      if (kopfBleibtDabei) expect(doc.getNumberOfPages(), `Start ${start}: Überschrift abgetrennt`).toBe(kopfSeite);
+    }
+  });
+
+  it('Anlage: Der Abschnittstitel bleibt beim einzigen Absatz vor der Unterschrift', async () => {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    for (let fuellung = 18; fuellung < 52; fuellung++) {
+      const { doc, layout } = neu();
+      const anlage: Anlage = {
+        kennung: 'Anlage 9',
+        titel: 'Prüfanlage',
+        unterschrift: true,
+        abschnitte: [
+          { nummer: '1.', titel: 'Füllung', absaetze: Array.from({ length: fuellung }, () => ({ text: 'Füllzeile' })) },
+          { nummer: '2.', titel: 'Schlussabschnitt', absaetze: [{ text: TEXT }] },
+        ],
+      };
+      anlageRendern(doc, layout, anlage);
+      const pdf = await pdfjs.getDocument({ data: new Uint8Array(doc.output('arraybuffer')) }).promise;
+      const inhalt = await (await pdf.getPage(pdf.numPages)).getTextContent();
+      const text = inhalt.items.map(x => ('str' in x ? x.str : '')).join(' ');
+      expect(text, `Füllung ${fuellung}`).toContain('(Vermieter)');
+      expect(text, `Füllung ${fuellung}: Titel abgetrennt`).toContain('2. Schlussabschnitt');
+    }
   }, 20_000);
 });
