@@ -223,10 +223,8 @@ zu einer Gesellschaft:
 | `DE59 2569 0009 1103 8616 01` | Mietkonto in vier Verträgen — Projektentwicklung & Bau GmbH und GmbH & Co. KG |
 | `DE89 2559 1413 3155 4105 00` | nur im Vertrag vom 01.01.2025, **Prüfziffer ungültig** |
 
-In der Datenbank steht `DE89 … 4105 01` derzeit als *Kautions*konto der
-Projektentwicklung & Bau GmbH — in den Verträgen wird es als *Miet*konto benutzt.
-Für die übrigen Gesellschaften haben wir nichts eingetragen: Wohin Miete und Kaution
-fließen, entscheidet NiImmo.
+Die Tabelle `vermieter` führt heute nur noch die Wohnungsbaugesellschaft mbH. Für die
+anderen Gesellschaften sind dort keine Konten hinterlegt.
 
 **Stand 08.11.2026, Wohnungsbaugesellschaft mbH:** Nach der Kundenmail vom 02.11.2026
 stehen Mietkonto `DE62 2559 1413 3155 4105 02` und Kautionskonto
