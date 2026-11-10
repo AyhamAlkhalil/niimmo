@@ -100,12 +100,12 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
               {mieterImBestand(e) && <p className="text-muted-foreground">Mieter angelegt · Mietvertrag noch offen</p>}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onOeffnen(e.id)}>
+              <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id)}>
                 <PenLine className="h-3 w-3" />
                 Fortsetzen
               </Button>
               {hatPdf && (
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void pdfOeffnen(e)}>
+                <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => void pdfOeffnen(e)}>
                   <FileText className="h-3 w-3" />
                   PDF
                 </Button>
@@ -114,7 +114,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 text-xs"
+                  className="h-8 text-xs sm:h-7"
                   disabled={mieterAnlegen.beschaeftigt}
                   title="Den Mieter schon jetzt in den Bestand übernehmen — der Mietvertrag kann warten"
                   onClick={() => void mieterAnlegen.fragen({ entwurfId: e.id, personen: e.personen })}
@@ -123,14 +123,14 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                   Mieter anlegen
                 </Button>
               )}
-              <Button size="sm" className="h-7 text-xs" onClick={() => onOeffnen(e.id, 'start')}>
+              <Button size="sm" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id, 'start')}>
                 <CheckCircle2 className="h-3 w-3" />
                 Unterschrift &amp; Start
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 text-xs text-destructive"
+                className="h-8 text-xs text-destructive sm:h-7"
                 aria-label="Entwurf verwerfen"
                 onClick={() => setVerwerfen(e)}
               >

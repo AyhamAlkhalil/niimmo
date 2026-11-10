@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { plusMonate, positionenSumme, SCHLUESSEL_ARTEN } from '@/utils/mietvertrag/entwurf';
 import {
   gleicherSchluessel,
@@ -68,7 +69,7 @@ export function MietsacheFelder({
     <div className="space-y-3">
       <Ueberschrift>Angaben zur Mietsache</Ueberschrift>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <Feldname htmlFor="einheit-bez" marke={markierung?.('einheit.bezeichnung')}>
             Einheitenbezeichnung
@@ -301,7 +302,7 @@ export function ObjektAngabenFelder({
     <div className="space-y-3">
       <Ueberschrift hinweis="Werden am Objekt gespeichert und gelten für alle weiteren Verträge.">Angaben zum Haus</Ueberschrift>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <Feldname marke={markierung?.('objekt.heizungsart')}>Heizung</Feldname>
           <Select
@@ -360,7 +361,7 @@ export function ObjektAngabenFelder({
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <Feldname htmlFor="gesamtflaeche" marke={markierung?.('objekt.gesamtwohnflaecheQm')}>
             Gesamtwohnfläche Haus (m²)
@@ -507,7 +508,7 @@ export function BetriebskostenEditor({
           Betriebskosten — Aufstellung für § 4
           {markierung?.('betriebskostenPositionen')}
         </Label>
-        <span className={stimmt ? 'text-xs text-muted-foreground' : 'text-xs font-medium text-destructive'}>
+        <span className={cn('shrink-0 whitespace-nowrap text-xs', stimmt ? 'text-muted-foreground' : 'font-medium text-destructive')}>
           {eur(summe)} von {eur(entwurf.betriebskostenVorauszahlung)} €
         </span>
       </div>
@@ -540,7 +541,7 @@ export function BetriebskostenEditor({
               />
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-1">
-                  <p className="min-w-0 flex-1 truncate text-xs" title={pos.bezeichnung}>
+                  <p className="min-w-0 flex-1 text-xs sm:truncate" title={pos.bezeichnung}>
                     <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
                   </p>
                   {istSonstigePosition(pos.nummer) && pos.nummer !== SONSTIGE_NUMMER && (
@@ -703,7 +704,7 @@ export function UebergabeFelder({ entwurf, setEntwurf, markierung, geaendert }: 
 
 export function KleinreparaturFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div className="space-y-2">
         <Feldname htmlFor="klein-einzel" marke={markierung?.('kleinreparaturEinzelgrenze')}>
           Kleinreparatur je Fall (€)
@@ -842,7 +843,7 @@ export function MietanpassungFelder({
       )}
 
       {entwurf.mietanpassungArt === 'index' && (
-        <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
+        <div className="grid grid-cols-1 gap-3 rounded-md border p-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Feldname htmlFor="index-monat" marke={markierung?.('indexBasisWert')}>
               Basismonat
@@ -868,7 +869,7 @@ export function MietanpassungFelder({
               }}
             />
           </div>
-          <p className="col-span-2 text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground sm:col-span-2">
             Maßgeblich ist der zuletzt veröffentlichte Stand bei Vertragsschluss.
           </p>
         </div>
@@ -880,7 +881,7 @@ export function MietanpassungFelder({
 /** Fälligkeit und Kautionsraten — im Generator für bestehende Verträge. */
 export function ZahlungsterminFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div className="space-y-2">
         <Feldname htmlFor="faellig" marke={markierung?.('faelligkeitWerktag')}>
           Miete fällig am … Werktag
@@ -969,7 +970,7 @@ export function ZusatzvereinbarungFeld({ entwurf, setEntwurf, geaendert }: Absch
 export function UnterzeichnungFelder({ entwurf, setEntwurf, geaendert }: AbschnittProps) {
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="ort">Ort der Unterzeichnung</Label>
           <Input

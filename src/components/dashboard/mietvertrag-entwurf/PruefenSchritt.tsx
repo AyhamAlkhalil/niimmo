@@ -167,9 +167,14 @@ export function PruefenSchritt({ gruppen, befunde, luecken, wohnraum, schritte, 
           </p>
           <ul className="divide-y">
             {gruppe.zeilen.map(z => (
-              <li key={z.feld} className="grid grid-cols-[minmax(110px,32%)_1fr_auto_auto] items-center gap-2 px-3 py-1.5 text-xs">
+              // Handy (10.11.2026): Vier Spalten ließen dem Wert wenige Zeichen, er brach buchstabenweise um.
+              // Unter sm steht der Wert deshalb in einer eigenen Zeile unter Bezeichnung, Herkunft und Stift.
+              <li
+                key={z.feld}
+                className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-xs sm:grid-cols-[minmax(110px,32%)_1fr_auto_auto] sm:gap-y-2"
+              >
                 <span className="text-muted-foreground">{z.label}</span>
-                <span className={cn('min-w-0 break-words', z.fehlt && 'font-medium text-destructive')}>
+                <span className={cn('order-last col-span-3 min-w-0 break-words sm:order-none sm:col-span-1', z.fehlt && 'font-medium text-destructive')}>
                   {z.wert || (z.fehlt ? 'fehlt' : '—')}
                   {z.wert && z.fehlt && <span className="ml-1">(unvollständig)</span>}
                 </span>

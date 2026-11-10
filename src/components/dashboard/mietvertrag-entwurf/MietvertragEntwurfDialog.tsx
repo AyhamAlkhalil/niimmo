@@ -21,6 +21,7 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
+  Eye,
   FileCheck2,
   FileSignature,
   Info,
@@ -57,9 +58,11 @@ import {
   wahrscheinlichsterVertrag,
   type EntwurfGrundlagenDaten,
 } from '@/hooks/useMietvertragEntwurf';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
 import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
 import { supabase } from '@/integrations/supabase/client';
+import { cn } from '@/lib/utils';
 import type { TablesUpdate } from '@/integrations/supabase/types';
 import { OCRProcessingService } from '@/services/ocrProcessingService';
 import { speichereEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
@@ -497,6 +500,8 @@ export function MietvertragEntwurfDialog({
   const befunde = useMemo(() => (vertrag && wohnraum ? pruefeVertragsdaten(vertrag) : []), [vertrag, wohnraum]);
   const blockiert = hatBlocker(befunde);
   const vorschau = useVertragsvorschau(vertrag, isOpen && wohnraum, blockiert);
+  // Die Vorschau-Spalte gibt es erst ab lg. Darunter kein verstecktes iframe: Es lud das PDF trotzdem (Speicher auf dem Handy).
+  const mitVorschauSpalte = useMediaQuery('(min-width: 1024px)');
   // Für das Speichern: der jeweils letzte Stand der Vorschau, auch während eines await
   const vorschauJetzt = useRef(vorschau);
   useEffect(() => {
@@ -962,16 +967,20 @@ export function MietvertragEntwurfDialog({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={o => !o && versucheSchliessen()}>
-        <DialogContent className="flex h-[94vh] max-w-[96vw] flex-col gap-0 p-0">
-          <DialogHeader className="border-b px-6 py-3">
+        {/* Handy (10.11.2026): ganzer Bildschirm, Höhe in dvh — mit vh verdeckte die Browserleiste die Fußleiste */}
+        <DialogContent className="flex h-[100dvh] max-w-full flex-col gap-0 border-0 p-0 sm:h-[94vh] sm:max-w-[96vw] sm:border">
+          <DialogHeader className="border-b py-3 pl-4 pr-12 text-left sm:px-6">
             <DialogTitle className="flex items-center gap-2">
-              <PenLine className="h-5 w-5" />
+              <PenLine className="h-5 w-5 shrink-0" />
               {entwurfId ? 'Mietvertrag fortsetzen' : 'Neuer Mietvertrag'}
-              {stand && <span className="text-sm font-normal text-muted-foreground">— {schrittTitel(schritt, wohnraum)}</span>}
+              {/* Auf dem Handy nennt die Schrittleiste den Schritt */}
+              {stand && <span className="hidden text-sm font-normal text-muted-foreground sm:inline">— {schrittTitel(schritt, wohnraum)}</span>}
             </DialogTitle>
             <DialogDescription>
               {ueberschrift && <span className="font-medium text-foreground">{ueberschrift}. </span>}
-              Bis zum Aktivieren ist alles ein Entwurf: Die Einheit bleibt frei und es entstehen keine Forderungen.
+              <span className="hidden sm:inline">
+                Bis zum Aktivieren ist alles ein Entwurf: Die Einheit bleibt frei und es entstehen keine Forderungen.
+              </span>
             </DialogDescription>
           </DialogHeader>
 
@@ -999,11 +1008,44 @@ export function MietvertragEntwurfDialog({
                 besucht={besucht}
                 wohnraum={wohnraum}
                 onWaehle={geheZu}
+                aktionSchmal={
+                  // Die Vorschau-Spalte gibt es erst ab lg; auf Handy und Tablet öffnet der Browser das PDF selbst
+                  wohnraum && schritt !== 'start' && schritt !== 'mieter' ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 shrink-0 px-2.5 text-xs lg:hidden"
+                      // Nicht gesperrt: Ein ausgegrauter Knopf zeigt auf dem Handy keinen Grund — die Meldung schon
+                      onClick={() => {
+                        if (vorschau.aktuell && vorschau.pdfBlob) {
+                          // Eigene Adresse: Die der Vorschau gibt der Hook beim nächsten Erzeugen frei, im neuen Tab
+                          // scheiterten dann Neuladen und Teilen. Synchron im Klick, sonst blockt der Browser den Tab.
+                          const adresse = URL.createObjectURL(vorschau.pdfBlob);
+                          window.open(adresse, '_blank');
+                          setTimeout(() => URL.revokeObjectURL(adresse), 5 * 60_000);
+                          return;
+                        }
+                        toast({
+                          title: 'Noch keine Vorschau',
+                          description: blockiert
+                            ? 'Für das PDF fehlen Pflichtangaben. Was fehlt, steht im Schritt „Prüfen & PDF“.'
+                            : vorschau.fehlgeschlagen
+                              ? 'Die Vorschau ließ sich nicht erzeugen. Bitte eine Angabe ändern oder den Ablauf neu öffnen.'
+                              : 'Die Vorschau wird gerade erzeugt. Bitte gleich noch einmal tippen.',
+                        });
+                      }}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      PDF ansehen
+                    </Button>
+                  ) : undefined
+                }
               />
 
               <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(460px,42%)_1fr]">
                 {/* ── Schritt ── */}
-                <div ref={formular} className="overflow-y-auto border-r p-5">
+                <div ref={formular} className="overflow-y-auto p-4 sm:p-5 lg:border-r">
                   <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>{schrittInhalt()}</UngueltigeZahlFelder.Provider>
                 </div>
 
@@ -1050,7 +1092,7 @@ export function MietvertragEntwurfDialog({
                           )}
                         </div>
                       )}
-                      <VertragsVorschau gesperrt={false} pdfUrl={vorschau.pdfUrl} erzeugt={vorschau.erzeugt} />
+                      {mitVorschauSpalte && <VertragsVorschau gesperrt={false} pdfUrl={vorschau.pdfUrl} erzeugt={vorschau.erzeugt} />}
                     </>
                   ) : (
                     <div className="flex flex-1 items-center justify-center p-8">
@@ -1068,18 +1110,27 @@ export function MietvertragEntwurfDialog({
               </div>
 
               {/* ── Fußleiste ── */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background px-5 py-3">
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" onClick={() => versucheSchliessen()} disabled={speichert}>
+              {/* Handy (10.11.2026): Weiter/Zurück oben in voller Breite, darunter Speichern und Mieter anlegen, der Status
+                  in eigener Zeile — vorher lief die Leiste rechts aus dem Bild. Abbrechen übernimmt dort das X im Kopf. */}
+              <div className="flex flex-col-reverse gap-2 border-t bg-background px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:px-5 sm:pb-3">
+                <div className="flex flex-wrap items-center gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
+                  <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => versucheSchliessen()} disabled={speichert}>
                     Abbrechen
                   </Button>
-                  <Button variant="outline" onClick={() => void speichern()} disabled={speichert || blockiertWeil || zahlFehler}>
+                  <Button
+                    variant="outline"
+                    className="px-3 sm:px-5"
+                    onClick={() => void speichern()}
+                    disabled={speichert || blockiertWeil || zahlFehler}
+                  >
                     {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Zwischenspeichern
+                    <span className="sm:hidden">Speichern</span>
+                    <span className="hidden sm:inline">Zwischenspeichern</span>
                   </Button>
                   {anzulegendePersonen(personen).length > 0 && (
                     <Button
                       variant="outline"
+                      className="px-3 sm:px-5"
                       onClick={() =>
                         void mieterAnlegen.fragen({
                           entwurfId: id,
@@ -1101,17 +1152,19 @@ export function MietvertragEntwurfDialog({
                       Mieter anlegen
                     </Button>
                   )}
-                  <span className={ungespeichert ? 'text-xs text-warning' : 'text-xs text-muted-foreground'}>{statusText}</span>
+                  <span className={cn('basis-full text-xs sm:basis-auto', ungespeichert ? 'text-warning' : 'text-muted-foreground')}>
+                    {statusText}
+                  </span>
                   {zahlFehler && (
-                    <span role="alert" className="text-xs text-destructive">
+                    <span role="alert" className="basis-full text-xs text-destructive sm:basis-auto">
                       {EURO_BETRAG_HINWEIS}
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap [&>button]:flex-1 sm:[&>button]:flex-none">
                   {blockiertWeil && !speichert && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <span className="flex basis-full items-center gap-1 text-xs text-muted-foreground sm:basis-auto">
                       <Loader2 className="h-3 w-3 animate-spin" />
                       {liestSelbstauskunft ? 'Selbstauskunft wird gelesen …' : 'Vorvertrag wird gelesen …'}
                     </span>

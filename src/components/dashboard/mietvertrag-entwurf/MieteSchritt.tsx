@@ -80,7 +80,7 @@ export function MieteSchritt({
     <div className="space-y-5">
       {/* ── Laufzeit ── */}
       <Abschnitt titel="Laufzeit">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Feldname htmlFor="mietbeginn" marke={markierung?.('mietbeginn')}>
               Mietbeginn
@@ -122,7 +122,7 @@ export function MieteSchritt({
 
         {befristet && (
           <div className="space-y-2 rounded-md border p-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <Label htmlFor="vertragsende" className="text-xs">
                   befristet bis
@@ -224,7 +224,7 @@ export function MieteSchritt({
 
       {/* ── Miete und Nebenkosten ── */}
       <Abschnitt titel="Miete und Nebenkosten">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Feldname htmlFor="kaltmiete" marke={markierung?.('kaltmiete')}>
               Kaltmiete (€)
@@ -266,7 +266,7 @@ export function MieteSchritt({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {entwurf.betriebskostenModus !== 'inklusiv' ? (
             <div className="space-y-2">
               <Feldname htmlFor="bk" marke={markierung?.('betriebskostenVorauszahlung')}>
@@ -305,7 +305,7 @@ export function MieteSchritt({
 
       {/* ── Kaution ── */}
       <Abschnitt titel="Kaution">
-        <div className="grid grid-cols-[1.2fr_1fr_0.8fr] gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.2fr_1fr_0.8fr]">
           <div className="space-y-2">
             <Feldname marke={markierung?.('kautionArt')}>Art</Feldname>
             <Select value={entwurf.kautionArt} onValueChange={(v: KautionArt) => setze('kautionArt', v)}>
@@ -351,7 +351,7 @@ export function MieteSchritt({
 
       {/* ── Zahlung ── */}
       <Abschnitt titel="Zahlung">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-2">
             <Feldname htmlFor="faellig" marke={markierung?.('faelligkeitWerktag')}>
               Fällig am … Werktag
@@ -368,7 +368,7 @@ export function MieteSchritt({
           </div>
         </div>
         {entwurf.lastschrift ? (
-          <div className="grid grid-cols-2 gap-2 rounded-md border p-3">
+          <div className="grid grid-cols-1 gap-2 rounded-md border p-3 sm:grid-cols-2">
             <Input
               placeholder="IBAN des Mieters"
               aria-label="IBAN des Mieters"
@@ -431,7 +431,7 @@ export function MieteSchritt({
           <Abschnitt titel="Mietpreisbremse">
             <div className="space-y-2 rounded-md border border-warning/40 bg-warning/5 p-3">
               <p className="text-xs">{entwurf.objekt.ort} gilt als angespannter Wohnungsmarkt.</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Feldname htmlFor="vormiete" marke={markierung?.('vormieteNetto')}>
                     <span className="text-xs">Vormiete netto (€)</span>

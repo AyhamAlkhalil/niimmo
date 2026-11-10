@@ -231,7 +231,7 @@ export function InteressentenAbschnitt({
                 )}
 
                 {p.istUnternehmen ? (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <Input
                       placeholder="Firmenname"
                       value={p.firmenname ?? ''}
@@ -338,7 +338,7 @@ export function InteressentenAbschnitt({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <Input
                     type="email"
                     placeholder="E-Mail"
