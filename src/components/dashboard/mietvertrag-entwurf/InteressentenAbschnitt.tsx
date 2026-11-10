@@ -286,7 +286,8 @@ export function InteressentenAbschnitt({
                             {m.ist_unternehmen ? m.firmenname : `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()}
                             {m.geburtsdatum ? `, geb. ${datumDe(m.geburtsdatum)}` : ''}
                             {m.hauptmail ? ` · ${m.hauptmail}` : ''}
-                            {bezug ? ` · ${bezug}` : ''}
+                            {/* Seit 10.11.2026 gibt es Mieter vor dem Vertrag („Mieter anlegen“) — kenntlich machen */}
+                            {` · ${bezug ?? 'ohne Mietvertrag'}`}
                           </span>
                           <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => verwende(p, m)}>
                             Diesen Datensatz verwenden
@@ -409,7 +410,7 @@ export function InteressentenAbschnitt({
                         </span>
                         {m.geburtsdatum && <span className="text-muted-foreground">, geb. {datumDe(m.geburtsdatum)}</span>}
                         <span className="block text-xs text-muted-foreground">
-                          {[bezug, m.hauptmail, m.telnr].filter(Boolean).join(' · ') || 'ohne Vertrag und Kontaktdaten'}
+                          {[bezug ?? 'ohne Mietvertrag', m.hauptmail, m.telnr].filter(Boolean).join(' · ')}
                         </span>
                       </button>
                     </li>

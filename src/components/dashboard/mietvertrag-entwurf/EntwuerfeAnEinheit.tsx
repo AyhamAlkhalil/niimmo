@@ -2,31 +2,21 @@
  * Offene Mietvertragsentwürfe einer Einheit auf der Einheitskarte, mit ihrem
  * Stand im Ablauf. Ein Entwurf belegt die Einheit nicht — er steht hier, bis
  * er aktiviert oder verworfen wird. Seit dem 10.11.2026 lassen sich seine
- * Mitmieter hier auch ohne Vertrag anlegen („Mieter anlegen“).
+ * Mitmieter hier auch ohne Vertrag anlegen („Mieter anlegen“) und beim
+ * Verwerfen wieder löschen (EntwurfVerwerfen.tsx).
  */
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, FileText, Loader2, PenLine, Trash2, UserPlus } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, PenLine, Trash2, UserPlus } from 'lucide-react';
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { useActivityLog } from '@/hooks/useActivityLog';
 import { useMietvertragEntwuerfe } from '@/hooks/useMietvertragEntwurf';
-import { entwurfDateiLink, verwirfEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
+import { entwurfDateiLink, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
 import { anzulegendePersonen, hatNamen } from '@/utils/mietvertrag/entwurf';
 import { istSchrittId, schrittTitel, type SchrittId } from '@/utils/mietvertrag/entwurfProzess';
 
+import { EntwurfVerwerfen } from './EntwurfVerwerfen';
 import { useMieterAnlegen } from './MieterAnlegen';
 
 interface Props {
@@ -57,11 +47,8 @@ function mieterImBestand(e: EntwurfZeile): boolean {
 
 export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { logActivity } = useActivityLog();
   const { data, error } = useMietvertragEntwuerfe();
   const [verwerfen, setVerwerfen] = useState<EntwurfZeile | null>(null);
-  const [verwirft, setVerwirft] = useState(false);
   const mieterAnlegen = useMieterAnlegen();
 
   const entwuerfe = (data ?? []).filter(e => e.einheitId === einheitId);
@@ -88,22 +75,6 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
     } catch (err) {
       fenster?.close();
       toast({ title: 'PDF nicht abrufbar', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
-    }
-  }
-
-  async function verwerfenBestaetigt() {
-    if (!verwerfen) return;
-    setVerwirft(true);
-    try {
-      await verwirfEntwurf(verwerfen);
-      logActivity('mietvertrag_entwurf_verworfen', 'mietvertrag_entwurf', verwerfen.id);
-      await queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwuerfe'] });
-      toast({ title: 'Entwurf verworfen', description: 'Entwurf, PDF und Selbstauskunft sind gelöscht.' });
-      setVerwerfen(null);
-    } catch (err) {
-      toast({ title: 'Verwerfen fehlgeschlagen', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
-    } finally {
-      setVerwirft(false);
     }
   }
 
@@ -170,33 +141,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
         );
       })}
 
-      <AlertDialog open={!!verwerfen} onOpenChange={o => !o && !verwirft && setVerwerfen(null)}>
-        <AlertDialogContent onClick={e => e.stopPropagation()}>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Entwurf verwerfen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {verwerfen ? namen(verwerfen) : ''} — Entwurf, Entwurfs-PDF und Selbstauskunft werden gelöscht.{' '}
-              {verwerfen && verwerfen.personen.some(p => p.rolle === 'mitmieter' && p.mieterId)
-                ? 'Mieter, die schon im Bestand sind, bleiben dort.'
-                : 'Ein Mieter wurde für den Entwurf noch nicht angelegt.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={verwirft}>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={verwirft}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={ev => {
-                ev.preventDefault();
-                void verwerfenBestaetigt();
-              }}
-            >
-              {verwirft && <Loader2 className="h-4 w-4 animate-spin" />}
-              Verwerfen
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <EntwurfVerwerfen entwurf={verwerfen} namen={verwerfen ? namen(verwerfen) : ''} onSchliessen={() => setVerwerfen(null)} />
       {mieterAnlegen.dialog}
     </div>
   );

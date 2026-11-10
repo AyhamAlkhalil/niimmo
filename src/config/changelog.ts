@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.10.0",
+    datum: "2026-11-10",
+    aenderungen: [
+      { art: "neu", titel: "Mieter ohne Mietvertrag löschen – beim Verwerfen des Entwurfs auf Wunsch mit, sonst über die Suche" },
+    ],
+  },
+  {
     version: "1.9.9",
     datum: "2026-11-10",
     aenderungen: [

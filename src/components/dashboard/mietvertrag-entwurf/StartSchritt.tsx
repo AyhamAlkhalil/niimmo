@@ -23,6 +23,7 @@ import { checkContractOverlap } from '@/utils/contractOverlapValidation';
 import { hatNamen, monateNachzuholen, rund2 } from '@/utils/mietvertrag/entwurf';
 import type { SchrittId } from '@/utils/mietvertrag/entwurfProzess';
 import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
+import { angelegteMieterAusAnderen, namensAufzaehlung } from '@/utils/mieterOhneVertrag';
 
 interface Props {
   /** Gespeicherter Stand; `null`, solange der Entwurf nie gespeichert wurde. */
@@ -92,6 +93,7 @@ export function StartSchritt({
 
   const [datei, setDatei] = useState<File | null>(null);
   const [andereVerwerfen, setAndereVerwerfen] = useState(true);
+  const angelegte = angelegteMieterAusAnderen(andere, entwurf?.personen ?? []);
   const [beginnBestaetigt, setBeginnBestaetigt] = useState(false);
   const [ueberschneidung, setUeberschneidung] = useState<string | null>(null);
   const [ueberschneidungBestaetigt, setUeberschneidungBestaetigt] = useState(false);
@@ -345,6 +347,9 @@ export function StartSchritt({
                 <Label htmlFor="andere" className="text-sm font-normal leading-snug">
                   {andere.length === 1 ? 'Den anderen Entwurf' : `Die anderen ${andere.length} Entwürfe`} dieser Einheit verwerfen
                   — samt Interessentendaten und Selbstauskunft.
+                  {/* Seit 10.11.2026 können dort schon Mieter angelegt sein; sie bleiben, löschen geht über die Suche */}
+                  {angelegte.length > 0 &&
+                    ` Schon angelegte Mieter (${namensAufzaehlung(angelegte)}) bleiben im Bestand; ohne Mietvertrag lassen sie sich über die Suche löschen.`}
                 </Label>
               </div>
             )}

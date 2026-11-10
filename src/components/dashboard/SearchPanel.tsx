@@ -11,6 +11,8 @@ import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 import { ilikeInSpalten, suchwoerter } from "@/utils/suchbegriff";
 import { alleSeiten } from "@/utils/supabaseSeiten";
 import { mieterOhneVertragTreffer, type EntwurfFuerSuche, type MieterOhneVertragRoh, type MieterOhneVertragTreffer } from "@/utils/mieterOhneVertrag";
+import { useUserRole } from "@/hooks/useUserRole";
+import { MieterOhneVertragLoeschen } from "@/components/dashboard/MieterOhneVertragLoeschen";
 
 const LEER = { mietvertraege: [], mieterOhneVertrag: [] as MieterOhneVertragTreffer[], immobilien: [], einheiten: [], versicherungen: [], darlehen: [], dokumente: [] };
 
@@ -27,6 +29,7 @@ interface SearchPanelProps {
 
 export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenSelect }: SearchPanelProps) => {
   const [searchTerm, setSearchTerm] = useState("");
+  const { isAdmin } = useUserRole();
 
   const { data: searchResults, isError: sucheFehler } = useQuery({
     queryKey: ['search', searchTerm],
@@ -354,10 +357,16 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                       }
                       onClick={m.immobilieId ? () => handleImmobilieClick(m.immobilieId!, m.einheitId ?? undefined) : undefined}
                     >
-                      <p className="font-medium text-foreground">{highlight(m.name)}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {m.immobilieId ? `Entwurf an ${m.ort ?? 'einer Einheit'} · Mietvertrag noch offen` : 'Kein Mietvertrag'}
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground">{highlight(m.name)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {m.immobilieId ? `Entwurf an ${m.ort ?? 'einer Einheit'} · Mietvertrag noch offen` : 'Kein Mietvertrag'}
+                          </p>
+                        </div>
+                        {/* Nur ohne Entwurf: Steht er in einem, wird er dort mit dem Entwurf verworfen. Admins sehen alle Entwürfe. */}
+                        {isAdmin && !m.einheitId && <MieterOhneVertragLoeschen mieter={m} />}
+                      </div>
                     </div>
                   ))}
                 </div>
