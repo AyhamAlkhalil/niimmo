@@ -129,12 +129,13 @@ export function findeKategorieNachName(
 
 /**
  * Verteilerschlüssel, für die eine Verteilung berechnet werden kann.
- * `individuell` und `verbrauch` sind in Altdaten vorhanden, haben aber keine
- * Datengrundlage (es gibt keine Verbrauchserfassung je Kostenart) — sie werden
- * wie `qm` gerechnet und müssen im UI sichtbar gemacht werden, damit die
- * Abweichung nicht unbemerkt in die Abrechnung läuft.
+ * `verbrauch` seit 10.11.2026: Schritt 2 erfasst den Verbrauch je Nutzungsperiode
+ * (utils/nebenkostenVerbrauch.ts), fehlt er, sperrt Schritt 3. `individuell` ist in
+ * Altdaten vorhanden, hat aber keine Datengrundlage — es wird wie `qm` gerechnet
+ * und muss im UI sichtbar sein, damit die Abweichung nicht unbemerkt in die
+ * Abrechnung läuft.
  */
-export const BERECHENBARE_SCHLUESSEL = ["qm", "personen", "gleich"] as const;
+export const BERECHENBARE_SCHLUESSEL = ["qm", "personen", "gleich", "verbrauch"] as const;
 
 export function istBerechenbarerSchluessel(schluessel: string | null | undefined): boolean {
   return !!schluessel && (BERECHENBARE_SCHLUESSEL as readonly string[]).includes(schluessel);

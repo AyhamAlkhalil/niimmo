@@ -2203,6 +2203,73 @@ export type Database = {
           },
         ]
       }
+      nebenkosten_verbrauch: {
+        Row: {
+          abrechnungsjahr: number
+          aktualisiert_am: string
+          einheit_id: string
+          erfasst_von: string | null
+          erstellt_am: string
+          id: string
+          immobilie_id: string
+          kategorie: string
+          mietvertrag_id: string | null
+          verbrauch: number
+          zeitraum_bis: string
+          zeitraum_von: string
+        }
+        Insert: {
+          abrechnungsjahr: number
+          aktualisiert_am?: string
+          einheit_id: string
+          erfasst_von?: string | null
+          erstellt_am?: string
+          id?: string
+          immobilie_id: string
+          kategorie: string
+          mietvertrag_id?: string | null
+          verbrauch: number
+          zeitraum_bis: string
+          zeitraum_von: string
+        }
+        Update: {
+          abrechnungsjahr?: number
+          aktualisiert_am?: string
+          einheit_id?: string
+          erfasst_von?: string | null
+          erstellt_am?: string
+          id?: string
+          immobilie_id?: string
+          kategorie?: string
+          mietvertrag_id?: string | null
+          verbrauch?: number
+          zeitraum_bis?: string
+          zeitraum_von?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nebenkosten_verbrauch_einheit_id_fkey"
+            columns: ["einheit_id"]
+            isOneToOne: false
+            referencedRelation: "einheiten"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nebenkosten_verbrauch_immobilie_id_fkey"
+            columns: ["immobilie_id"]
+            isOneToOne: false
+            referencedRelation: "immobilien"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nebenkosten_verbrauch_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       nebenkosten_zahlungen: {
         Row: {
           einheit_id: string | null

@@ -106,7 +106,7 @@ export interface BetriebskostenPosition {
   bezeichnung: string;
   /** Wird diese Position umgelegt? */
   umgelegt: boolean;
-  /** qm | personen | gleich; in älteren Daten auch einheit | verbrauch | nutzer */
+  /** qm | personen | gleich | verbrauch (seit 10.11.2026); in älteren Daten auch einheit | nutzer */
   schluessel: string;
   /**
    * Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt —
@@ -173,6 +173,9 @@ export const VERTEILERSCHLUESSEL: { key: string; name: string }[] = [
   { key: 'qm', name: 'Wohnfläche' },
   { key: 'personen', name: 'Personenzahl' },
   { key: 'gleich', name: 'Einheit zu gleichen Teilen' },
+  // Seit 10.11.2026 (Kundenmeldung „da fehlt die Option: Nach tatsächlichem Verbrauch“): Die Abrechnung erfasst den
+  // Verbrauch je Nutzungsperiode in Schritt 2 und sperrt, solange einer fehlt (utils/nebenkostenVerbrauch.ts)
+  { key: 'verbrauch', name: 'tatsächlichem Verbrauch' },
 ];
 
 /** Altwerte gleicher Bedeutung zusammenführen: „einheit" verteilt wie „gleich". */
@@ -183,7 +186,6 @@ export function gleicherSchluessel(a: string | null | undefined, b: string | nul
 
 const ALTE_SCHLUESSEL = new Map([
   ['einheit', 'Einheit zu gleichen Teilen'],
-  ['verbrauch', 'erfasstem Verbrauch'],
   ['nutzer', 'Nutzerzahl'],
   ['individuell', 'gesonderter Vereinbarung'],
 ]);

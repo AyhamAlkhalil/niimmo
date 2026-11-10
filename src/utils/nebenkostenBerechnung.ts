@@ -18,7 +18,17 @@
 import { differenceInCalendarDays, format, parseISO } from "date-fns";
 import { getVertragsende } from "@/utils/contractUtils";
 
-export type VerteilerSchluessel = "qm" | "personen" | "gleich";
+/**
+ * „verbrauch“ seit 10.11.2026: Anteil = eigener erfasster Verbrauch der Nutzungsperiode durch die Summe aller
+ * Perioden (utils/nebenkostenVerbrauch.ts). Vorher wurde ein gespeichertes „verbrauch“ still nach Wohnfläche gerechnet.
+ */
+export type VerteilerSchluessel = "qm" | "personen" | "gleich" | "verbrauch";
+
+/** Erfasster Verbrauch einer Kostenart: der Wert dieser Periode (null = nicht eingetragen) und die Summe aller. */
+export interface VerbrauchDerPeriode {
+  eigen: number | null;
+  gesamt: number;
+}
 
 /** Tage inklusive beider Endpunkte. */
 export function tageInZeitraum(von: Date, bis: Date): number {
@@ -155,18 +165,25 @@ export function berechneBezugsgroessen(
 /**
  * Anteil einer Nutzungsperiode an den Gesamtkosten einer Kategorie (0..1).
  *
- * Bei `personen` ist der Zeitanteil bereits in den Personentagen enthalten;
- * bei `qm` und `gleich` wird er separat multipliziert. Über alle Perioden
- * (inkl. Leerstand) summiert sich das Ergebnis auf 1.
+ * Bei `personen` ist der Zeitanteil bereits in den Personentagen enthalten,
+ * bei `verbrauch` im erfassten Verbrauch der Periode; bei `qm` und `gleich`
+ * wird er separat multipliziert. Über alle Perioden (inkl. Leerstand)
+ * summiert sich das Ergebnis auf 1 — bei `verbrauch` nur, wenn jede Periode
+ * einen Wert hat. Fehlt einer, ist der Anteil 0 und Schritt 3 sperrt.
  */
 export function berechneAnteil(
   periode: Nutzungsperiode,
   schluessel: VerteilerSchluessel,
-  bezug: Bezugsgroessen
+  bezug: Bezugsgroessen,
+  verbrauch?: VerbrauchDerPeriode
 ): number {
   const zeitanteil = bezug.gesamtTage > 0 ? periode.tage / bezug.gesamtTage : 0;
 
   switch (schluessel) {
+    case "verbrauch":
+      // Kein Ersatz nach Fläche: ohne erfassten Verbrauch gibt es keinen Anteil
+      if (!verbrauch || verbrauch.eigen === null || !(verbrauch.gesamt > 0)) return 0;
+      return verbrauch.eigen / verbrauch.gesamt;
     case "personen":
       if (bezug.personentage > 0) {
         return (periode.personen * periode.tage) / bezug.personentage;
@@ -188,9 +205,12 @@ export function berechneAnteil(
 export function bezugsgroesseFuerSchluessel(
   schluessel: VerteilerSchluessel,
   periode: Nutzungsperiode,
-  bezug: Bezugsgroessen
+  bezug: Bezugsgroessen,
+  verbrauch?: VerbrauchDerPeriode
 ): { gesamt: number; anteilig: number } {
   switch (schluessel) {
+    case "verbrauch":
+      return { gesamt: verbrauch?.gesamt ?? 0, anteilig: verbrauch?.eigen ?? 0 };
     case "personen":
       return { gesamt: bezug.personentage, anteilig: periode.personen * periode.tage };
     case "gleich":

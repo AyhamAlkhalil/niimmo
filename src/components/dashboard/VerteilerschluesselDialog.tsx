@@ -3,9 +3,11 @@
  * Erreichbar im Objektdetail unter „Für Mietverträge“ und im Ablauf „Neuer
  * Mietvertrag“ beim Schritt Betriebskosten. Gespeichert wird an der
  * Nebenkostenart; dieselben Werte nutzen Vertrag und Betriebskostenabrechnung.
+ * Seit 10.11.2026 auch „nach tatsächlichem Verbrauch“ — mit der Zählerausstattung
+ * des Hauses als Hinweis, denn ohne Zähler in jeder Einheit fehlt der Abrechnung ein Wert.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -17,6 +19,8 @@ import { findeOderErstelleNebenkostenart, nebenkostenartenKey, useNebenkostenart
 import { supabase } from '@/integrations/supabase/client';
 import { VERTEILERSCHLUESSEL, verteilerschluesselName } from '@/utils/mietvertrag/typen';
 import { geaenderteSchluessel, schluesselJeKategorie } from '@/utils/mietvertrag/verteilerschluesselObjekt';
+import { traegtBetriebskosten } from '@/utils/nebenkostenBerechnung';
+import { heizkostenHinweis, zaehlerAusstattung } from '@/utils/nebenkostenVerbrauch';
 
 interface Props {
   immobilieId: string;
@@ -33,6 +37,20 @@ export function VerteilerschluesselDialog({ immobilieId, offen, onOpenChange, on
   const zeilen = useMemo(() => schluesselJeKategorie(arten.data ?? []), [arten.data]);
   const [auswahl, setAuswahl] = useState<Record<string, string>>({});
   const [speichert, setSpeichert] = useState(false);
+  // Nur für den Hinweis bei „Verbrauch“; ein Ladefehler lässt ihn weg, sperrt aber nichts
+  const einheiten = useQuery({
+    queryKey: ['verteilerschluessel-zaehler', immobilieId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('einheiten')
+        .select('einheitentyp, kaltwasser_zaehler, warmwasser_zaehler')
+        .eq('immobilie_id', immobilieId);
+      if (error) throw error;
+      // Wie die Abrechnung: Garagen und Stellplätze tragen keine Betriebskosten
+      return (data ?? []).filter(e => traegtBetriebskosten(e.einheitentyp));
+    },
+    enabled: offen && !!immobilieId,
+  });
 
   // Bei jedem Öffnen mit dem gespeicherten Stand beginnen
   useEffect(() => {
@@ -90,6 +108,17 @@ export function VerteilerschluesselDialog({ immobilieId, offen, onOpenChange, on
           </DialogDescription>
         </DialogHeader>
 
+        {zeilen.some(z => (auswahl[z.kategorie.id] ?? z.schluessel) === 'verbrauch') && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              Nach Verbrauch nur wählen, wenn jede Wohnung einen Zähler für diese Kosten hat und zu Jahresbeginn,
+              Jahresende und bei jedem Mieterwechsel abgelesen wird. Die Betriebskostenabrechnung verlangt dann je
+              Mieter und Leerstand den Verbrauch des Jahres und rechnet nicht, solange einer fehlt.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {arten.isLoading ? (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -102,42 +131,54 @@ export function VerteilerschluesselDialog({ immobilieId, offen, onOpenChange, on
           </Alert>
         ) : (
           <div className="divide-y rounded-md border">
-            {zeilen.map(z => (
-              <div key={z.kategorie.id} className="grid grid-cols-[1fr_250px] items-center gap-3 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm">{z.kategorie.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {z.vertragsPositionen.length > 0 ? `im Vertrag ${z.vertragsPositionen.join(', ')}` : ''}
-                    {!z.umlagefaehig
-                      ? ' · am Objekt nicht umlagefähig'
-                      : z.wirdAngelegt
-                        ? auswahl[z.kategorie.id] && auswahl[z.kategorie.id] !== z.schluessel
-                          ? ' · wird am Objekt angelegt'
-                          : ' · Vorgabe, am Objekt nicht angelegt'
-                        : !z.gepflegt && ' · Vorgabe'}
-                  </p>
-                </div>
-                <Select
-                  value={auswahl[z.kategorie.id] ?? z.schluessel}
-                  onValueChange={v => setAuswahl(a => ({ ...a, [z.kategorie.id]: v }))}
-                  disabled={speichert || !z.umlagefaehig}
-                >
-                  <SelectTrigger aria-label={`${z.kategorie.name}: Verteilerschlüssel`} className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {VERTEILERSCHLUESSEL.map(v => (
-                      <SelectItem key={v.key} value={v.key}>
-                        nach {v.name}
-                      </SelectItem>
-                    ))}
-                    {!VERTEILERSCHLUESSEL.some(v => v.key === z.schluessel) && (
-                      <SelectItem value={z.schluessel}>nach {verteilerschluesselName(z.schluessel)}</SelectItem>
+            {zeilen.map(z => {
+              const gewaehlt = auswahl[z.kategorie.id] ?? z.schluessel;
+              const zaehler = gewaehlt === 'verbrauch' ? zaehlerAusstattung(z.kategorie.id, einheiten.data ?? []) : null;
+              const heizung = gewaehlt === 'verbrauch' ? heizkostenHinweis(z.kategorie.id) : null;
+              return (
+                <div key={z.kategorie.id} className="grid grid-cols-[1fr_250px] items-center gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm">{z.kategorie.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {z.vertragsPositionen.length > 0 ? `im Vertrag ${z.vertragsPositionen.join(', ')}` : ''}
+                      {!z.umlagefaehig
+                        ? ' · am Objekt nicht umlagefähig'
+                        : z.wirdAngelegt
+                          ? auswahl[z.kategorie.id] && auswahl[z.kategorie.id] !== z.schluessel
+                            ? ' · wird am Objekt angelegt'
+                            : ' · Vorgabe, am Objekt nicht angelegt'
+                          : !z.gepflegt && ' · Vorgabe'}
+                    </p>
+                    {zaehler && (
+                      <p className={zaehler.mit < zaehler.gesamt ? 'text-xs text-warning' : 'text-xs text-muted-foreground'}>
+                        {zaehler.name} in {zaehler.mit} von {zaehler.gesamt} Einheiten
+                        {zaehler.mit < zaehler.gesamt && ' — ohne Zähler fehlt dort der Verbrauch'}
+                      </p>
                     )}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
+                    {heizung && <p className="text-xs text-warning">{heizung}</p>}
+                  </div>
+                  <Select
+                    value={auswahl[z.kategorie.id] ?? z.schluessel}
+                    onValueChange={v => setAuswahl(a => ({ ...a, [z.kategorie.id]: v }))}
+                    disabled={speichert || !z.umlagefaehig}
+                  >
+                    <SelectTrigger aria-label={`${z.kategorie.name}: Verteilerschlüssel`} className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {VERTEILERSCHLUESSEL.map(v => (
+                        <SelectItem key={v.key} value={v.key}>
+                          nach {v.name}
+                        </SelectItem>
+                      ))}
+                      {!VERTEILERSCHLUESSEL.some(v => v.key === z.schluessel) && (
+                        <SelectItem value={z.schluessel}>nach {verteilerschluesselName(z.schluessel)}</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
           </div>
         )}
 

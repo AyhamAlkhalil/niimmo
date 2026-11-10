@@ -40,6 +40,7 @@ import {
   Building2,
   User,
   Loader2,
+  Gauge,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { de } from "date-fns/locale";
@@ -54,7 +55,9 @@ import {
 import {
   useKostenpositionen,
   useNebenkostenarten,
+  useNebenkostenVerbrauch,
   useInvalidateNebenkosten,
+  nebenkostenVerbrauchKey,
   positionenImZeitraum,
 } from "@/hooks/useNebenkostenDaten";
 import {
@@ -65,10 +68,17 @@ import {
   ermittlePerioden,
   kostenAnteilImZeitraum,
   tageInZeitraum,
+  traegtBetriebskosten,
   type Nutzungsperiode,
   type VerteilerSchluessel,
 } from "@/utils/nebenkostenBerechnung";
 import { trenneKostenartenNachSumme } from "@/utils/nebenkostenGutschrift";
+import {
+  verbrauchAusEingabe,
+  verbrauchFuer,
+  verbrauchsBezug,
+  type PeriodeFuerVerbrauch,
+} from "@/utils/nebenkostenVerbrauch";
 
 interface NebenkostenStep2VerteilungProps {
   immobilieId: string;
@@ -94,6 +104,8 @@ export function NebenkostenStep2Verteilung({
   const invalidate = useInvalidateNebenkosten(immobilieId);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [personenEntwurf, setPersonenEntwurf] = useState<Record<string, string>>({});
+  // Eingetippter, noch nicht gespeicherter Verbrauch je Kostenart und Nutzungsperiode (verbrauchFeld)
+  const [verbrauchEntwurf, setVerbrauchEntwurf] = useState<Record<string, string>>({});
 
   const abrStart = parseISO(`${selectedYear}-01-01`);
   const abrEnde = parseISO(`${selectedYear}-12-31`);
@@ -137,6 +149,11 @@ export function NebenkostenStep2Verteilung({
 
   const { data: alleKostenpositionen } = useKostenpositionen(immobilieId);
   const { data: nebenkostenarten } = useNebenkostenarten(immobilieId);
+  const {
+    data: verbrauchErfassungen,
+    isLoading: verbrauchLaedt,
+    isError: verbrauchFehler,
+  } = useNebenkostenVerbrauch(immobilieId, selectedYear);
 
   const kostenpositionen = useMemo(
     () => positionenImZeitraum(alleKostenpositionen, abrStart, abrEnde),
@@ -171,6 +188,16 @@ export function NebenkostenStep2Verteilung({
     () => berechneBezugsgroessen(einheiten || [], perioden, gesamtTage),
     [einheiten, perioden, gesamtTage]
   );
+
+  // Verbrauch wird genau für die Perioden erfasst, die Schritt 3 abrechnet: ohne Garagen und Stellplätze
+  // (traegtBetriebskosten), Leerstand eingeschlossen — dessen Verbrauch trägt der Eigentümer
+  const verbrauchsPerioden = useMemo((): (Nutzungsperiode & PeriodeFuerVerbrauch)[] => {
+    const mitKosten = new Set((einheiten || []).filter((e) => traegtBetriebskosten(e.einheitentyp)).map((e) => e.id));
+    return perioden
+      .filter((p) => mitKosten.has(p.einheitId))
+      .map((p) => ({ ...p, mietvertragId: (p as { mietvertragId?: string }).mietvertragId ?? null }))
+      .sort((a, b) => a.einheitId.localeCompare(b.einheitId) || a.von.getTime() - b.von.getTime());
+  }, [einheiten, perioden]);
 
   const { kategorienMitKosten, negativeKostenarten } = useMemo(() => {
     const map = new Map<string, KategorieMitKosten>();
@@ -298,6 +325,85 @@ export function NebenkostenStep2Verteilung({
       toast({ title: "Fehler", description: err.message, variant: "destructive" });
     },
   });
+
+  const verbrauchFeld = (kategorieId: string, p: PeriodeFuerVerbrauch) =>
+    `${kategorieId}|${p.einheitId}|${format(p.von, "yyyy-MM-dd")}|${format(p.bis, "yyyy-MM-dd")}`;
+
+  const verbrauchMutation = useMutation({
+    mutationFn: async ({ kategorieId }: { kategorieId: string }) => {
+      const zeilen = verbrauchsPerioden.flatMap((p) => {
+        const text = verbrauchEntwurf[verbrauchFeld(kategorieId, p)];
+        const wert = text === undefined ? null : verbrauchAusEingabe(text);
+        if (wert === null) return [];
+        return [
+          {
+            immobilie_id: immobilieId,
+            abrechnungsjahr: selectedYear,
+            kategorie: kategorieId,
+            einheit_id: p.einheitId,
+            mietvertrag_id: p.mietvertragId ?? null,
+            zeitraum_von: format(p.von, "yyyy-MM-dd"),
+            zeitraum_bis: format(p.bis, "yyyy-MM-dd"),
+            verbrauch: wert,
+          },
+        ];
+      });
+      if (zeilen.length === 0) return 0;
+      const { data, error } = await supabase
+        .from("nebenkosten_verbrauch")
+        .upsert(zeilen, { onConflict: "abrechnungsjahr,kategorie,einheit_id,zeitraum_von" })
+        .select("id");
+      if (error) {
+        // Zwei Verträge derselben Einheit mit gleichem Beginn: Postgres meldet „cannot affect row a second time“.
+        // Schritt 3 sperrt Überschneidungen ohnehin; hier eine verständliche Meldung statt des Rohtexts
+        if (/affect row a second time/i.test(error.message)) {
+          throw new Error("Zwei Verträge derselben Einheit beginnen am selben Tag. Bitte zuerst die Überschneidung der Verträge korrigieren.");
+        }
+        throw error;
+      }
+      // Ohne Recht schreibt RLS still nichts — das darf nicht wie ein Erfolg aussehen
+      if ((data?.length ?? 0) !== zeilen.length) throw new Error("Keine Berechtigung, den Verbrauch zu speichern.");
+      return zeilen.length;
+    },
+    onSuccess: async (anzahl, { kategorieId }) => {
+      toast({ title: "Verbrauch gespeichert", description: `${anzahl} ${anzahl === 1 ? "Wert" : "Werte"}` });
+      // Erst neu laden, dann den Entwurf verwerfen — sonst blitzt kurz der alte Wert oder „fehlt“ auf
+      await queryClient.invalidateQueries({ queryKey: nebenkostenVerbrauchKey(immobilieId, selectedYear) });
+      setVerbrauchEntwurf((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([feld]) => !feld.startsWith(`${kategorieId}|`)))
+      );
+    },
+    onError: (err: Error) => {
+      toast({ title: "Verbrauch nicht gespeichert", description: err.message, variant: "destructive" });
+    },
+  });
+
+  /** Verteilung nach Verbrauch: jede abgerechnete Periode als Zeile, auch ohne Wert — dort wird er eingetragen */
+  function berechneVerbrauchsVerteilung(eintrag: KategorieMitKosten) {
+    const bezug = verbrauchsBezug(verbrauchErfassungen ?? [], eintrag.kategorie.id, verbrauchsPerioden);
+    const zeilen = verbrauchsPerioden.map((periode, i) => {
+      const verbrauch = verbrauchFuer(bezug, i);
+      const anteil = berechneAnteil(periode, "verbrauch", bezugsgroessen, verbrauch);
+      const vertrag = periode.mietvertragId ? mietvertraege?.find((mv) => mv.id === periode.mietvertragId) : undefined;
+      const mieterName = vertrag
+        ? ((vertrag.mietvertrag_mieter as { mieter: { vorname: string | null; nachname: string | null } | null }[]) || [])
+            .map((mm) => `${mm.mieter?.vorname || ""} ${mm.mieter?.nachname || ""}`.trim())
+            .filter(Boolean)
+            .join(", ") || "Unbekannter Mieter"
+        : "Leerstand";
+      const einheit = einheiten?.find((e) => e.id === periode.einheitId);
+      return {
+        periode,
+        mieterName,
+        einheitName: einheit?.zaehler ? `Einheit ${einheit.zaehler}` : `Einheit ${periode.einheitId.slice(-4)}`,
+        istLeerstand: !periode.mietvertragId,
+        eingetragen: bezug.werte[i],
+        anteilProzent: anteil * 100,
+        anteilBetrag: eintrag.total * anteil,
+      };
+    });
+    return { zeilen, bezug };
+  }
 
   function berechneVerteilung(eintrag: KategorieMitKosten) {
     return perioden
@@ -552,8 +658,15 @@ export function NebenkostenStep2Verteilung({
                   const { kategorie } = eintrag;
                   const isExpanded = expandedCategories.has(kategorie.id);
                   const Icon = kategorie.icon;
-                  const verteilung = isExpanded ? berechneVerteilung(eintrag) : [];
-                  const summe = verteilung.reduce((s, v) => s + v.anteilBetrag, 0);
+                  const nachVerbrauch = eintrag.schluessel === "verbrauch";
+                  const verteilung = isExpanded && !nachVerbrauch ? berechneVerteilung(eintrag) : [];
+                  const verbrauchsVerteilung = isExpanded && nachVerbrauch ? berechneVerbrauchsVerteilung(eintrag) : null;
+                  const summe = verbrauchsVerteilung
+                    ? verbrauchsVerteilung.zeilen.reduce((s, v) => s + v.anteilBetrag, 0)
+                    : verteilung.reduce((s, v) => s + v.anteilBetrag, 0);
+                  const verbrauchFelder = verbrauchsPerioden.map((p) => verbrauchEntwurf[verbrauchFeld(kategorie.id, p)]);
+                  const verbrauchGeaendert = verbrauchFelder.filter((t) => t !== undefined && t.trim() !== "");
+                  const verbrauchUngueltig = verbrauchGeaendert.some((t) => verbrauchAusEingabe(t) === null);
 
                   return (
                     <Collapsible
@@ -640,6 +753,14 @@ export function NebenkostenStep2Verteilung({
                                     gültiger Schlüssel gewählt ist.
                                   </p>
                                 )}
+                                {nachVerbrauch && (
+                                  <p className="max-w-xl text-xs text-muted-foreground">
+                                    Je Nutzer und Leerstand den Verbrauch im angegebenen Zeitraum eintragen
+                                    (Zählerstand am Ende minus am Anfang). Der Anteil ist der eigene Verbrauch
+                                    durch den Gesamtverbrauch; ein Zeitanteil kommt nicht hinzu. Solange ein Wert
+                                    fehlt, sperrt Schritt 3 die Abrechnung des Hauses.
+                                  </p>
+                                )}
                               </div>
                               <Select
                                 value={
@@ -658,7 +779,7 @@ export function NebenkostenStep2Verteilung({
                                   })
                                 }
                               >
-                                <SelectTrigger className="w-full sm:w-[220px]">
+                                <SelectTrigger className="w-full sm:w-[260px]">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent className="bg-background border shadow-lg z-50">
@@ -680,10 +801,125 @@ export function NebenkostenStep2Verteilung({
                                       Gleichmäßig je Einheit
                                     </div>
                                   </SelectItem>
+                                  <SelectItem value="verbrauch">
+                                    <div className="flex items-center gap-2">
+                                      <Gauge className="h-4 w-4" />
+                                      Nach tatsächlichem Verbrauch
+                                    </div>
+                                  </SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
 
+                            {verbrauchsVerteilung ? (
+                              <div className="space-y-2">
+                                {verbrauchFehler && (
+                                  <p className="text-sm text-destructive">
+                                    Der erfasste Verbrauch konnte nicht geladen werden. Bitte die Seite neu laden.
+                                  </p>
+                                )}
+                                <div className="rounded-lg border bg-white overflow-x-auto">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow className="bg-muted/50">
+                                        <TableHead>Nutzer</TableHead>
+                                        <TableHead className="text-center">Zeitraum</TableHead>
+                                        <TableHead className="text-right">Verbrauch</TableHead>
+                                        <TableHead className="text-center">Anteil</TableHead>
+                                        <TableHead className="text-right">Betrag</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {verbrauchsVerteilung.zeilen.map((v) => {
+                                        const feld = verbrauchFeld(kategorie.id, v.periode);
+                                        const text = verbrauchEntwurf[feld];
+                                        const ungueltig = text !== undefined && text.trim() !== "" && verbrauchAusEingabe(text) === null;
+                                        return (
+                                          <TableRow key={feld} className={cn(v.istLeerstand && "bg-slate-50")}>
+                                            <TableCell className="font-medium">
+                                              <div className="flex items-center gap-2">
+                                                <User className="h-4 w-4 text-muted-foreground" />
+                                                <span>
+                                                  {v.mieterName}
+                                                  <span className="block text-xs font-normal text-muted-foreground">{v.einheitName}</span>
+                                                </span>
+                                              </div>
+                                            </TableCell>
+                                            <TableCell className="text-center text-sm text-muted-foreground">
+                                              {format(v.periode.von, "dd.MM.yyyy")} – {format(v.periode.bis, "dd.MM.yyyy")}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <Input
+                                                type="number"
+                                                aria-label={`Verbrauch ${v.mieterName} ${format(v.periode.von, "dd.MM.yyyy")} bis ${format(v.periode.bis, "dd.MM.yyyy")}`}
+                                                className={cn(
+                                                  "ml-auto h-8 w-28 text-right text-sm",
+                                                  (ungueltig || (v.eingetragen === null && !text)) && "border-warning"
+                                                )}
+                                                placeholder={v.eingetragen === null ? "fehlt" : undefined}
+                                                value={text ?? (v.eingetragen === null ? "" : String(v.eingetragen).replace(".", ","))}
+                                                onChange={(e) => setVerbrauchEntwurf((prev) => ({ ...prev, [feld]: e.target.value }))}
+                                                // Geleert heißt nicht gelöscht: Jede Periode braucht einen Wert, also zeigt das Feld
+                                                // wieder den gespeicherten, statt leer auszusehen und mit ihm weiterzurechnen
+                                                onBlur={() =>
+                                                  setVerbrauchEntwurf((prev) => {
+                                                    if (prev[feld] === undefined || prev[feld].trim() !== "") return prev;
+                                                    const { [feld]: _leer, ...rest } = prev;
+                                                    return rest;
+                                                  })
+                                                }
+                                              />
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                              {v.eingetragen === null ? (
+                                                <span className="text-xs text-warning">fehlt</span>
+                                              ) : (
+                                                <Badge variant="outline">{v.anteilProzent.toFixed(2)}%</Badge>
+                                              )}
+                                            </TableCell>
+                                            <TableCell className="text-right font-bold text-primary">
+                                              {v.eingetragen === null ? "—" : `${v.anteilBetrag.toFixed(2)} €`}
+                                            </TableCell>
+                                          </TableRow>
+                                        );
+                                      })}
+                                      {verbrauchsVerteilung.zeilen.length === 0 && (
+                                        <TableRow>
+                                          <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                                            Keine Nutzungsperioden im Abrechnungszeitraum
+                                          </TableCell>
+                                        </TableRow>
+                                      )}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="text-xs text-muted-foreground">
+                                    Gesamtverbrauch{" "}
+                                    {verbrauchsVerteilung.bezug.gesamt.toLocaleString("de-DE", { maximumFractionDigits: 3 })}
+                                    {verbrauchsVerteilung.bezug.fehlend > 0 &&
+                                      ` · ${verbrauchsVerteilung.bezug.fehlend} von ${verbrauchsVerteilung.zeilen.length} Werten fehlen`}
+                                    {verbrauchUngueltig && " · Bitte nur Zahlen ab 0 eintragen"}
+                                  </p>
+                                  <Button
+                                    size="sm"
+                                    disabled={
+                                      verbrauchLaedt ||
+                                      verbrauchFehler ||
+                                      verbrauchMutation.isPending ||
+                                      verbrauchUngueltig ||
+                                      verbrauchGeaendert.length === 0
+                                    }
+                                    onClick={() => verbrauchMutation.mutate({ kategorieId: kategorie.id })}
+                                  >
+                                    {verbrauchMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                    {verbrauchGeaendert.length > 0
+                                      ? `${verbrauchGeaendert.length} ${verbrauchGeaendert.length === 1 ? "Wert" : "Werte"} speichern`
+                                      : "Verbrauch speichern"}
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
                             <div className="rounded-lg border bg-white overflow-x-auto">
                               <Table>
                                 <TableHeader>
@@ -747,6 +983,7 @@ export function NebenkostenStep2Verteilung({
                                 </TableBody>
                               </Table>
                             </div>
+                            )}
 
                             <div className="flex justify-end pt-2">
                               <div className="bg-muted/50 rounded-lg px-4 py-2">

@@ -140,10 +140,12 @@ export function gutschriftZeilen(zeilen: readonly NebenkostenImmobilieKostenRow[
  * Altschlüsseln (berechneAnteil in nebenkostenBerechnung.ts).
  */
 export function rechenwegHinweis(details: readonly NebenkostenKostenDetail[]): string | null {
-  const ohneZeitfaktor = new Set(['personen', 'alleinnutzung']);
+  // Seit 10.11.2026 auch Verbrauch: Er ist für den Nutzungszeitraum erfasst, der Zeitanteil steckt schon darin
+  const ohneZeitfaktor = new Set(['personen', 'alleinnutzung', 'verbrauch']);
   const mitZeitanteil = details.filter(r => !ohneZeitfaktor.has(r.verteilerschluessel));
   const personentage = details.some(r => r.verteilerschluessel === 'personen');
   const alleinnutzung = details.some(r => r.verteilerschluessel === 'alleinnutzung');
+  const verbrauch = details.some(r => r.verteilerschluessel === 'verbrauch');
 
   const zeitanteile = [...new Set(mitZeitanteil
     .map(r => r.nutzungsdauerProzent)
@@ -155,7 +157,7 @@ export function rechenwegHinweis(details: readonly NebenkostenKostenDetail[]): s
     const anteilText = zeitanteile.length === 1
       ? `${zeitanteile[0].toLocaleString('de-DE', { maximumFractionDigits: 2 })} %`
       : 'je Kostenart verschieden';
-    const fuer = personentage || alleinnutzung ? ' bei Wohnfläche und Einheit' : '';
+    const fuer = personentage || alleinnutzung || verbrauch ? ' bei Wohnfläche und Einheit' : '';
     saetze.push(`Ihr Zeitanteil am Abrechnungszeitraum: ${anteilText}. Ihre Kosten${fuer} = Preis/E × Ihre Einheiten × Zeitanteil.`);
   }
   if (personentage) {
@@ -163,6 +165,9 @@ export function rechenwegHinweis(details: readonly NebenkostenKostenDetail[]): s
   }
   if (alleinnutzung) {
     saetze.push('Bei Alleinnutzung tragen Sie die Kosten der Art vollständig.');
+  }
+  if (verbrauch) {
+    saetze.push('Beim Verbrauch gilt der in Ihrem Nutzungszeitraum erfasste Verbrauch: Ihre Kosten = Preis/E × Ihr Verbrauch.');
   }
   if (saetze.length === 0) return null;
   return `${saetze.join(' ')} Auf ganze Cent verteilt.`;
@@ -620,7 +625,9 @@ function seite3(
     // Genauer als bisher (m² ganzzahlig, Preis/E auf 2 Stellen): Aus den gedruckten Faktoren
     // ließ sich der Betrag nicht nachrechnen (27.10.2026; 1,99 × 114 m² gedruckt, 191,26 € berechnet)
     const zahl = (w: number, max: number) => w.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: max });
-    doc.text(einh > 0 ? `${zahl(einh, 2)}${einheitSuffix}` : '–', cx[3] + cW[3], y, { align: 'right' });
+    // Verbrauch mit drei Stellen wie auf Seite 2, sonst geht Preis/E × Ihr Verbrauch nicht auf (10.11.2026)
+    const stellen = row.verteilerschluessel === 'verbrauch' ? 3 : 2;
+    doc.text(einh > 0 ? `${zahl(einh, stellen)}${einheitSuffix}` : '–', cx[3] + cW[3], y, { align: 'right' });
     doc.text(
       // Unter 1 € je Einheit (Personentage) sechs Stellen: mit vier ergab 0,1945 × 5.475 nicht die gedruckten
       // 1.065,00 € (Prüfung 29.10.2026, Celle 2025)
@@ -629,7 +636,7 @@ function seite3(
         : '–',
       cx[4] + cW[4], y, { align: 'right' }
     );
-    doc.text(ihreE > 0 ? `${zahl(ihreE, 2)}${einheitSuffix}` : '–', cx[5] + cW[5], y, { align: 'right' });
+    doc.text(ihreE > 0 ? `${zahl(ihreE, stellen)}${einheitSuffix}` : '–', cx[5] + cW[5], y, { align: 'right' });
     doc.setFont('helvetica', 'bold');
     doc.text(row.anteilBetrag > 0.01 ? formatEur(row.anteilBetrag) : '–', cx[6] + cW[6], y, { align: 'right' });
     doc.setFont('helvetica', 'normal');

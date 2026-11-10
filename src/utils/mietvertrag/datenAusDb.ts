@@ -50,7 +50,8 @@ type Nebenkostenart = Pick<Tables<'nebenkostenarten'>, 'name' | 'verteilerschlue
  * `kategorie` ist die Kostenart der Betriebskostenabrechnung, unter der diese
  * Kosten gebucht werden; deren Verteilerschlüssel gilt auch im Vertrag
  * (02.11.2026). Die Abrechnung muss dem vereinbarten Schlüssel folgen und kennt
- * nur Wohnfläche, Personen und Einheit. Bis dahin druckte der Vertrag eigene
+ * Wohnfläche, Personen, Einheit und seit 10.11.2026 den je Nutzungsperiode
+ * eingetragenen Verbrauch. Bis zum 02.11.2026 druckte der Vertrag eigene
  * Vorgaben — Wasser „nach erfasstem Verbrauch", Kabel „nach Nutzerzahl" —,
  * während die Abrechnung nach Personentagen und Einheiten verteilte.
  * Rauchwarnmelder laufen dort unter „Sonstige Betriebskosten", die

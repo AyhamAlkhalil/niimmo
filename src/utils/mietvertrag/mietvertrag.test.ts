@@ -460,6 +460,20 @@ describe('Kundenvorgaben zum Vertragstext (04.11.2026)', () => {
     expect(alleAbsaetze(basisVertrag())).toMatch(/Für den Mieter beträgt die Kündigungsfrist drei Monate\./);
   });
 
+  it('nennt den Maßstab nur, wenn eine umgelegte Position nach Verbrauch verteilt wird (10.11.2026)', () => {
+    const satz = 'Nach Verbrauch verteilte Kosten werden im Verhältnis des durch Messeinrichtungen erfassten Verbrauchs';
+    expect(alleAbsaetze(basisVertrag())).toContain(satz);
+    expect(kostenText(basisVertrag())).toContain('"verteilung":"Verbrauch"');
+    const ohne = basisVertrag();
+    ohne.betriebskostenPositionen = ohne.betriebskostenPositionen.map(p => ({ ...p, schluessel: 'qm' }));
+    expect(alleAbsaetze(ohne)).not.toContain(satz);
+    const nichtUmgelegt = basisVertrag();
+    nichtUmgelegt.betriebskostenPositionen = nichtUmgelegt.betriebskostenPositionen.map(p =>
+      p.schluessel === 'verbrauch' ? { ...p, umgelegt: false } : p
+    );
+    expect(alleAbsaetze(nichtUmgelegt)).not.toContain(satz);
+  });
+
   it('führt in § 4 keine Sammelzeilen der Verteilerschlüssel mehr', () => {
     const text = alleAbsaetze(basisVertrag());
     expect(text).not.toMatch(/— Verteilung nach/);

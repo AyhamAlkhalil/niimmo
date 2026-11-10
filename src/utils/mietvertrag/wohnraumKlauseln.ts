@@ -171,8 +171,8 @@ export const AENDERUNGEN: Aenderung[] = [
   {
     paragraph: '§ 4 Ziff. 2',
     bestand: 'Wasserversorgung (2.2) nach erfasstem Verbrauch, Antenne und Kabel (2.15) nach Nutzerzahl; Verteilungsschlüssel als Sammelzeilen über der Tabelle.',
-    neu: 'Jede Position nennt den Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt — seit 04.11.2026 in einer eigenen Spalte der Tabelle, festgelegt je Kostenart am Objekt; ohne Pflege dort die NiImmo-Vorgabe (Wasser nach Personenzahl, Kabel zu gleichen Teilen).',
-    grund: 'Die Abrechnung muss dem vereinbarten Schlüssel folgen (§ 556a Abs. 1 BGB); ohne Vereinbarung gälte überall die Wohnfläche. Die Abrechnung verteilt nach Wohnfläche, Personentagen oder Einheiten; einen Verbrauch je Kostenart erfasst sie nicht.',
+    neu: 'Jede Position nennt den Schlüssel, nach dem die Betriebskostenabrechnung des Objekts verteilt — seit 04.11.2026 in einer eigenen Spalte der Tabelle, festgelegt je Kostenart am Objekt; ohne Pflege dort die NiImmo-Vorgabe (Wasser nach Personenzahl, Kabel zu gleichen Teilen). Seit 10.11.2026 auch nach tatsächlichem Verbrauch; dann nennt Ziff. 2 den erfassten Verbrauch der Wohnung als Maßstab.',
+    grund: 'Die Abrechnung muss dem vereinbarten Schlüssel folgen (§ 556a Abs. 1 BGB); ohne Vereinbarung gälte überall die Wohnfläche. Die Abrechnung verteilt nach Wohnfläche, Personentagen, Einheiten oder dem je Mieter eingetragenen Verbrauch; fehlt ein Verbrauchswert, rechnet sie nicht.',
   },
   {
     paragraph: '§ 24',
@@ -344,7 +344,13 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       // in § 4 als nicht umgelegt, in Verteilerschlüssel und Anlage 2 als umgelegt (§ 305c BGB).
       // Seit 04.11.2026 steht der Verteilerschlüssel je Zeile in der Tabelle; die Sammelzeilen darunter
       // sind auf Kundenwunsch entfallen. Ohne Schlüssel im Vertrag gälte überall die Wohnfläche (§ 556a BGB).
-      text: 'Mit „– – –“ gekennzeichnete Positionen sind benannt, aber derzeit nicht Gegenstand der Umlage. Die Kosten werden nach dem in der Tabelle je Position genannten Schlüssel verteilt.',
+      // Seit 10.11.2026 auch „Verbrauch“: Dann sagt der Vertrag, welcher Verbrauch gemeint ist — der erfasste der
+      // Wohnung im Abrechnungszeitraum, so wie die Abrechnung ihn je Nutzungsperiode einträgt (§ 556a Abs. 1 S. 2 BGB)
+      text: `Mit „– – –“ gekennzeichnete Positionen sind benannt, aber derzeit nicht Gegenstand der Umlage. Die Kosten werden nach dem in der Tabelle je Position genannten Schlüssel verteilt.${
+        d.betriebskostenPositionen.some(pos => pos.umgelegt && pos.schluessel === 'verbrauch')
+          ? ' Nach Verbrauch verteilte Kosten werden im Verhältnis des durch Messeinrichtungen erfassten Verbrauchs der Wohnung während der Mietzeit im Abrechnungszeitraum zum erfassten Gesamtverbrauch aller Einheiten des Hauses umgelegt.'
+          : ''
+      }`,
     });
 
     p4.push({

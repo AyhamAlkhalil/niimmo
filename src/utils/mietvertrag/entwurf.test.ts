@@ -860,8 +860,12 @@ describe('Verteilerschlüssel aus der Betriebskostenabrechnung des Objekts', () 
   });
 
   it('rechnet einen nicht berechenbaren Altwert wie die Abrechnung nach Wohnfläche', () => {
-    expect(schluesselDesObjekts([art('Wasserversorgung', 'verbrauch')], 'wasserversorgung')).toBe('qm');
+    expect(schluesselDesObjekts([art('Wasserversorgung', 'individuell')], 'wasserversorgung')).toBe('qm');
     expect(schluesselDesObjekts([art('Wasserversorgung', null)], 'wasserversorgung')).toBe('personen');
+  });
+
+  it('übernimmt „nach Verbrauch“ in den Vertrag, seit die Abrechnung ihn erfasst (10.11.2026)', () => {
+    expect(schluesselDesObjekts([art('Wasserversorgung', 'verbrauch')], 'wasserversorgung')).toBe('verbrauch');
   });
 
   it('nimmt beim neuen Vertrag Umlage und Betrag vom Vorvertrag, den Schlüssel aber vom Objekt', () => {

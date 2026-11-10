@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { kostenAnteilImZeitraum, positionenImZeitraum } from "@/utils/nebenkostenBerechnung";
 import { alleSeiten } from "@/utils/supabaseSeiten";
+import type { VerbrauchsErfassung } from "@/utils/nebenkostenVerbrauch";
 import {
   NICHT_ZUORDENBARE_KATEGORIEN,
   istZuordenbareZahlung,
@@ -149,6 +150,33 @@ export function useNebenkostenarten(immobilieId: string) {
       if (error) throw error;
       return data || [];
     },
+    enabled: !!immobilieId,
+  });
+}
+
+export const nebenkostenVerbrauchKey = (immobilieId: string, jahr: number) =>
+  ["nebenkosten-verbrauch", immobilieId, jahr] as const;
+
+/**
+ * Erfasster Verbrauch je Kostenart und Nutzungsperiode (seit 10.11.2026) — dieselbe Abfrage für Schritt 2, der ihn
+ * einträgt, und Schritt 3, der danach verteilt. Ein Ladefehler muss dort sperren, nicht als „nichts erfasst“ gelten.
+ */
+export function useNebenkostenVerbrauch(immobilieId: string, jahr: number) {
+  return useQuery({
+    queryKey: nebenkostenVerbrauchKey(immobilieId, jahr),
+    queryFn: () =>
+      alleSeiten<VerbrauchsErfassung & { id: string }>((von, bis, mitZaehlung) =>
+        supabase
+          .from("nebenkosten_verbrauch")
+          .select(
+            "id, kategorie, einheit_id, mietvertrag_id, zeitraum_von, zeitraum_bis, verbrauch",
+            mitZaehlung ? { count: "exact" } : undefined
+          )
+          .eq("immobilie_id", immobilieId)
+          .eq("abrechnungsjahr", jahr)
+          .order("id", { ascending: true })
+          .range(von, bis)
+      ),
     enabled: !!immobilieId,
   });
 }

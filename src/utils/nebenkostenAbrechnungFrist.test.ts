@@ -50,6 +50,17 @@ describe('Abrechnungs-PDF Rechenweg und Gutschriften (28.10.2026)', () => {
     expect(rechenwegHinweis([])).toBeNull();
   });
 
+  it('rechnet beim Verbrauch ohne Zeitanteil, der steckt im erfassten Verbrauch (10.11.2026)', async () => {
+    const { rechenwegHinweis } = await import('./nebenkostenAbrechnungPdfGenerator');
+    const nurVerbrauch = rechenwegHinweis([zeile('verbrauch')]) ?? '';
+    expect(nurVerbrauch).not.toContain('× Zeitanteil');
+    expect(nurVerbrauch).toContain('Ihre Kosten = Preis/E × Ihr Verbrauch');
+    const gemischt = rechenwegHinweis([zeile('qm'), zeile('verbrauch', 100)]) ?? '';
+    expect(gemischt).toContain('Zeitanteil am Abrechnungszeitraum: 50,41 %');
+    expect(gemischt).toContain('bei Wohnfläche und Einheit');
+    expect(gemischt).toContain('Ihr Verbrauch');
+  });
+
   it('druckt angebrochene Monate mit zwei Nachkommastellen', async () => {
     const { monateText } = await import('./nebenkostenAbrechnungPdfGenerator');
     expect(monateText(12)).toBe('12');

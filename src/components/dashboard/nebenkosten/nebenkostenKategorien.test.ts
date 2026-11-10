@@ -84,16 +84,17 @@ describe('pseudoKategorieFuerArt', () => {
 });
 
 describe('istBerechenbarerSchluessel', () => {
-  it('akzeptiert die drei rechenbaren Schluessel', () => {
+  it('akzeptiert die vier rechenbaren Schluessel', () => {
     expect(istBerechenbarerSchluessel('qm')).toBe(true);
     expect(istBerechenbarerSchluessel('personen')).toBe(true);
     expect(istBerechenbarerSchluessel('gleich')).toBe(true);
+    // Seit 10.11.2026 mit Verbrauchserfassung je Nutzungsperiode in Schritt 2
+    expect(istBerechenbarerSchluessel('verbrauch')).toBe(true);
   });
 
   it('lehnt Altwerte ohne Datengrundlage ab', () => {
-    // In den Bestandsdaten vorhanden, aber ohne Verbrauchserfassung nicht rechenbar.
     expect(istBerechenbarerSchluessel('individuell')).toBe(false);
-    expect(istBerechenbarerSchluessel('verbrauch')).toBe(false);
+    expect(istBerechenbarerSchluessel('nutzer')).toBe(false);
     expect(istBerechenbarerSchluessel(null)).toBe(false);
   });
 

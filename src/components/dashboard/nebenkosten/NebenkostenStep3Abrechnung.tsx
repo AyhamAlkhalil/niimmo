@@ -79,7 +79,13 @@ import {
   type VerteilerSchluessel,
 } from "@/utils/nebenkostenBerechnung";
 import { nichtUmgelegteKategorien } from "@/utils/mietvertrag/datenAusDb";
-import { useKostenpositionen, positionenImZeitraum } from "@/hooks/useNebenkostenDaten";
+import { useKostenpositionen, useNebenkostenVerbrauch, positionenImZeitraum } from "@/hooks/useNebenkostenDaten";
+import {
+  verbrauchFuer,
+  verbrauchsBezug,
+  verbrauchSperrgrund,
+  type VerbrauchsBezug,
+} from "@/utils/nebenkostenVerbrauch";
 import { trenneKostenartenNachSumme } from "@/utils/nebenkostenGutschrift";
 import { mailadressenDerMieter } from "@/utils/kuendigungsbestaetigung";
 import { edgeFehlertext } from "@/utils/edgeFehler";
@@ -248,6 +254,13 @@ export function NebenkostenStep3Abrechnung({
   const { data: alleKostenpositionen, isLoading: kostenLoading } =
     useKostenpositionen(immobilieId);
 
+  // Erfasster Verbrauch je Kostenart und Nutzungsperiode (seit 10.11.2026). Ein Ladefehler sperrt unten.
+  const {
+    data: verbrauchErfassungen,
+    isLoading: verbrauchLoading,
+    isError: verbrauchFehler,
+  } = useNebenkostenVerbrauch(immobilieId, selectedYear);
+
   // Positionen, die den Abrechnungszeitraum ÜBERLAPPEN. Der frühere Filter
   // (Zeitraum vollständig innerhalb des Jahres) ließ jahresübergreifende
   // Abrechnungen wie Heizperioden komplett unter den Tisch fallen.
@@ -365,6 +378,18 @@ export function NebenkostenStep3Abrechnung({
     };
   }, [kostenpositionen, abrStart, abrEnde]);
 
+  // Je Kostenart mit Schlüssel „verbrauch“ der eingetragene Wert jeder Nutzungsperiode, in der Reihenfolge von
+  // `perioden` — Index i gehört zu perioden[i] und abrechnungen[i]
+  const verbrauchJeKategorie = useMemo(() => {
+    const je = new Map<string, VerbrauchsBezug>();
+    const zuordnung = perioden.map(({ periode, mietvertragId }) => ({ ...periode, mietvertragId }));
+    kostenProKategorie.forEach((kategorie) => {
+      if (kategorie.schluessel !== "verbrauch") return;
+      je.set(kategorie.kategorieId, verbrauchsBezug(verbrauchErfassungen ?? [], kategorie.kategorieId, zuordnung));
+    });
+    return je;
+  }, [kostenProKategorie, perioden, verbrauchErfassungen]);
+
   const ohneKostenart = useMemo(
     () => kostenpositionen.filter((kp) => !kp.nebenkostenart && kostenAnteilImZeitraum(kp, abrStart, abrEnde) !== 0),
     [kostenpositionen, abrStart, abrEnde]
@@ -388,11 +413,18 @@ export function NebenkostenStep3Abrechnung({
     kostenProKategorie.forEach((kategorie) => {
       ergebnis.set(
         kategorie.kategorieId,
-        aufCentVerteilen(perioden.map(({ periode }) => kategorie.total * berechneAnteil(periode, kategorie.schluessel, bezugsgroessen) * 100))
+        aufCentVerteilen(
+          perioden.map(
+            ({ periode }, i) =>
+              kategorie.total *
+              berechneAnteil(periode, kategorie.schluessel, bezugsgroessen, verbrauchFuer(verbrauchJeKategorie.get(kategorie.kategorieId), i)) *
+              100
+          )
+        )
       );
     });
     return ergebnis;
-  }, [kostenProKategorie, perioden, bezugsgroessen]);
+  }, [kostenProKategorie, perioden, bezugsgroessen, verbrauchJeKategorie]);
 
   // ── Abrechnung je Nutzungsperiode ──────────────────────────────────────────
   const abrechnungen: MieterAbrechnung[] = useMemo(() => {
@@ -411,7 +443,8 @@ export function NebenkostenStep3Abrechnung({
       const nichtVereinbart = nichtUmgelegteKategorien(vertrag?.betriebskosten_positionen);
 
       kostenProKategorie.forEach((kategorie) => {
-        const anteil = berechneAnteil(periode, kategorie.schluessel, bezugsgroessen);
+        const verbrauch = verbrauchFuer(verbrauchJeKategorie.get(kategorie.kategorieId), periodenIndex);
+        const anteil = berechneAnteil(periode, kategorie.schluessel, bezugsgroessen, verbrauch);
         const anteilBetrag = (anteilCent.get(kategorie.kategorieId)?.[periodenIndex] ?? 0) / 100;
         if (anteilBetrag <= 0) return;
         // Im Vertrag ausdrücklich nicht umgelegt (30.10.2026): Der Anteil bleibt beim Vermieter. Zugeordnet über die
@@ -422,7 +455,7 @@ export function NebenkostenStep3Abrechnung({
         }
 
         kostenAnteilGesamt += anteilBetrag;
-        const bezug = bezugsgroesseFuerSchluessel(kategorie.schluessel, periode, bezugsgroessen);
+        const bezug = bezugsgroesseFuerSchluessel(kategorie.schluessel, periode, bezugsgroessen, verbrauch);
 
         kostenDetails.push({
           betrkvNummer: kategorie.betrkvNummer,
@@ -503,6 +536,7 @@ export function NebenkostenStep3Abrechnung({
     bezugsgroessen,
     objektAdressZeilen,
     anteilCent,
+    verbrauchJeKategorie,
     verlaufJeVertrag,
   ]);
 
@@ -515,8 +549,9 @@ export function NebenkostenStep3Abrechnung({
   const gesamtNachzahlungen = nachzahlungAbrechnungen.reduce((s, a) => s + a.saldo, 0);
   const gesamtGuthaben = guthabenAbrechnungen.reduce((s, a) => s + Math.abs(a.saldo), 0);
 
-  // Altdaten kennen 'individuell' und 'verbrauch'. Dafür gibt es keine
-  // Datengrundlage — es wird wie Wohnfläche gerechnet und muss sichtbar sein.
+  // Altdaten kennen 'individuell'. Dafür gibt es keine Datengrundlage — es wird
+  // wie Wohnfläche gerechnet und muss sichtbar sein. 'verbrauch' rechnet seit
+  // 10.11.2026 mit dem in Schritt 2 erfassten Verbrauch und sperrt, wenn er fehlt.
   const unklareSchluessel = Array.from(kostenProKategorie.values()).filter(
     (k) => !istBerechenbarerSchluessel(k.schluessel)
   );
@@ -528,8 +563,8 @@ export function NebenkostenStep3Abrechnung({
   const personenSchluesselAktiv = Array.from(kostenProKategorie.values()).some(
     (k) => k.schluessel === "personen"
   );
-  // Nicht berechenbare Schlüssel ('individuell', 'verbrauch') werden ersatzweise
-  // nach Wohnfläche verteilt und brauchen die Flächen deshalb genauso.
+  // Nicht berechenbare Altschlüssel ('individuell') werden ersatzweise nach
+  // Wohnfläche verteilt und brauchen die Flächen deshalb genauso.
   const qmSchluesselAktiv = Array.from(kostenProKategorie.values()).some(
     (k) => k.schluessel === "qm" || !istBerechenbarerSchluessel(k.schluessel)
   );
@@ -551,6 +586,16 @@ export function NebenkostenStep3Abrechnung({
       "Der Verlauf der Betriebskosten-Vorauszahlungen konnte nicht geladen werden. Bitte die Seite neu laden."
     );
   }
+  if (verbrauchFehler) {
+    sperrgruende.push("Der erfasste Verbrauch konnte nicht geladen werden. Bitte die Seite neu laden.");
+  }
+  // Nach Verbrauch nur mit vollständigen Werten — sonst stimmt die Summe und damit kein Anteil im Haus (10.11.2026)
+  verbrauchJeKategorie.forEach((bezug, kategorieId) => {
+    const kategorie = kostenProKategorie.get(kategorieId);
+    const name = kategorie ? `${kategorie.betrkvNummer ? `${kategorie.betrkvNummer} ` : ""}${kategorie.name}` : kategorieId;
+    const grund = verbrauchSperrgrund(name, bezug);
+    if (grund) sperrgruende.push(grund);
+  });
   if (!istAbrechnungsjahrAbgelaufen(selectedYear)) {
     sperrgruende.push(
       `Das Jahr ${selectedYear} läuft noch. Abgerechnet wird nach dem 31.12.; bis dahin sind Kosten und Vorauszahlungen nicht vollständig.`
@@ -637,17 +682,23 @@ export function NebenkostenStep3Abrechnung({
       // (28.10.2026). Positionen ohne Kostenart oder in einer Art mit negativer Summe
       // werden nicht umgelegt und bekommen keine Anteile.
       if (!art) continue;
-      const { kategorieId, schluessel } = kategorieDerPosition(art);
-      if (!kostenProKategorie.has(kategorieId)) continue;
+      const { kategorieId } = kategorieDerPosition(art);
+      const kategorie = kostenProKategorie.get(kategorieId);
+      if (!kategorie) continue;
+      // Der Schlüssel der Kostenart, nach dem oben abgerechnet wird — nicht der der einzelnen Art: Hängen zwei Arten
+      // mit verschiedenen Schlüsseln an derselben Kostenart, protokollierte das hier bisher einen anderen Schlüssel
+      // als den abgerechneten, und beim Verbrauch fehlten die Anteile ganz (Review 10.11.2026)
+      const schluessel = kategorie.schluessel;
 
       const betragImZeitraum = kostenAnteilImZeitraum(kp, abrStart, abrEnde);
       if (betragImZeitraum === 0) continue;
 
-      for (const abr of abrechnungen) {
-        const anteil = berechneAnteil(abr.periode, schluessel, bezugsgroessen);
+      for (const [periodenIndex, abr] of abrechnungen.entries()) {
+        const verbrauch = verbrauchFuer(verbrauchJeKategorie.get(kategorieId), periodenIndex);
+        const anteil = berechneAnteil(abr.periode, schluessel, bezugsgroessen, verbrauch);
         if (anteil <= 0) continue;
 
-        const bezug = bezugsgroesseFuerSchluessel(schluessel, abr.periode, bezugsgroessen);
+        const bezug = bezugsgroesseFuerSchluessel(schluessel, abr.periode, bezugsgroessen, verbrauch);
 
         anteile.push({
           kostenposition_id: kp.id,
@@ -698,12 +749,19 @@ export function NebenkostenStep3Abrechnung({
   // ── PDF ────────────────────────────────────────────────────────────────────
 
   function buildPdfData(abrechnung: MieterAbrechnung): NebenkostenAbrechnungPdfData {
-    function einheitenLabelFuer(schluessel: VerteilerSchluessel): string {
-      const gesamt = bezugsgroesseFuerSchluessel(schluessel, abrechnung.periode, bezugsgroessen)
-        .gesamt;
+    function einheitenLabelFuer(schluessel: VerteilerSchluessel, kategorieId: string): string {
+      const gesamt = bezugsgroesseFuerSchluessel(
+        schluessel,
+        abrechnung.periode,
+        bezugsgroessen,
+        // Nur die Summe zählt hier, nicht der Wert einer Periode
+        { eigen: null, gesamt: verbrauchJeKategorie.get(kategorieId)?.gesamt ?? 0 }
+      ).gesamt;
       // Ohne Bezugsgröße wird nichts behauptet: bei einer einzigen belegten
       // Periode gibt es keine Personentage, der Anteil ist trotzdem eindeutig.
       if (gesamt <= 0) return "—";
+      // Verbrauch mit Nachkommastellen (m³), sonst ginge der gedruckte Preis/E nicht auf
+      if (schluessel === "verbrauch") return gesamt.toLocaleString("de-DE", { maximumFractionDigits: 3 });
       return schluessel === "qm" ? `${gesamt.toFixed(0)} m²` : `${gesamt.toFixed(0)}`;
     }
 
@@ -721,7 +779,7 @@ export function NebenkostenStep3Abrechnung({
             ? "alleinnutzung"
             : schluessel,
         betragGesamt: entry?.total ?? 0,
-        einheitenLabel: einheitenLabelFuer(schluessel),
+        einheitenLabel: einheitenLabelFuer(schluessel, kat.id),
         gutschriften: entry?.gutschriften ?? 0,
       };
     });
@@ -739,7 +797,7 @@ export function NebenkostenStep3Abrechnung({
           ? "alleinnutzung"
           : entry.schluessel,
         betragGesamt: entry.total,
-        einheitenLabel: einheitenLabelFuer(entry.schluessel),
+        einheitenLabel: einheitenLabelFuer(entry.schluessel, entry.kategorieId),
         gutschriften: entry.gutschriften,
       });
     });
@@ -972,7 +1030,7 @@ export function NebenkostenStep3Abrechnung({
 
   // ── Rendering ──────────────────────────────────────────────────────────────
 
-  const isLoading = einheitenLoading || vertraegeLoading || kostenLoading || verlaufLoading;
+  const isLoading = einheitenLoading || vertraegeLoading || kostenLoading || verlaufLoading || verbrauchLoading;
 
   if (isLoading) {
     return (
@@ -1092,7 +1150,7 @@ export function NebenkostenStep3Abrechnung({
                 ))}
               </ul>
               <p className="text-xs text-red-700">
-                Nachtragen in Schritt 2 (Personenzahl) oder unter „Stammdaten" im Dashboard.
+                Nachtragen in Schritt 2 (Personenzahl, Verbrauch) oder unter „Stammdaten" im Dashboard.
               </p>
             </div>
           </CardContent>
@@ -1113,7 +1171,7 @@ export function NebenkostenStep3Abrechnung({
                 <span className="font-medium">
                   {unklareSchluessel.map((k) => `${k.name} (${k.schluessel})`).join(", ")}
                 </span>{" "}
-                gibt es keine Verbrauchserfassung — es wird ersatzweise nach Wohnfläche verteilt.
+                gibt es keine Berechnungsgrundlage — es wird ersatzweise nach Wohnfläche verteilt.
                 Bitte in Schritt 2 einen gültigen Schlüssel wählen.
               </p>
             </div>

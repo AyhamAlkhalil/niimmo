@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.8",
+    datum: "2026-11-10",
+    aenderungen: [
+      { art: "neu", titel: "Verteilerschlüssel „nach tatsächlichem Verbrauch“ – Verbrauch je Mieter in Schritt 2 der Betriebskostenabrechnung eintragen" },
+    ],
+  },
+  {
     version: "1.9.7",
     datum: "2026-11-08",
     aenderungen: [
