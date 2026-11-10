@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.9.9",
+    datum: "2026-11-10",
+    aenderungen: [
+      { art: "neu", titel: "Mieter anlegen ohne Mietvertrag – an der Einheit oder im Ablauf; den Mietvertrag später fortsetzen, die Suche findet ihn" },
+    ],
+  },
+  {
     version: "1.9.8",
     datum: "2026-11-10",
     aenderungen: [

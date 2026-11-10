@@ -3044,6 +3044,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      lege_mieter_aus_entwurf_an: {
+        Args: { p_entwurf_id: string; p_neue_mieter: Json; p_stand: string }
+        Returns: Json
+      }
       mein_app_benutzer_id: { Args: never; Returns: string }
       miete_vor_erhoehung: {
         Args: {

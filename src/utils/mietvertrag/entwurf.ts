@@ -1148,7 +1148,7 @@ export function aktivierungsDaten(a: VertragsZeileArgs & { personen: EntwurfPers
 
   return {
     vertrag: vertragsZeile(a),
-    neueMieter: parteien.filter(p => !p.mieterId).map(p => ({ schluessel: p.schluessel, zeile: mieterZeile(p) })),
+    neueMieter: anzulegendeMieter(a.personen),
     verknuepfungen: parteien.map((p, i) => ({
       mieter_id: p.mieterId,
       schluessel: p.schluessel,
@@ -1157,6 +1157,74 @@ export function aktivierungsDaten(a: VertragsZeileArgs & { personen: EntwurfPers
       ...(p.mieterId ? { stammdaten: bestandsStammdaten(p) } : {}),
     })),
   };
+}
+
+/**
+ * Mitmieter mit Namen, die noch keinen Mieterdatensatz haben. Sie legt die Aktivierung an — und seit dem
+ * 10.11.2026 auf Wunsch schon vorher „Mieter anlegen“ (`lege_mieter_aus_entwurf_an`), mit derselben Abbildung.
+ * Kundenwunsch: „erst einmal die Mieter anlegen“, den Mietvertrag später oder gar nicht.
+ */
+export function anzulegendePersonen(personen: EntwurfPerson[]): EntwurfPerson[] {
+  return personen.filter(p => p.rolle === 'mitmieter' && hatNamen(p) && !p.mieterId);
+}
+
+/**
+ * Anzulegende Personen, die sicher schon auf einer anderen Mitmieterkarte stehen (etwa Bestandsmieter gewählt,
+ * dann seine Selbstauskunft geladen). Die Aktivierung sperrt das (`entwurfLuecken`) — „Mieter anlegen“ auch,
+ * sonst entstünde die Person ein zweites Mal (QA 10.11.2026).
+ */
+export function doppeltAufKarten(personen: EntwurfPerson[]): string[] {
+  const parteien = personen.filter(p => p.rolle === 'mitmieter' && hatNamen(p));
+  return anzulegendePersonen(personen)
+    .filter(p => parteien.some(q => q !== p && istGleichePerson(p, q)))
+    .map(personName);
+}
+
+/** Die Zeilen für `mieter` zu `anzulegendePersonen`; `schluessel` verbindet sie mit der Person im Entwurf. */
+export function anzulegendeMieter(personen: EntwurfPerson[]): { schluessel: string; zeile: TablesInsert<'mieter'> }[] {
+  return anzulegendePersonen(personen).map(p => ({ schluessel: p.schluessel, zeile: mieterZeile(p) }));
+}
+
+export interface MoeglicheDublette {
+  person: string;
+  vorhanden: string[];
+}
+
+/** Für jede anzulegende Person die Bestandsmieter, die dieselbe sein könnten (`findeVorhandeneMieter`). */
+export function moeglicheDublettenIn<
+  M extends Pick<Tables<'mieter'>, 'id' | 'vorname' | 'nachname' | 'geburtsdatum' | 'hauptmail'> & {
+    firmenname?: string | null;
+    ist_unternehmen?: boolean | null;
+  },
+>(personen: EntwurfPerson[], bestand: M[]): MoeglicheDublette[] {
+  return anzulegendePersonen(personen)
+    .map(p => ({
+      person: personName(p),
+      vorhanden: findeVorhandeneMieter(p, bestand).map(
+        m => (m.ist_unternehmen && m.firmenname?.trim()) || `${m.vorname ?? ''} ${m.nachname ?? ''}`.trim()
+      ),
+    }))
+    .filter(d => d.vorhanden.length > 0);
+}
+
+/** Anzeigename einer Person für Hinweise: Firma oder Vor- und Nachname. */
+export function personName(p: EntwurfPerson): string {
+  return (p.istUnternehmen && p.rolle === 'mitmieter' ? p.firmenname?.trim() : `${p.vorname} ${p.nachname}`.trim()) || 'Ohne Namen';
+}
+
+/**
+ * Übernimmt nach „Mieter anlegen“ den Datensatz aus dem gespeicherten Entwurf in die Karten, die der Dialog
+ * gerade zeigt. Nur `mieterId`, `quelle` und `bestandStand` — was währenddessen getippt wurde, bleibt stehen.
+ * Ohne diesen Schritt schriebe das nächste Speichern die Karten ohne Datensatz zurück, und die Aktivierung
+ * legte dieselbe Person ein zweites Mal an.
+ */
+export function mitAngelegtenMietern(karten: EntwurfPerson[], gespeichert: EntwurfPerson[]): EntwurfPerson[] {
+  const nachSchluessel = new Map(gespeichert.map(p => [p.schluessel, p]));
+  return karten.map(p => {
+    const g = nachSchluessel.get(p.schluessel);
+    if (!g?.mieterId || p.mieterId) return p;
+    return { ...p, mieterId: g.mieterId, quelle: 'bestand', bestandStand: g.bestandStand ?? null };
+  });
 }
 
 /**

@@ -2,9 +2,11 @@
  * Speichern, Aktivieren und Verwerfen von Mietvertragsentwürfen.
  *
  * Ein Entwurf liegt in `mietvertrag_entwuerfe` und zählt nirgends mit. Erst
- * `aktiviereEntwurf` legt Mieter, Vertrag, Verknüpfungen, Dokumente und die
- * Forderungen an — in einer Transaktion (`aktiviere_mietvertrag_entwurf`),
- * die den Entwurf zuerst beansprucht. Dateien des Entwurfs liegen unter
+ * `aktiviereEntwurf` legt Vertrag, Verknüpfungen, Dokumente und die
+ * Forderungen an — und die Mieter, die noch keinen Datensatz haben — in einer
+ * Transaktion (`aktiviere_mietvertrag_entwurf`), die den Entwurf zuerst
+ * beansprucht. Mieter lassen sich seit dem 10.11.2026 auch vorher anlegen
+ * (`legeMieterAusEntwurfAn`), der Vertrag folgt dann später oder nie. Dateien des Entwurfs liegen unter
  * `mietvertrag-entwuerfe/<id>/`; Pfade entstehen nie aus Namen (Storage lehnt
  * Umlaute ab, siehe storagePfad.ts).
  */
@@ -13,12 +15,19 @@ import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import type { Json, Tables } from '@/integrations/supabase/types';
 import { dateiendung } from '@/utils/storagePfad';
+import { alleSeiten } from '@/utils/supabaseSeiten';
 import {
   aktivierungsDaten,
+  anzulegendeMieter,
+  anzulegendePersonen,
   bestandsStammdaten,
+  doppeltAufKarten,
+  moeglicheDublettenIn,
+  personName,
   type EntwurfDatei,
   type EntwurfPerson,
   type HerkunftKarte,
+  type MoeglicheDublette,
 } from '@/utils/mietvertrag/entwurf';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 
@@ -194,7 +203,10 @@ export async function speichereEntwurf(a: SpeichernArgs): Promise<SpeicherErgebn
 
 // ─── Verwerfen ──────────────────────────────────────────────────────────────
 
-/** Löscht Entwurf, Entwurfs-PDF und Selbstauskunft. Mieter entstehen erst beim Aktivieren. */
+/**
+ * Löscht Entwurf, Entwurfs-PDF und Selbstauskunft. Mieter im Bestand bleiben — auch die, die über
+ * „Mieter anlegen“ schon vor dem Vertrag angelegt wurden (seit 10.11.2026).
+ */
 export async function verwirfEntwurf(entwurf: Pick<EntwurfZeile, 'id' | 'dateien'>): Promise<void> {
   const pfade = entwurf.dateien.map(d => d.pfad);
   // Dateien eines schon aktivierten Vertrags bleiben in jedem Fall stehen
@@ -324,6 +336,70 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
   }
 
   return { vertragId: ergebnis.vertrag_id ?? vertragId, nachgeholt: ergebnis.nachgeholt ?? 0, hinweise };
+}
+
+// ─── Mieter anlegen, ohne Vertrag ───────────────────────────────────────────
+
+type AbgleichMieter = Pick<Tables<'mieter'>, 'id' | 'vorname' | 'nachname' | 'geburtsdatum' | 'hauptmail' | 'firmenname' | 'ist_unternehmen'>;
+
+/** Gleiche Prüfung wie im Schritt Mieter (`findeVorhandeneMieter`) — für den Weg über die Einheitskarte. */
+export async function moeglicheDubletten(personen: EntwurfPerson[]): Promise<MoeglicheDublette[]> {
+  if (anzulegendePersonen(personen).length === 0) return [];
+  const bestand = await alleSeiten<AbgleichMieter>((von, bis, mitZaehlung) =>
+    supabase
+      .from('mieter')
+      .select('id, vorname, nachname, geburtsdatum, hauptmail, firmenname, ist_unternehmen', {
+        count: mitZaehlung ? 'exact' : undefined,
+      })
+      .order('id')
+      .range(von, bis)
+  );
+  return moeglicheDublettenIn(personen, bestand);
+}
+
+export interface MieterAnlegenErgebnis {
+  /** Namen der jetzt angelegten Mieter; leer, wenn schon alle einen Datensatz hatten. */
+  angelegt: string[];
+  /** Personen des Entwurfs nach dem Anlegen, mit `mieterId`. */
+  personen: EntwurfPerson[];
+  aktualisiertAm: string;
+}
+
+/**
+ * „Mieter anlegen“: Die Mitmieter des gespeicherten Entwurfs ohne Datensatz kommen in den Mieterbestand,
+ * der Mietvertrag kann warten (Kundenwunsch 10.11.2026). Maßgeblich ist der gespeicherte Stand — ihn sperrt
+ * die Funktion. Kam nur die Antwort nicht an, tragen die Personen ihren Datensatz schon, und ein zweiter
+ * Versuch legt niemanden doppelt an.
+ */
+export async function legeMieterAusEntwurfAn(entwurfId: string): Promise<MieterAnlegenErgebnis> {
+  const { data: zeile, error: ladeFehler } = await supabase
+    .from('mietvertrag_entwuerfe')
+    .select('*')
+    .eq('id', entwurfId)
+    .maybeSingle();
+  if (ladeFehler) throw new Error(`Der Entwurf konnte nicht geladen werden: ${ladeFehler.message}`);
+  if (!zeile) throw new Error('Den Entwurf gibt es nicht mehr — er wurde schon aktiviert oder verworfen.');
+  const entwurf = leseEntwurfZeile(zeile);
+
+  const neu = anzulegendePersonen(entwurf.personen);
+  if (neu.length === 0) return { angelegt: [], personen: entwurf.personen, aktualisiertAm: entwurf.aktualisiertAm };
+  const doppelt = doppeltAufKarten(entwurf.personen);
+  if (doppelt.length > 0) {
+    throw new Error(`${doppelt.join(', ')} steht doppelt im Entwurf. Bitte im Schritt „Mieter“ eine der beiden Karten entfernen.`);
+  }
+
+  const { data, error } = await supabase.rpc('lege_mieter_aus_entwurf_an', {
+    p_entwurf_id: entwurf.id,
+    p_stand: entwurf.aktualisiertAm,
+    p_neue_mieter: anzulegendeMieter(entwurf.personen) as unknown as Json,
+  });
+  if (error) throw new Error(`Es wurde niemand angelegt: ${error.message}`);
+  const antwort = (data ?? {}) as { personen?: unknown; aktualisiert_am?: string };
+  return {
+    angelegt: neu.map(personName),
+    personen: Array.isArray(antwort.personen) ? (antwort.personen as EntwurfPerson[]) : entwurf.personen,
+    aktualisiertAm: antwort.aktualisiert_am ?? entwurf.aktualisiertAm,
+  };
 }
 
 /** Kurzlebiger Link zum Ansehen einer Entwurfsdatei. */

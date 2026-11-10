@@ -55,7 +55,8 @@ export function schrittTitel(schritt: SchrittId, wohnraum: boolean): string {
 /**
  * Zuerst der Mieter, dann der Vertrag (Kundenwunsch 03.11.2026: „Erster Step,
  * Mieter anlegen … und dann Mietvertrag erstellen“). Gespeichert wird der
- * Mieter im Entwurf; im Bestand entsteht er erst beim Aktivieren.
+ * Mieter im Entwurf; in den Bestand kommt er beim Aktivieren oder vorher über
+ * „Mieter anlegen“ (seit 10.11.2026: „erst einmal die Mieter anlegen“).
  */
 const ALLE: SchrittId[] = ['mieter', 'grundlagen', 'miete', 'mietsache', 'betriebskosten', 'vereinbarungen', 'pruefen', 'start'];
 

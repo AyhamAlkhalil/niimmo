@@ -9,8 +9,10 @@ import { format } from "date-fns";
 import { darlehenStand } from "@/utils/darlehenBerechnung";
 import { VertragStatusBadge } from "@/components/dashboard/VertragStatusBadge";
 import { ilikeInSpalten, suchwoerter } from "@/utils/suchbegriff";
+import { alleSeiten } from "@/utils/supabaseSeiten";
+import { mieterOhneVertragTreffer, type EntwurfFuerSuche, type MieterOhneVertragRoh, type MieterOhneVertragTreffer } from "@/utils/mieterOhneVertrag";
 
-const LEER = { mietvertraege: [], immobilien: [], einheiten: [], versicherungen: [], darlehen: [], dokumente: [] };
+const LEER = { mietvertraege: [], mieterOhneVertrag: [] as MieterOhneVertragTreffer[], immobilien: [], einheiten: [], versicherungen: [], darlehen: [], dokumente: [] };
 
 /** Jedes Wort in einer der Spalten — mehrere `.or()` verknüpft PostgREST mit UND. */
 function jedesWort<Q extends { or: (filter: string) => Q }>(abfrage: Q, spalten: readonly string[], woerter: string[]): Q {
@@ -95,6 +97,26 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
 
       const mietvertraege = Array.from(contractMap.values());
 
+      // Mieter ohne Vertrag: seit 10.11.2026 über „Mieter anlegen“ im Entwurf. Die Abfrage oben verlangt einen Vertrag.
+      // Seitenweise: Gefiltert wird erst hier, sonst schnitte die 1000er-Grenze still Treffer ab (Review 10.11.2026)
+      const ohneVertragRoh = await alleSeiten<MieterOhneVertragRoh>((von, bis, mitZaehlung) =>
+        jedesWort(supabase
+          .from('mieter')
+          .select('id, vorname, nachname, firmenname, ist_unternehmen, mietvertrag_mieter(mietvertrag_id)', { count: mitZaehlung ? 'exact' : undefined }),
+          ['vorname', 'nachname', 'hauptmail', 'firmenname'], woerter)
+          .order('id')
+          .range(von, bis));
+      const ohneVertrag = ohneVertragRoh.filter(m => (m.mietvertrag_mieter ?? []).length === 0);
+      let mieterOhneVertrag: MieterOhneVertragTreffer[] = [];
+      if (ohneVertrag.length > 0) {
+        // Entwürfe liest nur ein Admin; für alle anderen bleibt die Liste leer und der Treffer ohne Einheit
+        const { data: entwuerfe, error: entwurfFehler } = await supabase
+          .from('mietvertrag_entwuerfe')
+          .select('einheit_id, personen, einheiten(etage, immobilie_id, immobilien(name))');
+        if (entwurfFehler) throw entwurfFehler;
+        mieterOhneVertrag = mieterOhneVertragTreffer(ohneVertrag, (entwuerfe ?? []) as unknown as EntwurfFuerSuche[]);
+      }
+
       // Suche Immobilien
       const { data: immobilien, error: immobilienFehler } = await jedesWort(supabase
         .from('immobilien')
@@ -148,6 +170,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
 
       return {
         mietvertraege,
+        mieterOhneVertrag,
         immobilien: immobilien || [],
         einheiten: einheiten || [],
         versicherungen: versicherungen || [],
@@ -175,6 +198,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
 
   const totalResults =
     (searchResults?.mietvertraege?.length ?? 0) +
+    (searchResults?.mieterOhneVertrag?.length ?? 0) +
     (searchResults?.immobilien?.length ?? 0) +
     (searchResults?.einheiten?.length ?? 0) +
     (searchResults?.versicherungen?.length ?? 0) +
@@ -185,6 +209,10 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
     if (!searchResults) return null;
     if (searchResults.mietvertraege.length > 0) {
       return { type: 'mietvertrag' as const, mietvertragId: searchResults.mietvertraege[0].mietvertragId };
+    }
+    const ohneVertrag = searchResults.mieterOhneVertrag.find(m => m.immobilieId);
+    if (ohneVertrag?.immobilieId) {
+      return { type: 'einheit' as const, immobilieId: ohneVertrag.immobilieId, einheitId: ohneVertrag.einheitId ?? undefined };
     }
     if (searchResults.einheiten.length > 0) {
       const einheit = searchResults.einheiten[0];
@@ -302,6 +330,34 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                           <ArrowRight className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Mieter ohne Mietvertrag (seit 10.11.2026): mit offenem Entwurf führt der Treffer zu dessen Einheit */}
+            {(searchResults.mieterOhneVertrag?.length ?? 0) > 0 && (
+              <div>
+                <h4 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                  <User className="h-4 w-4" />
+                  Mieter ohne Mietvertrag ({searchResults.mieterOhneVertrag.length})
+                </h4>
+                <div className="space-y-2">
+                  {searchResults.mieterOhneVertrag.map((m) => (
+                    <div
+                      key={m.id}
+                      className={
+                        m.immobilieId
+                          ? "rounded-xl border border-border/80 bg-card p-3.5 cursor-pointer transition-[border-color,background-color,box-shadow] duration-200 hover:border-neutral-300 hover:bg-neutral-50/70 hover:shadow-sm"
+                          : "rounded-xl border border-border/80 bg-card p-3.5"
+                      }
+                      onClick={m.immobilieId ? () => handleImmobilieClick(m.immobilieId!, m.einheitId ?? undefined) : undefined}
+                    >
+                      <p className="font-medium text-foreground">{highlight(m.name)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {m.immobilieId ? `Entwurf an ${m.ort ?? 'einer Einheit'} · Mietvertrag noch offen` : 'Kein Mietvertrag'}
+                      </p>
                     </div>
                   ))}
                 </div>

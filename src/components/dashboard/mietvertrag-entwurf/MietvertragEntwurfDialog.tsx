@@ -15,7 +15,20 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, FileCheck2, FileSignature, Info, Loader2, PenLine, Save } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+  FileCheck2,
+  FileSignature,
+  Info,
+  Loader2,
+  PenLine,
+  Save,
+  UserPlus,
+} from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -53,12 +66,14 @@ import { speichereEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwu
 import { getVertragsende } from '@/utils/contractUtils';
 import { mitSchluesselnDesObjekts, objektDaten, vermieterDaten } from '@/utils/mietvertrag/datenAusDb';
 import {
+  anzulegendePersonen,
   baueEntwurf,
   hatNamen,
   indexVorschlag,
   istLeerePerson,
   istWohnraumEinheit,
   leerePerson,
+  mitAngelegtenMietern,
   mitMietbeginn,
   mitPersonen,
   ohneHerkunft,
@@ -110,6 +125,7 @@ import {
 } from '../mietvertrag-formular/Bausteine';
 import { GrundlagenSchritt } from './GrundlagenSchritt';
 import { InteressentenAbschnitt } from './InteressentenAbschnitt';
+import { useMieterAnlegen } from './MieterAnlegen';
 import { MieteSchritt } from './MieteSchritt';
 import { PruefenSchritt } from './PruefenSchritt';
 import { Schrittleiste } from './Schrittleiste';
@@ -192,6 +208,7 @@ export function MietvertragEntwurfDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
+  const mieterAnlegen = useMieterAnlegen();
 
   const grundlagen = useEntwurfGrundlagen(einheitId, isOpen);
   const vorhanden = useMietvertragEntwurf(entwurfId, isOpen);
@@ -814,9 +831,9 @@ export function MietvertragEntwurfDialog({
         return (
           <div className="space-y-5">
             <p className="text-sm">
-              Zuerst den Mieter: Selbstauskunft hochladen oder einen vorhandenen Mieter wählen und die Angaben prüfen. Mit
-              „Mieter speichern“ geht es weiter zum Mietvertrag. Im Mieterbestand erscheint er erst, wenn der
-              unterschriebene Vertrag aktiviert ist.
+              Zuerst den Mieter: Selbstauskunft hochladen oder einen vorhandenen Mieter wählen und die Angaben prüfen.
+              „Mieter anlegen“ übernimmt ihn sofort in den Mieterbestand, der Mietvertrag kann warten. Mit „Mieter
+              speichern“ geht es weiter zum Mietvertrag.
             </p>
             {(bestand.error || blacklist.error) && (
               <Alert variant="destructive">
@@ -1060,6 +1077,30 @@ export function MietvertragEntwurfDialog({
                     {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     Zwischenspeichern
                   </Button>
+                  {anzulegendePersonen(personen).length > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        void mieterAnlegen.fragen({
+                          entwurfId: id,
+                          personen,
+                          bestand: bestand.error ? undefined : bestand.data,
+                          // Angelegt wird aus dem gespeicherten Stand — ein neuer oder geänderter Entwurf wird vorher gespeichert
+                          vorher: async () => (gespeichert && !ungespeichert ? true : await speichern()),
+                          danach: ergebnis => {
+                            // Ohne den Datensatz an der Karte schriebe das nächste Speichern ihn weg — die Aktivierung legte die Person dann doppelt an
+                            setPersonen(p => mitAngelegtenMietern(p, ergebnis.personen));
+                            setAktualisiertAm(ergebnis.aktualisiertAm);
+                          },
+                        })
+                      }
+                      disabled={speichert || blockiertWeil || zahlFehler || mieterAnlegen.beschaeftigt}
+                      title="Den Mieter schon jetzt in den Bestand übernehmen — der Mietvertrag kann warten"
+                    >
+                      {mieterAnlegen.beschaeftigt ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                      Mieter anlegen
+                    </Button>
+                  )}
                   <span className={ungespeichert ? 'text-xs text-warning' : 'text-xs text-muted-foreground'}>{statusText}</span>
                   {zahlFehler && (
                     <span role="alert" className="text-xs text-destructive">
@@ -1204,6 +1245,7 @@ export function MietvertragEntwurfDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {mieterAnlegen.dialog}
     </>
   );
 }

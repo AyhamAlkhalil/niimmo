@@ -1,11 +1,12 @@
 /**
  * Offene Mietvertragsentwürfe einer Einheit auf der Einheitskarte, mit ihrem
  * Stand im Ablauf. Ein Entwurf belegt die Einheit nicht — er steht hier, bis
- * er aktiviert oder verworfen wird.
+ * er aktiviert oder verworfen wird. Seit dem 10.11.2026 lassen sich seine
+ * Mitmieter hier auch ohne Vertrag anlegen („Mieter anlegen“).
  */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, FileText, Loader2, PenLine, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, FileText, Loader2, PenLine, Trash2, UserPlus } from 'lucide-react';
 
 import {
   AlertDialog,
@@ -23,7 +24,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
 import { useMietvertragEntwuerfe } from '@/hooks/useMietvertragEntwurf';
 import { entwurfDateiLink, verwirfEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
+import { anzulegendePersonen, hatNamen } from '@/utils/mietvertrag/entwurf';
 import { istSchrittId, schrittTitel, type SchrittId } from '@/utils/mietvertrag/entwurfProzess';
+
+import { useMieterAnlegen } from './MieterAnlegen';
 
 interface Props {
   einheitId: string;
@@ -46,6 +50,11 @@ function stand(e: EntwurfZeile, wohnraum: boolean): string {
   return istSchrittId(e.schritt) ? `in Bearbeitung · ${schrittTitel(e.schritt, wohnraum)}` : 'in Bearbeitung';
 }
 
+/** Haben alle Mitmieter schon einen Mieterdatensatz (angelegt oder aus dem Bestand gewählt)? */
+function mieterImBestand(e: EntwurfZeile): boolean {
+  return e.personen.some(p => p.rolle === 'mitmieter' && hatNamen(p)) && anzulegendePersonen(e.personen).length === 0;
+}
+
 export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -53,6 +62,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
   const { data, error } = useMietvertragEntwuerfe();
   const [verwerfen, setVerwerfen] = useState<EntwurfZeile | null>(null);
   const [verwirft, setVerwirft] = useState(false);
+  const mieterAnlegen = useMieterAnlegen();
 
   const entwuerfe = (data ?? []).filter(e => e.einheitId === einheitId);
   // Ein Ladefehler darf nicht wie „keine Entwürfe" aussehen — sonst entsteht ein zweiter
@@ -101,6 +111,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
     <div className="space-y-2" onClick={e => e.stopPropagation()}>
       {entwuerfe.map(e => {
         const hatPdf = e.dateien.some(d => d.art === 'entwurf_pdf');
+        const offen = anzulegendePersonen(e.personen).length;
         return (
           <div key={e.id} className="space-y-2 rounded-lg border border-dashed border-primary/50 bg-primary/5 p-2.5">
             <div className="min-w-0 text-xs">
@@ -115,6 +126,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                 {e.daten.kaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € kalt
               </p>
               <p className="text-muted-foreground">{stand(e, wohnraum)}</p>
+              {mieterImBestand(e) && <p className="text-muted-foreground">Mieter angelegt · Mietvertrag noch offen</p>}
             </div>
             <div className="flex flex-wrap gap-1.5">
               <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onOeffnen(e.id)}>
@@ -125,6 +137,19 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => void pdfOeffnen(e)}>
                   <FileText className="h-3 w-3" />
                   PDF
+                </Button>
+              )}
+              {offen > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  disabled={mieterAnlegen.beschaeftigt}
+                  title="Den Mieter schon jetzt in den Bestand übernehmen — der Mietvertrag kann warten"
+                  onClick={() => void mieterAnlegen.fragen({ entwurfId: e.id, personen: e.personen })}
+                >
+                  <UserPlus className="h-3 w-3" />
+                  Mieter anlegen
                 </Button>
               )}
               <Button size="sm" className="h-7 text-xs" onClick={() => onOeffnen(e.id, 'start')}>
@@ -150,8 +175,10 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Entwurf verwerfen?</AlertDialogTitle>
             <AlertDialogDescription>
-              {verwerfen ? namen(verwerfen) : ''} — Entwurf, Entwurfs-PDF und Selbstauskunft werden gelöscht. Ein Mieter
-              wurde für den Entwurf noch nicht angelegt.
+              {verwerfen ? namen(verwerfen) : ''} — Entwurf, Entwurfs-PDF und Selbstauskunft werden gelöscht.{' '}
+              {verwerfen && verwerfen.personen.some(p => p.rolle === 'mitmieter' && p.mieterId)
+                ? 'Mieter, die schon im Bestand sind, bleiben dort.'
+                : 'Ein Mieter wurde für den Entwurf noch nicht angelegt.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -170,6 +197,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {mieterAnlegen.dialog}
     </div>
   );
 }

@@ -12,7 +12,13 @@ import { readFileSync } from 'node:fs';
 import type { Tables } from '@/integrations/supabase/types';
 import {
   aktivierungsDaten,
+  doppeltAufKarten,
+  anzulegendeMieter,
+  anzulegendePersonen,
   baueEntwurf,
+  mitAngelegtenMietern,
+  moeglicheDublettenIn,
+  personName,
   findeVorhandeneMieter,
   monateNachzuholen,
   kautionFuer,
@@ -1093,5 +1099,76 @@ describe('Nicht umgelegte Kostenarten für die Abrechnung (06.11.2026)', () => {
     expect(nichtUmgelegteKategorien(null).size).toBe(0);
     expect(nichtUmgelegteKategorien('kaputt').size).toBe(0);
     expect(nichtUmgelegteKategorien([{ umgelegt: false }, null, { nummer: '9.9', umgelegt: false }]).size).toBe(0);
+  });
+});
+
+describe('Mieter anlegen, ohne Vertrag (Kundenwunsch 10.11.2026)', () => {
+  const daten = () => baueEntwurf(grundlagen()).daten;
+  const neu = { ...leerePerson(), vorname: 'Erika', nachname: 'Neu', email: 'erika@example.de', geburtsdatum: '1990-05-01' };
+  const mitbewohner = { ...leerePerson(), rolle: 'mitbewohner' as const, vorname: 'Max', nachname: 'Neu' };
+  const firma = { ...leerePerson(), istUnternehmen: true, firmenname: 'Muster GmbH', vorname: '', nachname: '' };
+
+  it('legt nur Mitmieter mit Namen und ohne Datensatz an', () => {
+    const bestehend = { ...leerePerson(), vorname: 'Jürgen', nachname: 'Müller', mieterId: 'b1', quelle: 'bestand' as const };
+    const personen = [bestehend, neu, mitbewohner, leerePerson(), firma];
+    expect(anzulegendePersonen(personen).map(personName)).toEqual(['Erika Neu', 'Muster GmbH']);
+    expect(anzulegendeMieter(personen).map(m => m.schluessel)).toEqual([neu.schluessel, firma.schluessel]);
+    expect(anzulegendeMieter(personen)[0].zeile).toEqual(mieterZeile(neu));
+  });
+
+  it('nimmt dieselben Personen wie die Aktivierung — nach dem Anlegen legt sie niemanden mehr an', () => {
+    const personen = [neu, mitbewohner, firma];
+    const vorher = aktivierungsDaten({ id: 'v1', einheitId: 'e1', daten: daten(), herkunft: {}, vorvertragId: null, mitVorlage: true, personen });
+    expect(vorher.neueMieter).toEqual(anzulegendeMieter(personen));
+
+    // So schreibt lege_mieter_aus_entwurf_an die Person zurück: Datensatz, Quelle und Stand in Spaltenform
+    const gespeichert = personen.map(p => {
+      if (!anzulegendePersonen([p]).length) return p;
+      const z = mieterZeile(p);
+      const stand = { anrede: null, hauptmail: null, telnr: null, geburtsdatum: null, vertreten_durch: null, strasse: null, hausnummer: null, plz: null, ort: null, ...Object.fromEntries(['anrede', 'hauptmail', 'telnr', 'geburtsdatum', 'vertreten_durch', 'strasse', 'hausnummer', 'plz', 'ort'].map(f => [f, z[f as keyof typeof z] ?? null])) };
+      return { ...p, mieterId: `m-${p.schluessel}`, quelle: 'bestand' as const, bestandStand: stand };
+    });
+    const nachher = aktivierungsDaten({ id: 'v1', einheitId: 'e1', daten: daten(), herkunft: {}, vorvertragId: null, mitVorlage: true, personen: gespeichert });
+    expect(nachher.neueMieter).toEqual([]);
+    expect(nachher.verknuepfungen.map(v => v.mieter_id)).toEqual([`m-${neu.schluessel}`, `m-${firma.schluessel}`]);
+    // Unverändert seit dem Anlegen: Die Aktivierung schreibt keine Stammdaten zurück
+    expect(nachher.verknuepfungen.map(v => v.stammdaten)).toEqual([{}, {}]);
+  });
+
+  it('übernimmt den Datensatz an die Karten im Dialog und lässt Getipptes stehen', () => {
+    const karte = { ...neu, telefon: '0511 99' };
+    const gespeichert = [{ ...neu, mieterId: 'm1', quelle: 'bestand' as const, bestandStand: { hauptmail: 'erika@example.de' } }];
+    const [ergebnis] = mitAngelegtenMietern([karte], gespeichert);
+    expect(ergebnis).toMatchObject({ mieterId: 'm1', quelle: 'bestand', bestandStand: { hauptmail: 'erika@example.de' }, telefon: '0511 99' });
+    // Eine Karte mit eigenem Datensatz oder ohne Gegenstück bleibt, wie sie ist
+    const schon = { ...neu, mieterId: 'alt' };
+    expect(mitAngelegtenMietern([schon], gespeichert)[0].mieterId).toBe('alt');
+    const andere = { ...leerePerson(), vorname: 'Ohne', nachname: 'Gegenstück' };
+    expect(mitAngelegtenMietern([andere], gespeichert)[0]).toEqual(andere);
+  });
+
+  it('sperrt eine Person, die schon auf einer anderen Karte steht', () => {
+    const gewaehlt = { ...neu, mieterId: 'm1', quelle: 'bestand' as const };
+    const ausSelbstauskunft = { ...leerePerson(), vorname: 'Erika', nachname: 'Neu', email: 'ERIKA@example.de' };
+    expect(doppeltAufKarten([gewaehlt, ausSelbstauskunft])).toEqual(['Erika Neu']);
+    // Gleicher Name allein ist nur „möglich“, keine Sperre — und ohne zweite Karte gibt es nichts zu sperren
+    expect(doppeltAufKarten([gewaehlt, { ...leerePerson(), vorname: 'Erika', nachname: 'Neu' }])).toEqual([]);
+    expect(doppeltAufKarten([neu, mitbewohner])).toEqual([]);
+  });
+
+  it('warnt vor möglichen Dubletten nur für anzulegende Personen', () => {
+    const bestand = [
+      { id: 'x1', vorname: 'Erika', nachname: 'Neu', geburtsdatum: null, hauptmail: null, firmenname: null, ist_unternehmen: false },
+      { id: 'x2', vorname: 'Andere', nachname: 'Person', geburtsdatum: null, hauptmail: 'erika@example.de', firmenname: null, ist_unternehmen: false },
+    ];
+    expect(moeglicheDublettenIn([neu, mitbewohner], bestand)).toEqual([{ person: 'Erika Neu', vorhanden: ['Erika Neu', 'Andere Person'] }]);
+    expect(moeglicheDublettenIn([{ ...neu, mieterId: 'x1' }], bestand)).toEqual([]);
+  });
+
+  it('übernimmt im Dialog den Datensatz an die Karten, bevor wieder gespeichert wird', () => {
+    // Fehlt dieser Schritt, schreibt das nächste Speichern die Karten ohne Datensatz zurück — doppelte Mieter beim Aktivieren
+    const dialog = readFileSync('src/components/dashboard/mietvertrag-entwurf/MietvertragEntwurfDialog.tsx', 'utf8');
+    expect(dialog).toMatch(/setPersonen\(p => mitAngelegtenMietern\(p, ergebnis\.personen\)\)/);
+    expect(dialog).toMatch(/setAktualisiertAm\(ergebnis\.aktualisiertAm\)/);
   });
 });
