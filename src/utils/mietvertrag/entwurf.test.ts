@@ -13,6 +13,7 @@ import type { Tables } from '@/integrations/supabase/types';
 import {
   aktivierungsDaten,
   doppeltAufKarten,
+  unvollstaendigeNamen,
   anzulegendeMieter,
   anzulegendePersonen,
   baueEntwurf,
@@ -1145,6 +1146,13 @@ describe('Mieter anlegen, ohne Vertrag (Kundenwunsch 10.11.2026)', () => {
     expect(mitAngelegtenMietern([schon], gespeichert)[0].mieterId).toBe('alt');
     const andere = { ...leerePerson(), vorname: 'Ohne', nachname: 'Gegenstück' };
     expect(mitAngelegtenMietern([andere], gespeichert)[0]).toEqual(andere);
+  });
+
+  it('verlangt vor dem Anlegen Vor- und Nachnamen, bei Firmen den Firmennamen (11.11.2026)', () => {
+    const nurVorname = { ...leerePerson(), vorname: 'Erika', nachname: ' ' };
+    expect(unvollstaendigeNamen([nurVorname, neu, firma, mitbewohner])).toEqual(['Erika']);
+    // Schon angelegt oder Mitbewohner: kein Fall
+    expect(unvollstaendigeNamen([{ ...nurVorname, mieterId: 'm1' }, { ...mitbewohner, nachname: '' }])).toEqual([]);
   });
 
   it('sperrt eine Person, die schon auf einer anderen Karte steht', () => {

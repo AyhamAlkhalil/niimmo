@@ -30,8 +30,13 @@ import {
   entwurfLuecken,
   platzhalterUebersicht,
   quellenZaehlung,
+  naechsteStufe,
+  naechsterWeitester,
   schritteFuer,
+  spaetererSchritt,
   teilVon,
+  vermietungsStufen,
+  weitesterAusAltbestand,
   nurAmObjekt,
   schrittFuerFeld,
   schrittZustaende,
@@ -245,10 +250,75 @@ describe('Schlüssel und Index', () => {
 describe('Schritte', () => {
   it('kennt ohne Wohnraum-Vorlage nur die Grundschritte', () => {
     expect(schritteFuer(true)).toHaveLength(8);
-    expect(schritteFuer(false)).toEqual(['mieter', 'grundlagen', 'miete', 'pruefen', 'start']);
-    // Erst der Mieter, dann der Vertrag (03.11.2026)
-    expect(schritteFuer(true)[0]).toBe('mieter');
-    expect(schritteFuer(true).slice(1).every(s => teilVon(s) === 'vertrag')).toBe(true);
+    expect(schritteFuer(false)).toEqual(['mieter', 'miete', 'grundlagen', 'pruefen', 'start']);
+    // Erst die Vermietung (Mieter, Miete), dann der Vertrag (11.11.2026)
+    expect(schritteFuer(true).slice(0, 2)).toEqual(['mieter', 'miete']);
+    expect(schritteFuer(true).slice(0, 2).every(s => teilVon(s) === 'vermietung')).toBe(true);
+    expect(schritteFuer(true).slice(2).every(s => teilVon(s) === 'vertrag')).toBe(true);
+  });
+
+  it('rückt über die Miete nur mit „Miete speichern“ oder dem PDF hinaus (Review 11.11.2026)', () => {
+    // Über die Schrittleiste vorgesprungen und zwischengespeichert: bleibt bei der Miete
+    expect(naechsterWeitester('mieter', 'betriebskosten', false)).toBe('miete');
+    expect(naechsterWeitester(null, 'grundlagen', false)).toBe('miete');
+    // „Miete speichern“ bzw. PDF
+    expect(naechsterWeitester('miete', 'grundlagen', true)).toBe('grundlagen');
+    expect(naechsterWeitester('miete', 'start', true)).toBe('start');
+    // Schon vorgemerkt: weiter wie gehabt, zurückblättern ändert nichts
+    expect(naechsterWeitester('grundlagen', 'betriebskosten', false)).toBe('betriebskosten');
+    expect(naechsterWeitester('betriebskosten', 'mieter', false)).toBe('betriebskosten');
+    // Bis zur Miete ohne Bestätigung
+    expect(naechsterWeitester('mieter', 'miete', false)).toBe('miete');
+  });
+
+  it('liest alte Entwürfe ohne weitesten Schritt nach der alten Reihenfolge', () => {
+    // Vor dem 11.11.2026 kam „Grundlagen“ vor „Miete“
+    expect(weitesterAusAltbestand('grundlagen')).toBe('mieter');
+    expect(weitesterAusAltbestand('miete')).toBe('miete');
+    expect(weitesterAusAltbestand('start')).toBe('start');
+    expect(weitesterAusAltbestand(null)).toBeNull();
+  });
+
+  it('merkt sich den weitesten Schritt, auch wenn man zurückblättert', () => {
+    expect(spaetererSchritt('mieter', 'grundlagen')).toBe('grundlagen');
+    expect(spaetererSchritt('pruefen', 'mieter')).toBe('pruefen');
+    expect(spaetererSchritt(null, 'miete')).toBe('miete');
+    expect(spaetererSchritt('kaputt', undefined)).toBeNull();
+  });
+
+  it('zeigt den Stand der Vermietung in Stufen und steigt in der ersten offenen ein (11.11.2026)', () => {
+    const person = { ...leerePerson(), vorname: 'Erika', nachname: 'Neu' };
+    const angelegt = { ...person, mieterId: 'm1' };
+    const mitbewohner = { ...leerePerson(), rolle: 'mitbewohner' as const, vorname: 'Max', nachname: 'Neu' };
+    const stand = (personen: typeof person[], schritt: string | null, weitesterSchritt: string | null, pdf = false) =>
+      vermietungsStufen({ personen, schritt, weitesterSchritt, dateien: pdf ? [{ art: 'entwurf_pdf' }] : [] }, true);
+    const erledigt = (s: ReturnType<typeof stand>) => s.map(x => x.erledigt);
+
+    // Neu angefangen: nichts erledigt, Weiter führt zum Mieter
+    expect(erledigt(stand([person], 'mieter', 'mieter'))).toEqual([false, false, false, false]);
+    expect(naechsteStufe(stand([person], 'mieter', 'mieter')).schritt).toBe('mieter');
+    // Mieter angelegt, im Schritt Miete gespeichert, aber noch nicht weiter: Miete ist nicht vorgemerkt
+    expect(erledigt(stand([angelegt, mitbewohner], 'miete', 'miete'))).toEqual([true, false, false, false]);
+    expect(naechsteStufe(stand([angelegt], 'miete', 'miete')).schritt).toBe('miete');
+    // Miete gespeichert und weiter: vorgemerkt — auch wenn man danach zurückblättert und speichert
+    expect(erledigt(stand([angelegt], 'mieter', 'grundlagen'))).toEqual([true, true, false, false]);
+    // Der Vertragsteil beginnt mit den Grundlagen — oder dort, wo er zuletzt stand
+    expect(naechsteStufe(stand([angelegt], 'mieter', 'grundlagen')).schritt).toBe('grundlagen');
+    expect(naechsteStufe(stand([angelegt], 'mieter', 'betriebskosten')).schritt).toBe('betriebskosten');
+    expect(naechsteStufe(stand([angelegt], 'start', 'start')).schritt).toBe('pruefen');
+    // Der aktuelle Schritt allein rückt nicht vor
+    expect(erledigt(stand([angelegt], 'betriebskosten', 'miete'))).toEqual([true, false, false, false]);
+    // Alter Entwurf auf „Grundlagen“ ohne weitesten Schritt: Miete nie gesehen
+    expect(erledigt(stand([angelegt], 'grundlagen', null))).toEqual([true, false, false, false]);
+    // PDF da: nur noch die Unterschrift offen
+    expect(naechsteStufe(stand([angelegt], 'start', 'start', true)).schritt).toBe('start');
+    // Ein noch nicht angelegter Mitmieter hält die erste Stufe offen; ohne Mitmieter gibt es nichts anzulegen
+    expect(stand([angelegt, person], 'start', 'start', true)[0].erledigt).toBe(false);
+    expect(stand([], 'start', 'start')[0].erledigt).toBe(false);
+    // Ohne Vorlage gilt der Vertrag als vorbereitet, sobald „Prüfen“ gespeichert wurde
+    const ohneVorlage = vermietungsStufen({ personen: [angelegt], schritt: 'start', weitesterSchritt: null, dateien: [] }, false);
+    expect(ohneVorlage.map(s => s.titel)).toEqual(['Mieter angelegt', 'Miete vorgemerkt', 'Vertrag vorbereitet', 'Unterschrift & Start']);
+    expect(ohneVorlage[2].erledigt).toBe(true);
   });
 
   it('ordnet jeden Prüfbefund einem Schritt zu, in dem er sich beheben lässt', () => {

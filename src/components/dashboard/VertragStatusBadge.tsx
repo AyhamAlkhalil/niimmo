@@ -8,24 +8,34 @@ import { cn } from "@/lib/utils";
  */
 type VertragStatus = "aktiv" | "gekuendigt" | "beendet" | string | null | undefined;
 
-const DARSTELLUNG: Record<"aktiv" | "gekuendigt" | "beendet" | "leer", { text: string; variante: "success" | "warning" | "secondary" | "brand" }> = {
+const DARSTELLUNG: Record<"aktiv" | "gekuendigt" | "beendet" | "leer" | "vermietung", { text: string; variante: "success" | "warning" | "secondary" | "brand" }> = {
   aktiv: { text: "Aktiv", variante: "success" },
   gekuendigt: { text: "Gekündigt", variante: "warning" },
   beendet: { text: "Beendet", variante: "secondary" },
   leer: { text: "Leerstand", variante: "brand" },
+  // Leere Einheit mit laufender Vermietung (11.11.2026): noch kein Vertrag, aber kein Leerstand mehr ohne Plan
+  vermietung: { text: "In Vermietung", variante: "secondary" },
 };
 
 interface VertragStatusBadgeProps {
   status: VertragStatus;
   /** Einheit ohne Vertrag */
   leer?: boolean;
+  /** Einheit ohne Vertrag, aber mit laufender Vermietung */
+  inVermietung?: boolean;
   /** Abweichender Text, z. B. „Leerstehend“ */
   text?: string;
   className?: string;
 }
 
-export function VertragStatusBadge({ status, leer = false, text, className }: VertragStatusBadgeProps) {
-  const schluessel = leer ? "leer" : status === "aktiv" || status === "gekuendigt" || status === "beendet" ? status : null;
+export function VertragStatusBadge({ status, leer = false, inVermietung = false, text, className }: VertragStatusBadgeProps) {
+  const schluessel = leer
+    ? inVermietung
+      ? "vermietung"
+      : "leer"
+    : status === "aktiv" || status === "gekuendigt" || status === "beendet"
+      ? status
+      : null;
   if (!schluessel) {
     return status ? <Badge variant="secondary" className={className}>{text ?? status}</Badge> : null;
   }

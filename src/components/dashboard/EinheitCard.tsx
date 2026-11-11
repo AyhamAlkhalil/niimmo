@@ -12,6 +12,7 @@ import { EntwuerfeAnEinheit } from "./mietvertrag-entwurf/EntwuerfeAnEinheit";
 import { istWohnraumEinheit } from "@/utils/mietvertrag/entwurf";
 import type { SchrittId } from "@/utils/mietvertrag/entwurfProzess";
 import { useUserRole } from "@/hooks/useUserRole";
+import { useMietvertragEntwuerfe } from "@/hooks/useMietvertragEntwurf";
 
 import { useToast } from "@/hooks/use-toast";
 import { useLinkedContracts } from "@/hooks/useLinkedContracts";
@@ -70,6 +71,9 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
   const [entwurfSchritt, setEntwurfSchritt] = useState<SchrittId | null>(null);
   // Entwürfe und neue Verträge schreiben nur Admins (RLS) — Hausmeister sehen die Knöpfe nicht
   const { isAdmin } = useUserRole();
+  // Laufende Vermietung (Vorgang ohne Vertrag, 11.11.2026) — Entwürfe darf nur ein Admin lesen
+  const { data: entwuerfe, isLoading: entwuerfeLaden } = useMietvertragEntwuerfe(isAdmin);
+  const inVermietung = isAdmin && (entwuerfe ?? []).some(e => e.einheitId === einheit.id);
   const [autoOpenContract, setAutoOpenContract] = useState(false);
   const [showContractHighlight, setShowContractHighlight] = useState(false);
   const [currentVertragId, setCurrentVertragId] = useState<string | null>(null);
@@ -115,7 +119,7 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
   };
 
   const getStatusBadge = () => {
-    if (!vertrag) return <VertragStatusBadge status={null} leer text="Leerstehend" />;
+    if (!vertrag) return <VertragStatusBadge status={null} leer inVermietung={inVermietung} text={inVermietung ? undefined : "Leerstehend"} />;
     return <VertragStatusBadge status={vertrag.status} />;
   };
 
@@ -374,7 +378,8 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
           )}
 
           {/* Wenn keine Mieter zugeordnet sind */}
-          {(!vertrag || !vertrag.mieter || vertrag.mieter.length === 0) && (
+          {/* Bei laufender Vermietung steht statt „Leerstehend“ deren Stand darunter */}
+          {(!vertrag || !vertrag.mieter || vertrag.mieter.length === 0) && !(!vertrag && inVermietung) && (
             <div className="flex items-center space-x-2 rounded-lg border border-dashed border-border bg-card/70 p-2.5 text-muted-foreground">
               <Users className="h-4 w-4" />
               <span className="text-sm">
@@ -409,9 +414,11 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
                 variant={!vertrag ? "default" : "outline"}
                 className="w-full"
                 size="sm"
+                // Solange die laufenden Vermietungen laden, ist unklar, ob schon eine läuft (Review 11.11.2026)
+                disabled={entwuerfeLaden}
               >
                 <User className="h-4 w-4 mr-2" />
-                Neuen Mietvertrag anlegen
+                {inVermietung ? 'Weitere Vermietung beginnen' : 'Vermietung beginnen'}
               </Button>
             </div>
           )}

@@ -4,13 +4,15 @@
  * Die Vorlage ist fest; der Ablauf befüllt ihre Platzhalter aus Objekt,
  * Einheit, Vorvertrag, Selbstauskunft und Eingaben — jeder Wert bleibt
  * änderbar und zeigt seine Quelle. Am Ende steht das PDF. Seit 03.11.2026
- * zuerst der Mieter, dann der Vertrag (Kundenwunsch):
+ * zuerst der Mieter, seit 11.11.2026 die Vermietung als Prozess (Kundenwunsch):
  *
- *   Mieter │ Grundlagen → Miete & Laufzeit → Mietsache & Haus →
+ *   Mieter → Miete & Laufzeit │ Grundlagen → Mietsache & Haus →
  *   Betriebskosten → Vereinbarungen → Prüfen & PDF → Unterschrift & Start
  *
- * Bis zum Aktivieren ist alles ein Entwurf (`mietvertrag_entwuerfe`): Die
- * Einheit bleibt frei, es entstehen keine Forderungen. Zwischenspeichern geht
+ * Bis zum Aktivieren ist die Vermietung ein Vorgang (`mietvertrag_entwuerfe`):
+ * Die Einheit gilt nicht als vermietet, es entstehen keine Forderungen. Seit dem
+ * 11.11.2026 ist sie ein Prozess mit Zwischenständen: „Mieter speichern“ legt den
+ * Mieter an, „Miete speichern“ merkt die Eckdaten vor, der Vertrag folgt später. Zwischenspeichern geht
  * jederzeit, Abbrechen fragt bei ungespeicherten Änderungen nach.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,7 +30,6 @@ import {
   Loader2,
   PenLine,
   Save,
-  UserPlus,
 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -69,7 +70,6 @@ import { speichereEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwu
 import { getVertragsende } from '@/utils/contractUtils';
 import { mitSchluesselnDesObjekts, objektDaten, vermieterDaten } from '@/utils/mietvertrag/datenAusDb';
 import {
-  anzulegendePersonen,
   baueEntwurf,
   hatNamen,
   indexVorschlag,
@@ -93,6 +93,9 @@ import {
   type VorvertragAuslese,
 } from '@/utils/mietvertrag/entwurf';
 import {
+  naechsterWeitester,
+  schrittFuerFeld,
+  mieteVorgemerkt,
   ERSTER_SCHRITT,
   entwurfLuecken,
   istSchrittId,
@@ -234,6 +237,12 @@ export function MietvertragEntwurfDialog({
   const [zeigeHinweise, setZeigeHinweise] = useState(false);
   const [aktualisiertAm, setAktualisiertAm] = useState<string | null>(null);
   const [schritt, setSchritt] = useState<SchrittId>(ERSTER_SCHRITT);
+  /** Weitester gespeicherter Schritt — der Stand der Vermietung an der Einheit (11.11.2026). */
+  const [weitester, setWeitester] = useState<SchrittId | null>(null);
+  const weitesterRef = useRef<SchrittId | null>(null);
+  useEffect(() => {
+    weitesterRef.current = weitester;
+  }, [weitester]);
   const [besucht, setBesucht] = useState<Set<SchrittId>>(new Set([ERSTER_SCHRITT]));
   const [ungespeichert, setUngespeichert] = useState(false);
   const [frageSchliessen, setFrageSchliessen] = useState<Verlassen | null>(null);
@@ -278,6 +287,7 @@ export function MietvertragEntwurfDialog({
     setVorvertragPfad(null);
     setAusleseStatus({ art: 'bereit' });
     setSchritt(ERSTER_SCHRITT);
+    setWeitester(null);
     setBesucht(new Set([ERSTER_SCHRITT]));
     setUngespeichert(false);
     setFrageSchliessen(null);
@@ -305,7 +315,10 @@ export function MietvertragEntwurfDialog({
         const auslese = antwort.extractedData;
         const gesamt = grundlage.vorvertrag ? Number(grundlage.vorvertrag.betriebskosten ?? 0) : null;
         // Was während des Lesens von Hand eingetragen wurde, bleibt stehen
-        setStand(s => (s ? wendeVorvertragAuslese(s.daten, s.herkunft, auslese, gesamt, f => vonHandGeaendert.current.has(f)) : s));
+        // Eine vorgemerkte Miete bleibt: Sonst stünde wieder die alte aus dem Vorvertrag im neuen Vertrag (11.11.2026)
+        const geschuetzt = (f: string) =>
+          vonHandGeaendert.current.has(f) || (mieteVorgemerkt(weitesterRef.current) && schrittFuerFeld(f) === 'miete');
+        setStand(s => (s ? wendeVorvertragAuslese(s.daten, s.herkunft, auslese, gesamt, geschuetzt) : s));
         if (vonHand) markiereUngespeichert();
 
         const gefunden = [
@@ -346,6 +359,7 @@ export function MietvertragEntwurfDialog({
       setId(z.id);
       setGespeichert(true);
       setAktualisiertAm(z.aktualisiertAm);
+      setWeitester(istSchrittId(z.weitesterSchritt) ? z.weitesterSchritt : null);
       // Haus- und Vermieterangaben gelten wie gespeichert am Objekt, nicht wie im
       // Entwurf festgehalten — sonst schriebe das Speichern einen alten Stand zurück.
       const aktuell = objektDaten(g.immobilie);
@@ -660,7 +674,8 @@ export function MietvertragEntwurfDialog({
     return { hinweise, offen };
   }
 
-  async function speichern(opt: { naechsterSchritt?: SchrittId; danach?: () => void } = {}): Promise<boolean> {
+  /** `vormerken`: „Miete speichern“ oder PDF — nur damit rückt der Vorgang über die Miete hinaus (Review 11.11.2026). */
+  async function speichern(opt: { naechsterSchritt?: SchrittId; danach?: () => void; vormerken?: boolean } = {}): Promise<boolean> {
     if (!stand || !vertrag || !g || speichert) return false;
     // Das Feld hat für einen abgelehnten Betrag 0 bzw. leer weitergegeben — so darf nichts gespeichert werden
     if (zahlFehler) {
@@ -670,6 +685,7 @@ export function MietvertragEntwurfDialog({
     setSpeichert(true);
     const standZaehler = aenderungen.current;
     const zielSchritt = opt.naechsterSchritt ?? schritt;
+    const neuWeitester = naechsterWeitester(weitester, zielSchritt, !!opt.vormerken);
     // Was während des Speicherns dazukommt, bleibt für das nächste Speichern liegen
     const hochzuladen = neueSelbstauskuenfte;
     const marker = new Map(sitzungGeaendert.current);
@@ -699,9 +715,11 @@ export function MietvertragEntwurfDialog({
         pdfBehalten: !ungespeichert,
         selbstauskuenfte: hochzuladen,
         schritt: zielSchritt,
+        weitesterSchritt: neuWeitester,
       });
       setDateien(ergebnis.dateien);
       setAktualisiertAm(ergebnis.aktualisiertAm);
+      setWeitester(neuWeitester);
       setGespeichert(true);
       setNeueSelbstauskuenfte(l => l.filter(f => !hochzuladen.includes(f)));
       setUngespeichert(aenderungen.current !== standZaehler);
@@ -738,6 +756,27 @@ export function MietvertragEntwurfDialog({
     } finally {
       setSpeichert(false);
     }
+  }
+
+  /**
+   * „Mieter speichern“: Der Mieter ist der erste Zwischenstand der Vermietung und kommt gleich in den Bestand
+   * (11.11.2026: „nicht durch den Button … einfach ein Prozess“). Weiter geht es erst, wenn er angelegt ist.
+   * Steht nur ein Bestandsmieter auf den Karten, wird wie bisher nur gespeichert.
+   */
+  async function mieterSpeichern(ziel: SchrittId) {
+    const legtAn = await mieterAnlegen.starten({
+      entwurfId: id,
+      personen,
+      bestand: bestand.error ? undefined : bestand.data,
+      vorher: () => speichern(),
+      danach: ergebnis => {
+        // Ohne den Datensatz an der Karte schriebe das nächste Speichern ihn weg — die Aktivierung legte die Person dann doppelt an
+        setPersonen(p => mitAngelegtenMietern(p, ergebnis.personen));
+        setAktualisiertAm(ergebnis.aktualisiertAm);
+        geheZu(ziel);
+      },
+    });
+    if (!legtAn) void speichern({ naechsterSchritt: ziel });
   }
 
   function verlassen(ziel: Verlassen) {
@@ -796,9 +835,10 @@ export function MietvertragEntwurfDialog({
             erstelltAm: '',
             aktualisiertAm: aktualisiertAm ?? '',
             schritt,
+            weitesterSchritt: weitester,
           }
         : null,
-    [gespeichert, stand, vertrag, id, einheitId, vorvertragId, personen, dateien, aktualisiertAm, schritt]
+    [gespeichert, stand, vertrag, id, einheitId, vorvertragId, personen, dateien, aktualisiertAm, schritt, weitester]
   );
   const andere = (alleEntwuerfe ?? []).filter(e => e.einheitId === einheitId && e.id !== id);
   const pdfBereit = wohnraum && vollstaendig && vorschau.aktuell;
@@ -837,8 +877,8 @@ export function MietvertragEntwurfDialog({
           <div className="space-y-5">
             <p className="text-sm">
               Zuerst den Mieter: Selbstauskunft hochladen oder einen vorhandenen Mieter wählen und die Angaben prüfen.
-              „Mieter anlegen“ übernimmt ihn sofort in den Mieterbestand, der Mietvertrag kann warten. Mit „Mieter
-              speichern“ geht es weiter zum Mietvertrag.
+              „Mieter speichern“ legt ihn im Mieterbestand an; danach Miete und Mietbeginn vormerken. Den Mietvertrag
+              kannst du jederzeit später fertigstellen — die Einheit zeigt, wie weit die Vermietung ist.
             </p>
             {(bestand.error || blacklist.error) && (
               <Alert variant="destructive">
@@ -972,14 +1012,14 @@ export function MietvertragEntwurfDialog({
           <DialogHeader className="border-b py-3 pl-4 pr-12 text-left sm:px-6">
             <DialogTitle className="flex items-center gap-2">
               <PenLine className="h-5 w-5 shrink-0" />
-              {entwurfId ? 'Mietvertrag fortsetzen' : 'Neuer Mietvertrag'}
+              {entwurfId ? 'Vermietung fortsetzen' : 'Neue Vermietung'}
               {/* Auf dem Handy nennt die Schrittleiste den Schritt */}
               {stand && <span className="hidden text-sm font-normal text-muted-foreground sm:inline">— {schrittTitel(schritt, wohnraum)}</span>}
             </DialogTitle>
             <DialogDescription>
               {ueberschrift && <span className="font-medium text-foreground">{ueberschrift}. </span>}
               <span className="hidden sm:inline">
-                Bis zum Aktivieren ist alles ein Entwurf: Die Einheit bleibt frei und es entstehen keine Forderungen.
+                Bis zur Unterschrift ist die Vermietung ein Vorgang: Die Einheit gilt nicht als vermietet und es entstehen keine Forderungen.
               </span>
             </DialogDescription>
           </DialogHeader>
@@ -1110,7 +1150,7 @@ export function MietvertragEntwurfDialog({
               </div>
 
               {/* ── Fußleiste ── */}
-              {/* Handy (10.11.2026): Weiter/Zurück oben in voller Breite, darunter Speichern und Mieter anlegen, der Status
+              {/* Handy (10.11.2026): Weiter/Zurück oben in voller Breite, darunter Speichern, der Status
                   in eigener Zeile — vorher lief die Leiste rechts aus dem Bild. Abbrechen übernimmt dort das X im Kopf. */}
               <div className="flex flex-col-reverse gap-2 border-t bg-background px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3 sm:px-5 sm:pb-3">
                 <div className="flex flex-wrap items-center gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
@@ -1127,31 +1167,6 @@ export function MietvertragEntwurfDialog({
                     <span className="sm:hidden">Speichern</span>
                     <span className="hidden sm:inline">Zwischenspeichern</span>
                   </Button>
-                  {anzulegendePersonen(personen).length > 0 && (
-                    <Button
-                      variant="outline"
-                      className="px-3 sm:px-5"
-                      onClick={() =>
-                        void mieterAnlegen.fragen({
-                          entwurfId: id,
-                          personen,
-                          bestand: bestand.error ? undefined : bestand.data,
-                          // Angelegt wird aus dem gespeicherten Stand — ein neuer oder geänderter Entwurf wird vorher gespeichert
-                          vorher: async () => (gespeichert && !ungespeichert ? true : await speichern()),
-                          danach: ergebnis => {
-                            // Ohne den Datensatz an der Karte schriebe das nächste Speichern ihn weg — die Aktivierung legte die Person dann doppelt an
-                            setPersonen(p => mitAngelegtenMietern(p, ergebnis.personen));
-                            setAktualisiertAm(ergebnis.aktualisiertAm);
-                          },
-                        })
-                      }
-                      disabled={speichert || blockiertWeil || zahlFehler || mieterAnlegen.beschaeftigt}
-                      title="Den Mieter schon jetzt in den Bestand übernehmen — der Mietvertrag kann warten"
-                    >
-                      {mieterAnlegen.beschaeftigt ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-                      Mieter anlegen
-                    </Button>
-                  )}
                   <span className={cn('basis-full text-xs sm:basis-auto', ungespeichert ? 'text-warning' : 'text-muted-foreground')}>
                     {statusText}
                   </span>
@@ -1188,7 +1203,7 @@ export function MietvertragEntwurfDialog({
                   )}
                   {schritt === 'pruefen' ? (
                     <Button
-                      onClick={() => void speichern({ naechsterSchritt: 'start' })}
+                      onClick={() => void speichern({ naechsterSchritt: 'start', vormerken: true })}
                       disabled={speichert || blockiertWeil || zahlFehler || (wohnraum ? !pdfBereit : luecken.length > 0)}
                       title={wohnraum && !pdfBereit ? 'Erst alle Pflichtangaben erfassen' : undefined}
                     >
@@ -1201,12 +1216,22 @@ export function MietvertragEntwurfDialog({
                     </Button>
                   ) : schritt === 'mieter' ? (
                     <Button
-                      onClick={() => void speichern({ naechsterSchritt: schritte[index + 1] })}
-                      disabled={speichert || blockiertWeil || zahlFehler || !hauptmieter}
+                      onClick={() => void mieterSpeichern(schritte[index + 1])}
+                      disabled={speichert || blockiertWeil || zahlFehler || !hauptmieter || mieterAnlegen.beschaeftigt}
                       title={!hauptmieter ? 'Erst mindestens einen Mitmieter mit Namen erfassen' : undefined}
                     >
-                      {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {speichert || mieterAnlegen.beschaeftigt ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                       Mieter speichern
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  ) : schritt === 'miete' ? (
+                    // Merkt Miete und Mietbeginn vor — die zweite Stufe der Vermietung an der Einheit (11.11.2026)
+                    <Button
+                      onClick={() => void speichern({ naechsterSchritt: schritte[index + 1], vormerken: true })}
+                      disabled={speichert || blockiertWeil || zahlFehler}
+                    >
+                      {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Miete speichern
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   ) : (

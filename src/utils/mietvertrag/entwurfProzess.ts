@@ -53,24 +53,105 @@ export function schrittTitel(schritt: SchrittId, wohnraum: boolean): string {
 }
 
 /**
- * Zuerst der Mieter, dann der Vertrag (Kundenwunsch 03.11.2026: „Erster Step,
- * Mieter anlegen … und dann Mietvertrag erstellen“). Gespeichert wird der
- * Mieter im Entwurf; in den Bestand kommt er beim Aktivieren oder vorher über
- * „Mieter anlegen“ (seit 10.11.2026: „erst einmal die Mieter anlegen“).
+ * Die Vermietung ist ein Prozess mit Zwischenständen (Kundenwunsch 11.11.2026): zuerst der Mieter, dann Miete
+ * und Mietbeginn vorgemerkt, den Mietvertrag später — „ohne direkt den Mietvertrag komplett anzulegen“. Seit dem
+ * 03.11.2026 stand der Mieter vorn („Erster Step, Mieter anlegen … und dann Mietvertrag erstellen“); „Mieter
+ * speichern“ legt ihn seit dem 11.11.2026 gleich im Bestand an, „Miete speichern“ merkt die Eckdaten vor.
  */
-const ALLE: SchrittId[] = ['mieter', 'grundlagen', 'miete', 'mietsache', 'betriebskosten', 'vereinbarungen', 'pruefen', 'start'];
+const ALLE: SchrittId[] = ['mieter', 'miete', 'grundlagen', 'mietsache', 'betriebskosten', 'vereinbarungen', 'pruefen', 'start'];
 
 /** Ohne Wohnraum-Vorlage (Gewerbe, Garage, Stellplatz) entfallen die Vertragsklauseln. */
 export function schritteFuer(wohnraum: boolean): SchrittId[] {
-  return wohnraum ? ALLE : ['mieter', 'grundlagen', 'miete', 'pruefen', 'start'];
+  return wohnraum ? ALLE : ['mieter', 'miete', 'grundlagen', 'pruefen', 'start'];
 }
 
-/** Der erste Teil des Ablaufs; alles danach gehört zum Vertrag. */
+/** Der erste Schritt des Ablaufs. */
 export const ERSTER_SCHRITT: SchrittId = 'mieter';
 
-/** Teil des Ablaufs, zu dem ein Schritt gehört — die Schrittleiste trennt beide. */
-export function teilVon(schritt: SchrittId): 'mieter' | 'vertrag' {
-  return schritt === 'mieter' ? 'mieter' : 'vertrag';
+/** Teil des Ablaufs, zu dem ein Schritt gehört — die Schrittleiste trennt beide: Vermietung, dann Mietvertrag. */
+export function teilVon(schritt: SchrittId): 'vermietung' | 'vertrag' {
+  return schritt === 'mieter' || schritt === 'miete' ? 'vermietung' : 'vertrag';
+}
+
+/** Der spätere von zwei Schritten — für den weitesten erreichten Stand des Vorgangs. */
+export function spaetererSchritt(a: string | null | undefined, b: string | null | undefined): SchrittId | null {
+  const ia = istSchrittId(a) ? ALLE.indexOf(a) : -1;
+  const ib = istSchrittId(b) ? ALLE.indexOf(b) : -1;
+  if (ia < 0 && ib < 0) return null;
+  return ALLE[Math.max(ia, ib)];
+}
+
+/**
+ * Ist die Miete vorgemerkt — wurde der Schritt Miete & Laufzeit mit „Miete speichern“ verlassen? Dann liest die
+ * Vorvertrags-Auslese ihre Felder nicht mehr ein: Sonst stünde wieder die alte Miete im neuen Vertrag (vgl. die
+ * Kundenanmerkung zu § 15 vom 02.11.2026).
+ */
+export function mieteVorgemerkt(weitester: string | null | undefined): boolean {
+  return istSchrittId(weitester) && ALLE.indexOf(weitester) > ALLE.indexOf('miete');
+}
+
+/**
+ * Weitester Schritt eines Entwurfs, der noch keinen hat (vor dem 11.11.2026 oder von der alten App gespeichert).
+ * Dort kam „Grundlagen“ vor „Miete“: Wer dort stand, hatte die Miete noch nicht gesehen (Review 11.11.2026).
+ */
+export function weitesterAusAltbestand(schritt: string | null | undefined): SchrittId | null {
+  if (!istSchrittId(schritt)) return null;
+  return schritt === 'grundlagen' ? 'mieter' : schritt;
+}
+
+/**
+ * Neuer weitester Schritt beim Speichern. Über „Miete & Laufzeit“ hinaus geht es nur mit „Miete speichern“ oder
+ * dem PDF — wer über die Schrittleiste vorspringt und zwischenspeichert, hat die Miete nicht vorgemerkt (Review
+ * 11.11.2026). Sonst stünde an der Einheit „Miete vorgemerkt“, und die Auslese sperrte Felder, die keiner bestätigt hat.
+ */
+export function naechsterWeitester(
+  bisher: string | null | undefined,
+  ziel: string | null | undefined,
+  mieteBestaetigt: boolean
+): SchrittId | null {
+  const kandidat = spaetererSchritt(bisher, ziel);
+  if (!mieteVorgemerkt(kandidat) || mieteVorgemerkt(bisher) || mieteBestaetigt) return kandidat;
+  return 'miete';
+}
+
+export interface VermietungsStufe {
+  titel: string;
+  /** Kurz für „Weiter: …“ an der Einheit. */
+  kurz: string;
+  erledigt: boolean;
+  /** Schritt, in dem die Stufe bearbeitet wird. */
+  schritt: SchrittId;
+}
+
+/**
+ * Stand der Vermietung, wie ihn die Einheit zeigt. „Miete vorgemerkt“ heißt: Der Schritt Miete & Laufzeit wurde
+ * mit „Miete speichern“ verlassen oder das PDF erstellt (`naechsterWeitester`) — vorbelegte Werte aus dem
+ * Vorvertrag allein zählen nicht. Die letzte Stufe ist
+ * nie erledigt: Mit der Aktivierung verschwindet der Vorgang und an seine Stelle tritt der Vertrag.
+ */
+export function vermietungsStufen(
+  e: { personen: EntwurfPerson[]; schritt: string | null; weitesterSchritt?: string | null; dateien: { art: string }[] },
+  wohnraum: boolean
+): VermietungsStufe[] {
+  // Nicht aus `schritt` vorrücken: Der sagt nur, wo es weitergeht (Review 11.11.2026)
+  const weitester = istSchrittId(e.weitesterSchritt) ? e.weitesterSchritt : weitesterAusAltbestand(e.schritt);
+  const mitmieter = e.personen.filter(p => p.rolle === 'mitmieter' && hatNamen(p));
+  // „Weiter: Mietvertrag“ steigt dort ein, wo der Vertragsteil zuletzt stand
+  const imVertrag: SchrittId =
+    weitester === 'start' ? 'pruefen' : weitester && teilVon(weitester) === 'vertrag' ? weitester : 'grundlagen';
+  return [
+    { titel: 'Mieter angelegt', kurz: 'Mieter', schritt: 'mieter', erledigt: mitmieter.length > 0 && mitmieter.every(p => !!p.mieterId) },
+    { titel: 'Miete vorgemerkt', kurz: 'Miete', schritt: 'miete', erledigt: mieteVorgemerkt(weitester) },
+    wohnraum
+      ? { titel: 'Mietvertrag als PDF', kurz: 'Mietvertrag', schritt: imVertrag, erledigt: e.dateien.some(d => d.art === 'entwurf_pdf') }
+      : { titel: 'Vertrag vorbereitet', kurz: 'Mietvertrag', schritt: imVertrag, erledigt: weitester === 'start' },
+    { titel: 'Unterschrift & Start', kurz: 'Unterschrift', schritt: 'start', erledigt: false },
+  ];
+}
+
+/** Wo „Weiter“ an der Einheit einsteigt: in der ersten offenen Stufe. */
+export function naechsteStufe(stufen: VermietungsStufe[]): VermietungsStufe {
+  return stufen.find(s => !s.erledigt) ?? stufen[stufen.length - 1];
 }
 
 export function istSchrittId(wert: unknown): wert is SchrittId {

@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.11.0",
+    datum: "2026-11-11",
+    aenderungen: [
+      { art: "verbessert", titel: "Vermietung als Prozess: erst Mieter, dann Miete vormerken, den Mietvertrag später – die Einheit zeigt den Stand" },
+    ],
+  },
+  {
     version: "1.10.0",
     datum: "2026-11-10",
     aenderungen: [

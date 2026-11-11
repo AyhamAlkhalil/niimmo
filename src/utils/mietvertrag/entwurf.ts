@@ -1180,6 +1180,16 @@ export function doppeltAufKarten(personen: EntwurfPerson[]): string[] {
     .map(personName);
 }
 
+/**
+ * Anzulegende Menschen ohne vollständigen Namen. Ein angelegter Mieter steht im Ablauf als Bestandsmieter, und
+ * dessen Namen ändert der Ablauf nicht mehr — also vorher vollständig (11.11.2026).
+ */
+export function unvollstaendigeNamen(personen: EntwurfPerson[]): string[] {
+  return anzulegendePersonen(personen)
+    .filter(p => !p.istUnternehmen && (!p.vorname.trim() || !p.nachname.trim()))
+    .map(personName);
+}
+
 /** Die Zeilen für `mieter` zu `anzulegendePersonen`; `schluessel` verbindet sie mit der Person im Entwurf. */
 export function anzulegendeMieter(personen: EntwurfPerson[]): { schluessel: string; zeile: TablesInsert<'mieter'> }[] {
   return anzulegendePersonen(personen).map(p => ({ schluessel: p.schluessel, zeile: mieterZeile(p) }));

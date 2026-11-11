@@ -1953,6 +1953,7 @@ export type Database = {
           personen: Json
           schritt: string | null
           vorvertrag_id: string | null
+          weitester_schritt: string | null
         }
         Insert: {
           aktualisiert_am?: string
@@ -1966,6 +1967,7 @@ export type Database = {
           personen?: Json
           schritt?: string | null
           vorvertrag_id?: string | null
+          weitester_schritt?: string | null
         }
         Update: {
           aktualisiert_am?: string
@@ -1979,6 +1981,7 @@ export type Database = {
           personen?: Json
           schritt?: string | null
           vorvertrag_id?: string | null
+          weitester_schritt?: string | null
         }
         Relationships: [
           {

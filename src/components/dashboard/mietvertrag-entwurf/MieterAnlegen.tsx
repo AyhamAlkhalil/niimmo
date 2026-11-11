@@ -1,11 +1,10 @@
 /**
- * „Mieter anlegen“, ohne Mietvertrag. Kundenwunsch vom 10.11.2026: „dass wir erst einmal die Mieter
- * anlegen. Und dann daraus resultierend … ich möchte auch einen Mietvertrag dazu haben.“ Bis dahin
- * entstand ein Mieter nur beim Aktivieren mit unterschriebenem Vertrag, und wer nur die Person
- * erfassen wollte, kam aus dem Ablauf nicht heraus.
+ * Mieter anlegen als erster Zwischenstand der Vermietung. Kundenwunsch vom 10.11.2026: „erst einmal die Mieter
+ * anlegen … wenn wir Lust haben, einen Mietvertrag dazu“; präzisiert am 11.11.2026: „nicht durch den Button,
+ * sondern das ist einfach ein Prozess oder ein Zwischenstand“. Deshalb kein eigener Knopf mehr — „Mieter
+ * speichern“ im ersten Schritt legt die Mitmieter an.
  *
- * Fragt vorher nach und warnt vor möglichen Dubletten. Der Entwurf bleibt an der Einheit: Dort lässt
- * sich der Mietvertrag später fortsetzen, oder der Entwurf wird verworfen — der Mieter bleibt.
+ * Nachgefragt wird nur, wenn die Person vielleicht schon im Bestand ist oder der Bestand sich nicht prüfen ließ.
  */
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -30,24 +29,22 @@ import {
   doppeltAufKarten,
   moeglicheDublettenIn,
   personName,
+  unvollstaendigeNamen,
   type EntwurfPerson,
   type MoeglicheDublette,
 } from '@/utils/mietvertrag/entwurf';
 
-interface Auftrag {
+export interface MieterAuftrag {
   entwurfId: string;
   personen: EntwurfPerson[];
-  /**
-   * Schon geladener Mieterbestand (im Dialog): Die Rückfrage erscheint dann ohne Abfrage sofort — es bleibt
-   * keine Lücke, in der noch getippt wird, während `vorher` den Stand von vor dem Klick speichert.
-   */
+  /** Schon geladener Mieterbestand: Die Prüfung läuft dann ohne Abfrage. */
   bestand?: MieterAbgleich[];
-  /** Vor dem Anlegen, etwa den Entwurf speichern; `false` bricht ab. */
-  vorher?: () => Promise<boolean>;
-  danach?: (ergebnis: MieterAnlegenErgebnis) => void;
+  /** Vor dem Anlegen den Entwurf speichern; `false` bricht ab. */
+  vorher: () => Promise<boolean>;
+  danach: (ergebnis: MieterAnlegenErgebnis) => void;
 }
 
-interface Frage extends Auftrag {
+interface Frage extends MieterAuftrag {
   namen: string[];
   dubletten: MoeglicheDublette[];
   /** Der Bestand ließ sich nicht abgleichen — dann sagen wir es, statt still „keine Dubletten“ zu melden. */
@@ -63,98 +60,104 @@ export function useMieterAnlegen() {
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
   const [frage, setFrage] = useState<Frage | null>(null);
-  const [prueft, setPrueft] = useState(false);
-  const [legtAn, setLegtAn] = useState(false);
+  const [laeuft, setLaeuft] = useState(false);
 
-  async function fragen(auftrag: Auftrag) {
-    const namen = anzulegendePersonen(auftrag.personen).map(personName);
-    if (namen.length === 0 || prueft || legtAn) return;
-    const doppelt = doppeltAufKarten(auftrag.personen);
-    if (doppelt.length > 0) {
-      toast({
-        title: 'Erst die doppelte Karte entfernen',
-        description: `${doppelt.join(', ')} steht doppelt im Entwurf — sonst entstünde der Mieter zweimal. Im Schritt „Mieter“ eine der beiden Karten entfernen.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-    if (auftrag.bestand) {
-      setFrage({ ...auftrag, namen, dubletten: moeglicheDublettenIn(auftrag.personen, auftrag.bestand), abgleichFehler: null });
-      return;
-    }
-    setPrueft(true);
+  function fehler(titel: string, text: string) {
+    toast({ title: titel, description: text, variant: 'destructive' });
+  }
+
+  async function anlegen(auftrag: MieterAuftrag): Promise<void> {
+    setLaeuft(true);
     try {
-      const dubletten = await moeglicheDubletten(auftrag.personen);
-      setFrage({ ...auftrag, namen, dubletten, abgleichFehler: null });
+      if (!(await auftrag.vorher())) return;
+      const ergebnis = await legeMieterAusEntwurfAn(auftrag.entwurfId);
+      logActivity('mieter_aus_entwurf_angelegt', 'mietvertrag_entwurf', auftrag.entwurfId, { anzahl: ergebnis.angelegt.length });
+      queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwuerfe'] });
+      queryClient.removeQueries({ queryKey: ['mietvertrag-entwurf', auftrag.entwurfId] });
+      queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwurf-mieterbestand'] });
+      queryClient.invalidateQueries({ queryKey: ['all-tenants'] });
+      auftrag.danach(ergebnis);
+      if (ergebnis.angelegt.length > 0) {
+        toast({
+          title: `${aufzaehlung(ergebnis.angelegt)} ${ergebnis.angelegt.length > 1 ? 'sind' : 'ist'} als Mieter angelegt`,
+          description: 'Als Nächstes Miete und Mietbeginn vormerken. Den Mietvertrag kannst du jederzeit später fertigstellen.',
+        });
+      }
+      setFrage(null);
     } catch (e) {
-      setFrage({ ...auftrag, namen, dubletten: [], abgleichFehler: e instanceof Error ? e.message : String(e) });
+      fehler('Mieter nicht angelegt', e instanceof Error ? e.message : 'Unbekannter Fehler');
     } finally {
-      setPrueft(false);
+      setLaeuft(false);
     }
   }
 
-  async function anlegen() {
-    if (!frage) return;
-    setLegtAn(true);
-    try {
-      if (frage.vorher && !(await frage.vorher())) return;
-      const ergebnis = await legeMieterAusEntwurfAn(frage.entwurfId);
-      logActivity('mieter_aus_entwurf_angelegt', 'mietvertrag_entwurf', frage.entwurfId, { anzahl: ergebnis.angelegt.length });
-      queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwuerfe'] });
-      queryClient.removeQueries({ queryKey: ['mietvertrag-entwurf', frage.entwurfId] });
-      queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwurf-mieterbestand'] });
-      queryClient.invalidateQueries({ queryKey: ['all-tenants'] });
-      frage.danach?.(ergebnis);
-      toast(
-        ergebnis.angelegt.length > 0
-          ? {
-              title: ergebnis.angelegt.length > 1 ? 'Mieter angelegt' : `${ergebnis.angelegt[0]} ist angelegt`,
-              description:
-                'Der Mietvertrag bleibt als Entwurf an der Einheit — fortsetzen, wenn er gebraucht wird, oder den Entwurf verwerfen. Der Mieter bleibt in beiden Fällen.',
-            }
-          : { title: 'Schon angelegt', description: 'Alle Mitmieter dieses Entwurfs haben bereits einen Mieterdatensatz.' }
+  /**
+   * „Mieter speichern“: prüft die Karten, fragt nur bei möglichen Dubletten nach und legt sonst direkt an.
+   * Gibt `false` zurück, wenn nichts anzulegen ist — dann speichert der Aufrufer wie bisher.
+   */
+  async function starten(auftrag: MieterAuftrag): Promise<boolean> {
+    const neu = anzulegendePersonen(auftrag.personen);
+    if (neu.length === 0) return false;
+    if (laeuft) return true;
+    const unvollstaendig = unvollstaendigeNamen(auftrag.personen);
+    if (unvollstaendig.length > 0) {
+      fehler(
+        'Vor- und Nachname fehlen',
+        `${aufzaehlung(unvollstaendig)}: Ein angelegter Mieter behält seinen Namen — bitte zuerst Vor- und Nachname vollständig eintragen.`
       );
-      setFrage(null);
-    } catch (e) {
-      toast({
-        title: 'Mieter nicht angelegt',
-        description: e instanceof Error ? e.message : 'Unbekannter Fehler',
-        variant: 'destructive',
-      });
-    } finally {
-      setLegtAn(false);
+      return true;
     }
+    const doppelt = doppeltAufKarten(auftrag.personen);
+    if (doppelt.length > 0) {
+      fehler(
+        'Erst die doppelte Karte entfernen',
+        `${aufzaehlung(doppelt)} steht doppelt im Entwurf — sonst entstünde der Mieter zweimal. Eine der beiden Karten entfernen.`
+      );
+      return true;
+    }
+
+    const namen = neu.map(personName);
+    let dubletten: MoeglicheDublette[] = [];
+    let abgleichFehler: string | null = null;
+    if (auftrag.bestand) {
+      dubletten = moeglicheDublettenIn(auftrag.personen, auftrag.bestand);
+    } else {
+      setLaeuft(true);
+      try {
+        dubletten = await moeglicheDubletten(auftrag.personen);
+      } catch (e) {
+        abgleichFehler = e instanceof Error ? e.message : String(e);
+      } finally {
+        setLaeuft(false);
+      }
+    }
+    if (dubletten.length > 0 || abgleichFehler) {
+      setFrage({ ...auftrag, namen, dubletten, abgleichFehler });
+      return true;
+    }
+    await anlegen(auftrag);
+    return true;
   }
 
   const dialog = (
-    <AlertDialog open={!!frage} onOpenChange={o => !o && !legtAn && setFrage(null)}>
+    <AlertDialog open={!!frage} onOpenChange={o => !o && !laeuft && setFrage(null)}>
       <AlertDialogContent onClick={e => e.stopPropagation()}>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {frage && frage.namen.length > 1 ? 'Mieter anlegen?' : `${frage?.namen[0] ?? ''} als Mieter anlegen?`}
+            {frage && frage.dubletten.length > 0 ? 'Vielleicht schon im Bestand' : 'Mieterbestand nicht geprüft'}
           </AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-sm text-muted-foreground">
-              <p>
-                {aufzaehlung(frage?.namen ?? [])} {frage && frage.namen.length > 1 ? 'kommen' : 'kommt'} jetzt in den
-                Mieterbestand, ohne Mietvertrag. Der Entwurf bleibt an der Einheit: Den Mietvertrag kannst du später
-                fortsetzen oder den Entwurf verwerfen.
-              </p>
               {frage && frage.dubletten.length > 0 && (
                 <div className="space-y-1 rounded-md border border-warning/40 bg-warning/10 p-2 text-foreground">
-                  <p className="flex items-center gap-1.5 font-medium">
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-                    Vielleicht schon im Bestand
-                  </p>
                   {frage.dubletten.map(d => (
-                    <p key={d.person} className="text-xs">
-                      {d.person}: {d.vorhanden.join(', ')}
+                    <p key={d.person} className="flex items-start gap-1.5 text-xs">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                      <span>
+                        {d.person} ähnelt: {d.vorhanden.join(', ')}
+                      </span>
                     </p>
                   ))}
-                  <p className="text-xs">
-                    Ist es dieselbe Person, im Schritt „Mieter“ mit „Bestehenden Mieter wählen“ übernehmen, statt neu
-                    anzulegen.
-                  </p>
                 </div>
               )}
               {frage?.abgleichFehler && (
@@ -162,25 +165,29 @@ export function useMieterAnlegen() {
                   Der Mieterbestand ließ sich nicht auf Dubletten prüfen ({frage.abgleichFehler}).
                 </p>
               )}
+              <p>
+                Ist es dieselbe Person, zurück und mit „Bestehenden Mieter wählen“ übernehmen. Sonst wird{' '}
+                {aufzaehlung(frage?.namen ?? [])} neu im Mieterbestand angelegt.
+              </p>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={legtAn}>Abbrechen</AlertDialogCancel>
+          <AlertDialogCancel disabled={laeuft}>Zurück</AlertDialogCancel>
           <AlertDialogAction
-            disabled={legtAn}
+            disabled={laeuft}
             onClick={ev => {
               ev.preventDefault();
-              void anlegen();
+              if (frage) void anlegen(frage);
             }}
           >
-            {legtAn && <Loader2 className="h-4 w-4 animate-spin" />}
-            {frage && (frage.dubletten.length > 0 || frage.abgleichFehler) ? 'Trotzdem neu anlegen' : 'Mieter anlegen'}
+            {laeuft && <Loader2 className="h-4 w-4 animate-spin" />}
+            Trotzdem neu anlegen
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
   );
 
-  return { fragen, beschaeftigt: prueft || legtAn, dialog };
+  return { starten, beschaeftigt: laeuft, dialog };
 }

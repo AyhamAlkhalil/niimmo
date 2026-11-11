@@ -29,6 +29,7 @@ import {
   type HerkunftKarte,
   type MoeglicheDublette,
 } from '@/utils/mietvertrag/entwurf';
+import { weitesterAusAltbestand } from '@/utils/mietvertrag/entwurfProzess';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 
 export const ENTWURF_ORDNER = 'mietvertrag-entwuerfe';
@@ -44,6 +45,8 @@ export interface EntwurfZeile {
   erstelltAm: string;
   aktualisiertAm: string;
   schritt: string | null;
+  /** Weitester gespeicherter Schritt — der Stand der Vermietung an der Einheit (seit 11.11.2026). */
+  weitesterSchritt: string | null;
 }
 
 export function leseEntwurfZeile(z: Tables<'mietvertrag_entwuerfe'>): EntwurfZeile {
@@ -58,6 +61,7 @@ export function leseEntwurfZeile(z: Tables<'mietvertrag_entwuerfe'>): EntwurfZei
     erstelltAm: z.erstellt_am,
     aktualisiertAm: z.aktualisiert_am,
     schritt: z.schritt,
+    weitesterSchritt: z.weitester_schritt ?? weitesterAusAltbestand(z.schritt),
   };
 }
 
@@ -107,6 +111,8 @@ export interface SpeichernArgs {
   selbstauskuenfte: File[];
   /** Schritt, in dem der Ablauf beim nächsten Öffnen weitergeht. */
   schritt: string | null;
+  /** Weitester erreichter Schritt; geht beim Zurückblättern nicht zurück. */
+  weitesterSchritt: string | null;
 }
 
 export interface SpeicherErgebnis {
@@ -166,6 +172,7 @@ export async function speichereEntwurf(a: SpeichernArgs): Promise<SpeicherErgebn
       herkunft: a.herkunft as unknown as Json,
       dateien: dateien as unknown as Json,
       schritt: a.schritt,
+      weitester_schritt: a.weitesterSchritt,
     };
 
     if (a.istNeu) {

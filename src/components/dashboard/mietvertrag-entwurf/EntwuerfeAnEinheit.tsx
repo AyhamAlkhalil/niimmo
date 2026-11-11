@@ -1,23 +1,22 @@
 /**
- * Offene Mietvertragsentwürfe einer Einheit auf der Einheitskarte, mit ihrem
- * Stand im Ablauf. Ein Entwurf belegt die Einheit nicht — er steht hier, bis
- * er aktiviert oder verworfen wird. Seit dem 10.11.2026 lassen sich seine
- * Mitmieter hier auch ohne Vertrag anlegen („Mieter anlegen“) und beim
- * Verwerfen wieder löschen (EntwurfVerwerfen.tsx).
+ * Laufende Vermietungen einer Einheit auf der Einheitskarte. Seit dem 11.11.2026 ein Prozess mit Zwischenständen
+ * (Kundenwunsch: „eine Miete anlegen, ohne direkt den Mietvertrag komplett anzulegen … ein Prozess oder ein
+ * Zwischenstand“): Mieter angelegt → Miete vorgemerkt → Mietvertrag → Unterschrift & Start. „Weiter“ steigt in
+ * der ersten offenen Stufe ein. Der Vorgang belegt die Einheit nicht und erzeugt keine Forderungen; er steht
+ * hier, bis er aktiviert oder verworfen wird (Verwerfen samt Löschen angelegter Mieter: EntwurfVerwerfen.tsx).
  */
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, FileText, PenLine, Trash2, UserPlus } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Circle, FileText, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useMietvertragEntwuerfe } from '@/hooks/useMietvertragEntwurf';
 import { entwurfDateiLink, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
-import { anzulegendePersonen, hatNamen } from '@/utils/mietvertrag/entwurf';
-import { istSchrittId, schrittTitel, type SchrittId } from '@/utils/mietvertrag/entwurfProzess';
+import { naechsteStufe, vermietungsStufen, type SchrittId } from '@/utils/mietvertrag/entwurfProzess';
+import { cn } from '@/lib/utils';
 
 import { EntwurfVerwerfen } from './EntwurfVerwerfen';
-import { useMieterAnlegen } from './MieterAnlegen';
 
 interface Props {
   einheitId: string;
@@ -35,21 +34,15 @@ function namen(e: EntwurfZeile): string {
   return liste.length > 0 ? liste.join(', ') : 'noch ohne Mieter';
 }
 
-function stand(e: EntwurfZeile, wohnraum: boolean): string {
-  if (e.dateien.some(d => d.art === 'entwurf_pdf')) return 'PDF erstellt · wartet auf Unterschrift';
-  return istSchrittId(e.schritt) ? `in Bearbeitung · ${schrittTitel(e.schritt, wohnraum)}` : 'in Bearbeitung';
-}
-
-/** Haben alle Mitmieter schon einen Mieterdatensatz (angelegt oder aus dem Bestand gewählt)? */
-function mieterImBestand(e: EntwurfZeile): boolean {
-  return e.personen.some(p => p.rolle === 'mitmieter' && hatNamen(p)) && anzulegendePersonen(e.personen).length === 0;
+function eckdaten(e: EntwurfZeile): string {
+  const ab = e.daten.mietbeginn ? new Date(`${e.daten.mietbeginn}T12:00:00`).toLocaleDateString('de-DE') : '—';
+  return `ab ${ab} · ${e.daten.kaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € kalt`;
 }
 
 export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
   const { toast } = useToast();
   const { data, error } = useMietvertragEntwuerfe();
   const [verwerfen, setVerwerfen] = useState<EntwurfZeile | null>(null);
-  const mieterAnlegen = useMieterAnlegen();
 
   const entwuerfe = (data ?? []).filter(e => e.einheitId === einheitId);
   // Ein Ladefehler darf nicht wie „keine Entwürfe" aussehen — sonst entsteht ein zweiter
@@ -82,27 +75,40 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
     <div className="space-y-2" onClick={e => e.stopPropagation()}>
       {entwuerfe.map(e => {
         const hatPdf = e.dateien.some(d => d.art === 'entwurf_pdf');
-        const offen = anzulegendePersonen(e.personen).length;
+        const stufen = vermietungsStufen(e, wohnraum);
+        const naechste = naechsteStufe(stufen);
+        const mieteVorgemerkt = stufen[1].erledigt;
         return (
           <div key={e.id} className="space-y-2 rounded-lg border border-dashed border-primary/50 bg-primary/5 p-2.5">
             <div className="min-w-0 text-xs">
               <div className="flex items-center gap-1.5">
                 <Badge variant="outline" className="border-primary/50 px-1.5 py-0 text-xs text-primary">
-                  Entwurf
+                  In Vermietung
                 </Badge>
                 <span className="truncate font-medium">{namen(e)}</span>
               </div>
-              <p className="mt-0.5 text-muted-foreground">
-                ab {e.daten.mietbeginn ? new Date(`${e.daten.mietbeginn}T12:00:00`).toLocaleDateString('de-DE') : '—'} ·{' '}
-                {e.daten.kaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € kalt
-              </p>
-              <p className="text-muted-foreground">{stand(e, wohnraum)}</p>
-              {mieterImBestand(e) && <p className="text-muted-foreground">Mieter angelegt · Mietvertrag noch offen</p>}
+              {/* Die Eckdaten erst, wenn sie vorgemerkt sind — vorher stünden die Werte des Vorvertrags da */}
+              <p className="mt-0.5 text-muted-foreground">{mieteVorgemerkt ? eckdaten(e) : 'Miete noch nicht vorgemerkt'}</p>
+              <ol className="mt-1.5 space-y-0.5" aria-label="Stand der Vermietung">
+                {stufen.map(s => (
+                  <li key={s.titel} className={cn('flex items-center gap-1.5', s.erledigt ? 'text-foreground' : 'text-muted-foreground')}>
+                    {s.erledigt ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" aria-hidden />
+                    ) : (
+                      <Circle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    )}
+                    <span>
+                      {s.titel}
+                      <span className="sr-only">{s.erledigt ? ' – erledigt' : ' – offen'}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id)}>
-                <PenLine className="h-3 w-3" />
-                Fortsetzen
+              <Button size="sm" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id, naechste.schritt)}>
+                <ArrowRight className="h-3 w-3" />
+                Weiter: {naechste.kurz}
               </Button>
               {hatPdf && (
                 <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => void pdfOeffnen(e)}>
@@ -110,28 +116,11 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                   PDF
                 </Button>
               )}
-              {offen > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs sm:h-7"
-                  disabled={mieterAnlegen.beschaeftigt}
-                  title="Den Mieter schon jetzt in den Bestand übernehmen — der Mietvertrag kann warten"
-                  onClick={() => void mieterAnlegen.fragen({ entwurfId: e.id, personen: e.personen })}
-                >
-                  <UserPlus className="h-3 w-3" />
-                  Mieter anlegen
-                </Button>
-              )}
-              <Button size="sm" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id, 'start')}>
-                <CheckCircle2 className="h-3 w-3" />
-                Unterschrift &amp; Start
-              </Button>
               <Button
                 size="sm"
                 variant="ghost"
                 className="h-8 text-xs text-destructive sm:h-7"
-                aria-label="Entwurf verwerfen"
+                aria-label="Vermietung verwerfen"
                 onClick={() => setVerwerfen(e)}
               >
                 <Trash2 className="h-3 w-3" />
@@ -142,7 +131,6 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
       })}
 
       <EntwurfVerwerfen entwurf={verwerfen} namen={verwerfen ? namen(verwerfen) : ''} onSchliessen={() => setVerwerfen(null)} />
-      {mieterAnlegen.dialog}
     </div>
   );
 }
