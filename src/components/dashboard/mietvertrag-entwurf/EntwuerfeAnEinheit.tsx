@@ -1,9 +1,9 @@
 /**
- * Laufende Vermietungen einer Einheit auf der Einheitskarte. Seit dem 11.11.2026 ein Prozess mit Zwischenständen
- * (Kundenwunsch: „eine Miete anlegen, ohne direkt den Mietvertrag komplett anzulegen … ein Prozess oder ein
- * Zwischenstand“): Mieter angelegt → Miete vorgemerkt → Mietvertrag → Unterschrift & Start. „Weiter“ steigt in
- * der ersten offenen Stufe ein. Der Vorgang belegt die Einheit nicht und erzeugt keine Forderungen; er steht
- * hier, bis er aktiviert oder verworfen wird (Verwerfen samt Löschen angelegter Mieter: EntwurfVerwerfen.tsx).
+ * Laufende Vermietungen einer Einheit auf der Einheitskarte. Seit dem 11.11.2026 ein Prozess mit Zwischenständen:
+ * Mieter angelegt → Miete vorgemerkt → Abschließen. „Weiter“ steigt in der ersten offenen Stufe ein. Der Vorgang
+ * belegt die Einheit nicht und erzeugt keine Forderungen; er steht hier, bis er abgeschlossen oder verworfen wird
+ * (Verwerfen samt Löschen angelegter Mieter: EntwurfVerwerfen.tsx). Der Mietvertrag als PDF ist keine Stufe — er
+ * entsteht nach dem Abschließen am laufenden Vertrag.
  */
 import { useState } from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2, Circle, FileText, Trash2 } from 'lucide-react';
@@ -20,8 +20,6 @@ import { EntwurfVerwerfen } from './EntwurfVerwerfen';
 
 interface Props {
   einheitId: string;
-  /** Wohnung/Haus: Es gibt eine Vorlage und damit ein PDF. */
-  wohnraum: boolean;
   /** Öffnet den Ablauf; ohne Schritt dort, wo zuletzt gespeichert wurde. */
   onOeffnen: (entwurfId: string, schritt?: SchrittId) => void;
 }
@@ -39,7 +37,7 @@ function eckdaten(e: EntwurfZeile): string {
   return `ab ${ab} · ${e.daten.kaltmiete.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € kalt`;
 }
 
-export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
+export function EntwuerfeAnEinheit({ einheitId, onOeffnen }: Props) {
   const { toast } = useToast();
   const { data, error } = useMietvertragEntwuerfe();
   const [verwerfen, setVerwerfen] = useState<EntwurfZeile | null>(null);
@@ -50,7 +48,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
     return (
       <p className="flex items-center gap-1.5 text-xs text-destructive" onClick={e => e.stopPropagation()}>
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        Offene Mietvertragsentwürfe konnten nicht geladen werden ({error.message}).
+        Laufende Vermietungen konnten nicht geladen werden ({error.message}).
       </p>
     );
   }
@@ -75,7 +73,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
     <div className="space-y-2" onClick={e => e.stopPropagation()}>
       {entwuerfe.map(e => {
         const hatPdf = e.dateien.some(d => d.art === 'entwurf_pdf');
-        const stufen = vermietungsStufen(e, wohnraum);
+        const stufen = vermietungsStufen(e);
         const naechste = naechsteStufe(stufen);
         const mieteVorgemerkt = stufen[1].erledigt;
         return (
@@ -110,13 +108,7 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                 <ArrowRight className="h-3 w-3" />
                 Weiter: {naechste.kurz}
               </Button>
-              {/* Kundenwunsch 11.11.2026: erst aktivieren, den Mietvertrag später — sobald Mieter und Miete stehen */}
-              {mieteVorgemerkt && naechste.schritt !== 'start' && (
-                <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id, 'start')}>
-                  <CheckCircle2 className="h-3 w-3" />
-                  Jetzt aktivieren
-                </Button>
-              )}
+              {/* PDF aus dem Ablauf bis zum 11.11.2026 — es kommt beim Abschließen zu den Dokumenten des Vertrags */}
               {hatPdf && (
                 <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => void pdfOeffnen(e)}>
                   <FileText className="h-3 w-3" />

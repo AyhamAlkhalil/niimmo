@@ -361,7 +361,7 @@ export const SearchPanel = ({ onImmobilieSelect, onMietvertragClick, onDarlehenS
                         <div className="min-w-0">
                           <p className="font-medium text-foreground">{highlight(m.name)}</p>
                           <p className="text-sm text-muted-foreground">
-                            {m.immobilieId ? `Entwurf an ${m.ort ?? 'einer Einheit'} · Mietvertrag noch offen` : 'Kein Mietvertrag'}
+                            {m.immobilieId ? `In Vermietung an ${m.ort ?? 'einer Einheit'}` : 'Kein Mietvertrag'}
                           </p>
                         </div>
                         {/* Nur ohne Entwurf: Steht er in einem, wird er dort mit dem Entwurf verworfen. Admins sehen alle Entwürfe. */}

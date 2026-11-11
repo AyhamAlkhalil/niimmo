@@ -80,7 +80,7 @@ export function useMieterAnlegen() {
       if (ergebnis.angelegt.length > 0) {
         toast({
           title: `${aufzaehlung(ergebnis.angelegt)} ${ergebnis.angelegt.length > 1 ? 'sind' : 'ist'} als Mieter angelegt`,
-          description: 'Als Nächstes Miete und Mietbeginn vormerken. Den Mietvertrag kannst du jederzeit später fertigstellen.',
+          description: 'Als Nächstes Miete und Mietbeginn vormerken, dann die Vermietung abschließen.',
         });
       }
       setFrage(null);

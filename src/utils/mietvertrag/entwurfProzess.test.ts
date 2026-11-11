@@ -1,6 +1,5 @@
 /**
- * Ablauf „Neuer Mietvertrag": Schritte, Zuordnung der Prüfbefunde und die
- * Platzhalter-Übersicht. Namen sind erfunden.
+ * Ablauf „Neue Vermietung": Schritte, Stufen und Lücken, dazu die Übernahme in den Vertrag. Namen sind erfunden.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -27,19 +26,17 @@ import {
   type VorvertragAuslese,
 } from './entwurf';
 import {
-  aktivierenMoeglich,
+  abschliessenMoeglich,
+  alsSchritt,
+  bereichFuerFeld,
   entwurfLuecken,
-  platzhalterUebersicht,
-  quellenZaehlung,
+  mieteVorgemerkt,
   naechsteStufe,
   naechsterWeitester,
-  schritteFuer,
+  SCHRITTE,
   spaetererSchritt,
-  teilVon,
   vermietungsStufen,
   weitesterAusAltbestand,
-  nurAmObjekt,
-  schrittFuerFeld,
   schrittZustaende,
 } from './entwurfProzess';
 import { pruefeVertragsdaten } from './pflichtpruefung';
@@ -249,25 +246,33 @@ describe('Schlüssel und Index', () => {
 });
 
 describe('Schritte', () => {
-  it('kennt ohne Wohnraum-Vorlage nur die Grundschritte', () => {
-    expect(schritteFuer(true)).toHaveLength(8);
-    expect(schritteFuer(false)).toEqual(['mieter', 'miete', 'grundlagen', 'pruefen', 'start']);
-    // Erst die Vermietung (Mieter, Miete), dann der Vertrag (11.11.2026)
-    expect(schritteFuer(true).slice(0, 2)).toEqual(['mieter', 'miete']);
-    expect(schritteFuer(true).slice(0, 2).every(s => teilVon(s) === 'vermietung')).toBe(true);
-    expect(schritteFuer(true).slice(2).every(s => teilVon(s) === 'vertrag')).toBe(true);
+  it('kennt nur die Vermietung: Mieter, Miete & Laufzeit, Abschließen (11.11.2026)', () => {
+    // Der Mietvertrag als PDF ist kein Schritt mehr — er entsteht am laufenden Vertrag
+    expect(SCHRITTE).toEqual(['mieter', 'miete', 'start']);
   });
 
-  it('rückt über die Miete nur mit „Miete speichern“ oder dem PDF hinaus (Review 11.11.2026)', () => {
+  it('liest gespeicherte Vertragsschritte als „vor dem Abschließen“', () => {
+    for (const alt of ['grundlagen', 'mietsache', 'betriebskosten', 'vereinbarungen', 'pruefen']) {
+      expect(alsSchritt(alt)).toBe('start');
+    }
+    expect(alsSchritt('miete')).toBe('miete');
+    expect(alsSchritt('kaputt')).toBeNull();
+    expect(alsSchritt(null)).toBeNull();
+    // Der offene Entwurf aus Sarstedt stand am 11.11.2026 auf „start“ — er bleibt vorgemerkt
+    expect(mieteVorgemerkt('start')).toBe(true);
+    expect(mieteVorgemerkt('pruefen')).toBe(true);
+    expect(mieteVorgemerkt('miete')).toBe(false);
+  });
+
+  it('rückt über die Miete nur mit „Miete speichern“ hinaus (Review 11.11.2026)', () => {
     // Über die Schrittleiste vorgesprungen und zwischengespeichert: bleibt bei der Miete
-    expect(naechsterWeitester('mieter', 'betriebskosten', false)).toBe('miete');
-    expect(naechsterWeitester(null, 'grundlagen', false)).toBe('miete');
-    // „Miete speichern“ bzw. PDF
-    expect(naechsterWeitester('miete', 'grundlagen', true)).toBe('grundlagen');
+    expect(naechsterWeitester('mieter', 'start', false)).toBe('miete');
+    expect(naechsterWeitester(null, 'start', false)).toBe('miete');
+    // „Miete speichern“
     expect(naechsterWeitester('miete', 'start', true)).toBe('start');
-    // Schon vorgemerkt: weiter wie gehabt, zurückblättern ändert nichts
-    expect(naechsterWeitester('grundlagen', 'betriebskosten', false)).toBe('betriebskosten');
-    expect(naechsterWeitester('betriebskosten', 'mieter', false)).toBe('betriebskosten');
+    // Schon vorgemerkt — auch nach dem alten Ablauf: zurückblättern ändert nichts
+    expect(naechsterWeitester('betriebskosten', 'mieter', false)).toBe('start');
+    expect(naechsterWeitester('start', 'miete', false)).toBe('start');
     // Bis zur Miete ohne Bestätigung
     expect(naechsterWeitester('mieter', 'miete', false)).toBe('miete');
   });
@@ -276,125 +281,83 @@ describe('Schritte', () => {
     // Vor dem 11.11.2026 kam „Grundlagen“ vor „Miete“
     expect(weitesterAusAltbestand('grundlagen')).toBe('mieter');
     expect(weitesterAusAltbestand('miete')).toBe('miete');
+    expect(weitesterAusAltbestand('vereinbarungen')).toBe('start');
     expect(weitesterAusAltbestand('start')).toBe('start');
     expect(weitesterAusAltbestand(null)).toBeNull();
   });
 
-  it('aktiviert auch ohne unterschriebene Fassung, aber nie mit offenen Punkten (11.11.2026)', () => {
-    const grund = { ungespeichert: false, datei: false, ohneUnterschrift: false, luecken: 0, beginnOffen: false, ueberschneidungOffen: false, ohnePdfOffen: false };
-    expect(aktivierenMoeglich(grund)).toBe(false);
-    expect(aktivierenMoeglich({ ...grund, datei: true })).toBe(true);
-    expect(aktivierenMoeglich({ ...grund, ohneUnterschrift: true })).toBe(true);
-    // Kein PDF aus der Vorlage: nur mit hochgeladener Fassung zu bestätigen
-    expect(aktivierenMoeglich({ ...grund, datei: true, ohnePdfOffen: true })).toBe(false);
-    expect(aktivierenMoeglich({ ...grund, ohneUnterschrift: true, ohnePdfOffen: true })).toBe(true);
-    // Was auch ohne Unterschrift sperrt
-    for (const offen of [{ ungespeichert: true }, { luecken: 1 }, { beginnOffen: true }, { ueberschneidungOffen: true }]) {
-      expect(aktivierenMoeglich({ ...grund, ohneUnterschrift: true, ...offen })).toBe(false);
+  it('schließt ohne PDF und ohne Unterschrift ab, aber nie mit offenen Punkten (11.11.2026)', () => {
+    const grund = { mieteOffen: false, ungespeichert: false, luecken: 0, beginnOffen: false, ueberschneidungOffen: false };
+    expect(abschliessenMoeglich(grund)).toBe(true);
+    // Auch die bestätigte Miete gehört dazu — nicht nur vorbelegte Werte aus dem Vorvertrag (Review 11.11.2026)
+    for (const offen of [{ mieteOffen: true }, { ungespeichert: true }, { luecken: 1 }, { beginnOffen: true }, { ueberschneidungOffen: true }]) {
+      expect(abschliessenMoeglich({ ...grund, ...offen })).toBe(false);
     }
   });
 
   it('merkt sich den weitesten Schritt, auch wenn man zurückblättert', () => {
-    expect(spaetererSchritt('mieter', 'grundlagen')).toBe('grundlagen');
-    expect(spaetererSchritt('pruefen', 'mieter')).toBe('pruefen');
+    expect(spaetererSchritt('mieter', 'start')).toBe('start');
+    expect(spaetererSchritt('pruefen', 'mieter')).toBe('start');
     expect(spaetererSchritt(null, 'miete')).toBe('miete');
     expect(spaetererSchritt('kaputt', undefined)).toBeNull();
   });
 
-  it('zeigt den Stand der Vermietung in Stufen und steigt in der ersten offenen ein (11.11.2026)', () => {
+  it('zeigt den Stand der Vermietung in drei Stufen und steigt in der ersten offenen ein (11.11.2026)', () => {
     const person = { ...leerePerson(), vorname: 'Erika', nachname: 'Neu' };
     const angelegt = { ...person, mieterId: 'm1' };
     const mitbewohner = { ...leerePerson(), rolle: 'mitbewohner' as const, vorname: 'Max', nachname: 'Neu' };
-    const stand = (personen: typeof person[], schritt: string | null, weitesterSchritt: string | null, pdf = false) =>
-      vermietungsStufen({ personen, schritt, weitesterSchritt, dateien: pdf ? [{ art: 'entwurf_pdf' }] : [] }, true);
+    const stand = (personen: typeof person[], schritt: string | null, weitesterSchritt: string | null) =>
+      vermietungsStufen({ personen, schritt, weitesterSchritt });
     const erledigt = (s: ReturnType<typeof stand>) => s.map(x => x.erledigt);
 
+    expect(stand([person], 'mieter', 'mieter').map(s => s.titel)).toEqual(['Mieter angelegt', 'Miete vorgemerkt', 'Abgeschlossen']);
     // Neu angefangen: nichts erledigt, Weiter führt zum Mieter
-    expect(erledigt(stand([person], 'mieter', 'mieter'))).toEqual([false, false, false, false]);
+    expect(erledigt(stand([person], 'mieter', 'mieter'))).toEqual([false, false, false]);
     expect(naechsteStufe(stand([person], 'mieter', 'mieter')).schritt).toBe('mieter');
     // Mieter angelegt, im Schritt Miete gespeichert, aber noch nicht weiter: Miete ist nicht vorgemerkt
-    expect(erledigt(stand([angelegt, mitbewohner], 'miete', 'miete'))).toEqual([true, false, false, false]);
+    expect(erledigt(stand([angelegt, mitbewohner], 'miete', 'miete'))).toEqual([true, false, false]);
     expect(naechsteStufe(stand([angelegt], 'miete', 'miete')).schritt).toBe('miete');
-    // Miete gespeichert und weiter: vorgemerkt — auch wenn man danach zurückblättert und speichert
-    expect(erledigt(stand([angelegt], 'mieter', 'grundlagen'))).toEqual([true, true, false, false]);
-    // Der Vertragsteil beginnt mit den Grundlagen — oder dort, wo er zuletzt stand
-    expect(naechsteStufe(stand([angelegt], 'mieter', 'grundlagen')).schritt).toBe('grundlagen');
-    expect(naechsteStufe(stand([angelegt], 'mieter', 'betriebskosten')).schritt).toBe('betriebskosten');
-    expect(naechsteStufe(stand([angelegt], 'start', 'start')).schritt).toBe('pruefen');
+    // Miete gespeichert: als Nächstes das Abschließen — auch wenn man danach zurückblättert und speichert
+    expect(erledigt(stand([angelegt], 'mieter', 'start'))).toEqual([true, true, false]);
+    expect(naechsteStufe(stand([angelegt], 'mieter', 'start'))).toMatchObject({ schritt: 'start', kurz: 'Abschließen' });
+    // Ein Entwurf aus dem alten Ablauf, der in den Vertragsschritten stand, steht vor dem Abschließen
+    expect(naechsteStufe(stand([angelegt], 'betriebskosten', 'betriebskosten')).schritt).toBe('start');
     // Der aktuelle Schritt allein rückt nicht vor
-    expect(erledigt(stand([angelegt], 'betriebskosten', 'miete'))).toEqual([true, false, false, false]);
+    expect(erledigt(stand([angelegt], 'start', 'miete'))).toEqual([true, false, false]);
     // Alter Entwurf auf „Grundlagen“ ohne weitesten Schritt: Miete nie gesehen
-    expect(erledigt(stand([angelegt], 'grundlagen', null))).toEqual([true, false, false, false]);
-    // PDF da: nur noch die Unterschrift offen
-    expect(naechsteStufe(stand([angelegt], 'start', 'start', true)).schritt).toBe('start');
+    expect(erledigt(stand([angelegt], 'grundlagen', null))).toEqual([true, false, false]);
     // Ein noch nicht angelegter Mitmieter hält die erste Stufe offen; ohne Mitmieter gibt es nichts anzulegen
-    expect(stand([angelegt, person], 'start', 'start', true)[0].erledigt).toBe(false);
+    expect(stand([angelegt, person], 'start', 'start')[0].erledigt).toBe(false);
     expect(stand([], 'start', 'start')[0].erledigt).toBe(false);
-    // Ohne Vorlage gilt der Vertrag als vorbereitet, sobald „Prüfen“ gespeichert wurde
-    const ohneVorlage = vermietungsStufen({ personen: [angelegt], schritt: 'start', weitesterSchritt: null, dateien: [] }, false);
-    expect(ohneVorlage.map(s => s.titel)).toEqual(['Mieter angelegt', 'Miete vorgemerkt', 'Vertrag vorbereitet', 'Aktiviert']);
-    expect(ohneVorlage[2].erledigt).toBe(true);
   });
 
-  it('ordnet jeden Prüfbefund einem Schritt zu, in dem er sich beheben lässt', () => {
-    expect(schrittFuerFeld('mieter[1].adresse')).toBe('mieter');
-    expect(schrittFuerFeld('vermieter.mietIban')).toBe('grundlagen');
-    expect(schrittFuerFeld('objekt.heizungsart')).toBe('mietsache');
-    expect(schrittFuerFeld('einheit.raumaufstellung')).toBe('mietsache');
-    expect(schrittFuerFeld('betriebskostenPositionen')).toBe('betriebskosten');
-    expect(schrittFuerFeld('staffelplan')).toBe('miete');
-    expect(schrittFuerFeld('mietpreisbremseAuskunftAm')).toBe('miete');
-    expect(schrittFuerFeld('schoenheitsreparaturen')).toBe('vereinbarungen');
+  it('ordnet jede Lücke dem Schritt zu, in dem sie sich beheben lässt', () => {
+    expect(bereichFuerFeld('mieter')).toBe('mieter');
+    expect(bereichFuerFeld('mieter[1].geburtsdatum')).toBe('mieter');
+    expect(bereichFuerFeld('anzahlPersonen')).toBe('mieter');
+    expect(bereichFuerFeld('mietbeginn')).toBe('miete');
+    expect(bereichFuerFeld('staffelplan')).toBe('miete');
+    expect(bereichFuerFeld('mietpreisbremseAuskunftAm')).toBe('miete');
+    expect(bereichFuerFeld('besichtigtAm')).toBe('vertrag');
+    expect(bereichFuerFeld('vertragsdatum')).toBe('vertrag');
   });
 
-  it('markiert Schritte mit offenen Pflichtangaben', () => {
-    const d = mitPersonen(entwurf().daten, []);
-    const zustand = schrittZustaende(pruefeVertragsdaten(d), entwurfLuecken(d, []));
-    expect(zustand.mieter).toBe('fehlt');
-    expect(zustand.mietsache).toBe('fehlt'); // Räume fehlen
-    expect(zustand.start).toBe('ok');
-  });
-});
-
-describe('Platzhalter-Übersicht', () => {
-  it('nennt für jeden Platzhalter Wert und Quelle', () => {
-    const basis = entwurf();
-    const { daten, herkunft } = wendeVorvertragAuslese(basis.daten, basis.herkunft, AUSLESE, 100);
-    const person = { ...leerePerson(), vorname: 'Erika', nachname: 'Muster', quelle: 'selbstauskunft' as const };
-    const d = mitPersonen(daten, [person]);
-    const gruppen = platzhalterUebersicht(d, herkunft, [person], pruefeVertragsdaten(d), true);
-    const z = (feld: string) => gruppen.flatMap(g => g.zeilen).find(x => x.feld === feld)!;
-
-    expect(z('vermieter')).toMatchObject({ wert: 'NiImmo Wohnungsbaugesellschaft mbH', quelle: 'stammdaten' });
-    expect(z('mieter[0]')).toMatchObject({ quelle: 'selbstauskunft', fehlt: true }); // Anschrift fehlt
-    expect(z('kaltmiete')).toMatchObject({ wert: '1.000,00 €', quelle: 'vorvertrag' });
-    expect(z('einheit.lage')).toMatchObject({ wert: 'Dachgeschoss rechts', quelle: 'einheit' });
-    expect(z('einheit.raumaufstellung')).toMatchObject({ quelle: 'vorvertrag', fehlt: false });
-    expect(z('kuendigungsverzichtBis')).toMatchObject({ wert: 'bis 31.10.2027', quelle: 'vorvertrag' });
-    expect(z('faelligkeitWerktag')).toMatchObject({ wert: 'am 3. Werktag', quelle: 'vorgabe' });
-    expect(z('summe')).toMatchObject({ wert: '1.100,00 €', quelle: 'berechnet' });
-    expect(z('objekt.heizungsart')).toMatchObject({ wert: 'Zentralheizung', quelle: 'objekt' });
-  });
-
-  it('zeigt eine Änderung von Hand als Eingabe', () => {
-    const { daten, herkunft } = entwurf();
-    daten.kaltmiete = 950;
-    delete herkunft.kaltmiete;
-    const gruppen = platzhalterUebersicht(daten, herkunft, [], [], true);
-    expect(gruppen.flatMap(g => g.zeilen).find(x => x.feld === 'kaltmiete')?.quelle).toBe('eingabe');
-  });
-
-  it('zählt die Quellen für die Kopfzeile', () => {
-    const { daten, herkunft } = entwurf();
-    const zaehlung = quellenZaehlung(platzhalterUebersicht(daten, herkunft, [], [], true));
-    expect(zaehlung.find(q => q.quelle === 'vorgabe')?.anzahl).toBeGreaterThan(3);
-    expect(zaehlung.find(q => q.quelle === 'objekt')?.anzahl).toBeGreaterThan(2);
-  });
-
-  it('beschränkt sich ohne Wohnraum-Vorlage auf Parteien, Mietsache, Laufzeit, Miete und Kaution', () => {
-    const { daten, herkunft } = entwurf();
-    const titel = platzhalterUebersicht(daten, herkunft, [], [], false).map(g => g.titel);
-    expect(titel).toEqual(['Vertragsparteien', 'Mietsache', 'Laufzeit', 'Miete und Nebenkosten', 'Kaution']);
+  it('markiert Schritte mit offenen Punkten und lässt Vertragsangaben beim Abschließen außen vor', () => {
+    const { daten } = entwurf();
+    const zustand = schrittZustaende(entwurfLuecken(daten, []));
+    expect(zustand).toEqual({ mieter: 'fehlt', miete: 'ok', start: 'ok' });
+    // Ein halbes Besichtigungsdatum sperrt das Abschließen nicht — es gehört zum PDF und wird nicht übernommen
+    const person = { ...leerePerson(), vorname: 'Testa', nachname: 'Probe' };
+    daten.besichtigtAm = '0026-10-01';
+    daten.vertragsdatum = '0026-10-02';
+    expect(entwurfLuecken(daten, [person])).toEqual([]);
+    const zeile = vertragsZeile({ id: 'v', einheitId: 'e1', daten, herkunft: {}, vorvertragId: null, mitVorlage: false });
+    expect(zeile.besichtigt_am).toBeNull();
+    expect(zeile.vertrag_datum).toBeNull();
+    daten.besichtigtAm = '2026-10-01';
+    expect(vertragsZeile({ id: 'v', einheitId: 'e1', daten, herkunft: {}, vorvertragId: null, mitVorlage: false }).besichtigt_am).toBe(
+      '2026-10-01'
+    );
   });
 });
 
@@ -477,47 +440,14 @@ describe('Befunde der QA vom 20.10.2026', () => {
     expect(pruefeVertragsdaten(daten).some(f => f.feld === 'vertragsende' && f.schwere === 'blocker')).toBe(true);
     const zeile = vertragsZeile({ id: 'v', einheitId: 'e1', daten, herkunft, vorvertragId: null, mitVorlage: false });
     expect(zeile.ende_datum).toBeNull();
-    const befristung = platzhalterUebersicht(daten, herkunft, [], pruefeVertragsdaten(daten), true)
-      .flatMap(g => g.zeilen)
-      .find(z => z.feld === 'vertragsende');
-    expect(befristung).toMatchObject({ wert: 'befristet, Enddatum fehlt', fehlt: true });
   });
 
-  it('meldet negative Betriebskosten ohne Heizkosten als solche und markiert die Zeile', () => {
-    const { daten, herkunft } = entwurf();
+  it('meldet negative Betriebskosten ohne Heizkosten als solche', () => {
+    const { daten } = entwurf();
     daten.betriebskostenVorauszahlung = -50;
     daten.heizkostenVorauszahlung = null;
     const befunde = pruefeVertragsdaten(daten);
     expect(befunde.find(f => f.feld === 'betriebskostenVorauszahlung')?.text).toBe('Die Betriebskostenvorauszahlung ist negativ.');
-    const zeile = platzhalterUebersicht(daten, herkunft, [], befunde, true)
-      .flatMap(g => g.zeilen)
-      .find(z => z.feld === 'betriebskostenVorauszahlung');
-    expect(zeile?.fehlt).toBe(true);
-  });
-
-  it('zeigt Werte der Übersicht so, wie der Vertrag sie druckt', () => {
-    const { daten, herkunft } = entwurf();
-    daten.mietanpassungArt = 'index';
-    daten.indexBasisWert = 125.6;
-    daten.indexBasisMonat = null;
-    daten.zusatzvereinbarungen = 'A\n \nB';
-    const zeilen = platzhalterUebersicht(daten, herkunft, [], [], true).flatMap(g => g.zeilen);
-    const z = (feld: string) => zeilen.find(x => x.feld === feld)!;
-    expect(z('mietanpassungArt').wert).toBe('Indexmiete, Basis 125,6');
-    expect(z('zusatzvereinbarungen').wert).toBe('2 Vereinbarung(en)');
-    // Mietkonto kommt seit 04.11.2026 immer aus den Vermieterstammdaten, nie vom Objekt
-    expect(z('lastschrift').quelle).toBe('stammdaten');
-  });
-
-  it('führt die Prüfangaben der Mietpreisbremse getrennt von den Platzhaltern', () => {
-    const basis = baueEntwurf({
-      immobilie: { ...IMMOBILIE, ist_angespannt: true } as Tables<'immobilien'>,
-      einheit: EINHEIT, vermieter: VERMIETER, nebenkostenarten: [], vorvertrag: VORVERTRAG, heute: '2026-10-20',
-    });
-    const gruppen = platzhalterUebersicht(basis.daten, basis.herkunft, [], [], true);
-    const bremse = gruppen.find(g => g.titel.startsWith('Mietpreisbremse'));
-    expect(bremse?.zeilen.map(z => z.feld)).toEqual(['vormieteNetto', 'mietpreisbremseAuskunftAm']);
-    expect(gruppen.find(g => g.titel === 'Vereinbarungen')?.zeilen.some(z => z.feld === 'vormieteNetto')).toBe(false);
   });
 
   it('übernimmt aus dem Dokument nur, was es wirklich enthält', () => {
@@ -610,19 +540,4 @@ describe('Befunde der QA vom 20.10.2026', () => {
     expect(personenzahl([p])).toBe(1);
   });
 
-  it('führt ohne Wohnraum-Vorlage nur in vorhandene Schritte', () => {
-    const vorhanden = schritteFuer(false);
-    expect(vorhanden).not.toContain('mietsache');
-  });
-
-  it('führt beim Energieausweis in keinen Schritt, weil er nur am Objekt gepflegt wird (03.11.2026)', () => {
-    expect(nurAmObjekt('objekt.energieausweis')).toBe(true);
-    expect(nurAmObjekt('objekt.energieausweisGueltigBis')).toBe(true);
-    expect(nurAmObjekt('objekt.heizungsart')).toBe(false);
-    const zustand = schrittZustaende(
-      [{ schwere: 'warnung', feld: 'objekt.energieausweis', text: 'fehlt', loesung: '' }],
-      []
-    );
-    expect(zustand.mietsache).toBe('ok');
-  });
 });

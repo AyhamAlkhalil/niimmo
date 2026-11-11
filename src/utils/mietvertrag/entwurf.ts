@@ -1076,9 +1076,10 @@ export function vertragsZeile(a: VertragsZeileArgs): TablesInsert<'mietvertrag'>
     vormiete_netto: d.vormieteNetto,
     vormiete_bis: d.vormieteBis,
     mietpreisbremse_auskunft_am: d.mietpreisbremseAuskunftAm,
-    besichtigt_am: d.besichtigtAm,
+    // Gehören zum Mietvertrag (PDF) und werden beim Abschließen nicht geprüft — ein halbes Datum bleibt weg
+    besichtigt_am: istPlausiblesDatum(d.besichtigtAm) ? d.besichtigtAm : null,
     zusatzvereinbarungen: d.zusatzvereinbarungen?.trim() || null,
-    vertrag_datum: d.vertragsdatum,
+    vertrag_datum: istPlausiblesDatum(d.vertragsdatum) ? d.vertragsdatum : null,
     unterschrift_ort: d.unterschriftOrt?.trim() || null,
     vorlage_version: a.mitVorlage ? VORLAGE_VERSION : null,
 

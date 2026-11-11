@@ -5,12 +5,14 @@
  * Mietvertrag wird nicht versendet, er wird ausgedruckt, unterschrieben und
  * als unterschriebene Fassung wieder hochgeladen.
  *
- * Die Formularabschnitte teilt sich der Dialog mit dem Vertragsentwurf
- * (`mietvertrag-formular/`); neue Verträge entstehen seit 18.10.2026 dort.
+ * Seit dem 11.11.2026 der einzige Weg zum Mietvertrag als PDF: Die Vermietung schließt ohne ihn ab (Nutzer: „die
+ * Erstellung des Mietvertrags ist optional und kann jederzeit nachträglich erzeugt werden“), und er entsteht hier am
+ * laufenden Vertrag — von der Einheit aus oder in den Vertragsdetails. Deshalb jetzt auch mit Schlüsseln und
+ * Besichtigung und auf dem Handy bedienbar (wie der Vermietungsdialog seit dem 10.11.2026).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, FileText, Loader2, Save } from 'lucide-react';
+import { AlertTriangle, Eye, FileText, Loader2, Save } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -24,11 +26,15 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
 import { useMietvertragPdfDaten } from '@/hooks/useMietvertragPdfDaten';
 import { supabase } from '@/integrations/supabase/client';
 import { hatBlocker, pruefeVertragsdaten, type Befund } from '@/utils/mietvertrag/pflichtpruefung';
 import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
 import { AENDERUNGEN } from '@/utils/mietvertrag/wohnraumKlauseln';
+import { schluesselFuerDb } from '@/utils/mietvertrag/entwurf';
+import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from '@/utils/mietvertrag/vertretung';
 import { positionFuerDb, VORLAGE_VERSION, type MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { schriftstueckPfad } from '@/utils/storagePfad';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
@@ -39,33 +45,66 @@ import {
   MieteranschriftFelder,
   MietsacheFelder,
   ObjektAngabenFelder,
+  SchluesselFelder,
 } from './mietvertrag-formular/Abschnitte';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   vertragId: string;
+  /**
+   * Vertrag, zu dem noch keine unterschriebene Fassung vorliegt (seit 11.11.2026, von der Einheit aus): Dann
+   * unterschreibt in der Regel, wer ihn anlegt — vorbelegt wie früher im Vermietungsablauf. Beim Nachdruck eines
+   * unterschriebenen Vertrags (Vertragsdetails) bleibt die Wahl offen.
+   */
+  ersteFassung?: boolean;
 }
 
-export default function MietvertragErstellungModal({ isOpen, onClose, vertragId }: Props) {
+export default function MietvertragErstellungModal({ isOpen, onClose, vertragId, ersteFassung = false }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { logActivity } = useActivityLog();
-  const { data: geladen, isLoading, error } = useMietvertragPdfDaten(vertragId, isOpen);
+  const { data: geladen, isFetching, error } = useMietvertragPdfDaten(vertragId, isOpen);
 
   const [entwurf, setEntwurfRoh] = useState<MietvertragDaten | null>(null);
   const [speichert, setSpeichert] = useState(false);
   const [zeigeVermieter, setZeigeVermieter] = useState(false);
 
+  // Je Öffnen einmal übernehmen, und zwar den frisch geladenen Stand. Bis zum 11.11.2026 setzte jedes Neuladen den
+  // ganzen Entwurf zurück — etwa nach „PDF ansehen“ im neuen Tab (Fenster wieder im Vordergrund): Eingaben waren weg
+  // (Review 11.11.2026). Später nachgeladen werden nur die Vermieter-Stammdaten, die man hier ergänzen kann.
+  const uebernommen = useRef(false);
   useEffect(() => {
-    if (geladen) setEntwurfRoh(geladen);
-  }, [geladen]);
+    if (!isOpen) uebernommen.current = false;
+  }, [isOpen]);
+  useEffect(() => {
+    if (!geladen || isFetching) return;
+    if (!uebernommen.current) {
+      uebernommen.current = true;
+      setEntwurfRoh(geladen);
+      return;
+    }
+    setEntwurfRoh(d => (d ? { ...d, vermieter: geladen.vermieter } : geladen));
+  }, [geladen, isFetching]);
 
   const setEntwurf = (aenderung: (d: MietvertragDaten) => MietvertragDaten) =>
     setEntwurfRoh(d => (d ? aenderung(d) : d));
 
   // Wer für den Vermieter unterschrieben hat, steht nicht am Vertrag — beim Nachdruck wird bewusst
-  // gewählt statt mit dem Angemeldeten vorbelegt, sonst stünde womöglich der Falsche darin (Review 03.11.2026)
+  // gewählt statt mit dem Angemeldeten vorbelegt, sonst stünde womöglich der Falsche darin (Review 03.11.2026).
+  // Bei der ersten Fassung unterschreibt in der Regel, wer sie anlegt (Kundenwunsch 03.11.2026).
+  const unterzeichner = useVermieterUnterzeichnerVorschlag(ersteFassung ? entwurf?.vermieter.vertretenDurch : null);
+  const unterzeichnerVorbelegt = useRef(false);
+  useEffect(() => {
+    if (!isOpen) unterzeichnerVorbelegt.current = false;
+  }, [isOpen]);
+  useEffect(() => {
+    if (!ersteFassung || !entwurf || !unterzeichner.bereit || unterzeichnerVorbelegt.current) return;
+    unterzeichnerVorbelegt.current = true;
+    if (!unterzeichner.vorschlag || !brauchtUnterzeichnerWahl(entwurf.vermieter) || gewaehlterUnterzeichner(entwurf)) return;
+    const vorschlag = unterzeichner.vorschlag;
+    setEntwurfRoh(d => (d ? { ...d, unterzeichnerVermieter: vorschlag } : d));
+  }, [ersteFassung, entwurf, unterzeichner.bereit, unterzeichner.vorschlag]);
 
   const befunde: Befund[] = useMemo(() => (entwurf ? pruefeVertragsdaten(entwurf) : []), [entwurf]);
   const blockiert = hatBlocker(befunde);
@@ -82,7 +121,28 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
     });
   }, []);
   const zahlFehler = ungueltigeZahlen.size > 0;
-  const { pdfBlob, pdfUrl, erzeugt, aktuell } = useVertragsvorschau(entwurf, isOpen, blockiert);
+  const { pdfBlob, pdfUrl, erzeugt, aktuell, fehlgeschlagen } = useVertragsvorschau(entwurf, isOpen, blockiert);
+  // Die Vorschau-Spalte gibt es erst ab lg. Darunter kein verstecktes iframe — es lüde das PDF trotzdem (Handy)
+  const mitVorschauSpalte = useMediaQuery('(min-width: 1024px)');
+
+  /** Handy und Tablet: Der Browser öffnet das PDF selbst. */
+  function pdfAnsehen() {
+    if (aktuell && pdfBlob) {
+      // Eigene Adresse, synchron im Klick — sonst blockt der Browser den Tab
+      const adresse = URL.createObjectURL(pdfBlob);
+      window.open(adresse, '_blank');
+      setTimeout(() => URL.revokeObjectURL(adresse), 5 * 60_000);
+      return;
+    }
+    toast({
+      title: 'Noch keine Vorschau',
+      description: blockiert
+        ? 'Für das PDF fehlen Pflichtangaben — sie stehen oben im Formular.'
+        : fehlgeschlagen
+          ? 'Die Vorschau ließ sich nicht erzeugen. Bitte eine Angabe ändern oder neu öffnen.'
+          : 'Die Vorschau wird gerade erzeugt. Bitte gleich noch einmal tippen.',
+    });
+  }
 
   // ─── Speichern ────────────────────────────────────────────────────────────
   async function speichern() {
@@ -130,6 +190,10 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
           faelligkeit_werktag: entwurf.faelligkeitWerktag,
           kaution_raten: entwurf.kautionRaten,
           zusatzvereinbarungen: entwurf.zusatzvereinbarungen,
+          // Seit 11.11.2026 hier erfassbar: Schlüssel und Besichtigung (Widerrufsbelehrung) — sonst druckte der
+          // Nachdruck wieder die alten
+          schluessel: schluesselFuerDb(entwurf.schluessel),
+          besichtigt_am: entwurf.besichtigtAm,
           vertrag_datum: entwurf.vertragsdatum,
           unterschrift_ort: entwurf.unterschriftOrt,
           vorlage_version: VORLAGE_VERSION,
@@ -255,27 +319,31 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
   return (
     <>
     <Dialog open={isOpen} onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] h-[92vh] flex flex-col p-0 gap-0">
-        <DialogHeader className="px-6 py-4 border-b">
+      {/* Handy: ganzer Bildschirm, Höhe in dvh — mit vh verdeckte die Browserleiste die Fußleiste (wie der Vermietungsdialog) */}
+      <DialogContent className="flex h-[100dvh] max-w-full flex-col gap-0 border-0 p-0 sm:h-[92vh] sm:max-w-[95vw] sm:border">
+        <DialogHeader className="border-b py-3 pl-4 pr-12 text-left sm:px-6 sm:py-4">
           <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Mietvertrag erzeugen
+            <FileText className="h-5 w-5 shrink-0" />
+            Mietvertrag erstellen
           </DialogTitle>
           <DialogDescription>
-            Vorlage {VORLAGE_VERSION} · {AENDERUNGEN.length} Klauseln wurden gegenüber der
-            Word-Vorlage rechtlich überarbeitet. Vor dem Produktiveinsatz anwaltlich freigeben lassen.
+            Optional — das Mietverhältnis läuft auch ohne.{' '}
+            <span className="hidden sm:inline">
+              Vorlage {VORLAGE_VERSION} · {AENDERUNGEN.length} Klauseln wurden gegenüber der Word-Vorlage rechtlich
+              überarbeitet. Vor dem Produktiveinsatz anwaltlich freigeben lassen.
+            </span>
           </DialogDescription>
         </DialogHeader>
 
-        {isLoading && (
-          <div className="flex-1 flex items-center justify-center gap-2">
+        {!entwurf && !error && (
+          <div className="flex flex-1 items-center justify-center gap-2">
             <Loader2 className="h-5 w-5 animate-spin" />
             <span>Vertragsdaten werden geladen …</span>
           </div>
         )}
 
         {error && (
-          <div className="flex-1 flex items-center justify-center p-8">
+          <div className="flex flex-1 items-center justify-center p-8">
             <Alert variant="destructive" className="max-w-lg">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
@@ -286,54 +354,59 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId 
         )}
 
         {entwurf && (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(380px,32%)_1fr] overflow-hidden">
-            {/* ── Formular ── */}
-            <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>
-            <div className="overflow-y-auto border-r p-5 space-y-5">
-              <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
+          <>
+            <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(380px,32%)_1fr]">
+              {/* ── Formular ── */}
+              <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>
+                <div className="space-y-5 overflow-y-auto p-4 sm:p-5 lg:border-r">
+                  <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
 
-              <Separator />
-              {/* Stammdaten, die im Vertrag stehen müssen und oft noch fehlen.
-                  Sie werden beim Speichern in Mieter, Einheit, Objekt und
-                  Vertrag zurückgeschrieben — damit sie beim nächsten Mal da sind. */}
-              <MietsacheFelder entwurf={entwurf} setEntwurf={setEntwurf} />
-              <Separator />
-              <ObjektAngabenFelder entwurf={entwurf} setEntwurf={setEntwurf} />
-              <Separator />
-              <BetriebskostenEditor entwurf={entwurf} setEntwurf={setEntwurf} />
-              <Separator />
-              <MieteranschriftFelder entwurf={entwurf} setEntwurf={setEntwurf} />
-              <Separator />
-              <KlauselFelder entwurf={entwurf} setEntwurf={setEntwurf} />
-            </div>
-            </UngueltigeZahlFelder.Provider>
-
-            {/* ── Vorschau ── */}
-            <div className="flex flex-col bg-muted/30 overflow-hidden">
-              <VertragsVorschau gesperrt={blockiert} pdfUrl={pdfUrl} erzeugt={erzeugt} />
-
-              <div className="border-t p-4 flex items-center justify-between gap-3 bg-background">
-                <p className={zahlFehler ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-                  {zahlFehler
-                    ? 'Ein Betrag ist nicht lesbar (rot markiert), z. B. „1.200“ – bitte ohne Tausenderpunkt eingeben.'
-                    : 'Wird als PDF in den Dokumenten des Vertrags abgelegt.'}
-                </p>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={onClose} disabled={speichert}>
-                    Abbrechen
-                  </Button>
-                  <Button onClick={speichern} disabled={blockiert || zahlFehler || !aktuell || speichert}>
-                    {speichert ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                    Vertrag speichern
-                  </Button>
+                  <Separator />
+                  {/* Stammdaten, die im Vertrag stehen müssen und oft noch fehlen.
+                      Sie werden beim Speichern in Mieter, Einheit, Objekt und
+                      Vertrag zurückgeschrieben — damit sie beim nächsten Mal da sind. */}
+                  <MietsacheFelder entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <SchluesselFelder entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <Separator />
+                  <ObjektAngabenFelder entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <Separator />
+                  <BetriebskostenEditor entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <Separator />
+                  <MieteranschriftFelder entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <Separator />
+                  <KlauselFelder entwurf={entwurf} setEntwurf={setEntwurf} />
                 </div>
+              </UngueltigeZahlFelder.Provider>
+
+              {/* ── Vorschau (ab lg) ── */}
+              <div className="hidden flex-col overflow-hidden bg-muted/30 lg:flex">
+                {mitVorschauSpalte && <VertragsVorschau gesperrt={blockiert} pdfUrl={pdfUrl} erzeugt={erzeugt} />}
               </div>
             </div>
-          </div>
+
+            {/* ── Fußleiste ── */}
+            <div className="flex flex-col-reverse gap-2 border-t bg-background px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5 sm:pb-3">
+              <p className={zahlFehler ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+                {zahlFehler
+                  ? 'Ein Betrag ist nicht lesbar (rot markiert), z. B. „1.200“ – bitte ohne Tausenderpunkt eingeben.'
+                  : 'Wird als PDF in den Dokumenten des Vertrags abgelegt.'}
+              </p>
+              <div className="flex flex-wrap gap-2 [&>button]:flex-1 sm:[&>button]:flex-none">
+                {/* Nicht gesperrt: Ein ausgegrauter Knopf zeigt auf dem Handy keinen Grund — die Meldung schon */}
+                <Button variant="outline" className="lg:hidden" onClick={pdfAnsehen}>
+                  <Eye className="h-4 w-4" />
+                  PDF ansehen
+                </Button>
+                <Button variant="outline" onClick={onClose} disabled={speichert}>
+                  Abbrechen
+                </Button>
+                <Button onClick={speichern} disabled={blockiert || zahlFehler || !aktuell || speichert}>
+                  {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Vertrag speichern
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </DialogContent>
     </Dialog>

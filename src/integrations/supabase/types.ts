@@ -3155,6 +3155,10 @@ export type Database = {
           sollmonat: string
         }[]
       }
+      vermietung_zuruecknehmen: {
+        Args: { p_vertrag_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       anrede: "Herr" | "Frau" | "Divers" | "Firma"

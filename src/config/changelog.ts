@@ -37,6 +37,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.13.0",
+    datum: "2026-11-11",
+    aenderungen: [
+      { art: "verbessert", titel: "Vermietung ganz normal abschließen: Mieter, Miete, Abschließen – der Mietvertrag als PDF ist optional und entsteht jederzeit am laufenden Vertrag" },
+      { art: "neu", titel: "Vermietung zurücknehmen, solange keine Zahlung und kein unterschriebener Vertrag daran hängt" },
+    ],
+  },
+  {
     version: "1.12.0",
     datum: "2026-11-11",
     aenderungen: [

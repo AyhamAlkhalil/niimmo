@@ -1,36 +1,21 @@
 /**
- * „Neuen Mietvertrag anlegen" als geführter Ablauf (20.10.2026).
+ * „Neue Vermietung“: das Mietverhältnis im System, in drei Schritten (seit 11.11.2026):
  *
- * Die Vorlage ist fest; der Ablauf befüllt ihre Platzhalter aus Objekt,
- * Einheit, Vorvertrag, Selbstauskunft und Eingaben — jeder Wert bleibt
- * änderbar und zeigt seine Quelle. Am Ende steht das PDF. Seit 03.11.2026
- * zuerst der Mieter, seit 11.11.2026 die Vermietung als Prozess (Kundenwunsch):
+ *   Mieter → Miete & Laufzeit → Abschließen
  *
- *   Mieter → Miete & Laufzeit │ Grundlagen → Mietsache & Haus →
- *   Betriebskosten → Vereinbarungen → Prüfen & PDF → Unterschrift & Start
+ * Bis zum Abschließen ist die Vermietung ein Vorgang (`mietvertrag_entwuerfe`): Die Einheit gilt nicht als
+ * vermietet, es entstehen keine Forderungen. „Mieter speichern“ legt den Mieter an, „Miete speichern“ merkt die
+ * Eckdaten vor; die Einheit zeigt, wie weit der Vorgang ist. Zwischenspeichern geht jederzeit, Abbrechen fragt bei
+ * ungespeicherten Änderungen nach.
  *
- * Bis zum Aktivieren ist die Vermietung ein Vorgang (`mietvertrag_entwuerfe`):
- * Die Einheit gilt nicht als vermietet, es entstehen keine Forderungen. Seit dem
- * 11.11.2026 ist sie ein Prozess mit Zwischenständen: „Mieter speichern“ legt den
- * Mieter an, „Miete speichern“ merkt die Eckdaten vor, der Vertrag folgt später. Zwischenspeichern geht
- * jederzeit, Abbrechen fragt bei ungespeicherten Änderungen nach.
+ * Der Mietvertrag als PDF ist kein Teil davon (Nutzer 11.11.2026: „ein anderer Prozess als einen Mietvertrag im
+ * System zu haben … die Erstellung des Mietvertrags ist optional und kann jederzeit nachträglich erzeugt werden“).
+ * Er entsteht am laufenden Vertrag (`MietvertragErstellungModal`); bis dahin lagen hier fünf Vertragsschritte mit
+ * Vorschau zwischen Miete und Aktivieren.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  ChevronDown,
-  ChevronUp,
-  Eye,
-  FileCheck2,
-  FileSignature,
-  Info,
-  Loader2,
-  PenLine,
-  Save,
-} from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Loader2, PenLine, Save } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -45,10 +30,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
-import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
-import { VerteilerschluesselDialog } from '@/components/dashboard/VerteilerschluesselDialog';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
 import {
@@ -59,12 +41,8 @@ import {
   wahrscheinlichsterVertrag,
   type EntwurfGrundlagenDaten,
 } from '@/hooks/useMietvertragEntwurf';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
-import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
-import type { TablesUpdate } from '@/integrations/supabase/types';
 import { OCRProcessingService } from '@/services/ocrProcessingService';
 import { speichereEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
 import { getVertragsende } from '@/utils/contractUtils';
@@ -93,50 +71,26 @@ import {
   type VorvertragAuslese,
 } from '@/utils/mietvertrag/entwurf';
 import {
+  alsSchritt,
+  bereichFuerFeld,
   naechsterWeitester,
-  schrittFuerFeld,
   mieteVorgemerkt,
   ERSTER_SCHRITT,
   entwurfLuecken,
-  istSchrittId,
-  platzhalterUebersicht,
-  schritteFuer,
+  SCHRITTE,
   schrittTitel,
   schrittZustaende,
   type SchrittId,
 } from '@/utils/mietvertrag/entwurfProzess';
-import { hatBlocker, pruefeVertragsdaten } from '@/utils/mietvertrag/pflichtpruefung';
-import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from '@/utils/mietvertrag/vertretung';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { EURO_BETRAG_HINWEIS } from '@/utils/euroBetrag';
-import {
-  AnlagenFelder,
-  BetriebskostenEditor,
-  KleinreparaturFelder,
-  MietsacheFelder,
-  ObjektAngabenFelder,
-  PersonenzahlFeld,
-  SchluesselFelder,
-  UebergabeFelder,
-  UnterzeichnungFelder,
-  VermieterUnterzeichnerFeld,
-  ZusatzvereinbarungFeld,
-} from '../mietvertrag-formular/Abschnitte';
-import {
-  Feldname,
-  HerkunftHinweis,
-  PruefungsHinweise,
-  UngueltigeZahlFelder,
-  VertragsVorschau,
-} from '../mietvertrag-formular/Bausteine';
-import { GrundlagenSchritt } from './GrundlagenSchritt';
+import { PersonenzahlFeld } from '../mietvertrag-formular/Abschnitte';
+import { HerkunftHinweis, UngueltigeZahlFelder } from '../mietvertrag-formular/Bausteine';
+import { AbschliessenSchritt } from './AbschliessenSchritt';
 import { InteressentenAbschnitt } from './InteressentenAbschnitt';
 import { useMieterAnlegen } from './MieterAnlegen';
 import { MieteSchritt } from './MieteSchritt';
-import { PruefenSchritt } from './PruefenSchritt';
 import { Schrittleiste } from './Schrittleiste';
-import { StartSchritt } from './StartSchritt';
-import type { AusleseStatus } from './VorvertragAbschnitt';
 
 interface Props {
   isOpen: boolean;
@@ -144,7 +98,7 @@ interface Props {
   einheitId: string;
   /** Vorhandenen Entwurf fortsetzen; ohne ID entsteht ein neuer. */
   entwurfId?: string | null;
-  /** In diesem Schritt einsteigen, z. B. „start" für „Unterschrift & Start" auf der Einheitskarte. */
+  /** In diesem Schritt einsteigen, z. B. „start“ für „Abschließen“ auf der Einheitskarte. */
   startSchritt?: SchrittId | null;
   /** Ein bereits unterschriebener Vertrag wird weiter direkt erfasst (bisheriger Dialog). */
   onDirektErfassen?: () => void;
@@ -174,11 +128,13 @@ function stabil(wert: unknown): string {
 }
 
 /** Was nicht im Entwurf, sondern am Objekt und beim Vermieter gepflegt wird. */
-function stammdatenTeil(d: MietvertragDaten) {
+/**
+ * Was vom Objekt in den Vertrag übernommen wird (`vertragsZeile`). Hat es sich seit dem Speichern geändert, muss vor
+ * dem Abschließen gespeichert werden — abgeschlossen wird der gespeicherte Stand.
+ */
+function vomObjektImVertrag(d: MietvertragDaten) {
   return {
-    vermieter: d.vermieter,
-    objekt: d.objekt,
-    // Seit 03.11.2026 fest vom Objekt: Hat sich ein Schlüssel dort geändert, ist das PDF veraltet
+    // Seit 03.11.2026 fest vom Objekt
     verteilerschluessel: d.betriebskostenPositionen.map(p => `${p.nummer}:${p.schluessel}`),
     schliessanlageArt: d.schliessanlageArt,
     // Am Objekt als Liste gespeichert — „Waschkeller,Hof" und „Waschkeller, Hof" sind dasselbe
@@ -190,16 +146,13 @@ function stammdatenTeil(d: MietvertragDaten) {
   };
 }
 
-/** Rückschreiben ans Objekt bzw. an die Einheit — getrennt, weil beide Updates einzeln scheitern können. */
-const FELDER_AM_OBJEKT = [
-  'objekt.heizungsart',
-  'objekt.warmwasser',
-  'objekt.heizkostenSchluessel',
-  'objekt.gesamtwohnflaecheQm',
-  'schliessanlageArt',
-  'mitbenutzungEinrichtungen',
-];
-const FELDER_AN_EINHEIT = ['einheit.nebenraeume', 'einheit.einbaukueche'];
+/** Alles, was ein PDF aus dem früheren Ablauf vom Objekt und vom Vermieter zeigt. */
+function stammdatenTeil(d: MietvertragDaten) {
+  return { ...vomObjektImVertrag(d), vermieter: d.vermieter, objekt: d.objekt };
+}
+
+/** Stand der automatischen Vorvertrags-Auslese beim Anlegen. */
+type AusleseStatus = { art: 'bereit' } | { art: 'laeuft' } | { art: 'fertig' } | { art: 'fehler'; text: string };
 
 type Verlassen = 'schliessen' | 'direkt';
 
@@ -229,12 +182,8 @@ export function MietvertragEntwurfDialog({
   const [dateien, setDateien] = useState<EntwurfDatei[]>([]);
   const [neueSelbstauskuenfte, setNeueSelbstauskuenfte] = useState<File[]>([]);
   const [liestSelbstauskunft, setLiestSelbstauskunft] = useState(false);
-  const [vorvertragPfad, setVorvertragPfad] = useState<string | null>(null);
   const [ausleseStatus, setAusleseStatus] = useState<AusleseStatus>({ art: 'bereit' });
   const [speichert, setSpeichert] = useState(false);
-  const [zeigeVermieter, setZeigeVermieter] = useState(false);
-  const [zeigeSchluessel, setZeigeSchluessel] = useState(false);
-  const [zeigeHinweise, setZeigeHinweise] = useState(false);
   const [aktualisiertAm, setAktualisiertAm] = useState<string | null>(null);
   const [schritt, setSchritt] = useState<SchrittId>(ERSTER_SCHRITT);
   /** Weitester gespeicherter Schritt — der Stand der Vermietung an der Einheit (11.11.2026). */
@@ -248,15 +197,7 @@ export function MietvertragEntwurfDialog({
   const [frageSchliessen, setFrageSchliessen] = useState<Verlassen | null>(null);
   const [zuletztGespeichert, setZuletztGespeichert] = useState<Date | null>(null);
   const initialisiert = useRef(false);
-  /** Der Unterzeichner des Vermieters wird je Öffnen einmal mit dem Angemeldeten vorbelegt. */
-  const unterzeichnerVorbelegt = useRef(false);
-  /** Felder, die in dieser Sitzung von Hand geändert wurden — nur die gehen ans Objekt zurück. */
-  /** Je Feld ein Zähler: So erkennt das Speichern, ob ein Feld währenddessen erneut geändert wurde. */
-  const sitzungGeaendert = useRef(new Map<string, number>());
-  /**
-   * Was in dieser Sitzung von Hand geändert wurde — anders als `sitzungGeaendert` nicht beim Speichern
-   * geleert. Die Vorvertrags-Auslese lässt diese Felder stehen (28.10.2026).
-   */
+  /** Was in dieser Sitzung von Hand geändert wurde — die Vorvertrags-Auslese lässt diese Felder stehen (28.10.2026). */
   const vonHandGeaendert = useRef(new Set<string>());
   /** Zahlenfelder mit abgelehntem Betrag (z. B. „1.200") — solange eines da ist, geht es nicht weiter. */
   const [ungueltigeZahlen, setUngueltigeZahlen] = useState<ReadonlySet<string>>(new Set());
@@ -267,15 +208,13 @@ export function MietvertragEntwurfDialog({
   const formular = useRef<HTMLDivElement>(null);
 
   const wohnraum = istWohnraumEinheit(g?.einheit.einheitentyp);
-  const schritte = useMemo(() => schritteFuer(wohnraum), [wohnraum]);
+  const schritte = SCHRITTE;
 
   // ─── Schließen setzt alles zurück ────────────────────────────────────────
   useEffect(() => {
     if (isOpen) return;
     sitzung.current += 1;
     initialisiert.current = false;
-    unterzeichnerVorbelegt.current = false;
-    sitzungGeaendert.current = new Map();
     vonHandGeaendert.current = new Set();
     aenderungen.current = 0;
     setAktualisiertAm(null);
@@ -284,7 +223,6 @@ export function MietvertragEntwurfDialog({
     setPersonen([]);
     setDateien([]);
     setNeueSelbstauskuenfte([]);
-    setVorvertragPfad(null);
     setAusleseStatus({ art: 'bereit' });
     setSchritt(ERSTER_SCHRITT);
     setWeitester(null);
@@ -300,8 +238,13 @@ export function MietvertragEntwurfDialog({
   }, []);
 
   // ─── Vorvertrag lesen ────────────────────────────────────────────────────
+  /**
+   * Beim Anlegen liest die KI den letzten Vertrag der Einheit mit — was nur im alten Dokument steht (Räume,
+   * Kostenaufstellung, Heizkosten, Mindestlaufzeit). Es geht beim Abschließen in den Vertrag und steht damit auch
+   * im Mietvertrag (PDF), der dort noch einmal geprüft wird.
+   */
   const liesVorvertrag = useCallback(
-    async (grundlage: EntwurfGrundlagenDaten, pfad: string, vonHand: boolean) => {
+    async (grundlage: EntwurfGrundlagenDaten, pfad: string) => {
       const dokument = grundlage.vorvertragDokumente.find(d => d.pfad === pfad);
       if (!dokument) return;
       const meineSitzung = sitzung.current;
@@ -317,40 +260,30 @@ export function MietvertragEntwurfDialog({
         // Was während des Lesens von Hand eingetragen wurde, bleibt stehen
         // Eine vorgemerkte Miete bleibt: Sonst stünde wieder die alte aus dem Vorvertrag im neuen Vertrag (11.11.2026)
         const geschuetzt = (f: string) =>
-          vonHandGeaendert.current.has(f) || (mieteVorgemerkt(weitesterRef.current) && schrittFuerFeld(f) === 'miete');
+          vonHandGeaendert.current.has(f) || (mieteVorgemerkt(weitesterRef.current) && bereichFuerFeld(f) === 'miete');
         setStand(s => (s ? wendeVorvertragAuslese(s.daten, s.herkunft, auslese, gesamt, geschuetzt) : s));
-        if (vonHand) markiereUngespeichert();
-
-        const gefunden = [
-          auslese.raumaufstellung && 'Räume',
-          (auslese.einheit_bezeichnung || auslese.lage) && 'Lage',
-          auslese.betriebskosten_positionen.length > 0 && `${auslese.betriebskosten_positionen.length} Kostenpositionen`,
-          auslese.heizkosten_vorauszahlung && 'Heizkosten',
-          auslese.schliessanlage && 'Schließanlage',
-          auslese.mindestlaufzeit_monate && 'Mindestlaufzeit',
-        ].filter(Boolean);
-        setAusleseStatus({
-          art: 'fertig',
-          text: gefunden.length > 0 ? `Gelesen: ${gefunden.join(', ')}.` : 'Gelesen, aber nichts Verwertbares gefunden.',
-        });
+        setAusleseStatus({ art: 'fertig' });
       } catch (e) {
-        if (meineSitzung === sitzung.current) {
-          setAusleseStatus({ art: 'fehler', text: e instanceof Error ? e.message : String(e) });
-        }
+        if (meineSitzung !== sitzung.current) return;
+        const text = e instanceof Error ? e.message : String(e);
+        setAusleseStatus({ art: 'fehler', text });
+        // Kein stiller Fehlschlag: Die Werte bleiben dann die aus der Datenbank
+        toast({
+          title: 'Vorvertrag nicht gelesen',
+          description: `${text} Vorbelegt sind die Werte aus der Datenbank — bitte Miete und Laufzeit prüfen.`,
+        });
       }
     },
-    [markiereUngespeichert]
+    [toast]
   );
 
   // ─── Erste Fassung ───────────────────────────────────────────────────────
   useEffect(() => {
     // Erst mit frisch geladenen Daten belegen: Der Cache liefert sonst den Stand vor dem letzten Speichern.
     if (!isOpen || initialisiert.current || !g || grundlagen.isFetching) return;
-    const verfuegbar = schritteFuer(istWohnraumEinheit(g.einheit.einheitentyp));
     const beginneBei = (s: SchrittId) => {
-      const ziel = verfuegbar.includes(s) ? s : ERSTER_SCHRITT;
-      setSchritt(ziel);
-      setBesucht(new Set(verfuegbar.slice(0, verfuegbar.indexOf(ziel) + 1)));
+      setSchritt(s);
+      setBesucht(new Set(SCHRITTE.slice(0, SCHRITTE.indexOf(s) + 1)));
     };
 
     if (entwurfId) {
@@ -359,7 +292,8 @@ export function MietvertragEntwurfDialog({
       setId(z.id);
       setGespeichert(true);
       setAktualisiertAm(z.aktualisiertAm);
-      setWeitester(istSchrittId(z.weitesterSchritt) ? z.weitesterSchritt : null);
+      // Ein Entwurf aus dem Ablauf bis zum 11.11.2026 kann auf einem Vertragsschritt stehen: Der liegt vor dem Abschließen
+      setWeitester(alsSchritt(z.weitesterSchritt));
       // Haus- und Vermieterangaben gelten wie gespeichert am Objekt, nicht wie im
       // Entwurf festgehalten — sonst schriebe das Speichern einen alten Stand zurück.
       const aktuell = objektDaten(g.immobilie);
@@ -378,22 +312,26 @@ export function MietvertragEntwurfDialog({
         betriebskostenPositionen: mitSchluesselnDesObjekts(z.daten.betriebskostenPositionen, g.nebenkostenarten, { uebernehmen: true }),
       };
       setStand({ daten, herkunft: z.herkunft });
-      // Haben sich Objekt oder Vermieter seitdem geändert, ist der gespeicherte Stand
-      // (und ein PDF dazu) veraltet — das muss sichtbar sein, nicht still mitlaufen.
-      if (stabil(stammdatenTeil(daten)) !== stabil(stammdatenTeil(z.daten))) {
+      // Hat sich am Objekt geändert, was in den Vertrag geht, ist der gespeicherte Stand veraltet: erst speichern.
+      // Ein PDF aus dem früheren Ablauf zeigt auch Haus und Vermieter — ist es veraltet, fällt es beim Speichern weg.
+      // Nur vergleichen, was die Vermietung betrifft; sonst stünde ohne Grund „ungespeichert“ da (Review 11.11.2026).
+      const pdfVeraltet =
+        z.dateien.some(f => f.art === 'entwurf_pdf') && stabil(stammdatenTeil(daten)) !== stabil(stammdatenTeil(z.daten));
+      if (pdfVeraltet || stabil(vomObjektImVertrag(daten)) !== stabil(vomObjektImVertrag(z.daten))) {
         markiereUngespeichert();
-        if (z.dateien.some(f => f.art === 'entwurf_pdf')) {
-          toast({
-            title: 'Stammdaten haben sich geändert',
-            description:
-              'Seit dem PDF wurden Angaben zum Haus oder zum Vermieter geändert. Der Entwurf zeigt den aktuellen Stand; beim Speichern entsteht das PDF neu.',
-          });
-        }
+        toast({
+          title: 'Angaben am Objekt haben sich geändert',
+          description: pdfVeraltet
+            ? 'Seit dem PDF wurden Angaben zum Haus oder zum Vermieter geändert. Beim Speichern entfällt das alte PDF; den Mietvertrag erstellst du nach dem Abschließen an der Einheit.'
+            : 'Verteilerschlüssel, Schließanlage oder Gemeinschaftseinrichtungen sind am Objekt neu. Bitte speichern — abgeschlossen wird der gespeicherte Stand.',
+        });
       }
       setPersonen(z.personen.length > 0 ? z.personen : [leerePerson()]);
       setDateien(z.dateien);
-      setVorvertragPfad(wahrscheinlichsterVertrag(g.vorvertragDokumente)?.pfad ?? null);
-      beginneBei(startSchritt ?? (istSchrittId(z.schritt) ? z.schritt : ERSTER_SCHRITT));
+      // Nie aufs Abschließen, solange die Miete nicht vorgemerkt ist — etwa bei einem Entwurf der alten App auf
+      // „Grundlagen“, die damals vor der Miete kam (Review 11.11.2026)
+      const weiterBei = alsSchritt(z.schritt) ?? ERSTER_SCHRITT;
+      beginneBei(startSchritt ?? (weiterBei === 'start' && !mieteVorgemerkt(z.weitesterSchritt) ? 'miete' : weiterBei));
       initialisiert.current = true;
       return;
     }
@@ -413,7 +351,6 @@ export function MietvertragEntwurfDialog({
     setPersonen([leerePerson()]);
     setDateien([]);
     const vorschlag = wahrscheinlichsterVertrag(g.vorvertragDokumente);
-    setVorvertragPfad(vorschlag?.pfad ?? null);
     beginneBei(startSchritt ?? ERSTER_SCHRITT);
     initialisiert.current = true;
 
@@ -422,7 +359,7 @@ export function MietvertragEntwurfDialog({
     const hatAufstellung =
       Array.isArray(g.vorvertrag?.betriebskosten_positionen) && g.vorvertrag.betriebskosten_positionen.length > 0;
     if (g.vorvertrag && vorschlag && !hatAufstellung && istWohnraumEinheit(g.einheit.einheitentyp)) {
-      void liesVorvertrag(g, vorschlag.pfad, false);
+      void liesVorvertrag(g, vorschlag.pfad);
     }
   }, [isOpen, g, grundlagen.isFetching, entwurfId, startSchritt, vorhanden.data, vorhanden.isFetching, liesVorvertrag, markiereUngespeichert, toast]);
 
@@ -441,18 +378,6 @@ export function MietvertragEntwurfDialog({
       };
     });
   }, [personen]);
-
-  // ─── Unterzeichner des Vermieters: der Angemeldete, solange nichts gewählt ist ─
-  const unterzeichner = useVermieterUnterzeichnerVorschlag(stand?.daten.vermieter.vertretenDurch);
-  useEffect(() => {
-    if (!isOpen || !stand || !unterzeichner.bereit || unterzeichnerVorbelegt.current) return;
-    unterzeichnerVorbelegt.current = true;
-    const d = stand.daten;
-    if (!unterzeichner.vorschlag || !brauchtUnterzeichnerWahl(d.vermieter) || gewaehlterUnterzeichner(d)) return;
-    setStand(s => (s ? { ...s, daten: { ...s.daten, unterzeichnerVermieter: unterzeichner.vorschlag } } : s));
-    // Ein gespeichertes PDF zeigt noch keinen Unterzeichner
-    if (gespeichert) markiereUngespeichert();
-  }, [isOpen, stand, unterzeichner.bereit, unterzeichner.vorschlag, gespeichert, markiereUngespeichert]);
 
   // Beim Schrittwechsel oben beginnen
   useEffect(() => {
@@ -481,7 +406,6 @@ export function MietvertragEntwurfDialog({
   );
   const geaendert = useCallback(
     (feld: string) => {
-      sitzungGeaendert.current.set(feld, (sitzungGeaendert.current.get(feld) ?? 0) + 1);
       vonHandGeaendert.current.add(feld);
       setStand(s => (s ? { ...s, herkunft: ohneHerkunft(s.herkunft, feld) } : s));
       markiereUngespeichert();
@@ -511,30 +435,13 @@ export function MietvertragEntwurfDialog({
     : null;
 
   const vertrag = useMemo(() => (stand ? mitPersonen(stand.daten, personen) : null), [stand, personen]);
-  const befunde = useMemo(() => (vertrag && wohnraum ? pruefeVertragsdaten(vertrag) : []), [vertrag, wohnraum]);
-  const blockiert = hatBlocker(befunde);
-  const vorschau = useVertragsvorschau(vertrag, isOpen && wohnraum, blockiert);
-  // Die Vorschau-Spalte gibt es erst ab lg. Darunter kein verstecktes iframe: Es lud das PDF trotzdem (Speicher auf dem Handy).
-  const mitVorschauSpalte = useMediaQuery('(min-width: 1024px)');
-  // Für das Speichern: der jeweils letzte Stand der Vorschau, auch während eines await
-  const vorschauJetzt = useRef(vorschau);
-  useEffect(() => {
-    vorschauJetzt.current = vorschau;
-  });
   const luecken = useMemo(() => (stand ? entwurfLuecken(stand.daten, personen) : []), [stand, personen]);
-  const zustaende = useMemo(() => schrittZustaende(befunde, luecken), [befunde, luecken]);
-  const platzhalter = useMemo(
-    () => (vertrag && stand ? platzhalterUebersicht(vertrag, stand.herkunft, personen, befunde, wohnraum) : []),
-    [vertrag, stand, personen, befunde, wohnraum]
-  );
+  const zustaende = useMemo(() => schrittZustaende(luecken), [luecken]);
   const blacklistTreffer = useMemo(() => pruefeBlacklist(personen, blacklist.data ?? []), [personen, blacklist.data]);
-  const vollstaendig = luecken.length === 0 && (!wohnraum || !blockiert);
 
   // ─── Navigation ──────────────────────────────────────────────────────────
   const geheZu = useCallback(
     (s: SchrittId) => {
-      // Ohne Vorlage gibt es z. B. „Mietsache & Haus" nicht — dorthin führt kein Sprung
-      if (!schritte.includes(s)) return;
       // Ein abgelehnter Betrag ginge beim Verlassen des Schritts verloren und stünde als 0 im Entwurf
       if (zahlFehler) {
         toast({ title: 'Betrag prüfen', description: EURO_BETRAG_HINWEIS, variant: 'destructive' });
@@ -543,7 +450,7 @@ export function MietvertragEntwurfDialog({
       setSchritt(s);
       setBesucht(b => new Set([...b, s]));
     },
-    [schritte, zahlFehler, toast]
+    [zahlFehler, toast]
   );
   const index = schritte.indexOf(schritt);
 
@@ -596,85 +503,11 @@ export function MietvertragEntwurfDialog({
   }
 
   // ─── Speichern ───────────────────────────────────────────────────────────
-  /** Angaben fürs ganze Haus und leere Felder der Einheit dorthin, wo sie hingehören. */
-  async function schreibeStammdatenZurueck(
-    grundlage: EntwurfGrundlagenDaten,
-    d: MietvertragDaten,
-    marker: Map<string, number>
-  ): Promise<{ hinweise: string[]; offen: string[] }> {
-    const hinweise: string[] = [];
-    // Was nicht gespeichert werden konnte, bleibt als Handänderung vorgemerkt — sonst ginge es beim nächsten Speichern verloren
-    const offen: string[] = [];
-    const imm = grundlage.immobilie;
-    const einrichtungen = (d.mitbenutzungEinrichtungen ?? '')
-      .split(/\s*,\s*/)
-      .map(s => s.trim())
-      .filter(Boolean);
-
-    // Zurück ans Objekt geht nur, was dort fehlt oder in dieser Sitzung von Hand geändert wurde.
-    const geaendertJetzt = (feld: string) => marker.has(feld);
-    const objekt: TablesUpdate<'immobilien'> = {};
-    const zentral = d.objekt.heizungsart === 'zentral' || d.objekt.heizungsart === 'fernwaerme';
-    if (d.objekt.heizungsart && d.objekt.heizungsart !== imm.heizungsart && (!imm.heizungsart || geaendertJetzt('objekt.heizungsart'))) {
-      objekt.heizungsart = d.objekt.heizungsart;
-    }
-    const warmwasser = zentral ? d.objekt.warmwasser : null;
-    if (warmwasser !== imm.warmwasser && (!imm.warmwasser || geaendertJetzt('objekt.warmwasser') || 'heizungsart' in objekt)) {
-      objekt.warmwasser = warmwasser;
-    }
-    if (geaendertJetzt('objekt.heizkostenSchluessel') && d.objekt.heizkostenSchluessel !== imm.heizkosten_schluessel) {
-      objekt.heizkosten_schluessel = d.objekt.heizkostenSchluessel;
-    }
-    if (
-      d.objekt.gesamtwohnflaecheQm &&
-      d.objekt.gesamtwohnflaecheQm !== Number(imm.gesamtwohnflaeche ?? 0) &&
-      (!imm.gesamtwohnflaeche || geaendertJetzt('objekt.gesamtwohnflaecheQm'))
-    ) {
-      objekt.gesamtwohnflaeche = d.objekt.gesamtwohnflaecheQm;
-    }
-    if (d.schliessanlageArt && d.schliessanlageArt !== imm.schliessanlage_art && (!imm.schliessanlage_art || geaendertJetzt('schliessanlageArt'))) {
-      objekt.schliessanlage_art = d.schliessanlageArt;
-    }
-    if (
-      einrichtungen.length > 0 &&
-      einrichtungen.join('|') !== (imm.gemeinschaftseinrichtungen ?? []).join('|') &&
-      ((imm.gemeinschaftseinrichtungen ?? []).length === 0 || geaendertJetzt('mitbenutzungEinrichtungen'))
-    ) {
-      objekt.gemeinschaftseinrichtungen = einrichtungen;
-    }
-    // Den Energieausweis pflegt seit 03.11.2026 nur das Objekt („Für Mietverträge“) — er steht nicht im Vertrag
-    if (Object.keys(objekt).length > 0) {
-      const { data, error } = await supabase.from('immobilien').update(objekt).eq('id', imm.id).select('id');
-      if (error || !data?.length) {
-        hinweise.push(`Angaben zum Haus wurden nicht am Objekt gespeichert (${error?.message ?? 'keine Berechtigung'}).`);
-        offen.push(...FELDER_AM_OBJEKT.filter(geaendertJetzt));
-      }
-    }
-
-    // An der Einheit nur leere Felder füllen — die Lage im Vertrag kann anders formuliert sein.
-    const e = grundlage.einheit;
-    const einheit: TablesUpdate<'einheiten'> = {};
-    if (!e.bezeichnung?.trim() && d.einheit.bezeichnung.trim()) einheit.bezeichnung = d.einheit.bezeichnung.trim();
-    if (!e.etage?.trim() && d.einheit.lage.trim()) einheit.etage = d.einheit.lage.trim();
-    if (!(Number(e.qm ?? 0) > 0) && d.einheit.wohnflaecheQm > 0) einheit.qm = d.einheit.wohnflaecheQm;
-    const nebenraeume = d.einheit.nebenraeume?.trim() || null;
-    if (nebenraeume && nebenraeume !== e.nebenraeume && (!e.nebenraeume?.trim() || geaendertJetzt('einheit.nebenraeume'))) {
-      einheit.nebenraeume = nebenraeume;
-    }
-    if (geaendertJetzt('einheit.einbaukueche') && d.einheit.einbaukueche !== (e.einbaukueche ?? false)) {
-      einheit.einbaukueche = d.einheit.einbaukueche;
-    }
-    if (Object.keys(einheit).length > 0) {
-      const { data, error } = await supabase.from('einheiten').update(einheit).eq('id', e.id).select('id');
-      if (error || !data?.length) {
-        hinweise.push(`Angaben zur Einheit wurden nicht gespeichert (${error?.message ?? 'keine Berechtigung'}).`);
-        offen.push(...FELDER_AN_EINHEIT.filter(geaendertJetzt));
-      }
-    }
-    return { hinweise, offen };
-  }
-
-  /** `vormerken`: „Miete speichern“ oder PDF — nur damit rückt der Vorgang über die Miete hinaus (Review 11.11.2026). */
+  /**
+   * `vormerken`: „Miete speichern“ — nur damit rückt der Vorgang über die Miete hinaus (Review 11.11.2026). Haus- und
+   * Einheitsangaben gehen von hier nicht mehr ans Objekt zurück: Die Vermietung zeigt sie nicht; das macht der
+   * Mietvertrag (PDF), in dem man sie sieht.
+   */
   async function speichern(opt: { naechsterSchritt?: SchrittId; danach?: () => void; vormerken?: boolean } = {}): Promise<boolean> {
     if (!stand || !vertrag || !g || speichert) return false;
     // Das Feld hat für einen abgelehnten Betrag 0 bzw. leer weitergegeben — so darf nichts gespeichert werden
@@ -688,18 +521,7 @@ export function MietvertragEntwurfDialog({
     const neuWeitester = naechsterWeitester(weitester, zielSchritt, !!opt.vormerken);
     // Was während des Speicherns dazukommt, bleibt für das nächste Speichern liegen
     const hochzuladen = neueSelbstauskuenfte;
-    const marker = new Map(sitzungGeaendert.current);
     try {
-      // Wird das PDF gerade erzeugt, kurz darauf warten — sonst ginge der Entwurf ohne PDF
-      if (wohnraum && !blockiert) {
-        for (let i = 0; i < 40 && !vorschauJetzt.current.aktuell && !vorschauJetzt.current.fehlgeschlagen; i++) {
-          await new Promise(r => setTimeout(r, 150));
-        }
-      }
-      // Das PDF wandert nur mit, wenn es genau diesen Stand zeigt — wer währenddessen
-      // weitergetippt hat, speichert ohne PDF und behält ungespeicherte Änderungen
-      const v = vorschauJetzt.current;
-      const pdf = wohnraum && v.aktuell && aenderungen.current === standZaehler ? v.pdfBlob : null;
       const ergebnis = await speichereEntwurf({
         id,
         istNeu: !gespeichert,
@@ -710,8 +532,8 @@ export function MietvertragEntwurfDialog({
         personen: personen.filter(p => !istLeerePerson(p)),
         herkunft: stand.herkunft,
         bisherigeDateien: dateien,
-        pdf,
-        // Unverändert seit dem letzten Speichern: Das vorhandene PDF zeigt noch genau diesen Stand
+        // Ein PDF entsteht hier nicht mehr. Eines aus dem früheren Ablauf bleibt nur, solange es den Stand noch zeigt.
+        pdf: null,
         pdfBehalten: !ungespeichert,
         selbstauskuenfte: hochzuladen,
         schritt: zielSchritt,
@@ -725,24 +547,12 @@ export function MietvertragEntwurfDialog({
       setUngespeichert(aenderungen.current !== standZaehler);
       setZuletztGespeichert(new Date());
 
-      const { hinweise, offen } = await schreibeStammdatenZurueck(g, stand.daten, marker);
-      // Nur erledigte Marker entfernen: Was während des Speicherns geändert wurde, bleibt vorgemerkt
-      for (const [feld, zaehler] of marker) {
-        // Nur erledigte Marker entfernen — wer das Feld währenddessen erneut geändert hat, behält ihn
-        if (!offen.includes(feld) && sitzungGeaendert.current.get(feld) === zaehler) sitzungGeaendert.current.delete(feld);
-      }
-      logActivity('mietvertrag_entwurf_gespeichert', 'mietvertrag_entwurf', id, { mit_pdf: !!pdf, schritt: zielSchritt });
+      logActivity('mietvertrag_entwurf_gespeichert', 'mietvertrag_entwurf', id, { schritt: zielSchritt });
 
       queryClient.invalidateQueries({ queryKey: ['mietvertrag-entwuerfe'] });
       // Nicht nur als veraltet markieren: beim nächsten Öffnen darf kein alter Stand aufblitzen
       queryClient.removeQueries({ queryKey: ['mietvertrag-entwurf', id] });
-      queryClient.invalidateQueries({ queryKey: ['immobilie', g.immobilie.id] });
-      queryClient.invalidateQueries({ queryKey: ['einheiten', g.immobilie.id] });
-      void grundlagen.refetch();
 
-      if (hinweise.length > 0) {
-        toast({ title: 'Entwurf gespeichert, aber', description: hinweise.join(' '), variant: 'destructive' });
-      }
       if (opt.naechsterSchritt) geheZu(opt.naechsterSchritt);
       opt.danach?.();
       return true;
@@ -819,7 +629,6 @@ export function MietvertragEntwurfDialog({
     if (!p) return null;
     return p.istUnternehmen ? p.firmenname ?? null : `${p.vorname} ${p.nachname}`.trim() || null;
   })();
-  const hatPdf = dateien.some(d => d.art === 'entwurf_pdf');
   const vorvertragId = g?.vorvertrag?.id ?? null;
   const gespeicherterEntwurf: EntwurfZeile | null = useMemo(
     () =>
@@ -841,7 +650,6 @@ export function MietvertragEntwurfDialog({
     [gespeichert, stand, vertrag, id, einheitId, vorvertragId, personen, dateien, aktualisiertAm, schritt, weitester]
   );
   const andere = (alleEntwuerfe ?? []).filter(e => e.einheitId === einheitId && e.id !== id);
-  const pdfBereit = wohnraum && vollstaendig && vorschau.aktuell;
   const blockiertWeil = liestSelbstauskunft || ausleseStatus.art === 'laeuft';
 
   const statusText = speichert
@@ -857,28 +665,14 @@ export function MietvertragEntwurfDialog({
   function schrittInhalt() {
     if (!stand || !g || !formularProps) return null;
     switch (schritt) {
-      case 'grundlagen':
-        return (
-          <GrundlagenSchritt
-            g={g}
-            daten={stand.daten}
-            vorvertragPfad={vorvertragPfad}
-            setVorvertragPfad={setVorvertragPfad}
-            ausleseStatus={ausleseStatus}
-            onAuslesen={() => vorvertragPfad && void liesVorvertrag(g, vorvertragPfad, true)}
-            onVermieterBearbeiten={() => setZeigeVermieter(true)}
-            unterzeichnerFeld={
-              wohnraum && brauchtUnterzeichnerWahl(stand.daten.vermieter) ? <VermieterUnterzeichnerFeld {...formularProps} /> : undefined
-            }
-          />
-        );
       case 'mieter':
         return (
           <div className="space-y-5">
             <p className="text-sm">
               Zuerst den Mieter: Selbstauskunft hochladen oder einen vorhandenen Mieter wählen und die Angaben prüfen.
-              „Mieter speichern“ legt ihn im Mieterbestand an; danach Miete und Mietbeginn vormerken. Den Mietvertrag
-              kannst du jederzeit später fertigstellen — die Einheit zeigt, wie weit die Vermietung ist.
+              „Mieter speichern“ legt ihn im Mieterbestand an; danach Miete und Mietbeginn vormerken und die Vermietung
+              abschließen. Die Einheit zeigt, wie weit die Vermietung ist. Den Mietvertrag als PDF erstellst du, wenn du
+              ihn brauchst, am laufenden Vertrag.
             </p>
             {(bestand.error || blacklist.error) && (
               <Alert variant="destructive">
@@ -930,72 +724,19 @@ export function MietvertragEntwurfDialog({
             hauptmieter={hauptmieter}
           />
         );
-      case 'mietsache':
-        return (
-          <div className="space-y-5">
-            <MietsacheFelder {...formularProps} mitPersonenzahl={false} />
-            <SchluesselFelder {...formularProps} />
-            <Separator />
-            <ObjektAngabenFelder {...formularProps} gesamtflaecheVorschlag={g.summeEinheitenQm} />
-          </div>
-        );
-      case 'betriebskosten':
-        return <BetriebskostenEditor {...formularProps} schluesselFest onSchluesselAendern={() => setZeigeSchluessel(true)} />;
-      case 'vereinbarungen':
-        return (
-          <div className="space-y-5">
-            <UebergabeFelder {...formularProps} />
-            <KleinreparaturFelder {...formularProps} />
-            <Separator />
-            <div className="space-y-2">
-              <Feldname htmlFor="besichtigt" marke={markierung('besichtigtAm')}>
-                Wohnung besichtigt am
-              </Feldname>
-              <Input
-                id="besichtigt"
-                type="date"
-                value={stand.daten.besichtigtAm ?? ''}
-                onChange={e => {
-                  setDatenVonHand(d => ({ ...d, besichtigtAm: e.target.value || null }));
-                  geaendert('besichtigtAm');
-                }}
-              />
-              <p className="text-xs text-muted-foreground">
-                Nach einer Besichtigung besteht kein Widerrufsrecht; ohne Datum wird die Widerrufsbelehrung beigefügt.
-              </p>
-            </div>
-            <AnlagenFelder {...formularProps} />
-            <Separator />
-            <ZusatzvereinbarungFeld {...formularProps} />
-            <UnterzeichnungFelder {...formularProps} />
-          </div>
-        );
-      case 'pruefen':
-        return (
-          <PruefenSchritt
-            gruppen={platzhalter}
-            befunde={befunde}
-            luecken={luecken}
-            wohnraum={wohnraum}
-            schritte={schritte}
-            vorvertragBeginn={g.vorvertrag?.start_datum ?? null}
-            onGeheZu={geheZu}
-            onVermieterOeffnen={() => setZeigeVermieter(true)}
-          />
-        );
       case 'start':
         return (
-          <StartSchritt
+          <AbschliessenSchritt
             entwurf={gespeicherterEntwurf}
+            mieteVorgemerkt={mieteVorgemerkt(weitester)}
             ungespeichert={ungespeichert}
             wohnraum={wohnraum}
-            vollstaendig={vollstaendig}
             luecken={luecken}
             andere={andere}
             speichert={speichert}
             onSpeichern={() => speichern()}
             onGeheZu={geheZu}
-            onAktiviert={() => {
+            onAbgeschlossen={() => {
               setUngespeichert(false);
               onClose();
             }}
@@ -1008,18 +749,19 @@ export function MietvertragEntwurfDialog({
     <>
       <Dialog open={isOpen} onOpenChange={o => !o && versucheSchliessen()}>
         {/* Handy (10.11.2026): ganzer Bildschirm, Höhe in dvh — mit vh verdeckte die Browserleiste die Fußleiste */}
-        <DialogContent className="flex h-[100dvh] max-w-full flex-col gap-0 border-0 p-0 sm:h-[94vh] sm:max-w-[96vw] sm:border">
+        {/* Ohne Vertragsvorschau reicht eine Spalte; breit genug für die Personenkarten (11.11.2026) */}
+        <DialogContent className="flex h-[100dvh] max-w-full flex-col gap-0 border-0 p-0 sm:h-[90vh] sm:max-w-4xl sm:border">
           <DialogHeader className="border-b py-3 pl-4 pr-12 text-left sm:px-6">
             <DialogTitle className="flex items-center gap-2">
               <PenLine className="h-5 w-5 shrink-0" />
               {entwurfId ? 'Vermietung fortsetzen' : 'Neue Vermietung'}
               {/* Auf dem Handy nennt die Schrittleiste den Schritt */}
-              {stand && <span className="hidden text-sm font-normal text-muted-foreground sm:inline">— {schrittTitel(schritt, wohnraum)}</span>}
+              {stand && <span className="hidden text-sm font-normal text-muted-foreground sm:inline">— {schrittTitel(schritt)}</span>}
             </DialogTitle>
             <DialogDescription>
               {ueberschrift && <span className="font-medium text-foreground">{ueberschrift}. </span>}
               <span className="hidden sm:inline">
-                Bis zur Unterschrift ist die Vermietung ein Vorgang: Die Einheit gilt nicht als vermietet und es entstehen keine Forderungen.
+                Bis zum Abschließen ist die Vermietung ein Vorgang: Die Einheit gilt nicht als vermietet und es entstehen keine Forderungen.
               </span>
             </DialogDescription>
           </DialogHeader>
@@ -1041,112 +783,10 @@ export function MietvertragEntwurfDialog({
 
           {stand && vertrag && g && !laedt && (
             <>
-              <Schrittleiste
-                schritte={schritte}
-                aktuell={schritt}
-                zustaende={zustaende}
-                besucht={besucht}
-                wohnraum={wohnraum}
-                onWaehle={geheZu}
-                aktionSchmal={
-                  // Die Vorschau-Spalte gibt es erst ab lg; auf Handy und Tablet öffnet der Browser das PDF selbst
-                  wohnraum && schritt !== 'start' && schritt !== 'mieter' ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 shrink-0 px-2.5 text-xs lg:hidden"
-                      // Nicht gesperrt: Ein ausgegrauter Knopf zeigt auf dem Handy keinen Grund — die Meldung schon
-                      onClick={() => {
-                        if (vorschau.aktuell && vorschau.pdfBlob) {
-                          // Eigene Adresse: Die der Vorschau gibt der Hook beim nächsten Erzeugen frei, im neuen Tab
-                          // scheiterten dann Neuladen und Teilen. Synchron im Klick, sonst blockt der Browser den Tab.
-                          const adresse = URL.createObjectURL(vorschau.pdfBlob);
-                          window.open(adresse, '_blank');
-                          setTimeout(() => URL.revokeObjectURL(adresse), 5 * 60_000);
-                          return;
-                        }
-                        toast({
-                          title: 'Noch keine Vorschau',
-                          description: blockiert
-                            ? 'Für das PDF fehlen Pflichtangaben. Was fehlt, steht im Schritt „Prüfen & PDF“.'
-                            : vorschau.fehlgeschlagen
-                              ? 'Die Vorschau ließ sich nicht erzeugen. Bitte eine Angabe ändern oder den Ablauf neu öffnen.'
-                              : 'Die Vorschau wird gerade erzeugt. Bitte gleich noch einmal tippen.',
-                        });
-                      }}
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      PDF ansehen
-                    </Button>
-                  ) : undefined
-                }
-              />
+              <Schrittleiste schritte={schritte} aktuell={schritt} zustaende={zustaende} besucht={besucht} onWaehle={geheZu} />
 
-              <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(460px,42%)_1fr]">
-                {/* ── Schritt ── */}
-                <div ref={formular} className="overflow-y-auto p-4 sm:p-5 lg:border-r">
-                  <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>{schrittInhalt()}</UngueltigeZahlFelder.Provider>
-                </div>
-
-                {/* ── Vorschau ── */}
-                <div className="hidden flex-col overflow-hidden bg-muted/30 lg:flex">
-                  {wohnraum && blockiert ? (
-                    schritt === 'pruefen' ? (
-                      <div className="flex flex-1 items-center justify-center p-8 text-center">
-                        <div className="max-w-sm space-y-2">
-                          <AlertTriangle className="mx-auto h-8 w-8 text-muted-foreground" />
-                          <p className="font-medium">Vorschau gesperrt</p>
-                          <p className="text-sm text-muted-foreground">Sobald links nichts mehr fehlt, erscheint hier der Vertrag.</p>
-                        </div>
-                      </div>
-                    ) : (
-                      // Statt einer leeren Fläche: was fehlt, steht dort, wo sonst der Vertrag stünde
-                      <div className="flex-1 space-y-4 overflow-y-auto p-6">
-                        <div className="flex items-start gap-3">
-                          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
-                          <div>
-                            <p className="font-medium">Vorschau gesperrt</p>
-                            <p className="text-sm text-muted-foreground">
-                              Solange Pflichtangaben fehlen, entsteht kein PDF — ein Vertrag darf nichts behaupten, was nicht
-                              erfasst ist. Zwischenspeichern geht trotzdem.
-                            </p>
-                          </div>
-                        </div>
-                        <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
-                      </div>
-                    )
-                  ) : wohnraum ? (
-                    <>
-                      {befunde.length > 0 && (
-                        <div className="border-b bg-background px-4 py-2">
-                          <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setZeigeHinweise(z => !z)}>
-                            <Info className="h-3.5 w-3.5" />
-                            {befunde.length} {befunde.length === 1 ? 'Hinweis' : 'Hinweise'} zur Vorlage
-                            {zeigeHinweise ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                          </Button>
-                          {zeigeHinweise && (
-                            <div className="max-h-64 overflow-y-auto pb-2 pt-1">
-                              <PruefungsHinweise befunde={befunde} onVermieterOeffnen={() => setZeigeVermieter(true)} />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {mitVorschauSpalte && <VertragsVorschau gesperrt={false} pdfUrl={vorschau.pdfUrl} erzeugt={vorschau.erzeugt} />}
-                    </>
-                  ) : (
-                    <div className="flex flex-1 items-center justify-center p-8">
-                      <div className="max-w-md space-y-2 text-center">
-                        <FileSignature className="mx-auto h-8 w-8 text-muted-foreground" />
-                        <p className="font-medium">Keine Vorlage für {g.einheit.einheitentyp ?? 'diesen Einheitstyp'}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Abgenommen ist bisher nur die Wohnraum-Vorlage. Der Entwurf hält Mieter und Konditionen fest; den
-                          unterschriebenen Vertrag lädst du im letzten Schritt hoch.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+              <div ref={formular} className="flex-1 overflow-y-auto p-4 sm:p-5">
+                <UngueltigeZahlFelder.Provider value={meldeUngueltigeZahl}>{schrittInhalt()}</UngueltigeZahlFelder.Provider>
               </div>
 
               {/* ── Fußleiste ── */}
@@ -1184,33 +824,13 @@ export function MietvertragEntwurfDialog({
                       {liestSelbstauskunft ? 'Selbstauskunft wird gelesen …' : 'Vorvertrag wird gelesen …'}
                     </span>
                   )}
-                  {wohnraum && schritt !== 'start' && schritt !== 'mieter' && (
-                    <span className="hidden text-xs text-muted-foreground md:inline">
-                      {blockiert || luecken.length > 0
-                        ? 'PDF: Pflichtangaben offen'
-                        : vorschau.fehlgeschlagen
-                          ? 'PDF ließ sich nicht erzeugen'
-                          : vorschau.aktuell
-                            ? 'PDF bereit'
-                            : 'Vorschau wird aktualisiert …'}
-                    </span>
-                  )}
                   {index > 0 && (
                     <Button variant="outline" onClick={() => geheZu(schritte[index - 1])} disabled={speichert || zahlFehler}>
                       <ArrowLeft className="h-4 w-4" />
                       Zurück
                     </Button>
                   )}
-                  {schritt === 'pruefen' ? (
-                    <Button
-                      onClick={() => void speichern({ naechsterSchritt: 'start', vormerken: true })}
-                      disabled={speichert || blockiertWeil || zahlFehler || (wohnraum ? !pdfBereit : luecken.length > 0)}
-                      title={wohnraum && !pdfBereit ? 'Erst alle Pflichtangaben erfassen' : undefined}
-                    >
-                      {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck2 className="h-4 w-4" />}
-                      {wohnraum ? (hatPdf && !ungespeichert ? 'PDF neu erstellen' : 'PDF erstellen') : 'Entwurf speichern'}
-                    </Button>
-                  ) : schritt === 'start' ? (
+                  {schritt === 'start' ? (
                     <Button variant="outline" onClick={() => versucheSchliessen()} disabled={speichert}>
                       Schließen
                     </Button>
@@ -1224,19 +844,14 @@ export function MietvertragEntwurfDialog({
                       Mieter speichern
                       <ArrowRight className="h-4 w-4" />
                     </Button>
-                  ) : schritt === 'miete' ? (
-                    // Merkt Miete und Mietbeginn vor — die zweite Stufe der Vermietung an der Einheit (11.11.2026)
+                  ) : (
+                    // Merkt Miete und Mietbeginn vor — die zweite Stufe der Vermietung; danach das Abschließen (11.11.2026)
                     <Button
-                      onClick={() => void speichern({ naechsterSchritt: schritte[index + 1], vormerken: true })}
+                      onClick={() => void speichern({ naechsterSchritt: 'start', vormerken: true })}
                       disabled={speichert || blockiertWeil || zahlFehler}
                     >
                       {speichert ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                       Miete speichern
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  ) : (
-                    <Button onClick={() => geheZu(schritte[index + 1])} disabled={speichert || zahlFehler}>
-                      Weiter
                       <ArrowRight className="h-4 w-4" />
                     </Button>
                   )}
@@ -1247,51 +862,14 @@ export function MietvertragEntwurfDialog({
         </DialogContent>
       </Dialog>
 
-      {/* Neben dem Dialog, nicht darin: sonst schließt das Speichern der Stammdaten auch den Entwurf. */}
-      {g && (
-        <VerteilerschluesselDialog
-          immobilieId={g.immobilie.id}
-          offen={zeigeSchluessel}
-          onOpenChange={setZeigeSchluessel}
-          onGespeichert={() => {
-            // Die neuen Schlüssel gleich in den Entwurf übernehmen — das gespeicherte PDF zeigt noch die alten
-            void grundlagen.refetch().then(r => {
-              if (!r.data) return;
-              const arten = r.data.nebenkostenarten;
-              setDaten(d => ({
-                ...d,
-                betriebskostenPositionen: mitSchluesselnDesObjekts(d.betriebskostenPositionen, arten, { uebernehmen: true }),
-              }));
-              markiereUngespeichert();
-            });
-          }}
-        />
-      )}
-      <VermieterStammdatenDialog
-        isOpen={zeigeVermieter}
-        onClose={() => setZeigeVermieter(false)}
-        onGespeichert={() => {
-          setZeigeVermieter(false);
-          // Die ergänzten Stammdaten gleich in den Entwurf übernehmen
-          void grundlagen.refetch().then(r => {
-            if (!r.data) return;
-            const neu = vermieterDaten(r.data.vermieter);
-            if (stand && stabil(neu) === stabil(stand.daten.vermieter)) return;
-            setDaten(d => ({ ...d, vermieter: neu }));
-            // Das gespeicherte PDF zeigt noch die alten Stammdaten — erst Speichern bringt beides zusammen
-            markiereUngespeichert();
-          });
-        }}
-      />
-
       <AlertDialog open={!!frageSchliessen} onOpenChange={o => !o && setFrageSchliessen(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Ungespeicherte Änderungen</AlertDialogTitle>
             <AlertDialogDescription>
               {gespeichert
-                ? 'Die letzten Änderungen am Entwurf sind noch nicht gespeichert.'
-                : 'Der Entwurf wurde noch nicht gespeichert.'}{' '}
+                ? 'Die letzten Änderungen an der Vermietung sind noch nicht gespeichert.'
+                : 'Die Vermietung wurde noch nicht gespeichert.'}{' '}
               Speichern und später an derselben Stelle weitermachen, oder verwerfen?
               {blockiertWeil && ' Die KI liest gerade noch ein Dokument — zum Speichern bitte kurz warten.'}
             </AlertDialogDescription>

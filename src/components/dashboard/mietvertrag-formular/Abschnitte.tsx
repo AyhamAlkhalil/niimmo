@@ -920,6 +920,34 @@ const ANLAGEN = [
   ['mietspiegelEinwilligung', 'Einwilligung Mietspiegel (freiwillig)'],
 ] as const;
 
+/**
+ * Besichtigung: Nach ihr besteht kein Widerrufsrecht (§ 312 Abs. 4 S. 2 BGB). Seit dem 11.11.2026 auch im Generator für
+ * laufende Verträge — dort entsteht der Mietvertrag jetzt, und das Datum entscheidet über die Widerrufsbelehrung.
+ */
+export function BesichtigungFeld({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
+  return (
+    <div className="space-y-2">
+      <Feldname htmlFor="besichtigt" marke={markierung?.('besichtigtAm')}>
+        Wohnung besichtigt am
+      </Feldname>
+      <Input
+        id="besichtigt"
+        type="date"
+        value={entwurf.besichtigtAm ?? ''}
+        onChange={e => {
+          const wert = e.target.value || null;
+          // Ohne Besichtigung besteht das Widerrufsrecht — dann gehört die Belehrung dazu
+          setEntwurf(d => ({ ...d, besichtigtAm: wert, anlagen: wert ? d.anlagen : { ...d.anlagen, widerrufsbelehrung: true } }));
+          geaendert?.('besichtigtAm');
+        }}
+      />
+      <p className="text-xs text-muted-foreground">
+        Nach einer Besichtigung besteht kein Widerrufsrecht; ohne Datum wird die Widerrufsbelehrung beigefügt.
+      </p>
+    </div>
+  );
+}
+
 export function AnlagenFelder({ entwurf, setEntwurf, markierung, geaendert }: AbschnittProps) {
   return (
     <div className="space-y-3">
@@ -1049,6 +1077,7 @@ export function KlauselFelder(props: AbschnittProps) {
       <KleinreparaturFelder {...props} />
       <MietanpassungFelder {...props} />
       <ZahlungsterminFelder {...props} />
+      <BesichtigungFeld {...props} />
       <AnlagenFelder {...props} />
       <ZusatzvereinbarungFeld {...props} />
       <VermieterUnterzeichnerFeld {...props} />

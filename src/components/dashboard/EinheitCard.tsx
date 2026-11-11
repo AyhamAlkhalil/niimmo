@@ -9,7 +9,7 @@ import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { NewTenantContractDialog } from "./NewTenantContractDialog";
 import { MietvertragEntwurfDialog } from "./mietvertrag-entwurf/MietvertragEntwurfDialog";
 import { EntwuerfeAnEinheit } from "./mietvertrag-entwurf/EntwuerfeAnEinheit";
-import { UnterschriftAusstehend } from "./UnterschriftAusstehend";
+import { MietvertragOhneUnterschrift } from "./MietvertragOhneUnterschrift";
 import { istWohnraumEinheit } from "@/utils/mietvertrag/entwurf";
 import type { SchrittId } from "@/utils/mietvertrag/entwurfProzess";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -44,8 +44,6 @@ interface EinheitCardProps {
     start_datum?: string;
     ende_datum?: string;
     kuendigungsdatum?: string;
-    /** Ohne unterschriebene Fassung aktiviert (seit 11.11.2026) */
-    unterschrift_ausstehend?: boolean;
     mieter?: Array<{
       id: string;
       vorname: string;
@@ -60,11 +58,16 @@ interface EinheitCardProps {
     adresse: string;
   };
   openMietvertragId?: string | null;
+  /**
+   * Verträge der Einheit ohne hinterlegte unterschriebene Fassung (seit 11.11.2026) — alle, nicht nur der angezeigte:
+   * Beim Mieterwechsel zeigt die Karte den Vormieter, das neue Mietverhältnis beginnt erst später.
+   */
+  vertraegeOhneUnterschrift?: Array<{ id: string; start_datum?: string | null }>;
   einheitIndex: number;
   onContractModalClose?: () => void;
 }
 
-export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, einheitIndex, onContractModalClose }: EinheitCardProps) => {
+export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, vertraegeOhneUnterschrift, einheitIndex, onContractModalClose }: EinheitCardProps) => {
   const [showHistorie, setShowHistorie] = useState(false);
   const [showMietvertragDetails, setShowMietvertragDetails] = useState(false);
   const [showNewTenantDialog, setShowNewTenantDialog] = useState(false);
@@ -391,14 +394,21 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
             </div>
           )}
 
-          {/* Ohne unterschriebene Fassung aktiviert: von hier aus Mietvertrag erstellen und nachreichen (11.11.2026) */}
-          {isAdmin && vertrag?.unterschrift_ausstehend && <UnterschriftAusstehend vertragId={vertrag.id} />}
+          {/* Ohne unterschriebene Fassung abgeschlossen: Mietvertrag erstellen, nachreichen oder zurücknehmen (11.11.2026) */}
+          {isAdmin &&
+            (vertraegeOhneUnterschrift ?? []).map(v => (
+              <MietvertragOhneUnterschrift
+                key={v.id}
+                vertragId={v.id}
+                wohnraum={istWohnraumEinheit(einheit.einheitentyp)}
+                beginn={v.id === vertrag?.id ? null : v.start_datum}
+              />
+            ))}
 
-          {/* Offene Entwürfe belegen die Einheit nicht, stehen aber hier bis zur Aktivierung */}
+          {/* Laufende Vermietungen belegen die Einheit nicht, stehen aber hier bis zum Abschließen */}
           {isAdmin && (
             <EntwuerfeAnEinheit
               einheitId={einheit.id}
-              wohnraum={istWohnraumEinheit(einheit.einheitentyp)}
               onOeffnen={(id, schritt) => {
                 setBearbeiteEntwurfId(id);
                 setEntwurfSchritt(schritt ?? null);

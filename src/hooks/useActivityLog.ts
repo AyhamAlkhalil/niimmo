@@ -23,6 +23,7 @@ export type ActivityAction =
   | "mietvertrag_entwurf_verworfen"
   | "mieter_aus_entwurf_angelegt"
   | "mieter_ohne_vertrag_geloescht"
+  | "vermietung_zurueckgenommen"
   | "zählerstand_geaendert";
 
 export const useActivityLog = () => {

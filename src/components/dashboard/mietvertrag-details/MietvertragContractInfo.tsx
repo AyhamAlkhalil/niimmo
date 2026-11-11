@@ -622,7 +622,7 @@ export function MietvertragContractInfo({
                   className="h-8 text-xs w-full gap-1.5"
                 >
                   <FileText className="h-3.5 w-3.5" />
-                  Mietvertrag erzeugen
+                  Mietvertrag erstellen
                 </Button>
               </div>
             )}

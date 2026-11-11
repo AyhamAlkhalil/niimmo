@@ -230,14 +230,14 @@ export async function verwirfEntwurf(entwurf: Pick<EntwurfZeile, 'id' | 'dateien
 
 // ─── Aktivieren ─────────────────────────────────────────────────────────────
 
+/**
+ * Abschließen der Vermietung (seit 11.11.2026 ohne unterschriebene Fassung und ohne PDF — „ganz normal abschließen,
+ * die Erstellung des Mietvertrags ist optional und kann jederzeit nachträglich erzeugt werden“). Der Vertrag trägt
+ * `unterschrift_ausstehend`, bis die unterschriebene Fassung über `reicheUnterschriftNach` vorliegt.
+ */
 export interface AktivierenArgs {
   entwurf: EntwurfZeile;
-  /**
-   * Unterschriebene Fassung; `null` aktiviert ohne sie (seit 11.11.2026, Kundenwunsch „erst jemanden anlegen und das
-   * ist dann auch aktiviert … dann erstellen wir einen Mietvertrag“). Der Vertrag trägt dann `unterschrift_ausstehend`.
-   */
-  unterschrieben: File | null;
-  /** Wohnraum mit erzeugtem PDF — dann gilt die Vorlagenfassung als vereinbart. */
+  /** Wohnraum mit einem PDF aus dem früheren Ablauf — dann gilt die Vorlagenfassung als vereinbart. */
   mitVorlage: boolean;
 }
 
@@ -251,8 +251,8 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
   const vertragId = crypto.randomUUID();
   const hinweise: string[] = [];
 
-  // Aktiviert wird der gespeicherte Stand — er gehört zum PDF, das unterschrieben
-  // wurde. Was die Oberfläche zeigt, kann seitdem Objekt- oder Vermieterdaten nachgezogen haben.
+  // Abgeschlossen wird der gespeicherte Stand — ein PDF aus dem früheren Ablauf gehört zu ihm. Was die Oberfläche
+  // zeigt, kann seitdem Objekt- oder Vermieterdaten nachgezogen haben.
   const { data: zeile, error: ladeFehler } = await supabase
     .from('mietvertrag_entwuerfe')
     .select('*')
@@ -278,18 +278,13 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
     throw new Error('Der Entwurf hat keinen Mitmieter mit Namen — wer soll den Vertrag schließen?');
   }
 
-  // 1. Unterschriebene Fassung zuerst, falls es sie schon gibt
-  const unterschrift = a.unterschrieben ? unterschriftDokument(vertragId, a.unterschrieben) : null;
-  if (unterschrift && a.unterschrieben) await hochladen(unterschrift.pfad, a.unterschrieben, unterschrift.dateityp);
-
-  // 2. Alles Weitere in einer Transaktion
+  // Alles in einer Transaktion
   const { data, error } = await supabase.rpc('aktiviere_mietvertrag_entwurf', {
     p_entwurf_id: entwurf.id,
-    p_vertrag: (unterschrift ? zeilen.vertrag : { ...zeilen.vertrag, unterschrift_ausstehend: true }) as unknown as Json,
+    p_vertrag: { ...zeilen.vertrag, unterschrift_ausstehend: true } as unknown as Json,
     p_neue_mieter: zeilen.neueMieter as unknown as Json,
     p_verknuepfungen: zeilen.verknuepfungen as unknown as Json,
     p_dokumente: [
-      ...(unterschrift ? [unterschrift] : []),
       ...entwurf.dateien.map(d => ({
         titel: d.titel,
         pfad: d.pfad,
@@ -301,18 +296,14 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
   });
 
   if (error) {
-    // Kam nur die Antwort nicht an, steht der Vertrag schon — dann bleibt die Datei.
+    // Kam nur die Antwort nicht an, steht der Vertrag schon
     const { data: steht, error: pruefFehler } = await supabase.from('mietvertrag').select('id').eq('id', vertragId).maybeSingle();
     if (pruefFehler) {
-      // Ungewiss, ob der Vertrag steht: Die unterschriebene Fassung bleibt liegen, statt womöglich die einzige zu löschen.
       throw new Error(
         `${error.message} Ob der Vertrag angelegt wurde, ließ sich nicht prüfen. Bitte die Seite neu laden und an der Einheit nachsehen, bevor du es noch einmal versuchst.`
       );
     }
-    if (!steht) {
-      if (unterschrift) await entfernen([unterschrift.pfad]);
-      throw new Error(`${error.message} Es wurde nichts angelegt; der Entwurf bleibt erhalten.`);
-    }
+    if (!steht) throw new Error(`${error.message} Es wurde nichts angelegt; der Entwurf bleibt erhalten.`);
     hinweise.push('Die Bestätigung des Servers kam nicht an; der Vertrag steht aber.');
   }
 
@@ -432,7 +423,7 @@ export async function reicheUnterschriftNach(vertragId: string, datei: File): Pr
   });
   if (error) {
     // Kam nur die Antwort nicht an, liegt das Dokument schon — dann bleibt die Datei, sonst wäre die
-    // einzige unterschriebene Fassung weg (Review 11.11.2026, wie bei aktiviereEntwurf)
+    // einzige unterschriebene Fassung weg (Review 11.11.2026)
     const { data: liegt, error: pruefFehler } = await supabase
       .from('dokumente')
       .select('id')
@@ -448,6 +439,42 @@ export async function reicheUnterschriftNach(vertragId: string, datei: File): Pr
     await entfernen([dokument.pfad]);
     throw new Error(`Die unterschriebene Fassung wurde nicht abgelegt: ${error.message}`);
   }
+}
+
+// ─── Vermietung zurücknehmen ────────────────────────────────────────────────
+
+export interface RuecknahmeErgebnis {
+  forderungen: number;
+  hinweise: string[];
+}
+
+/**
+ * Nimmt eine abgeschlossene Vermietung zurück, solange nichts darauf aufbaut (seit 11.11.2026): keine unterschriebene
+ * Fassung, keine Zahlung, Kaution, Mahnung, Abrechnung, Mieterhöhung, Zählerstände oder Nachrichten — das prüft die
+ * DB-Funktion `vermietung_zuruecknehmen` und nennt den Grund. Vertrag, Forderungen und Dokumentzeilen fallen dort in
+ * einer Transaktion weg, die Mieter bleiben. Danach räumt diese Funktion die Dateien aus dem Storage.
+ */
+export async function nimmVermietungZurueck(vertragId: string): Promise<RuecknahmeErgebnis> {
+  const { data, error } = await supabase.rpc('vermietung_zuruecknehmen', { p_vertrag_id: vertragId });
+  if (error) throw new Error(error.message);
+  const antwort = (data ?? {}) as { pfade?: unknown; forderungen?: number };
+  const pfade = Array.isArray(antwort.pfade) ? antwort.pfade.filter((p): p is string => typeof p === 'string' && !!p) : [];
+  const hinweise: string[] = [];
+  if (pfade.length > 0) {
+    try {
+      // Nur, was keine andere Dokumentzeile mehr nennt
+      const belegt = await belegtePfade(pfade);
+      const frei = pfade.filter(p => !belegt.has(p));
+      if (frei.length > 0) {
+        const { error: fehler } = await supabase.storage.from('dokumente').remove(frei);
+        if (fehler) throw new Error(fehler.message);
+      }
+    } catch (e) {
+      // Der Vertrag ist weg; übrig bleiben nur unsichtbare Dateien
+      hinweise.push(`Die Dateien des Vertrags konnten nicht gelöscht werden (${e instanceof Error ? e.message : String(e)}).`);
+    }
+  }
+  return { forderungen: antwort.forderungen ?? 0, hinweise };
 }
 
 /** Kurzlebiger Link zum Ansehen einer Entwurfsdatei. */

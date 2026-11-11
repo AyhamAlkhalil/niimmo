@@ -576,6 +576,7 @@ export const ImmobilienDetail = ({
                       vertrag={vertrag} 
                       immobilie={immobilie} 
                       openMietvertragId={openMietvertragId}
+                      vertraegeOhneUnterschrift={vertraegeForEinheit.filter(v => v.unterschrift_ausstehend && v.status !== 'beendet')}
                       einheitIndex={index + 1}
                       onContractModalClose={onContractModalClose}
                     />
