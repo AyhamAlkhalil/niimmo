@@ -27,6 +27,7 @@ import {
   type VorvertragAuslese,
 } from './entwurf';
 import {
+  aktivierenMoeglich,
   entwurfLuecken,
   platzhalterUebersicht,
   quellenZaehlung,
@@ -279,6 +280,20 @@ describe('Schritte', () => {
     expect(weitesterAusAltbestand(null)).toBeNull();
   });
 
+  it('aktiviert auch ohne unterschriebene Fassung, aber nie mit offenen Punkten (11.11.2026)', () => {
+    const grund = { ungespeichert: false, datei: false, ohneUnterschrift: false, luecken: 0, beginnOffen: false, ueberschneidungOffen: false, ohnePdfOffen: false };
+    expect(aktivierenMoeglich(grund)).toBe(false);
+    expect(aktivierenMoeglich({ ...grund, datei: true })).toBe(true);
+    expect(aktivierenMoeglich({ ...grund, ohneUnterschrift: true })).toBe(true);
+    // Kein PDF aus der Vorlage: nur mit hochgeladener Fassung zu bestätigen
+    expect(aktivierenMoeglich({ ...grund, datei: true, ohnePdfOffen: true })).toBe(false);
+    expect(aktivierenMoeglich({ ...grund, ohneUnterschrift: true, ohnePdfOffen: true })).toBe(true);
+    // Was auch ohne Unterschrift sperrt
+    for (const offen of [{ ungespeichert: true }, { luecken: 1 }, { beginnOffen: true }, { ueberschneidungOffen: true }]) {
+      expect(aktivierenMoeglich({ ...grund, ohneUnterschrift: true, ...offen })).toBe(false);
+    }
+  });
+
   it('merkt sich den weitesten Schritt, auch wenn man zurückblättert', () => {
     expect(spaetererSchritt('mieter', 'grundlagen')).toBe('grundlagen');
     expect(spaetererSchritt('pruefen', 'mieter')).toBe('pruefen');
@@ -317,7 +332,7 @@ describe('Schritte', () => {
     expect(stand([], 'start', 'start')[0].erledigt).toBe(false);
     // Ohne Vorlage gilt der Vertrag als vorbereitet, sobald „Prüfen“ gespeichert wurde
     const ohneVorlage = vermietungsStufen({ personen: [angelegt], schritt: 'start', weitesterSchritt: null, dateien: [] }, false);
-    expect(ohneVorlage.map(s => s.titel)).toEqual(['Mieter angelegt', 'Miete vorgemerkt', 'Vertrag vorbereitet', 'Unterschrift & Start']);
+    expect(ohneVorlage.map(s => s.titel)).toEqual(['Mieter angelegt', 'Miete vorgemerkt', 'Vertrag vorbereitet', 'Aktiviert']);
     expect(ohneVorlage[2].erledigt).toBe(true);
   });
 

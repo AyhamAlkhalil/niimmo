@@ -9,6 +9,7 @@ import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { NewTenantContractDialog } from "./NewTenantContractDialog";
 import { MietvertragEntwurfDialog } from "./mietvertrag-entwurf/MietvertragEntwurfDialog";
 import { EntwuerfeAnEinheit } from "./mietvertrag-entwurf/EntwuerfeAnEinheit";
+import { UnterschriftAusstehend } from "./UnterschriftAusstehend";
 import { istWohnraumEinheit } from "@/utils/mietvertrag/entwurf";
 import type { SchrittId } from "@/utils/mietvertrag/entwurfProzess";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -43,6 +44,8 @@ interface EinheitCardProps {
     start_datum?: string;
     ende_datum?: string;
     kuendigungsdatum?: string;
+    /** Ohne unterschriebene Fassung aktiviert (seit 11.11.2026) */
+    unterschrift_ausstehend?: boolean;
     mieter?: Array<{
       id: string;
       vorname: string;
@@ -387,6 +390,9 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ei
               </span>
             </div>
           )}
+
+          {/* Ohne unterschriebene Fassung aktiviert: von hier aus Mietvertrag erstellen und nachreichen (11.11.2026) */}
+          {isAdmin && vertrag?.unterschrift_ausstehend && <UnterschriftAusstehend vertragId={vertrag.id} />}
 
           {/* Offene Entwürfe belegen die Einheit nicht, stehen aber hier bis zur Aktivierung */}
           {isAdmin && (

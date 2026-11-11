@@ -2,10 +2,14 @@
  * Schritt „Unterschrift & Start": PDF drucken, unterschreiben lassen,
  * unterschriebene Fassung hochladen, Vertrag aktivieren.
  *
- * Erst das Aktivieren legt Mieter, Vertrag, Verknüpfungen, Dokumente und die
+ * Erst das Aktivieren legt Vertrag, Verknüpfungen, Dokumente und die
  * Forderungen ab Mietbeginn an — in einer Transaktion
- * (`aktiviere_mietvertrag_entwurf`). Ohne unterschriebene Fassung wird nicht
- * aktiviert (Entscheidung vom 18.10.2026).
+ * (`aktiviere_mietvertrag_entwurf`). Bis zum 11.11.2026 nur mit
+ * unterschriebener Fassung (Entscheidung vom 18.10.2026); seitdem auch ohne,
+ * auf Kundenwunsch („erst jemanden anlegen und das ist dann auch aktiviert …
+ * dann erstellen wir einen Mietvertrag“). Der Vertrag trägt dann
+ * `unterschrift_ausstehend`, und die Einheit bietet „Mietvertrag erstellen“ und
+ * das Nachreichen der unterschriebenen Fassung an.
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,7 +25,7 @@ import { useActivityLog } from '@/hooks/useActivityLog';
 import { aktiviereEntwurf, entwurfDateiLink, verwirfEntwurf, type EntwurfZeile } from '@/services/mietvertragEntwurfService';
 import { checkContractOverlap } from '@/utils/contractOverlapValidation';
 import { hatNamen, monateNachzuholen, rund2 } from '@/utils/mietvertrag/entwurf';
-import type { SchrittId } from '@/utils/mietvertrag/entwurfProzess';
+import { aktivierenMoeglich, type SchrittId } from '@/utils/mietvertrag/entwurfProzess';
 import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import { angelegteMieterAusAnderen, namensAufzaehlung } from '@/utils/mieterOhneVertrag';
 
@@ -92,6 +96,7 @@ export function StartSchritt({
   const { logActivity } = useActivityLog();
 
   const [datei, setDatei] = useState<File | null>(null);
+  const [ohneUnterschrift, setOhneUnterschrift] = useState(false);
   const [andereVerwerfen, setAndereVerwerfen] = useState(true);
   const angelegte = angelegteMieterAusAnderen(andere, entwurf?.personen ?? []);
   const [beginnBestaetigt, setBeginnBestaetigt] = useState(false);
@@ -140,10 +145,10 @@ export function StartSchritt({
   }
 
   async function aktivieren() {
-    if (!entwurf || !datei) return;
+    if (!entwurf || (!datei && !ohneUnterschrift)) return;
     setLaeuft(true);
     try {
-      const ergebnis = await aktiviereEntwurf({ entwurf, unterschrieben: datei, mitVorlage: wohnraum && !!pdf });
+      const ergebnis = await aktiviereEntwurf({ entwurf, unterschrieben: ohneUnterschrift ? null : datei, mitVorlage: wohnraum && !!pdf });
 
       const hinweise = [...ergebnis.hinweise];
       if (andereVerwerfen) {
@@ -160,12 +165,15 @@ export function StartSchritt({
       logActivity('mietvertrag_entwurf_aktiviert', 'mietvertrag', ergebnis.vertragId, {
         entwurf: entwurf.id,
         nachgeholte_forderungen: ergebnis.nachgeholt,
+        ohne_unterschrift: ohneUnterschrift,
       });
 
       toast({
         title: 'Mietvertrag aktiviert',
         description: [
-          `Der Vertrag ab ${datumDe(entwurf.daten.mietbeginn)} steht jetzt an der Einheit, ${pdf ? 'PDF und unterschriebene Fassung' : 'die unterschriebene Fassung'} in seinen Dokumenten.`,
+          ohneUnterschrift
+            ? `Der Vertrag ab ${datumDe(entwurf.daten.mietbeginn)} steht jetzt an der Einheit, mit „Unterschrift ausstehend“. Dort lässt sich der Mietvertrag erstellen und die unterschriebene Fassung nachreichen.`
+            : `Der Vertrag ab ${datumDe(entwurf.daten.mietbeginn)} steht jetzt an der Einheit, ${pdf ? 'PDF und unterschriebene Fassung' : 'die unterschriebene Fassung'} in seinen Dokumenten.`,
           ergebnis.nachgeholt > 0 ? `${ergebnis.nachgeholt} Monatsforderung(en) seit Mietbeginn angelegt.` : '',
           ...hinweise,
         ]
@@ -205,13 +213,15 @@ export function StartSchritt({
   }
 
   const ohnePdf = wohnraum && !pdf;
-  const bereit =
-    !ungespeichert &&
-    !!datei &&
-    luecken.length === 0 &&
-    (!bestaetigungNoetig || beginnBestaetigt) &&
-    (!ueberschneidung || ueberschneidungBestaetigt) &&
-    (!ohnePdf || ohnePdfBestaetigt);
+  const bereit = aktivierenMoeglich({
+    ungespeichert,
+    datei: !!datei,
+    ohneUnterschrift,
+    luecken: luecken.length,
+    beginnOffen: bestaetigungNoetig && !beginnBestaetigt,
+    ueberschneidungOffen: !!ueberschneidung && !ueberschneidungBestaetigt,
+    ohnePdfOffen: ohnePdf && !ohnePdfBestaetigt,
+  });
 
   return (
     <div className="space-y-5">
@@ -256,20 +266,34 @@ export function StartSchritt({
           </p>
         </Punkt>
 
-        <Punkt nr={3} erledigt={false} titel="Unterschriebene Fassung hochladen und Vertrag aktivieren">
+        <Punkt nr={3} erledigt={false} titel={ohneUnterschrift ? 'Vertrag aktivieren' : 'Unterschriebene Fassung hochladen und Vertrag aktivieren'}>
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="unterschrieben" className="flex items-center gap-1.5 text-xs">
-                <FileUp className="h-3.5 w-3.5" />
-                Scan oder Foto (PDF, JPG, PNG)
+            {/* Kundenwunsch 11.11.2026: erst aktivieren, den Mietvertrag später */}
+            <div className="flex items-start gap-2 rounded-md border p-3">
+              <Checkbox id="ohne-unterschrift" checked={ohneUnterschrift} onCheckedChange={c => setOhneUnterschrift(c === true)} />
+              <Label htmlFor="ohne-unterschrift" className="text-sm font-normal leading-snug">
+                <span className="font-medium">Noch nicht unterschrieben — jetzt aktivieren.</span>{' '}
+                <span className="text-muted-foreground">
+                  Das Mietverhältnis läuft ab Mietbeginn. Den Mietvertrag erstellst du später an der Einheit und reichst die
+                  unterschriebene Fassung dort nach.
+                </span>
               </Label>
-              <Input
-                id="unterschrieben"
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                onChange={e => setDatei(e.target.files?.[0] ?? null)}
-              />
             </div>
+
+            {!ohneUnterschrift && (
+              <div className="space-y-1.5">
+                <Label htmlFor="unterschrieben" className="flex items-center gap-1.5 text-xs">
+                  <FileUp className="h-3.5 w-3.5" />
+                  Scan oder Foto (PDF, JPG, PNG)
+                </Label>
+                <Input
+                  id="unterschrieben"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={e => setDatei(e.target.files?.[0] ?? null)}
+                />
+              </div>
+            )}
 
             <div className="space-y-1 rounded-md border p-3 text-sm">
               <p>
@@ -295,8 +319,10 @@ export function StartSchritt({
               </p>
               <p className="text-xs text-muted-foreground">
                 Bis zum Aktivieren bleibt die Einheit frei und es entstehen keine Forderungen. Danach steht der Vertrag an
-                der Einheit, {pdf ? 'das PDF und die unterschriebene Fassung' : 'die unterschriebene Fassung'} in seinen
-                Dokumenten.
+                der Einheit,{' '}
+                {ohneUnterschrift
+                  ? `mit „Unterschrift ausstehend“${pdf ? ' und dem Entwurfs-PDF in seinen Dokumenten' : ''}.`
+                  : `${pdf ? 'das PDF und die unterschriebene Fassung' : 'die unterschriebene Fassung'} in seinen Dokumenten.`}
               </p>
             </div>
 
@@ -320,7 +346,7 @@ export function StartSchritt({
               </div>
             )}
 
-            {ohnePdf && (
+            {ohnePdf && !ohneUnterschrift && (
               <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3">
                 <Checkbox id="ohne-pdf" checked={ohnePdfBestaetigt} onCheckedChange={c => setOhnePdfBestaetigt(c === true)} />
                 <Label htmlFor="ohne-pdf" className="text-sm font-normal leading-snug">
@@ -365,7 +391,7 @@ export function StartSchritt({
 
             <Button type="button" onClick={() => void aktivieren()} disabled={!bereit || laeuft}>
               {laeuft ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Vertrag aktivieren
+              {ohneUnterschrift ? 'Ohne Unterschrift aktivieren' : 'Vertrag aktivieren'}
             </Button>
           </div>
         </Punkt>

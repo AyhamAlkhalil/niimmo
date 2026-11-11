@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.12.0",
+    datum: "2026-11-11",
+    aenderungen: [
+      { art: "neu", titel: "Vermietung ohne unterschriebenen Vertrag aktivieren – den Mietvertrag später an der Einheit erstellen und nachreichen" },
+    ],
+  },
+  {
     version: "1.11.0",
     datum: "2026-11-11",
     aenderungen: [

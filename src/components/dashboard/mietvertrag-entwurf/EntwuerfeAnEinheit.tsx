@@ -110,6 +110,13 @@ export function EntwuerfeAnEinheit({ einheitId, wohnraum, onOeffnen }: Props) {
                 <ArrowRight className="h-3 w-3" />
                 Weiter: {naechste.kurz}
               </Button>
+              {/* Kundenwunsch 11.11.2026: erst aktivieren, den Mietvertrag später — sobald Mieter und Miete stehen */}
+              {mieteVorgemerkt && naechste.schritt !== 'start' && (
+                <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => onOeffnen(e.id, 'start')}>
+                  <CheckCircle2 className="h-3 w-3" />
+                  Jetzt aktivieren
+                </Button>
+              )}
               {hatPdf && (
                 <Button size="sm" variant="outline" className="h-8 text-xs sm:h-7" onClick={() => void pdfOeffnen(e)}>
                   <FileText className="h-3 w-3" />

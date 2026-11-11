@@ -126,8 +126,8 @@ export interface VermietungsStufe {
 /**
  * Stand der Vermietung, wie ihn die Einheit zeigt. „Miete vorgemerkt“ heißt: Der Schritt Miete & Laufzeit wurde
  * mit „Miete speichern“ verlassen oder das PDF erstellt (`naechsterWeitester`) — vorbelegte Werte aus dem
- * Vorvertrag allein zählen nicht. Die letzte Stufe ist
- * nie erledigt: Mit der Aktivierung verschwindet der Vorgang und an seine Stelle tritt der Vertrag.
+ * Vorvertrag allein zählen nicht. Die letzte Stufe ist nie erledigt: Mit der Aktivierung verschwindet der Vorgang
+ * und an seine Stelle tritt der Vertrag — ohne unterschriebene Fassung mit „Unterschrift ausstehend“.
  */
 export function vermietungsStufen(
   e: { personen: EntwurfPerson[]; schritt: string | null; weitesterSchritt?: string | null; dateien: { art: string }[] },
@@ -145,8 +145,28 @@ export function vermietungsStufen(
     wohnraum
       ? { titel: 'Mietvertrag als PDF', kurz: 'Mietvertrag', schritt: imVertrag, erledigt: e.dateien.some(d => d.art === 'entwurf_pdf') }
       : { titel: 'Vertrag vorbereitet', kurz: 'Mietvertrag', schritt: imVertrag, erledigt: weitester === 'start' },
-    { titel: 'Unterschrift & Start', kurz: 'Unterschrift', schritt: 'start', erledigt: false },
+    // Aktiviert wird mit oder ohne unterschriebene Fassung (11.11.2026)
+    { titel: 'Aktiviert', kurz: 'Aktivieren', schritt: 'start', erledigt: false },
   ];
+}
+
+/**
+ * Darf aktiviert werden? Seit dem 11.11.2026 auch ohne unterschriebene Fassung (Kundenwunsch: „erst jemanden anlegen
+ * und das ist dann auch aktiviert … dann erstellen wir einen Mietvertrag“). Ohne sie entfällt auch die Bestätigung
+ * „kein PDF aus der Vorlage“ — die betrifft nur eine hochgeladene Fassung, die ein anderer Vertrag ist.
+ */
+export function aktivierenMoeglich(z: {
+  ungespeichert: boolean;
+  datei: boolean;
+  ohneUnterschrift: boolean;
+  luecken: number;
+  beginnOffen: boolean;
+  ueberschneidungOffen: boolean;
+  ohnePdfOffen: boolean;
+}): boolean {
+  if (z.ungespeichert || z.luecken > 0 || z.beginnOffen || z.ueberschneidungOffen) return false;
+  if (z.ohneUnterschrift) return true;
+  return z.datei && !z.ohnePdfOffen;
 }
 
 /** Wo „Weiter“ an der Einheit einsteigt: in der ersten offenen Stufe. */

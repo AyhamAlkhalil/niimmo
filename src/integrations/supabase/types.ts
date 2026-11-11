@@ -1697,6 +1697,7 @@ export type Database = {
             | Database["public"]["Enums"]["uebergabezustand"]
             | null
           uebergabezustand_text: string | null
+          unterschrift_ausstehend: boolean
           unterschrift_ort: string | null
           vertrag_datum: string | null
           vertragsart: Database["public"]["Enums"]["vertragsart"]
@@ -1780,6 +1781,7 @@ export type Database = {
             | Database["public"]["Enums"]["uebergabezustand"]
             | null
           uebergabezustand_text?: string | null
+          unterschrift_ausstehend?: boolean
           unterschrift_ort?: string | null
           vertrag_datum?: string | null
           vertragsart?: Database["public"]["Enums"]["vertragsart"]
@@ -1863,6 +1865,7 @@ export type Database = {
             | Database["public"]["Enums"]["uebergabezustand"]
             | null
           uebergabezustand_text?: string | null
+          unterschrift_ausstehend?: boolean
           unterschrift_ort?: string | null
           vertrag_datum?: string | null
           vertragsart?: Database["public"]["Enums"]["vertragsart"]
@@ -3136,6 +3139,10 @@ export type Database = {
           gueltig_ab: string
           kaltmiete: number
         }[]
+      }
+      unterschrift_nachreichen: {
+        Args: { p_dokument: Json; p_vertrag_id: string }
+        Returns: undefined
       }
       update_expired_terminated_contracts: { Args: never; Returns: number }
       update_faellige_forderungen: {

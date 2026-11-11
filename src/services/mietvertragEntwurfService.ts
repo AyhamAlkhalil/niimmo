@@ -232,7 +232,11 @@ export async function verwirfEntwurf(entwurf: Pick<EntwurfZeile, 'id' | 'dateien
 
 export interface AktivierenArgs {
   entwurf: EntwurfZeile;
-  unterschrieben: File;
+  /**
+   * Unterschriebene Fassung; `null` aktiviert ohne sie (seit 11.11.2026, Kundenwunsch „erst jemanden anlegen und das
+   * ist dann auch aktiviert … dann erstellen wir einen Mietvertrag“). Der Vertrag trägt dann `unterschrift_ausstehend`.
+   */
+  unterschrieben: File | null;
   /** Wohnraum mit erzeugtem PDF — dann gilt die Vorlagenfassung als vereinbart. */
   mitVorlage: boolean;
 }
@@ -274,25 +278,18 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
     throw new Error('Der Entwurf hat keinen Mitmieter mit Namen — wer soll den Vertrag schließen?');
   }
 
-  // 1. Unterschriebene Fassung zuerst — ohne sie wird nichts aktiviert.
-  const endung = dateiendung(a.unterschrieben.name, a.unterschrieben.type, 'pdf');
-  const unterschriftPfad = `mietvertraege/${vertragId}/Mietvertrag_unterschrieben_${stempel(new Date())}.${endung}`;
-  await hochladen(unterschriftPfad, a.unterschrieben, a.unterschrieben.type || 'application/pdf');
+  // 1. Unterschriebene Fassung zuerst, falls es sie schon gibt
+  const unterschrift = a.unterschrieben ? unterschriftDokument(vertragId, a.unterschrieben) : null;
+  if (unterschrift && a.unterschrieben) await hochladen(unterschrift.pfad, a.unterschrieben, unterschrift.dateityp);
 
   // 2. Alles Weitere in einer Transaktion
   const { data, error } = await supabase.rpc('aktiviere_mietvertrag_entwurf', {
     p_entwurf_id: entwurf.id,
-    p_vertrag: zeilen.vertrag as unknown as Json,
+    p_vertrag: (unterschrift ? zeilen.vertrag : { ...zeilen.vertrag, unterschrift_ausstehend: true }) as unknown as Json,
     p_neue_mieter: zeilen.neueMieter as unknown as Json,
     p_verknuepfungen: zeilen.verknuepfungen as unknown as Json,
     p_dokumente: [
-      {
-        titel: `Mietvertrag (unterschrieben).${endung}`,
-        pfad: unterschriftPfad,
-        kategorie: 'Mietvertrag',
-        dateityp: a.unterschrieben.type || 'application/pdf',
-        groesse_bytes: a.unterschrieben.size,
-      },
+      ...(unterschrift ? [unterschrift] : []),
       ...entwurf.dateien.map(d => ({
         titel: d.titel,
         pfad: d.pfad,
@@ -313,7 +310,7 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
       );
     }
     if (!steht) {
-      await entfernen([unterschriftPfad]);
+      if (unterschrift) await entfernen([unterschrift.pfad]);
       throw new Error(`${error.message} Es wurde nichts angelegt; der Entwurf bleibt erhalten.`);
     }
     hinweise.push('Die Bestätigung des Servers kam nicht an; der Vertrag steht aber.');
@@ -407,6 +404,50 @@ export async function legeMieterAusEntwurfAn(entwurfId: string): Promise<MieterA
     personen: Array.isArray(antwort.personen) ? (antwort.personen as EntwurfPerson[]) : entwurf.personen,
     aktualisiertAm: antwort.aktualisiert_am ?? entwurf.aktualisiertAm,
   };
+}
+
+// ─── Unterschriebene Fassung ────────────────────────────────────────────────
+
+function unterschriftDokument(vertragId: string, datei: File) {
+  const endung = dateiendung(datei.name, datei.type, 'pdf');
+  return {
+    titel: `Mietvertrag (unterschrieben).${endung}`,
+    pfad: `mietvertraege/${vertragId}/Mietvertrag_unterschrieben_${stempel(new Date())}.${endung}`,
+    kategorie: 'Mietvertrag' as const,
+    dateityp: datei.type || 'application/pdf',
+    groesse_bytes: datei.size,
+  };
+}
+
+/**
+ * Unterschriebene Fassung zu einem Vertrag nachreichen, der ohne sie aktiviert wurde (11.11.2026). Datei hochladen,
+ * dann Dokument und Merker in einer Transaktion (`unterschrift_nachreichen`); scheitert das, fliegt die Datei wieder raus.
+ */
+export async function reicheUnterschriftNach(vertragId: string, datei: File): Promise<void> {
+  const dokument = unterschriftDokument(vertragId, datei);
+  await hochladen(dokument.pfad, datei, dokument.dateityp);
+  const { error } = await supabase.rpc('unterschrift_nachreichen', {
+    p_vertrag_id: vertragId,
+    p_dokument: dokument as unknown as Json,
+  });
+  if (error) {
+    // Kam nur die Antwort nicht an, liegt das Dokument schon — dann bleibt die Datei, sonst wäre die
+    // einzige unterschriebene Fassung weg (Review 11.11.2026, wie bei aktiviereEntwurf)
+    const { data: liegt, error: pruefFehler } = await supabase
+      .from('dokumente')
+      .select('id')
+      .eq('pfad', dokument.pfad)
+      .eq('geloescht', false)
+      .limit(1);
+    if (pruefFehler) {
+      throw new Error(
+        `${error.message} Ob die Fassung abgelegt wurde, ließ sich nicht prüfen. Bitte die Seite neu laden und in den Dokumenten des Vertrags nachsehen.`
+      );
+    }
+    if (liegt && liegt.length > 0) return;
+    await entfernen([dokument.pfad]);
+    throw new Error(`Die unterschriebene Fassung wurde nicht abgelegt: ${error.message}`);
+  }
 }
 
 /** Kurzlebiger Link zum Ansehen einer Entwurfsdatei. */
