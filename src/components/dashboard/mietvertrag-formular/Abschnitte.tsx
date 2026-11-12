@@ -653,6 +653,7 @@ export function MieteranschriftFelder({ entwurf, setEntwurf }: AbschnittProps) {
             <Input
               placeholder="Ausweisnummer (optional)"
               aria-label="Ausweisnummer"
+              maxLength={30}
               value={m.ausweisnummer ?? ''}
               onChange={e => aendere(i, { ausweisnummer: e.target.value || null })}
             />

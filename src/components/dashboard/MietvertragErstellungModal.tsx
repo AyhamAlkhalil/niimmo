@@ -27,6 +27,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useMietvertragAnlagen } from '@/hooks/useMietvertragAnlagen';
 import { useVermieterUnterzeichnerVorschlag } from '@/hooks/useVermieterUnterzeichnerVorschlag';
 import { useMietvertragPdfDaten } from '@/hooks/useMietvertragPdfDaten';
 import { supabase } from '@/integrations/supabase/client';
@@ -40,6 +41,7 @@ import { positionFuerDb, VORLAGE_VERSION, type MietvertragDaten } from '@/utils/
 import { schriftstueckPfad } from '@/utils/storagePfad';
 import { useVertragsvorschau } from '@/hooks/useVertragsvorschau';
 import { PruefungsHinweise, UngueltigeZahlFelder, VertragsVorschau } from './mietvertrag-formular/Bausteine';
+import { PdfAnlagenFelder, type GewaehlteAnlage } from './mietvertrag-formular/PdfAnlagen';
 import {
   BetriebskostenEditor,
   KlauselFelder,
@@ -73,6 +75,29 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
   // Sperrt sofort, nicht erst nach dem nächsten Rendern: Ein Doppelklick legte zwei Verträge an (Besprechung 12.11.2026)
   const speichertGerade = useRef(false);
   const [zeigeVermieter, setZeigeVermieter] = useState(false);
+
+  // Weitere Anlagen (PDF, Besprechung 12.11.2026): je Öffnen mit den zuletzt gewählten vorbelegt
+  const anlagenDaten = useMietvertragAnlagen(vertragId, isOpen);
+  const [anlagen, setAnlagen] = useState<GewaehlteAnlage[]>([]);
+  const anlagenBereit = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      anlagenBereit.current = false;
+      setAnlagen([]);
+    }
+  }, [isOpen]);
+  useEffect(() => {
+    const daten = anlagenDaten.data;
+    if (!isOpen || !daten || anlagenDaten.isFetching || anlagenBereit.current) return;
+    anlagenBereit.current = true;
+    // Gelöschte Dokumente fallen still heraus — sie stehen nicht mehr zur Wahl
+    const gemerkt: GewaehlteAnlage[] = daten.gemerkt.flatMap(id => {
+      const k = daten.kandidaten.find(x => x.id === id);
+      return k ? [{ schluessel: k.id, titel: k.titel, dokumentId: k.id, pfad: k.pfad, datei: null }] : [];
+    });
+    // Was während des Ladens schon gewählt wurde, bleibt dahinter stehen (Review 12.11.2026)
+    setAnlagen(alt => [...gemerkt, ...alt.filter(a => !gemerkt.some(g => g.dokumentId === a.dokumentId && !!a.dokumentId))]);
+  }, [isOpen, anlagenDaten.data, anlagenDaten.isFetching]);
 
   // Je Öffnen einmal übernehmen, und zwar den frisch geladenen Stand. Bis zum 11.11.2026 setzte jedes Neuladen den
   // ganzen Entwurf zurück — etwa nach „PDF ansehen“ im neuen Tab (Fenster wieder im Vordergrund): Eingaben waren weg
@@ -153,22 +178,79 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
     if (!entwurf || !pdfBlob || zahlFehler || speichertGerade.current) return;
     speichertGerade.current = true;
     setSpeichert(true);
+    // Für die Fehlermeldung: Neue Anlagen liegen dann schon in den Dokumenten des Vertrags
+    let neueAnlagenAbgelegt = 0;
     try {
       const { data: user } = await supabase.auth.getUser();
 
       // Pfad nie aus Namen bauen: Umlaute lässt der Storage nicht zu (storagePfad.ts) — der Titel trägt die Namen
       const jetzt = new Date();
       const pfad = schriftstueckPfad('mietvertraege', vertragId, 'Mietvertrag', jetzt);
+      const mitAnlagen = anlagen.length > 0;
       const titel = vertragsTitel(
         {
           mieter: entwurf.mieter.map(m => (m.istUnternehmen && m.firmenname?.trim()) || m.nachname),
           adresse: `${entwurf.objekt.strasse} ${entwurf.objekt.hausnummer}`,
           lage: entwurf.einheit.lage || entwurf.einheit.bezeichnung,
         },
-        { art: 'erstellt', zeitpunkt: jetzt }
+        // „Mietvertrag einschließlich Anlagen“ (Besprechung 12.11.2026)
+        { art: 'erstellt', zeitpunkt: jetzt, mitAnlagen }
       );
 
-      const bytes = new Uint8Array(await pdfBlob.arrayBuffer());
+      let bytes = new Uint8Array(await pdfBlob.arrayBuffer());
+      // Anlagen zuerst zusammenfügen: Ist eine unlesbar, bricht es hier ab, bevor etwas gespeichert ist
+      const anlagenIds: string[] = [];
+      if (mitAnlagen) {
+        const { anlagenAnhaengen } = await import('@/utils/mietvertrag/pdfAnlagen');
+        const teile = [];
+        for (const a of anlagen) {
+          if (a.datei) {
+            teile.push({ titel: a.titel, bytes: new Uint8Array(await a.datei.arrayBuffer()) });
+          } else {
+            const { data: blob, error: ladeFehler } = await supabase.storage.from('dokumente').download(a.pfad!);
+            if (ladeFehler || !blob) throw new Error(`Die Anlage „${a.titel}“ ließ sich nicht laden (${ladeFehler?.message ?? 'leer'}).`);
+            teile.push({ titel: a.titel, bytes: new Uint8Array(await blob.arrayBuffer()) });
+          }
+        }
+        bytes = await anlagenAnhaengen(bytes, teile);
+
+        // Neu gewählte Dateien als Dokumente des Vertrags ablegen — die nächste Fassung beginnt mit ihnen
+        for (const [i, a] of anlagen.entries()) {
+          if (a.dokumentId) {
+            anlagenIds.push(a.dokumentId);
+            continue;
+          }
+          const anlagePfad = schriftstueckPfad('mietvertraege', vertragId, `Anlage${i + 1}`, jetzt);
+          const { error: anlageUpload } = await supabase.storage
+            .from('dokumente')
+            .upload(anlagePfad, a.datei!, { contentType: 'application/pdf', upsert: false });
+          if (anlageUpload) throw new Error(`Die Anlage „${a.titel}“ wurde nicht abgelegt: ${anlageUpload.message}`);
+          const { data: zeile, error: anlageZeile } = await supabase
+            .from('dokumente')
+            .insert({
+              titel: `Anlage zum Mietvertrag – ${a.titel}`,
+              pfad: anlagePfad,
+              kategorie: 'Sonstiges',
+              dateityp: 'application/pdf',
+              groesse_bytes: a.datei!.size,
+              mietvertrag_id: vertragId,
+              immobilie_id: null,
+              erstellt_von: user.user?.id ?? null,
+              geloescht: false,
+            })
+            .select('id')
+            .single();
+          if (anlageZeile || !zeile) {
+            await supabase.storage.from('dokumente').remove([anlagePfad]);
+            throw new Error(`Die Anlage „${a.titel}“ wurde nicht abgelegt: ${anlageZeile?.message ?? 'ohne Antwort'}`);
+          }
+          anlagenIds.push(zeile.id);
+          neueAnlagenAbgelegt += 1;
+          // Ein zweiter Versuch nach einem späteren Fehler legt sie nicht noch einmal ab
+          setAnlagen(alt => alt.map(x => (x.schluessel === a.schluessel ? { ...x, dokumentId: zeile.id, pfad: anlagePfad, datei: null } : x)));
+        }
+      }
+
       const { error: uploadError } = await supabase.storage
         .from('dokumente')
         .upload(pfad, bytes, { contentType: 'application/pdf', upsert: false });
@@ -179,7 +261,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
         pfad,
         kategorie: 'Mietvertrag',
         dateityp: 'application/pdf',
-        groesse_bytes: pdfBlob.size,
+        groesse_bytes: bytes.byteLength,
         mietvertrag_id: vertragId,
         immobilie_id: null,
         erstellt_von: user.user?.id ?? null,
@@ -213,6 +295,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
           besichtigt_am: entwurf.besichtigtAm,
           // Mindestmietdauer (§ 2 Ziff. 3) — „“ (angehakt ohne Datum) sperrt die Pflichtprüfung vorher
           kuendigungsverzicht_bis: entwurf.kuendigungsverzichtBis || null,
+          // Gewählte Anlagen in ihrer Reihenfolge — nur, wenn die Auswahl geladen war, sonst ginge sie verloren
+          ...(anlagenBereit.current ? { pdf_anlagen: anlagenIds } : {}),
           vertrag_datum: entwurf.vertragsdatum,
           unterschrift_ort: entwurf.unterschriftOrt,
           vorlage_version: VORLAGE_VERSION,
@@ -331,7 +415,11 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
     } catch (e) {
       toast({
         title: 'Speichern fehlgeschlagen',
-        description: e instanceof Error ? e.message : 'Unbekannter Fehler',
+        description: `${e instanceof Error ? e.message : 'Unbekannter Fehler'}${
+          neueAnlagenAbgelegt > 0
+            ? ` ${neueAnlagenAbgelegt === 1 ? 'Die neue Anlage liegt' : `${neueAnlagenAbgelegt} neue Anlagen liegen`} schon in den Dokumenten des Vertrags — beim nächsten Versuch dort wählen statt neu hinzufügen.`
+            : ''
+        }`,
         variant: 'destructive',
       });
     } finally {
@@ -402,6 +490,16 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
                   <MindestmietdauerFelder entwurf={entwurf} setEntwurf={setEntwurf} />
                   <Separator />
                   <KlauselFelder entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <Separator />
+                  <PdfAnlagenFelder
+                    anlagen={anlagen}
+                    setAnlagen={setAnlagen}
+                    kandidaten={anlagenDaten.data?.kandidaten ?? []}
+                    laedt={anlagenDaten.isLoading}
+                    fehler={anlagenDaten.isError}
+                    onErneutLaden={() => void anlagenDaten.refetch()}
+                    gesperrt={speichert}
+                  />
                 </div>
               </UngueltigeZahlFelder.Provider>
 

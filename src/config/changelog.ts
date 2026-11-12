@@ -37,6 +37,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.15.0",
+    datum: "2026-11-12",
+    aenderungen: [
+      { art: "neu", titel: "Mietvertrag: weitere PDF-Anlagen anhängen, in frei wählbarer Reihenfolge" },
+      { art: "neu", titel: "Ausweisnummer der Mieter, auf Wunsch im Mietvertrag" },
+      { art: "verbessert", titel: "Mietvertrag ohne Wohnfläche, IBAN fett, Mindestmietdauer im Generator wählbar, Dateiname mit Mieter und Datum" },
+    ],
+  },
+  {
     version: "1.14.0",
     datum: "2026-11-12",
     aenderungen: [

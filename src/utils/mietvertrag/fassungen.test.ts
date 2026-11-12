@@ -108,6 +108,12 @@ describe('vertragsTitel', () => {
     );
   });
 
+  it('bleibt bei überlangen Angaben unter der Grenze für Dateinamen und behält den Zeitpunkt', () => {
+    const titel = vertragsTitel({ mieter: ['X'.repeat(200), 'Y'.repeat(200)], adresse: 'Z'.repeat(200), lage: '' }, { art: 'erstellt', zeitpunkt: zeit });
+    expect(titel.length).toBeLessThan(220);
+    expect(titel).toMatch(/– erstellt 12\.11\.2026 10\.05 Uhr$/);
+  });
+
   it('kürzt lange Mieterlisten, lässt Leeres weg und entfernt Zeichen, die kein Dateiname verträgt', () => {
     expect(vertragsTitel({ mieter: ['A', 'B', 'C'], adresse: 'Weg 1', lage: '' }, { art: 'erstellt', zeitpunkt: zeit })).toBe(
       'Mietvertrag – A, B u. a. – Weg 1 – erstellt 12.11.2026 10.05 Uhr'

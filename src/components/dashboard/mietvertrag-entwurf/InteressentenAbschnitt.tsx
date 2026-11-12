@@ -330,6 +330,7 @@ export function InteressentenAbschnitt({
                       <Label className="text-xs">Ausweisnummer (optional)</Label>
                       <Input
                         placeholder="Personalausweis oder Pass"
+                        maxLength={30}
                         value={p.ausweisnummer ?? ''}
                         onChange={e => aendere(p.schluessel, { ausweisnummer: e.target.value || null })}
                       />

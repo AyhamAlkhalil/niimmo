@@ -1681,6 +1681,7 @@ export type Database = {
           mitbenutzung_einrichtungen: string | null
           naechste_mahnung_am: string | null
           neue_anschrift: string | null
+          pdf_anlagen: string[]
           raumaufstellung: string | null
           ruecklastschrift_gebuehr: number | null
           schliessanlage_art:
@@ -1765,6 +1766,7 @@ export type Database = {
           mitbenutzung_einrichtungen?: string | null
           naechste_mahnung_am?: string | null
           neue_anschrift?: string | null
+          pdf_anlagen?: string[]
           raumaufstellung?: string | null
           ruecklastschrift_gebuehr?: number | null
           schliessanlage_art?:
@@ -1849,6 +1851,7 @@ export type Database = {
           mitbenutzung_einrichtungen?: string | null
           naechste_mahnung_am?: string | null
           neue_anschrift?: string | null
+          pdf_anlagen?: string[]
           raumaufstellung?: string | null
           ruecklastschrift_gebuehr?: number | null
           schliessanlage_art?:

@@ -612,6 +612,7 @@ export function MietvertragContractInfo({
                           <Input
                             placeholder="Ausweisnummer (optional)"
                             aria-label="Ausweisnummer"
+                            maxLength={30}
                             value={getMieterValue(m.id, 'ausweisnummer', m.ausweisnummer) || ''}
                             onChange={(e) => handleMieterChange(m.id, 'ausweisnummer', e.target.value)}
                             className="h-6 text-xs flex-1"

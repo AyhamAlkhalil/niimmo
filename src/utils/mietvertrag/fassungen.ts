@@ -110,5 +110,8 @@ export function vertragsTitel(
   const kopf =
     a.art === 'unterschrieben' ? 'Mietvertrag (unterschrieben)' : a.mitAnlagen ? 'Mietvertrag einschließlich Anlagen' : 'Mietvertrag';
   const wann = `${a.art === 'unterschrieben' ? 'hochgeladen' : 'erstellt'} ${zeitpunktText(a.zeitpunkt)}`;
-  return dateinamenSicher([kopf, mieter, mietsache, wann].filter(Boolean).join(' – '));
+  // Dateinamen dürfen höchstens 255 Zeichen haben; gekürzt wird in der Mitte, Kopf und Zeitpunkt bleiben
+  const mitte = dateinamenSicher([mieter, mietsache].filter(Boolean).join(' – '));
+  const gekuerzt = mitte.length > 150 ? `${mitte.slice(0, 149).trim()}…` : mitte;
+  return dateinamenSicher([kopf, gekuerzt, wann].filter(Boolean).join(' – '));
 }
