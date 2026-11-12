@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { punktAlsKomma, zaehlerstandText } from "@/utils/zaehlerstandUtils";
 import { dateiendung } from "@/utils/storagePfad";
+import { ZAEHLERNUMMER_MAX } from "@/utils/uebergabeSpeicherung";
 import {
   ZAEHLER_BEZEICHNUNG,
   ZAEHLER_EINHEIT,
@@ -27,8 +28,11 @@ interface ZaehlerFeldProps {
   onUploadingChange: (aktiv: boolean) => void;
   /** Ein Foto-Upload scheiterte — auch melden, wenn der Schritt schon ausgeblendet ist */
   onFotoFehler?: (text: string) => void;
-  /** aus den Stammdaten der Einheit */
-  nummer?: string | null;
+  /** Zählernummer im Feld: die eingetragene, sonst die aus den Stammdaten der Einheit */
+  nummer: string;
+  onNummerChange: (wert: string) => void;
+  /** Was eine geänderte Nummer bewirkt (utils/uebergabeAblauf.ts, zaehlernummerHinweis) */
+  nummerHinweis: string | null;
   referenz: Referenzstand | null;
   hinweise: ZaehlerHinweis[];
 }
@@ -36,6 +40,9 @@ interface ZaehlerFeldProps {
 /**
  * Ein Zähler: Stand, Foto, Vergleichswert und Rückfragen an einer Stelle. Die
  * Zählernummer steht dabei, damit vor Ort klar ist, welcher Zähler gemeint ist.
+ * Seit dem 12.11.2026 lässt sie sich hier eintragen und ändern: Bis dahin kam sie
+ * nur aus den Stammdaten, und fehlte sie dort oder war der Zähler getauscht, ließ
+ * sie sich in der Übergabe weder eintragen noch korrigieren.
  */
 export const ZaehlerFeld = ({
   contractId,
@@ -48,12 +55,15 @@ export const ZaehlerFeld = ({
   onUploadingChange,
   onFotoFehler,
   nummer,
+  onNummerChange,
+  nummerHinweis,
   referenz,
   hinweise,
 }: ZaehlerFeldProps) => {
   const Symbol = SYMBOL[typ];
   const einheit = ZAEHLER_EINHEIT[typ];
   const id = `zaehler-${contractId}-${typ}`;
+  const nummerId = `zaehlernummer-${contractId}-${typ}`;
   const unlesbar = hinweise.some((h) => h.art === "unlesbar");
   const art = isEinzug ? "einzug" : "auszug";
 
@@ -72,13 +82,32 @@ export const ZaehlerFeld = ({
 
   return (
     <div className={cn("space-y-2 rounded-lg border bg-card p-3", unlesbar && "border-destructive")}>
-      <div className="flex items-baseline justify-between gap-2">
-        <Label htmlFor={id} className="flex items-center gap-2 text-sm font-medium">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={id} className="flex shrink-0 items-center gap-2 text-sm font-medium">
           <Symbol className="h-4 w-4 text-muted-foreground" />
           {ZAEHLER_BEZEICHNUNG[typ]}
         </Label>
-        {nummer?.trim() && <span className="truncate text-xs tabular-nums text-muted-foreground">Nr. {nummer.trim()}</span>}
+        <div className="flex min-w-0 max-w-[65%] flex-1 items-center justify-end gap-1.5">
+          <Label htmlFor={nummerId} className="shrink-0 text-xs font-normal text-muted-foreground">
+            Nr.
+          </Label>
+          {/* text-base auf dem Handy: Unter 16 px zoomt iOS Safari beim Antippen in die Seite */}
+          <Input
+            id={nummerId}
+            type="text"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            maxLength={ZAEHLERNUMMER_MAX}
+            placeholder="Zählernummer"
+            aria-label={`Zählernummer ${ZAEHLER_BEZEICHNUNG[typ]}`}
+            value={nummer}
+            onChange={(e) => onNummerChange(e.target.value)}
+            className="h-9 min-w-0 flex-1 px-2 text-base tabular-nums md:text-sm"
+          />
+        </div>
       </div>
+      {nummerHinweis && <p className="text-xs text-muted-foreground">{nummerHinweis}</p>}
 
       <FotoAufnahme
         inputId={`zaehlerfoto-${contractId}-${typ}`}

@@ -33,7 +33,10 @@ export interface UebergabePdfData {
       wasser: string;
       warmwasser: string;
     };
-    /** Zählernummern aus den Stammdaten der Einheit — ohne sie ist ein Stand keinem Zähler sicher zuzuordnen */
+    /**
+     * Zählernummern — ohne sie ist ein Stand keinem Zähler sicher zuzuordnen. Seit 12.11.2026
+     * die in der Übergabe eingetragene, sonst die aus den Stammdaten der Einheit.
+     */
     zaehlernummern?: {
       strom?: string | null;
       gas?: string | null;

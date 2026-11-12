@@ -69,6 +69,8 @@ describe("hatEingaben", () => {
     ["Zustandsfoto", (e: UebergabeEingaben) => { e.notizenFotos = ["uebergabefotos/v/a.jpg"]; }],
     ["Unterschrift", (e: UebergabeEingaben) => { e.unterschriftMieter = "data:image/png;base64,AAAA"; }],
     ["Versorger", (e: UebergabeEingaben) => { e.versorgerAuswahl = ["strom"]; }],
+    ["Zählernummer", (e: UebergabeEingaben) => { e.zaehlernummern = { [V1]: { strom: "1 EFR21" } }; }],
+    ["geleerte Zählernummer", (e: UebergabeEingaben) => { e.zaehlernummern = { [V1]: { gas: "" } }; }],
   ])("%s zählt als Eingabe", (_name, setzen) => {
     const e = leer();
     setzen(e);
@@ -79,6 +81,50 @@ describe("hatEingaben", () => {
     const e = leer();
     e.notizen = "   ";
     expect(hatEingaben(e)).toBe(false);
+  });
+
+  it("ein Vertrag ohne geänderte Zählernummer zählt nicht", () => {
+    const e = leer();
+    e.zaehlernummern = { [V1]: {} };
+    expect(hatEingaben(e)).toBe(false);
+  });
+});
+
+describe("Zählernummern im Entwurf", () => {
+  it("bringt eingetragene und geleerte Nummern unverändert zurück", () => {
+    const ablage = new TestAblage();
+    const e = leer();
+    e.zaehlernummern = { [V1]: { strom: "1 EFR21 4709 6163", warmwasser: "" } };
+    entwurfSchreiben(ablage, "k", e, JETZT);
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)?.zaehlernummern).toEqual({ [V1]: { strom: "1 EFR21 4709 6163", warmwasser: "" } });
+  });
+
+  it("ein Entwurf von vor dem 12.11.2026 hat keine und bekommt keine", () => {
+    const ablage = new TestAblage();
+    entwurfSchreiben(ablage, "k", leer(), JETZT);
+    expect(entwurfLesen(ablage, "k", [V1], JETZT)).not.toHaveProperty("zaehlernummern");
+  });
+
+  it("nimmt nur Text für die übergebenen Verträge und kürzt auf die Feldlänge", () => {
+    const ablage = new TestAblage();
+    ablage.setItem("k", JSON.stringify({
+      ...leer(),
+      version: 1,
+      gespeichertAm: "2026-10-16T14:29:03.000Z",
+      zaehlernummern: { [V1]: { strom: 123, gas: ["x"], wasser: "W".repeat(80), fremd: "x" }, anderer: { strom: "A" } },
+    }));
+    const gelesen = entwurfLesen(ablage, "k", [V1], JETZT)!;
+    expect(gelesen.zaehlernummern).toEqual({ [V1]: { wasser: "W".repeat(40) } });
+  });
+
+  it("schreibt bei einer Vertrags-ID „__proto__“ nichts in Object.prototype", () => {
+    // QA 12.11.2026: obj[id] ??= {} rief bei dieser ID den Setter auf
+    const ablage = new TestAblage();
+    ablage.setItem("k", `{"version":1,"gespeichertAm":"2026-10-16T14:29:03.000Z","zaehlernummern":{"__proto__":{"strom":"BOESE"}}}`);
+    const gelesen = entwurfLesen(ablage, "k", ["__proto__", "constructor", V1], JETZT)!;
+    expect(({} as Record<string, unknown>).strom).toBeUndefined();
+    expect((Object as unknown as Record<string, unknown>).strom).toBeUndefined();
+    expect(Object.getPrototypeOf(gelesen.zaehlernummern)).toBe(Object.prototype);
   });
 });
 

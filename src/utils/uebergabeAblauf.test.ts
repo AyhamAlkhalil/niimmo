@@ -11,8 +11,28 @@ import {
   referenzText,
   schrittZustaende,
   zaehlerHinweise,
+  zaehlernummerHinweis,
   type AblaufEingaben,
 } from "./uebergabeAblauf";
+
+describe("zaehlernummerHinweis", () => {
+  it("schweigt, solange die Nummer aus den Stammdaten gilt", () => {
+    expect(zaehlernummerHinweis(undefined, "A", false)).toBeNull();
+    expect(zaehlernummerHinweis(" A ", "A", false)).toBeNull();
+    expect(zaehlernummerHinweis("", null, false)).toBeNull();
+  });
+
+  it("sagt, was an der Einheit geschieht", () => {
+    expect(zaehlernummerHinweis("WW-1", null, false)).toBe("Wird beim Speichern an der Einheit hinterlegt.");
+    expect(zaehlernummerHinweis("B", "A", false)).toBe("Bisher Nr. A. Wird beim Speichern an der Einheit geändert.");
+    expect(zaehlernummerHinweis("", "A", false)).toBe("Im Protokoll ohne Nummer. An der Einheit bleibt Nr. A hinterlegt.");
+  });
+
+  it("ein neuerer Stand an der Einheit lässt deren Nummer stehen", () => {
+    expect(zaehlernummerHinweis("B", "A", true)).toBe("Gilt nur für dieses Protokoll. An der Einheit steht schon ein neuerer Stand, dort bleibt Nr. A.");
+    expect(zaehlernummerHinweis("B", null, true)).toBe("Gilt nur für dieses Protokoll. An der Einheit steht schon ein neuerer Stand, dort bleibt die Nummer leer.");
+  });
+});
 
 const V = "vertrag-1";
 

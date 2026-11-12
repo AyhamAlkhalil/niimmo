@@ -11,6 +11,7 @@
  */
 import { format, isValid, parseISO } from "date-fns";
 import { parseZaehlerstand, istGueltigeZaehlerstandEingabe } from "./zaehlerstandUtils";
+import { zaehlernummerText } from "./uebergabeSpeicherung";
 
 export const UEBERGABE_SCHRITTE = ["allgemein", "zaehler", "zustand", "unterschriften", "pruefen"] as const;
 export type UebergabeSchritt = (typeof UEBERGABE_SCHRITTE)[number];
@@ -125,6 +126,26 @@ export function zaehlerHinweise(eingabe: string | undefined, fotos: number, refe
   // Zehnfach und mindestens 1000 darüber: typisch für ein fehlendes Komma
   if (referenz.stand > 0 && wert >= referenz.stand * 10 && wert - referenz.stand >= 1000) return [{ art: "sprung", sperrt: false }];
   return [];
+}
+
+/**
+ * Hinweis unter einer in der Übergabe geänderten Zählernummer: was ins Protokoll kommt und
+ * was an der Einheit hinterlegt wird. `spaeterStand`: An der Einheit steht schon ein Stand
+ * nach dem Übergabetag. Dann bleiben ihre Stammdaten unverändert, nach derselben Regel wie
+ * beim aktuellen Stand (utils/uebergabeSpeicherung.ts, standFilter).
+ */
+export function zaehlernummerHinweis(eingabe: string | undefined, stamm: string | null | undefined, spaeterStand: boolean): string | null {
+  if (eingabe === undefined) return null;
+  // Gleich verglichen wie beim Speichern (nummerFuerStammdaten), sonst versprach der Hinweis eine Änderung, die nicht kommt
+  const neu = zaehlernummerText(eingabe);
+  const bisher = zaehlernummerText(stamm);
+  if (neu === bisher) return null;
+  // Eine geleerte Nummer löscht an der Einheit nichts (nummerFuerStammdaten)
+  if (!neu) return `Im Protokoll ohne Nummer. An der Einheit bleibt Nr. ${bisher} hinterlegt.`;
+  if (spaeterStand) {
+    return `Gilt nur für dieses Protokoll. An der Einheit steht schon ein neuerer Stand, dort bleibt ${bisher ? `Nr. ${bisher}` : "die Nummer leer"}.`;
+  }
+  return bisher ? `Bisher Nr. ${bisher}. Wird beim Speichern an der Einheit geändert.` : "Wird beim Speichern an der Einheit hinterlegt.";
 }
 
 export type SchrittZustand = "ok" | "hinweis" | "fehler";

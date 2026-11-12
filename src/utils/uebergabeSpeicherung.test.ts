@@ -12,7 +12,11 @@ import {
   fremdBelegt,
   unbelegterRueckbau,
   mitZeitlimit,
-  aktuelleStaende,
+  einheitAenderungen,
+  effektiveZaehlernummer,
+  nummerFuerStammdaten,
+  nummernAbgleichen,
+  zaehlernummerText,
   standFilter,
   fehlendeDokumente,
   dateienHochladen,
@@ -100,13 +104,81 @@ describe("historieEintraege mit Herkunft", () => {
   });
 });
 
-describe("aktuelleStaende", () => {
-  it("liefert je erfasstem Zähler die Spalten der Einheit, Kaltwasser als kaltwasser", () => {
-    expect(aktuelleStaende({ ...LEERE_ZAEHLER, strom: "1.234,5", wasser: "7" })).toEqual([
-      { standSpalte: "strom_stand_aktuell", datumSpalte: "strom_stand_datum", stand: 1234.5 },
-      { standSpalte: "kaltwasser_stand_aktuell", datumSpalte: "kaltwasser_stand_datum", stand: 7 },
+describe("einheitAenderungen", () => {
+  it("liefert je erfasstem Zähler Stand und Datum an der Einheit, Kaltwasser als kaltwasser", () => {
+    expect(einheitAenderungen({ ...LEERE_ZAEHLER, strom: "1.234,5", wasser: "7" }, "2026-10-16")).toEqual([
+      { datumSpalte: "strom_stand_datum", neu: { strom_stand_aktuell: 1234.5, strom_stand_datum: "2026-10-16" } },
+      { datumSpalte: "kaltwasser_stand_datum", neu: { kaltwasser_stand_aktuell: 7, kaltwasser_stand_datum: "2026-10-16" } },
     ]);
-    expect(aktuelleStaende(LEERE_ZAEHLER)).toEqual([]);
+    expect(einheitAenderungen(LEERE_ZAEHLER, "2026-10-16")).toEqual([]);
+  });
+
+  it("nimmt eine neue Zählernummer mit, auch ohne Stand", () => {
+    expect(einheitAenderungen({ ...LEERE_ZAEHLER, strom: "1159" }, "2026-10-16", { strom: " 1 EFR21 4709 6163 ", warmwasser: "WW-1" })).toEqual([
+      { datumSpalte: "strom_stand_datum", neu: { strom_stand_aktuell: 1159, strom_stand_datum: "2026-10-16", strom_zaehler: "1 EFR21 4709 6163" } },
+      // Ohne Stand nur die Nummer — das Datum bleibt die Sperre gegen einen späteren Stand
+      { datumSpalte: "warmwasser_stand_datum", neu: { warmwasser_zaehler: "WW-1" } },
+    ]);
+  });
+
+  it("schreibt keine leere Nummer", () => {
+    expect(einheitAenderungen(LEERE_ZAEHLER, "2026-10-16", { gas: "  ", wasser: null })).toEqual([]);
+  });
+});
+
+describe("Zählernummer aus der Übergabe", () => {
+  it("nimmt die eingetragene Nummer, sonst die aus den Stammdaten", () => {
+    expect(effektiveZaehlernummer(undefined, " 9 DEL24 36122535 ")).toBe("9 DEL24 36122535");
+    expect(effektiveZaehlernummer("9 DEL24 99", "9 DEL24 36122535")).toBe("9 DEL24 99");
+    expect(effektiveZaehlernummer(undefined, null)).toBeNull();
+    expect(effektiveZaehlernummer("WW-1", null)).toBe("WW-1");
+  });
+
+  it("eine geleerte Eingabe heißt ohne Nummer im Protokoll", () => {
+    expect(effektiveZaehlernummer("", "9 DEL24 36122535")).toBeNull();
+    expect(effektiveZaehlernummer("   ", "9 DEL24 36122535")).toBeNull();
+  });
+
+  it("Protokoll, Zusammenfassung, Ablesung und Einheit nehmen die in der Übergabe eingetragene Nummer", () => {
+    const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
+    // Bis 12.11.2026 gingen die Stammdaten direkt in PDF und Historie
+    expect(dialog).not.toMatch(/zaehlernummern: vertragsZaehler\[c\.id\]\?\.nummern/);
+    expect(dialog).not.toMatch(/nummer: vertragsZaehler\[contract\.id\]\?\.nummern\[typ\]/);
+    expect((dialog.match(/effektiveZaehlernummer\(nummerEingabe\(/g) ?? []).length).toBe(3);
+    expect(dialog).toMatch(/nummerFuerStammdaten\(nummerEingabe\(contract\.id, typ\), stammNummer\(contract\.id, typ\)\)/);
+    // Review 12.11.2026: vor dem Schreiben gegen die Nummer beim Öffnen abgleichen
+    expect(dialog).toMatch(/nummernAbgleichen\(a\.neu, vorher, beimOeffnen\)/);
+  });
+
+  it("entfernt unsichtbare Zeichen, damit kein Nullbreiten-Leerzeichen als Nummer gilt", () => {
+    expect(zaehlernummerText("\u200B")).toBe("");
+    expect(zaehlernummerText(" 1\u200BEFR21\uFEFF ")).toBe("1EFR21");
+    expect(nummerFuerStammdaten("\u200B", null)).toBeNull();
+    expect(nummerFuerStammdaten("A\u200B", "A")).toBeNull();
+    expect(effektiveZaehlernummer("\u2060", "A")).toBeNull();
+    expect(einheitAenderungen(LEERE_ZAEHLER, "2026-10-16", { strom: "\u200B\u200C" })).toEqual([]);
+  });
+
+  it("schreibt eine Nummer nur, wenn an der Einheit noch die vom Öffnen steht", () => {
+    const neu = { strom_stand_aktuell: 5, strom_stand_datum: "2026-10-16", strom_zaehler: "B" };
+    // Unverändert seit dem Öffnen: wird geschrieben
+    expect(nummernAbgleichen(neu, { strom_zaehler: "A " }, { strom_zaehler: "A" })).toEqual({ neu, verworfen: [] });
+    expect(nummernAbgleichen({ gas_zaehler: "G" }, { gas_zaehler: null }, { gas_zaehler: null })).toEqual({ neu: { gas_zaehler: "G" }, verworfen: [] });
+    // Inzwischen von jemand anderem geändert: nur Stand und Datum
+    expect(nummernAbgleichen(neu, { strom_zaehler: "C" }, { strom_zaehler: "A" })).toEqual({
+      neu: { strom_stand_aktuell: 5, strom_stand_datum: "2026-10-16" },
+      verworfen: ["strom_zaehler"],
+    });
+    // Stammdaten ließen sich nicht laden: eine vorhandene Nummer wird nie überschrieben
+    expect(nummernAbgleichen({ kaltwasser_zaehler: "K" }, { kaltwasser_zaehler: "X" }, {})).toEqual({ neu: {}, verworfen: ["kaltwasser_zaehler"] });
+  });
+
+  it("hinterlegt an der Einheit nur eine eingetragene, abweichende Nummer und löscht dort nichts", () => {
+    expect(nummerFuerStammdaten(undefined, "A")).toBeNull();
+    expect(nummerFuerStammdaten("A ", "A")).toBeNull();
+    expect(nummerFuerStammdaten("", "A")).toBeNull();
+    expect(nummerFuerStammdaten("B", "A")).toBe("B");
+    expect(nummerFuerStammdaten(" B ", null)).toBe("B");
   });
 });
 
@@ -135,7 +207,8 @@ describe("standFilter", () => {
   it("der Dialog schreibt den Stand der Einheit ohne or-Filter", () => {
     // 12.11.2026: or-Filter im Update mit Rückgabe → 42703, jede Übergabe mit Zählerstand scheiterte
     const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
-    const schritt = dialog.slice(dialog.indexOf("// 5. Aktueller Stand der Einheit"), dialog.indexOf("// 6. Fotos und PDF als Dokumente"));
+    const schritt = dialog.slice(dialog.indexOf("// 5. Aktueller Stand und geänderte Zählernummer"), dialog.indexOf("// 6. Fotos und PDF als Dokumente"));
+    expect(schritt.length).toBeGreaterThan(500);
     expect(schritt).toMatch(/standFilter\(vorher\[a\.datumSpalte\], historieDatum\)/);
     expect(schritt).not.toMatch(/\.or\(/);
   });
@@ -269,6 +342,12 @@ describe("rueckbauLesen", () => {
     expect(rueckbauLesen(gut)).toEqual(gut);
   });
 
+  it("nimmt die Zählernummer der Einheit an (seit 12.11.2026), aber keine anderen Stammdaten", () => {
+    const mitNummer = { ...gut, zeilen: [{ ...gut.zeilen[0], neu: { strom_zaehler: "1 EFR21" }, vorher: { strom_zaehler: null } }] };
+    expect(rueckbauLesen(mitNummer)).toEqual(mitNummer);
+    expect(rueckbauLesen({ ...gut, zeilen: [{ ...gut.zeilen[0], neu: { zaehler: 3 }, vorher: { zaehler: 2 } }] })).toBeNull();
+  });
+
   it("nimmt eine vorhandene Historienzeile mit Protokollpfad als Bedingung an", () => {
     const r = { historieIds: [], zeilen: [{ tabelle: "zaehlerstand_historie", id: ID, neu: { protokoll_pfad: gut.pdfPfad }, vorher: { stand: 4, protokoll_pfad: null } }] };
     expect(rueckbauLesen(r)?.zeilen).toHaveLength(1);
@@ -375,6 +454,18 @@ describe("Belege für den Rückbau", () => {
   it("lässt eine Zeile ganz stehen, wenn alle Spalten belegt sind, und nimmt Stand und Datum der Einheit gemeinsam heraus", () => {
     expect(unbelegterRueckbau(einheit, [ablesung({})], PFAD)).toBeNull();
     expect(unbelegterRueckbau(einheit, [], PFAD)).toBe(einheit);
+  });
+
+  it("die mit dem Stand geschriebene Zählernummer bleibt mit ihm stehen, eine allein geänderte wird zurückgesetzt", () => {
+    const mitNummer = {
+      ...einheit,
+      neu: { ...einheit.neu, strom_zaehler: "NEU-1", gas_zaehler: "NEU-2" },
+      vorher: { ...einheit.vorher, strom_zaehler: "ALT-1", gas_zaehler: null },
+    };
+    expect(unbelegterRueckbau(mitNummer, [ablesung({})], PFAD)).toEqual({
+      ...einheit, neu: { gas_zaehler: "NEU-2" }, vorher: { gas_zaehler: null },
+    });
+    expect(unbelegterRueckbau(mitNummer, [], PFAD)).toBe(mitNummer);
   });
 
   it("dieselbe Übergabe von einem zweiten Gerät belegt die Vertragsstände", () => {

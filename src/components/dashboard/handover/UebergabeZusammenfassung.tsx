@@ -8,7 +8,13 @@ interface UebergabeZusammenfassungProps {
   uebergabeDatum: Date | undefined;
   mieterName?: string;
   schluessel: { haustuer: string; wohnung: string; briefkasten: string; keller: string };
-  einheiten: Array<{ id: string; titel: string; zaehlerstaende: Partial<Record<ZaehlerTyp, string>> }>;
+  einheiten: Array<{
+    id: string;
+    titel: string;
+    zaehlerstaende: Partial<Record<ZaehlerTyp, string>>;
+    /** wie im Protokoll: eingetragen oder aus den Stammdaten */
+    zaehlernummern?: Partial<Record<ZaehlerTyp, string | null>>;
+  }>;
   zaehlerfotos: number;
   zustandsfotos: number;
   notizen: string;
@@ -70,10 +76,13 @@ export const UebergabeZusammenfassung = ({
             {ZAEHLER_TYPEN.map((typ) => {
               const wert = e.zaehlerstaende[typ] ?? "";
               const erfasst = parseZaehlerstand(wert) !== null;
+              // Die Nummer steht mit im Protokoll, also auch hier vor den Unterschriften
+              const nummer = e.zaehlernummern?.[typ]?.trim();
               return (
-                <div key={typ}>
+                <div key={typ} className="min-w-0">
                   <dt className="text-xs text-muted-foreground">{ZAEHLER_BEZEICHNUNG[typ]}</dt>
                   <dd className="tabular-nums">{erfasst ? `${zaehlerstandText(wert)} ${ZAEHLER_EINHEIT[typ]}` : "–"}</dd>
+                  {nummer && <dd className="truncate text-xs tabular-nums text-muted-foreground">Nr. {nummer}</dd>}
                 </div>
               );
             })}

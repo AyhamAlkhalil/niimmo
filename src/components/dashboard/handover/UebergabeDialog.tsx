@@ -64,7 +64,10 @@ import {
   vertragsStaende,
   historieEintraege,
   historieAufteilen,
-  aktuelleStaende,
+  einheitAenderungen,
+  effektiveZaehlernummer,
+  nummerFuerStammdaten,
+  nummernAbgleichen,
   standFilter,
   fehlendeDokumente,
   LEERE_ZAEHLER,
@@ -106,6 +109,7 @@ import {
   vergleichsAblesungen,
   vorschlagDatum,
   zaehlerHinweise,
+  zaehlernummerHinweis,
   type Referenzstand,
   type UebergabeSchritt,
   type ZaehlerTyp,
@@ -175,7 +179,10 @@ interface MeterPhotosPerContract {
 /** Zählernummern und Einzugsstände je Vertrag — für Vergleich und Protokoll */
 interface VertragsZaehler {
   start: string | null;
+  /** aus den Stammdaten der Einheit; in der Übergabe änderbar (zaehlernummernPerContract) */
   nummern: Partial<Record<MeterTyp, string | null>>;
+  /** Datum des aktuellen Stands an der Einheit — ein späteres lässt die Stammdaten unverändert */
+  standDatum: Partial<Record<MeterTyp, string | null>>;
   einzug: Partial<Record<MeterTyp, number | null>>;
 }
 
@@ -247,6 +254,17 @@ export const UebergabeDialog = ({
     const initial: MeterPhotosPerContract = {};
     contracts.forEach(c => {
       initial[c.id] = { ...geladenerEntwurf?.zaehlerfotos[c.id] };
+    });
+    return initial;
+  });
+  // In der Übergabe eingetragene oder geänderte Zählernummern (seit 12.11.2026). Nur die
+  // geänderten stehen hier; sonst gilt die aus den Stammdaten. So schreibt das bloße Öffnen
+  // nichts in den Entwurf, auch wenn die Stammdaten erst danach geladen sind.
+  const [zaehlernummernPerContract, setZaehlernummernPerContract] = useState<Record<string, Partial<Record<MeterTyp, string>>>>(() => {
+    const initial: Record<string, Partial<Record<MeterTyp, string>>> = {};
+    contracts.forEach(c => {
+      const aus = geladenerEntwurf?.zaehlernummern?.[c.id];
+      if (aus && Object.keys(aus).length > 0) initial[c.id] = { ...aus };
     });
     return initial;
   });
@@ -435,9 +453,11 @@ export const UebergabeDialog = ({
         vermieterSignature,
         mieterSignature,
         vertragsZaehler,
+        zaehlernummernPerContract,
       ]),
     [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller,
-      zaehlerstaendePerContract, meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, vertragsZaehler]
+      zaehlerstaendePerContract, meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, vertragsZaehler,
+      zaehlernummernPerContract]
   );
 
   const eingaben = useMemo<UebergabeEingaben>(
@@ -446,6 +466,7 @@ export const UebergabeDialog = ({
       schluessel: { haustuer: schluesselHaustuer, wohnung: schluesselWohnung, briefkasten: schluesselBriefkasten, keller: schluesselKeller },
       zaehlerstaende: zaehlerstaendePerContract,
       zaehlerfotos: meterPhotosPerContract,
+      ...(Object.values(zaehlernummernPerContract).some((n) => Object.keys(n).length > 0) ? { zaehlernummern: zaehlernummernPerContract } : {}),
       notizen: protokollNotizen,
       notizenFotos: notizenPhotos,
       unterschriftVermieter: vermieterSignature,
@@ -456,8 +477,8 @@ export const UebergabeDialog = ({
       ...(offenerRueckbau ? { offenerRueckbau } : {}),
     }),
     [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller, zaehlerstaendePerContract,
-      meterPhotosPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected, mieterEmails, schritt,
-      offenerRueckbau]
+      meterPhotosPerContract, zaehlernummernPerContract, protokollNotizen, notizenPhotos, vermieterSignature, mieterSignature, versorgerSelected,
+      mieterEmails, schritt, offenerRueckbau]
   );
   const ungespeicherteEingaben = !isSaved && (hatEingaben(eingaben) || fotosLaden);
 
@@ -491,6 +512,9 @@ export const UebergabeDialog = ({
   // unterschriebenen Protokoll, ein später aufgenommenes (etwa von einem Mangel)
   // stünde ungesehen darin. Ausgenommen sind Uploads, die beim Unterschreiben schon
   // liefen — sie gehören zu dem, was der Mieter gesehen hat.
+  // Zählernummern zählen mit, aber nur die in der Übergabe geänderten: Die aus den
+  // Stammdaten kommen erst nach dem Öffnen an und verwarfen sonst jede Unterschrift
+  // in einem fortgesetzten Entwurf.
   const unterschriebenerInhalt = useMemo(
     () =>
       JSON.stringify([
@@ -498,8 +522,10 @@ export const UebergabeDialog = ({
         schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller,
         zaehlerstaendePerContract,
         protokollNotizen,
+        zaehlernummernPerContract,
       ]),
-    [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller, zaehlerstaendePerContract, protokollNotizen]
+    [uebergabeDatum, schluesselHaustuer, schluesselWohnung, schluesselBriefkasten, schluesselKeller, zaehlerstaendePerContract, protokollNotizen,
+      zaehlernummernPerContract]
   );
   const alleFotos = useMemo(
     () => [...notizenPhotos, ...Object.values(meterPhotosPerContract).flatMap((je) => Object.values(je ?? {}).flat())],
@@ -658,17 +684,22 @@ export const UebergabeDialog = ({
       if (vertragIds.length === 0) return;
       const { data, error } = await supabase
         .from("mietvertrag")
-        .select("id, start_datum, strom_einzug, gas_einzug, kaltwasser_einzug, warmwasser_einzug, einheiten(strom_zaehler, gas_zaehler, kaltwasser_zaehler, warmwasser_zaehler)")
+        // Ein einziges Literal: Aus verketteten Teilen leitet supabase-js keine Typen mehr ab
+        .select("id, start_datum, strom_einzug, gas_einzug, kaltwasser_einzug, warmwasser_einzug, einheiten(strom_zaehler, gas_zaehler, kaltwasser_zaehler, warmwasser_zaehler, strom_stand_datum, gas_stand_datum, kaltwasser_stand_datum, warmwasser_stand_datum)")
         .in("id", vertragIds);
       if (error) throw error;
       const neu: Record<string, VertragsZaehler> = {};
       for (const v of data ?? []) {
         const e = (Array.isArray(v.einheiten) ? v.einheiten[0] : v.einheiten) as
-          | { strom_zaehler: string | null; gas_zaehler: string | null; kaltwasser_zaehler: string | null; warmwasser_zaehler: string | null }
+          | {
+              strom_zaehler: string | null; gas_zaehler: string | null; kaltwasser_zaehler: string | null; warmwasser_zaehler: string | null;
+              strom_stand_datum: string | null; gas_stand_datum: string | null; kaltwasser_stand_datum: string | null; warmwasser_stand_datum: string | null;
+            }
           | null;
         neu[v.id] = {
           start: v.start_datum ?? null,
           nummern: { strom: e?.strom_zaehler, gas: e?.gas_zaehler, wasser: e?.kaltwasser_zaehler, warmwasser: e?.warmwasser_zaehler },
+          standDatum: { strom: e?.strom_stand_datum, gas: e?.gas_stand_datum, wasser: e?.kaltwasser_stand_datum, warmwasser: e?.warmwasser_stand_datum },
           einzug: { strom: v.strom_einzug, gas: v.gas_einzug, wasser: v.kaltwasser_einzug, warmwasser: v.warmwasser_einzug },
         };
       }
@@ -710,6 +741,22 @@ export const UebergabeDialog = ({
       ...prev,
       [contractId]: { ...prev[contractId], [meterType]: paths }
     }));
+  };
+
+  /** Eingetragene Nummer, sonst undefined: Dann gilt die aus den Stammdaten */
+  const nummerEingabe = (contractId: string, typ: MeterTyp): string | undefined => zaehlernummernPerContract[contractId]?.[typ];
+  const stammNummer = (contractId: string, typ: MeterTyp): string | null => vertragsZaehler[contractId]?.nummern[typ] ?? null;
+
+  const updateZaehlernummer = (contractId: string, typ: MeterTyp, wert: string) => {
+    const stamm = stammNummer(contractId, typ) ?? "";
+    setZaehlernummernPerContract((prev) => {
+      const je = { ...prev[contractId] };
+      // Wieder genau die Nummer aus den Stammdaten: nichts mehr als Änderung merken. Sonst
+      // schriebe ein alter Entwurf sie später über eine inzwischen geänderte Nummer.
+      if (wert === stamm) delete je[typ];
+      else je[typ] = wert;
+      return { ...prev, [contractId]: je };
+    });
   };
 
   // Ein Doppelklick auf „Weiter“ traf bis zum 23.10.2026 mit dem zweiten Klick
@@ -770,6 +817,7 @@ export const UebergabeDialog = ({
     });
     setZaehlerstaendePerContract(initialZaehler);
     setMeterPhotosPerContract(initialPhotos);
+    setZaehlernummernPerContract({});
     setProtokollNotizen("");
     setNotizenPhotos([]);
     setVermieterSignature(null);
@@ -871,7 +919,8 @@ export const UebergabeDialog = ({
           mietsache: c.einheit.mietsache || "",
           qm: null,
           zaehlerstaende: zaehlerstaendePerContract[c.id] || { strom: "", gas: "", wasser: "", warmwasser: "" },
-          zaehlernummern: vertragsZaehler[c.id]?.nummern,
+          // Die in der Übergabe eingetragene Nummer, sonst die aus den Stammdaten
+          zaehlernummern: Object.fromEntries(METER_TYPEN.map((typ) => [typ, effektiveZaehlernummer(nummerEingabe(c.id, typ), stammNummer(c.id, typ))])),
           zaehlerfotos: Object.keys(zaehlerfotos).length > 0 ? zaehlerfotos : undefined,
         };
       })
@@ -1135,7 +1184,8 @@ export const UebergabeDialog = ({
         je: Object.fromEntries(
           METER_TYPEN.map((typ) => {
             const fotos = meterPhotosPerContract[contract.id]?.[typ] ?? [];
-            return [typ, { nummer: vertragsZaehler[contract.id]?.nummern[typ] ?? null, foto: fotos[fotos.length - 1] ?? null, erfassung: "hand" as const }] as const;
+            const nummer = effektiveZaehlernummer(nummerEingabe(contract.id, typ), stammNummer(contract.id, typ));
+            return [typ, { nummer, foto: fotos[fotos.length - 1] ?? null, erfassung: "hand" as const }] as const;
           })
         ),
       });
@@ -1206,30 +1256,45 @@ export const UebergabeDialog = ({
         }
       }
 
-      // 5. Aktueller Stand der Einheit (Zählerverwaltung) — nur, wenn die Übergabe
-      // nicht älter ist als der dort stehende Stand. Der Filter entscheidet in
-      // der Datenbank; ein späteres Ablesen wird so nie überschrieben.
+      // 5. Aktueller Stand und geänderte Zählernummer an der Einheit (Zählerverwaltung) —
+      // nur, wenn die Übergabe nicht älter ist als der dort stehende Stand. Der Filter
+      // entscheidet in der Datenbank; ein späteres Ablesen wird so nie überschrieben.
+      // Zählernummern, die inzwischen an der Einheit geändert wurden: bleiben nur im Protokoll
+      const nummernNurImProtokoll: string[] = [];
       for (const contract of contracts) {
-        const staende = aktuelleStaende(zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER);
-        if (staende.length === 0) continue;
+        const aenderungen = einheitAenderungen(
+          zaehlerstaendePerContract[contract.id] ?? LEERE_ZAEHLER,
+          historieDatum,
+          Object.fromEntries(METER_TYPEN.map((typ) => [typ, nummerFuerStammdaten(nummerEingabe(contract.id, typ), stammNummer(contract.id, typ))]))
+        );
+        if (aenderungen.length === 0) continue;
+        const spalten = [...new Set(aenderungen.flatMap((a) => [...Object.keys(a.neu), a.datumSpalte]))];
         const { data: vorherRoh, error: leseFehler } = await db(supabase
           .from("einheiten")
-          .select(staende.flatMap((a) => [a.standSpalte, a.datumSpalte]).join(","))
+          .select(spalten.join(","))
           .eq("id", contract.einheit.id)
           .maybeSingle(), "Zählerstände der Einheit lesen");
         if (leseFehler) throw leseFehler;
         const vorher = (vorherRoh ?? {}) as unknown as Record<string, unknown>;
-        for (const a of staende) {
+        const beimOeffnen = Object.fromEntries(
+          METER_TYPEN.map((typ) => [`${ZAEHLER_DB_TYP[typ]}_zaehler`, stammNummer(contract.id, typ)])
+        );
+        for (const a of aenderungen) {
           // Kein or-Filter: PostgREST wendet ihn auf die Rückgabe noch einmal an und
           // scheiterte daran mit 400 (utils/uebergabeSpeicherung.ts, standFilter)
           const filter = standFilter(vorher[a.datumSpalte], historieDatum);
           if (filter === "spaeter_vorhanden") continue;
-          const neu = { [a.standSpalte]: a.stand, [a.datumSpalte]: historieDatum };
+          const { neu, verworfen } = nummernAbgleichen(a.neu, vorher, beimOeffnen);
+          for (const spalte of verworfen) {
+            const typ = METER_TYPEN.find((t) => `${ZAEHLER_DB_TYP[t]}_zaehler` === spalte);
+            if (typ) nummernNurImProtokoll.push(METER_LABELS[typ]);
+          }
+          if (Object.keys(neu).length === 0) continue;
           const zeile: Rueckbau["zeilen"][number] = {
             tabelle: "einheiten",
             id: contract.einheit.id,
             neu,
-            vorher: { [a.standSpalte]: vorher[a.standSpalte] ?? null, [a.datumSpalte]: vorher[a.datumSpalte] ?? null },
+            vorher: Object.fromEntries(Object.keys(neu).map((spalte) => [spalte, vorher[spalte] ?? null])),
           };
           rueckbau.zeilen.push(zeile);
           rueckbauMerken(rueckbau);
@@ -1321,11 +1386,17 @@ export const UebergabeDialog = ({
       }
 
       alsGespeichertUebernehmen(filePath);
-      if (fehlendeFotos > 0) {
+      const nachSpeichern = [
+        fehlendeFotos > 0 &&
+          `${fehlendeFotos === 1 ? "1 Foto fehlt" : `${fehlendeFotos} Fotos fehlen`} im Protokoll-PDF. Die Fotos selbst sind beim Vertrag unter Dokumente eingetragen.`,
+        nummernNurImProtokoll.length > 0 &&
+          `Die Zählernummer ${[...new Set(nummernNurImProtokoll)].join(", ")} wurde inzwischen an der Einheit geändert. Im Protokoll steht die eingetragene, an der Einheit bleibt die dortige.`,
+      ].filter(Boolean);
+      if (nachSpeichern.length > 0) {
         melden({
           art: "hinweis",
-          titel: "Gespeichert – Fotos fehlen",
-          text: `${fehlendeFotos === 1 ? "1 Foto fehlt" : `${fehlendeFotos} Fotos fehlen`} im Protokoll-PDF. Die Fotos selbst sind beim Vertrag unter Dokumente eingetragen.`,
+          titel: fehlendeFotos > 0 ? "Gespeichert – Fotos fehlen" : "Gespeichert",
+          text: nachSpeichern.join(" "),
         });
       }
     } catch (error) {
@@ -1807,7 +1878,13 @@ export const UebergabeDialog = ({
                 onFotosChange={(pfade) => updateMeterPhotos(contract.id, typ, pfade)}
                 onUploadingChange={uploadMelden(`${contract.id}-${typ}`)}
                 onFotoFehler={(text) => melden({ art: "fehler", titel: `${METER_LABELS[typ]}-Foto`, text })}
-                nummer={vertragsZaehler[contract.id]?.nummern[typ]}
+                nummer={nummerEingabe(contract.id, typ) ?? stammNummer(contract.id, typ) ?? ""}
+                onNummerChange={(w) => updateZaehlernummer(contract.id, typ, w)}
+                nummerHinweis={zaehlernummerHinweis(
+                  nummerEingabe(contract.id, typ),
+                  stammNummer(contract.id, typ),
+                  !!datumText && standFilter(vertragsZaehler[contract.id]?.standDatum[typ], datumText) === "spaeter_vorhanden"
+                )}
                 referenz={referenzen[contract.id]?.[typ] ?? null}
                 hinweise={zaehlerHinweise(
                   zaehlerstaendePerContract[contract.id]?.[typ],
@@ -1881,7 +1958,12 @@ export const UebergabeDialog = ({
       uebergabeDatum={uebergabeDatum}
       mieterName={mieterName}
       schluessel={{ haustuer: schluesselHaustuer, wohnung: schluesselWohnung, briefkasten: schluesselBriefkasten, keller: schluesselKeller }}
-      einheiten={contracts.map((c) => ({ id: c.id, titel: objektTitel(c), zaehlerstaende: zaehlerstaendePerContract[c.id] ?? {} }))}
+      einheiten={contracts.map((c) => ({
+        id: c.id,
+        titel: objektTitel(c),
+        zaehlerstaende: zaehlerstaendePerContract[c.id] ?? {},
+        zaehlernummern: Object.fromEntries(METER_TYPEN.map((typ) => [typ, effektiveZaehlernummer(nummerEingabe(c.id, typ), stammNummer(c.id, typ))])),
+      }))}
       zaehlerfotos={zaehlerfotoGesamt}
       zustandsfotos={notizenPhotos.length}
       notizen={protokollNotizen}

@@ -18,7 +18,7 @@
  * sind, verfällt ein Entwurf nach ENTWURF_HALTBAR_TAGE ohne Änderung.
  */
 import { isValid, parse } from "date-fns";
-import { rueckbauLesen, type Rueckbau, type ZaehlerEingaben } from "./uebergabeSpeicherung";
+import { rueckbauLesen, ZAEHLERNUMMER_MAX, type Rueckbau, type ZaehlerEingaben } from "./uebergabeSpeicherung";
 
 export interface UebergabeEingaben {
   /** yyyy-MM-dd */
@@ -26,6 +26,12 @@ export interface UebergabeEingaben {
   schluessel: { haustuer: string; wohnung: string; briefkasten: string; keller: string };
   zaehlerstaende: Record<string, ZaehlerEingaben>;
   zaehlerfotos: Record<string, Partial<Record<keyof ZaehlerEingaben, string[]>>>;
+  /**
+   * In der Übergabe eingetragene oder geänderte Zählernummern, je Vertrag und Zähler (seit
+   * 12.11.2026). Nur, was geändert wurde; sonst gilt die Nummer aus den Stammdaten. Ein leerer
+   * Text heißt „ohne Nummer“.
+   */
+  zaehlernummern?: Record<string, Partial<Record<keyof ZaehlerEingaben, string>>>;
   notizen: string;
   notizenFotos: string[];
   unterschriftVermieter: string | null;
@@ -84,6 +90,8 @@ export function hatEingaben(e: UebergabeEingaben): boolean {
     Object.values(e.schluessel).some((s) => s.trim() !== "") ||
     Object.values(e.zaehlerstaende).some((z) => ZAEHLER.some((t) => (z[t] ?? "").trim() !== "")) ||
     Object.values(e.zaehlerfotos).some((f) => ZAEHLER.some((t) => (f[t]?.length ?? 0) > 0)) ||
+    // Auch eine geleerte Nummer ist eine Änderung gegenüber den Stammdaten
+    Object.values(e.zaehlernummern ?? {}).some((n) => ZAEHLER.some((t) => typeof n?.[t] === "string")) ||
     e.notizen.trim() !== "" ||
     e.notizenFotos.length > 0 ||
     !!e.unterschriftVermieter ||
@@ -143,8 +151,12 @@ export function entwurfLesen(
   const schluesselRoh = objekt(r.schluessel);
   const staendeRoh = objekt(r.zaehlerstaende);
   const fotosRoh = objekt(r.zaehlerfotos);
+  const nummernRoh = objekt(r.zaehlernummern);
   const zaehlerstaende: UebergabeEingaben["zaehlerstaende"] = {};
   const zaehlerfotos: UebergabeEingaben["zaehlerfotos"] = {};
+  // Als Liste gesammelt und mit Object.fromEntries gebaut: Eine Zuweisung an obj[id] riefe bei
+  // id „__proto__“ den Setter auf und schriebe in Object.prototype (QA 12.11.2026)
+  const nummernEintraege: Array<[string, Partial<Record<keyof ZaehlerEingaben, string>>]> = [];
   for (const id of vertragIds) {
     const z = objekt(staendeRoh[id]);
     zaehlerstaende[id] = { strom: text(z.strom), gas: text(z.gas), wasser: text(z.wasser), warmwasser: text(z.warmwasser) };
@@ -154,7 +166,15 @@ export function entwurfLesen(
       const pfade = textListe(f[t]);
       if (pfade.length > 0) zaehlerfotos[id][t] = pfade;
     }
+    const n = Object.prototype.hasOwnProperty.call(nummernRoh, id) ? objekt(nummernRoh[id]) : {};
+    const je: Partial<Record<keyof ZaehlerEingaben, string>> = {};
+    for (const t of ZAEHLER) {
+      // Nur Text, und nicht länger, als das Feld zulässt
+      if (typeof n[t] === "string") je[t] = (n[t] as string).slice(0, ZAEHLERNUMMER_MAX);
+    }
+    if (Object.keys(je).length > 0) nummernEintraege.push([id, je]);
   }
+  const zaehlernummern = Object.fromEntries(nummernEintraege);
   const emailsRoh = objekt(r.mieterEmails);
   const mieterEmails: Record<string, string> = {};
   for (const [id, mail] of Object.entries(emailsRoh)) {
@@ -175,6 +195,7 @@ export function entwurfLesen(
     },
     zaehlerstaende,
     zaehlerfotos,
+    ...(Object.keys(zaehlernummern).length > 0 ? { zaehlernummern } : {}),
     notizen: text(r.notizen),
     notizenFotos: textListe(r.notizenFotos),
     unterschriftVermieter: unterschrift(r.unterschriftVermieter),

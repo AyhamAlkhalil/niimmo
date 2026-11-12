@@ -157,7 +157,8 @@ const RUECKBAU_TABELLEN = ["mietvertrag", "einheiten", "zaehlerstand_historie"] 
 const ZAEHLER_SPALTEN = ["strom", "gas", "kaltwasser", "warmwasser"];
 const RUECKBAU_SPALTEN: Record<(typeof RUECKBAU_TABELLEN)[number], string[]> = {
   mietvertrag: ZAEHLER_SPALTEN.flatMap((t) => [`${t}_einzug`, `${t}_auszug`]),
-  einheiten: ZAEHLER_SPALTEN.flatMap((t) => [`${t}_stand_aktuell`, `${t}_stand_datum`]),
+  // Seit 12.11.2026 auch die Zählernummer, die die Übergabe an der Einheit nachzieht
+  einheiten: ZAEHLER_SPALTEN.flatMap((t) => [`${t}_stand_aktuell`, `${t}_stand_datum`, `${t}_zaehler`]),
   zaehlerstand_historie: ["stand", "mietvertrag_id", "zaehler_nummer", "protokoll_pfad", "foto_pfad", "erfassung", "erkannter_stand"],
 };
 /** Genau ein PDF im Protokollordner eines Vertrags, wie es uebergabePdfPfad erzeugt (kein .., kein %) */
@@ -280,7 +281,8 @@ function belegFuerSpalte(
     const typ = /^(strom|gas|kaltwasser|warmwasser)_stand_aktuell$/.exec(spalte)?.[1];
     const datum = typ ? zeile.neu[`${typ}_stand_datum`] : undefined;
     if (typ && typeof datum === "string") {
-      return { beleg: { einheitId: zeile.id, zaehlerTyp: typ, stand: wert, datum }, spalten: [spalte, `${typ}_stand_datum`] };
+      // Die mit dem Stand geschriebene Zählernummer gehört zu derselben Ablesung (12.11.2026)
+      return { beleg: { einheitId: zeile.id, zaehlerTyp: typ, stand: wert, datum }, spalten: [spalte, `${typ}_stand_datum`, `${typ}_zaehler`] };
     }
   } else if (zeile.tabelle === "mietvertrag") {
     const treffer = /^(strom|gas|kaltwasser|warmwasser)_(einzug|auszug)$/.exec(spalte);
@@ -339,23 +341,93 @@ export function fremdBelegt(belege: Beleg[], ablesungen: BelegAblesung[], eigene
   );
 }
 
-export interface AktuellerStand {
-  /** Spalten der Tabelle einheiten, z. B. kaltwasser_stand_aktuell / kaltwasser_stand_datum */
-  standSpalte: string;
-  datumSpalte: string;
-  stand: number;
+/** Längste Zählernummer, die die Übergabe annimmt (live sind es höchstens 22 Zeichen, 12.11.2026). */
+export const ZAEHLERNUMMER_MAX = 40;
+
+/**
+ * Zählernummer ohne Rand und ohne unsichtbare Zeichen. Ein Nullbreiten-Leerzeichen
+ * (U+200B, etwa aus einer kopierten Mail) übersteht trim() und stünde sonst als
+ * „Nummer“ in den Stammdaten.
+ */
+export function zaehlernummerText(wert: string | null | undefined): string {
+  // String(): Ein unerwarteter Nicht-Text darf das Speichern nicht mit einem TypeError abbrechen
+  return String(wert ?? "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").trim();
 }
 
 /**
- * Der „aktuelle Stand" der Einheit (Zählerverwaltung) aus den erfassten Werten.
- * Geschrieben wird er nur, wenn das Übergabedatum nicht älter ist als der dort
- * hinterlegte Stand — das prüft der Aufrufer im Filter des Updates. Bis zum
- * 22.10.2026 zog die Übergabe ihn nie nach; er war bei allen Einheiten leer.
+ * Zählernummer für Protokoll und Ablesung: die in der Übergabe eingetragene, sonst die aus
+ * den Stammdaten der Einheit. Eine geleerte Eingabe heißt „ohne Nummer“. Bis zum 12.11.2026
+ * kam die Nummer nur aus den Stammdaten. Fehlte sie dort oder war der Zähler getauscht,
+ * ließ sie sich in der Übergabe weder eintragen noch korrigieren.
  */
-export function aktuelleStaende(z: ZaehlerEingaben): AktuellerStand[] {
+export function effektiveZaehlernummer(eingabe: string | undefined, stamm: string | null | undefined): string | null {
+  return zaehlernummerText(eingabe !== undefined ? eingabe : stamm) || null;
+}
+
+/**
+ * Nummer, die beim Speichern an der Einheit hinterlegt wird: nur eine eingetragene, die von
+ * den Stammdaten abweicht. Eine geleerte Eingabe löscht dort nichts.
+ */
+export function nummerFuerStammdaten(eingabe: string | undefined, stamm: string | null | undefined): string | null {
+  if (eingabe === undefined) return null;
+  const neu = zaehlernummerText(eingabe);
+  return neu && neu !== zaehlernummerText(stamm) ? neu : null;
+}
+
+/**
+ * Nimmt Zählernummern aus `neu` heraus, wenn an der Einheit inzwischen eine andere steht als
+ * beim Öffnen des Dialogs (`beimOeffnen`, je Spalte). Ein alter Entwurf oder ein lange offener
+ * Dialog schriebe sonst über einen Zählertausch, den jemand anderes eingetragen hat; nach einem
+ * Ladefehler (dann ist beim Öffnen nichts bekannt) über jede vorhandene Nummer. Die eingetragene
+ * Nummer bleibt dann nur im Protokoll (Review 12.11.2026). `verworfen`: die herausgenommenen Spalten.
+ */
+export function nummernAbgleichen(
+  neu: Record<string, number | string>,
+  vorher: Record<string, unknown>,
+  beimOeffnen: Record<string, string | null | undefined>
+): { neu: Record<string, number | string>; verworfen: string[] } {
+  const ergebnis = { ...neu };
+  const verworfen: string[] = [];
+  for (const spalte of Object.keys(neu)) {
+    if (!/^(strom|gas|kaltwasser|warmwasser)_zaehler$/.test(spalte)) continue;
+    const jetzt = typeof vorher[spalte] === "string" ? (vorher[spalte] as string) : "";
+    if (zaehlernummerText(jetzt) !== zaehlernummerText(beimOeffnen[spalte])) {
+      delete ergebnis[spalte];
+      verworfen.push(spalte);
+    }
+  }
+  return { neu: ergebnis, verworfen };
+}
+
+export interface EinheitAenderung {
+  /** Datumsspalte des Zählers an der Einheit — entscheidet, ob geschrieben wird (standFilter) */
+  datumSpalte: string;
+  /** Spalten der Tabelle einheiten mit neuem Wert, z. B. strom_stand_aktuell, strom_stand_datum, strom_zaehler */
+  neu: Record<string, number | string>;
+}
+
+/**
+ * Was die Übergabe je Zähler an der Einheit nachzieht: den aktuellen Stand (Zählerverwaltung)
+ * aus den erfassten Werten und eine neue Zählernummer (`nummern`: nur die zu schreibenden,
+ * siehe nummerFuerStammdaten). Geschrieben wird beides nur, wenn das Übergabedatum nicht älter
+ * ist als der dort hinterlegte Stand; das prüft der Aufrufer im Filter des Updates. Bis zum
+ * 22.10.2026 zog die Übergabe den Stand nie nach, er war bei allen Einheiten leer.
+ */
+export function einheitAenderungen(
+  z: ZaehlerEingaben,
+  datum: string,
+  nummern: Partial<Record<keyof ZaehlerEingaben, string | null>> = {}
+): EinheitAenderung[] {
   return HISTORIE_TYP.flatMap(([feld, typ]) => {
+    const neu: Record<string, number | string> = {};
     const stand = parseZaehlerstand(z[feld]);
-    return stand === null ? [] : [{ standSpalte: `${typ}_stand_aktuell`, datumSpalte: `${typ}_stand_datum`, stand }];
+    if (stand !== null) {
+      neu[`${typ}_stand_aktuell`] = stand;
+      neu[`${typ}_stand_datum`] = datum;
+    }
+    const nummer = zaehlernummerText(nummern[feld]);
+    if (nummer) neu[`${typ}_zaehler`] = nummer;
+    return Object.keys(neu).length > 0 ? [{ datumSpalte: `${typ}_stand_datum`, neu }] : [];
   });
 }
 

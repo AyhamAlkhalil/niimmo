@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.16.0",
+    datum: "2026-11-12",
+    aenderungen: [
+      { art: "neu", titel: "Übergabe: Zählernummer eintragen oder ändern, sie wird an der Einheit hinterlegt" },
+    ],
+  },
+  {
     version: "1.15.0",
     datum: "2026-11-12",
     aenderungen: [
