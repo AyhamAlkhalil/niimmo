@@ -316,13 +316,13 @@ export async function aktiviereEntwurf(a: AktivierenArgs): Promise<AktivierenErg
   for (const p of entwurf.personen.filter(m => m.rolle === 'mitmieter' && m.mieterId)) {
     const { data: vorhanden } = await supabase
       .from('mieter')
-      .select('hauptmail, telnr, geburtsdatum, strasse, hausnummer, plz, ort, anrede, vertreten_durch')
+      .select('hauptmail, telnr, geburtsdatum, strasse, hausnummer, plz, ort, anrede, vertreten_durch, ausweisnummer')
       .eq('id', p.mieterId!)
       .maybeSingle();
     if (!vorhanden) continue;
     const neu = bestandsStammdaten(p);
     const ergaenzung: Record<string, string | null> = {};
-    for (const feld of ['hauptmail', 'telnr', 'geburtsdatum', 'strasse', 'hausnummer', 'plz', 'ort', 'anrede', 'vertreten_durch'] as const) {
+    for (const feld of ['hauptmail', 'telnr', 'geburtsdatum', 'strasse', 'hausnummer', 'plz', 'ort', 'anrede', 'vertreten_durch', 'ausweisnummer'] as const) {
       if (!vorhanden[feld] && neu[feld]) ergaenzung[feld] = neu[feld] as string;
     }
     if (Object.keys(ergaenzung).length > 0) {

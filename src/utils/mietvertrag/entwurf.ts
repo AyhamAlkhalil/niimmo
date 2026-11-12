@@ -64,6 +64,8 @@ export interface EntwurfPerson {
   istUnternehmen: boolean;
   firmenname: string | null;
   geburtsdatum: string | null;
+  /** Personalausweis, Pass oder Aufenthaltstitel — optional, steht im Vertrag (seit 12.11.2026). */
+  ausweisnummer?: string | null;
   strasse: string | null;
   hausnummer: string | null;
   plz: string | null;
@@ -670,6 +672,7 @@ export function mieterFuerVertrag(personen: EntwurfPerson[]): MieterDaten[] {
       plz: p.plz,
       ort: p.ort,
       geburtsdatum: p.istUnternehmen ? null : p.geburtsdatum,
+      ausweisnummer: p.istUnternehmen ? null : p.ausweisnummer?.trim() || null,
       telefon: p.telefon,
       email: p.email,
     }));
@@ -770,7 +773,7 @@ export type BestandsMieter = Pick<
   | 'ist_unternehmen'
   | 'firmenname'
   | 'vertreten_durch'
->;
+> & { ausweisnummer?: string | null };
 
 /** Leerer Text im Bestand zählt wie keine Angabe. */
 function angabe(s: string | null | undefined): string | null {
@@ -799,6 +802,7 @@ export function mitBestandsmieter(p: EntwurfPerson, m: BestandsMieter): EntwurfP
     vertretenDurch: angabe(m.vertreten_durch) ?? p.vertretenDurch ?? null,
     anrede: (m.anrede as Anrede | null) ?? p.anrede,
     geburtsdatum: m.geburtsdatum ?? p.geburtsdatum,
+    ausweisnummer: angabe(m.ausweisnummer) ?? p.ausweisnummer ?? null,
     email: angabe(m.hauptmail) ?? p.email,
     telefon: angabe(m.telnr) ?? p.telefon,
     strasse: p.strasse ?? angabe(m.strasse),
@@ -812,6 +816,7 @@ export function mitBestandsmieter(p: EntwurfPerson, m: BestandsMieter): EntwurfP
       hauptmail: m.hauptmail?.trim() || null,
       telnr: m.telnr?.trim() || null,
       geburtsdatum: m.ist_unternehmen ? null : m.geburtsdatum?.trim() || null,
+      ausweisnummer: m.ist_unternehmen ? null : m.ausweisnummer?.trim() || null,
       vertreten_durch: m.ist_unternehmen ? m.vertreten_durch?.trim() || null : null,
       strasse: m.strasse?.trim() || null,
       hausnummer: m.hausnummer?.trim() || null,
@@ -972,6 +977,7 @@ export function mieterZeile(p: EntwurfPerson): TablesInsert<'mieter'> {
     telnr: p.telefon?.trim() || null,
     // '' in einer DATE-Spalte ließe Anlegen und Aktivieren scheitern
     geburtsdatum: p.istUnternehmen ? null : p.geburtsdatum?.trim() || null,
+    ausweisnummer: p.istUnternehmen ? null : p.ausweisnummer?.trim() || null,
     ist_unternehmen: p.istUnternehmen,
     firmenname: p.istUnternehmen ? p.firmenname?.trim() || null : null,
     vertreten_durch: p.istUnternehmen ? p.vertretenDurch?.trim() || null : null,
@@ -1095,7 +1101,7 @@ export function vertragsZeile(a: VertragsZeileArgs): TablesInsert<'mietvertrag'>
  */
 export type BestandsStammdaten = Pick<
   TablesInsert<'mieter'>,
-  'anrede' | 'hauptmail' | 'telnr' | 'geburtsdatum' | 'vertreten_durch' | 'strasse' | 'hausnummer' | 'plz' | 'ort'
+  'anrede' | 'hauptmail' | 'telnr' | 'geburtsdatum' | 'ausweisnummer' | 'vertreten_durch' | 'strasse' | 'hausnummer' | 'plz' | 'ort'
 >;
 
 export interface AktivierungsDaten {
@@ -1122,8 +1128,8 @@ export interface AktivierungsDaten {
  * Adresse. Karten ohne `bestandStand` (vor diesem Tag gespeichert) geben weiter alles mit.
  */
 export function bestandsStammdaten(p: EntwurfPerson): BestandsStammdaten {
-  const { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort } = mieterZeile(p);
-  const karte: BestandsStammdaten = { anrede, hauptmail, telnr, geburtsdatum, vertreten_durch, strasse, hausnummer, plz, ort };
+  const { anrede, hauptmail, telnr, geburtsdatum, ausweisnummer, vertreten_durch, strasse, hausnummer, plz, ort } = mieterZeile(p);
+  const karte: BestandsStammdaten = { anrede, hauptmail, telnr, geburtsdatum, ausweisnummer, vertreten_durch, strasse, hausnummer, plz, ort };
   const stand = p.bestandStand;
   if (!stand) return karte;
   return Object.fromEntries(

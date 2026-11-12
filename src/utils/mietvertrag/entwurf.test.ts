@@ -27,6 +27,7 @@ import {
   mieterBezug,
   mieterRolle,
   mieterZeile,
+  mieterFuerVertrag,
   bestandsStammdaten,
   mitBestandsmieter,
   mitPersonen,
@@ -659,6 +660,24 @@ describe('Neue und bestehende Mieter im selben Vertrag (27.10.2026)', () => {
       personen: [alt],
     });
     expect(z.verknuepfungen[0].stammdaten).toMatchObject({ hauptmail: 'jm@example.de', anrede: 'Herr' });
+  });
+
+  it('führt die Ausweisnummer von der Karte bis in den Vertrag (Besprechung 12.11.2026)', () => {
+    const person = { ...leerePerson(), vorname: 'Testa', nachname: 'Probe', ausweisnummer: '  L01X00T47 ' };
+    expect(mieterZeile(person).ausweisnummer).toBe('L01X00T47');
+    expect(mieterFuerVertrag([person])[0].ausweisnummer).toBe('L01X00T47');
+    // Firmen haben keine; leer heißt keine
+    const firma = { ...person, istUnternehmen: true, firmenname: 'Probe GmbH' };
+    expect(mieterZeile(firma).ausweisnummer).toBeNull();
+    expect(mieterFuerVertrag([firma])[0].ausweisnummer).toBeNull();
+    expect(mieterZeile({ ...person, ausweisnummer: '  ' }).ausweisnummer).toBeNull();
+    // Vom Bestandsmieter übernommen und nur geändert zurückgeschrieben
+    const karte = mitBestandsmieter(leerePerson(), { ...bestandsMieter, ausweisnummer: 'C22X' });
+    expect(karte.ausweisnummer).toBe('C22X');
+    expect(bestandsStammdaten(karte)).toEqual({});
+    expect(bestandsStammdaten({ ...karte, ausweisnummer: 'C33Y' })).toEqual({ ausweisnummer: 'C33Y' });
+    // Ältere Bestandsmieter ohne Feld lassen die Karte stehen
+    expect(mitBestandsmieter({ ...leerePerson(), ausweisnummer: 'K1' }, bestandsMieter).ausweisnummer).toBe('K1');
   });
 
   it('ergänzt nach dem Aktivieren nur auf der Karte geänderte Felder', () => {

@@ -194,7 +194,7 @@ export function useMieterAbgleich(aktiv: boolean) {
         supabase
           .from('mieter')
           .select(
-            `id, vorname, nachname, geburtsdatum, hauptmail, telnr, anrede, strasse, hausnummer, plz, ort, ist_unternehmen, firmenname, vertreten_durch,
+            `id, vorname, nachname, geburtsdatum, hauptmail, telnr, anrede, strasse, hausnummer, plz, ort, ist_unternehmen, firmenname, vertreten_durch, ausweisnummer,
              mietvertrag_mieter(mietvertrag(status, start_datum, ende_datum, kuendigungsdatum, einheiten(einheitentyp, immobilien(name))))`,
             { count: mitZaehlung ? 'exact' : undefined }
           )

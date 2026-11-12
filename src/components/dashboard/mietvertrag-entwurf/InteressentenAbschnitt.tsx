@@ -316,13 +316,24 @@ export function InteressentenAbschnitt({
                 )}
 
                 {!p.istUnternehmen && (
-                  <div className="space-y-1">
-                    <Label className="text-xs">Geburtsdatum</Label>
-                    <Input
-                      type="date"
-                      value={p.geburtsdatum ?? ''}
-                      onChange={e => aendere(p.schluessel, { geburtsdatum: e.target.value || null })}
-                    />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Geburtsdatum</Label>
+                      <Input
+                        type="date"
+                        value={p.geburtsdatum ?? ''}
+                        onChange={e => aendere(p.schluessel, { geburtsdatum: e.target.value || null })}
+                      />
+                    </div>
+                    {/* Besprechung 12.11.2026: optional, steht im Mietvertrag unter dem Mieter */}
+                    <div className="space-y-1">
+                      <Label className="text-xs">Ausweisnummer (optional)</Label>
+                      <Input
+                        placeholder="Personalausweis oder Pass"
+                        value={p.ausweisnummer ?? ''}
+                        onChange={e => aendere(p.schluessel, { ausweisnummer: e.target.value || null })}
+                      />
+                    </div>
                   </div>
                 )}
 

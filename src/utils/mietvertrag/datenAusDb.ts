@@ -239,6 +239,7 @@ export function mieterDaten(m: Mieter): MieterDaten {
     plz: m.plz,
     ort: m.ort,
     geburtsdatum: m.geburtsdatum,
+    ausweisnummer: leerZuNull(m.ausweisnummer),
     telefon: m.telnr,
     email: leerZuNull(m.hauptmail),
   };

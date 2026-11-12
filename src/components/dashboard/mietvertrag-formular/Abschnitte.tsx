@@ -636,7 +636,7 @@ export function MieteranschriftFelder({ entwurf, setEntwurf }: AbschnittProps) {
 
   return (
     <div className="space-y-3">
-      <Ueberschrift>Anschrift {entwurf.mieter.length > 1 ? 'der Mieter' : 'des Mieters'} vor Einzug</Ueberschrift>
+      <Ueberschrift>Anschrift {entwurf.mieter.length > 1 ? 'der Mieter' : 'des Mieters'} vor Einzug und Ausweis</Ueberschrift>
       {entwurf.mieter.map((m, i) => (
         <div key={i} className="space-y-2 rounded border p-3">
           <p className="text-xs font-medium">{m.istUnternehmen ? m.firmenname : `${m.vorname} ${m.nachname}`.trim()}</p>
@@ -648,6 +648,15 @@ export function MieteranschriftFelder({ entwurf, setEntwurf }: AbschnittProps) {
             <Input placeholder="PLZ" value={m.plz ?? ''} onChange={e => aendere(i, { plz: e.target.value || null })} />
             <Input placeholder="Ort" value={m.ort ?? ''} onChange={e => aendere(i, { ort: e.target.value || null })} />
           </div>
+          {/* Besprechung 12.11.2026: optional, steht im Rubrum unter dem Mieter */}
+          {!m.istUnternehmen && (
+            <Input
+              placeholder="Ausweisnummer (optional)"
+              aria-label="Ausweisnummer"
+              value={m.ausweisnummer ?? ''}
+              onChange={e => aendere(i, { ausweisnummer: e.target.value || null })}
+            />
+          )}
         </div>
       ))}
     </div>

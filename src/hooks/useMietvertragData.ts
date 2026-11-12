@@ -112,7 +112,7 @@ export function useMietvertragData(vertragId: string, isOpen: boolean) {
              id, vorname, nachname, hauptmail, telnr, geburtsdatum,
              aktualisiert_am, erstellt_am, weitere_mails,
              anrede, ist_unternehmen, firmenname, vertreten_durch,
-             strasse, hausnummer, plz, ort
+             strasse, hausnummer, plz, ort, ausweisnummer
            )`
         )
         .eq('mietvertrag_id', vertragId)

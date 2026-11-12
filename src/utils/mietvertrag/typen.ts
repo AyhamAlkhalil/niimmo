@@ -56,6 +56,8 @@ export interface MieterDaten {
   plz: string | null;
   ort: string | null;
   geburtsdatum: string | null;
+  /** Personalausweis, Pass oder Aufenthaltstitel — optional, im Rubrum unter dem Geburtsdatum (seit 12.11.2026). */
+  ausweisnummer?: string | null;
   telefon: string | null;
   email: string | null;
 }

@@ -1,7 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Copy, Check, Mail, Phone, Building2, Square, XCircle, AlertTriangle, RotateCcw, FileCheck } from "lucide-react";
+import { AlertCircle, Copy, Check, Mail, Phone, Building2, Square, XCircle, AlertTriangle, RotateCcw, FileCheck, IdCard } from "lucide-react";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { MahnstufeIndicator } from "../MahnstufeIndicator";
 import { Input } from "@/components/ui/input";
@@ -603,6 +603,24 @@ export function MietvertragContractInfo({
                         </>
                       )}
                     </div>
+
+                    {/* Ausweisnummer (Besprechung 12.11.2026) — optional, steht im Mietvertrag; Firmen haben keine */}
+                    {!m.ist_unternehmen && (isGlobalEditMode || m.ausweisnummer) && (
+                      <div className="group flex items-center gap-1.5">
+                        <IdCard className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                        {isGlobalEditMode ? (
+                          <Input
+                            placeholder="Ausweisnummer (optional)"
+                            aria-label="Ausweisnummer"
+                            value={getMieterValue(m.id, 'ausweisnummer', m.ausweisnummer) || ''}
+                            onChange={(e) => handleMieterChange(m.id, 'ausweisnummer', e.target.value)}
+                            className="h-6 text-xs flex-1"
+                          />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Ausweis {m.ausweisnummer}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

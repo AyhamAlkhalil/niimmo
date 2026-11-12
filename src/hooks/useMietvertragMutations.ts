@@ -533,6 +533,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         initialValues[`mieter_${m.id}_nachname`] = m.nachname || '';
         initialValues[`mieter_${m.id}_hauptmail`] = m.hauptmail || '';
         initialValues[`mieter_${m.id}_telnr`] = m.telnr || '';
+        initialValues[`mieter_${m.id}_ausweisnummer`] = m.ausweisnummer || '';
       });
     }
     setEditedValues(initialValues);
@@ -712,6 +713,10 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
           if (editedValues[`mieter_${m.id}_nachname`] !== undefined) mieterUpdates.nachname = editedValues[`mieter_${m.id}_nachname`] as string;
           if (editedValues[`mieter_${m.id}_hauptmail`] !== undefined) mieterUpdates.hauptmail = editedValues[`mieter_${m.id}_hauptmail`] as string;
           if (editedValues[`mieter_${m.id}_telnr`] !== undefined) mieterUpdates.telnr = editedValues[`mieter_${m.id}_telnr`] as string;
+          // Besprechung 12.11.2026 — leer heißt keine, nicht ""
+          if (editedValues[`mieter_${m.id}_ausweisnummer`] !== undefined) {
+            mieterUpdates.ausweisnummer = String(editedValues[`mieter_${m.id}_ausweisnummer`] ?? '').trim() || null;
+          }
           if (Object.keys(mieterUpdates).length > 0) {
             const { error } = await supabase.from('mieter').update(mieterUpdates).eq('id', m.id);
             if (error) throw error;

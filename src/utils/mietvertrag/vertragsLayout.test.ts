@@ -171,7 +171,7 @@ describe('PDF mit Carlito und Logo', () => {
         kautionBic: 'GENODEF1BCK',
       },
       unterzeichnerVermieter: 'Bernd Zweiter (B. Sc.)',
-      mieter: [{ ...referenz.mieter[0], vorname: 'Erika', nachname: 'Musterfrau' }],
+      mieter: [{ ...referenz.mieter[0], vorname: 'Erika', nachname: 'Musterfrau', ausweisnummer: 'L01X00T47' }],
     };
     const b64 = (pfad: string) => readFileSync(pfad).toString('base64');
     const blob = await generateMietvertragPdf(d, {
@@ -184,6 +184,8 @@ describe('PDF mit Carlito und Logo', () => {
 
     const text = await textMitPdfJs(blob);
     expect(text).toContain('vertreten durch Bernd Zweiter, B. Sc.');
+    // Ausweisnummer im Rubrum unter dem Mieter (Besprechung 12.11.2026)
+    expect(text).toMatch(/L01X00T47 Ausweisnummer/);
     expect(text).not.toContain('Anna Erste');
     expect(text).toMatch(/Vermieter Bernd Zweiter B\. Sc\./);
     expect(text).toContain('Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04');

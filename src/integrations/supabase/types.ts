@@ -1454,6 +1454,7 @@ export type Database = {
         Row: {
           aktualisiert_am: string | null
           anrede: Database["public"]["Enums"]["anrede"] | null
+          ausweisnummer: string | null
           erstellt_am: string | null
           firmenname: string | null
           geburtsdatum: string | null
@@ -1473,6 +1474,7 @@ export type Database = {
         Insert: {
           aktualisiert_am?: string | null
           anrede?: Database["public"]["Enums"]["anrede"] | null
+          ausweisnummer?: string | null
           erstellt_am?: string | null
           firmenname?: string | null
           geburtsdatum?: string | null
@@ -1492,6 +1494,7 @@ export type Database = {
         Update: {
           aktualisiert_am?: string | null
           anrede?: Database["public"]["Enums"]["anrede"] | null
+          ausweisnummer?: string | null
           erstellt_am?: string | null
           firmenname?: string | null
           geburtsdatum?: string | null

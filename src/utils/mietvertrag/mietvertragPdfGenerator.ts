@@ -169,6 +169,8 @@ function mieterZeilen(doc: jsPDF, layout: VertragsLayout, m: MieterDaten, y: num
   } else {
     y = wertMitBeschriftung(doc, layout, `${m.vorname} ${m.nachname}`.trim(), 'Vor- und Zuname', y);
     if (m.geburtsdatum) y = wertMitBeschriftung(doc, layout, formatDatum(m.geburtsdatum), 'Geburtsdatum', y);
+    // Besprechung 12.11.2026: optional — nur, wenn erfasst
+    if (m.ausweisnummer?.trim()) y = wertMitBeschriftung(doc, layout, m.ausweisnummer.trim(), 'Ausweisnummer', y);
   }
 
   if (m.strasse) {

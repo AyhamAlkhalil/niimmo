@@ -293,7 +293,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
             m.strasse !== alt.strasse ||
             m.hausnummer !== alt.hausnummer ||
             m.plz !== alt.plz ||
-            m.ort !== alt.ort;
+            m.ort !== alt.ort ||
+            (m.ausweisnummer ?? null) !== (alt.ausweisnummer ?? null);
           const mieterId = verknuepfungen?.[i]?.mieter_id;
           if (geaendert && mieterId) {
             const { error: mieterError } = await supabase
@@ -303,6 +304,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
                 hausnummer: m.hausnummer,
                 plz: m.plz,
                 ort: m.ort,
+                // Besprechung 12.11.2026 — Firmen haben keine
+                ausweisnummer: m.istUnternehmen ? null : m.ausweisnummer?.trim() || null,
               })
               .eq('id', mieterId);
             if (mieterError) throw mieterError;
