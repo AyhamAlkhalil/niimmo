@@ -45,6 +45,7 @@ import {
   KlauselFelder,
   MieteranschriftFelder,
   MietsacheFelder,
+  MindestmietdauerFelder,
   ObjektAngabenFelder,
   SchluesselFelder,
 } from './mietvertrag-formular/Abschnitte';
@@ -210,6 +211,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
           // Nachdruck wieder die alten
           schluessel: schluesselFuerDb(entwurf.schluessel),
           besichtigt_am: entwurf.besichtigtAm,
+          // Mindestmietdauer (§ 2 Ziff. 3) — „“ (angehakt ohne Datum) sperrt die Pflichtprüfung vorher
+          kuendigungsverzicht_bis: entwurf.kuendigungsverzichtBis || null,
           vertrag_datum: entwurf.vertragsdatum,
           unterschrift_ort: entwurf.unterschriftOrt,
           vorlage_version: VORLAGE_VERSION,
@@ -391,6 +394,9 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
                   <BetriebskostenEditor entwurf={entwurf} setEntwurf={setEntwurf} />
                   <Separator />
                   <MieteranschriftFelder entwurf={entwurf} setEntwurf={setEntwurf} />
+                  <Separator />
+                  {/* § 2 — seit 12.11.2026 auch hier (Besprechung: „Auswahl Mindestmietdauer: 1 Jahr“) */}
+                  <MindestmietdauerFelder entwurf={entwurf} setEntwurf={setEntwurf} />
                   <Separator />
                   <KlauselFelder entwurf={entwurf} setEntwurf={setEntwurf} />
                 </div>

@@ -137,22 +137,8 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       'Heizkosten entfernen oder die Heizungsart am Objekt korrigieren.'
     );
   }
-  if (d.vertragsart === 'wohnraum' && !d.objekt.gesamtwohnflaecheQm) {
-    warnung(
-      'objekt.gesamtwohnflaecheQm',
-      'Für das Objekt ist keine Gesamtwohnfläche hinterlegt.',
-      'Gesamtwohnfläche am Objekt erfassen — ohne sie nennt der Vertrag die Bezugsgröße der Flächenumlage nicht.'
-    );
-  } else if (
-    d.objekt.gesamtwohnflaecheQm &&
-    d.einheit.wohnflaecheQm > d.objekt.gesamtwohnflaecheQm
-  ) {
-    blocker(
-      'objekt.gesamtwohnflaecheQm',
-      'Die Wohnfläche der Einheit ist größer als die Gesamtwohnfläche des Objekts.',
-      'Gesamtwohnfläche am Objekt oder Wohnfläche der Einheit korrigieren.'
-    );
-  }
+  // Wohnfläche und Gesamtwohnfläche stehen seit dem 12.11.2026 nicht mehr im Vertrag (Besprechung: „Wohnflächenangabe
+  // entfernen“) — sie sperren das PDF deshalb nicht mehr. Für die Betriebskostenabrechnung prüft diese selbst.
   if (!d.einheit.bezeichnung?.trim()) {
     blocker(
       'einheit.bezeichnung',
@@ -162,13 +148,6 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
   }
   if (!d.einheit.lage?.trim()) {
     blocker('einheit.lage', 'Die Lage der Einheit im Gebäude fehlt.', 'Lage erfassen, z. B. „Dachgeschoss rechts".');
-  }
-  if (!d.einheit.wohnflaecheQm || d.einheit.wohnflaecheQm <= 0) {
-    blocker(
-      'einheit.wohnflaecheQm',
-      'Es ist keine Wohnfläche hinterlegt.',
-      'Wohnfläche erfassen — sie ist Grundlage für Miete und Betriebskostenverteilung.'
-    );
   }
   if (!d.einheit.raumaufstellung?.trim()) {
     blocker(

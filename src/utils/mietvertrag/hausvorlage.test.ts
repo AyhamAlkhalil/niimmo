@@ -158,7 +158,8 @@ describe('Hausvorlage 01.06.2025', () => {
     // Mietgegenstand
     expect(t).toContain('Liebigstra\u00dfe 12, 30851 Langenhagen');
     expect(t).toContain('4 Zimmer, 1 K\u00fcche, 1 Flur, 1 Badezimmer, 1 Abstellraum, 1 Keller');
-    expect(t).toContain('86 m');
+    // Keine Wohnfläche mehr im Vertrag (Besprechung 12.11.2026)
+    expect(t).not.toContain('86 m');
     expect(t).toContain('01.06.2025');
 
     // Geldbetr\u00e4ge mit W\u00e4hrungszeichen

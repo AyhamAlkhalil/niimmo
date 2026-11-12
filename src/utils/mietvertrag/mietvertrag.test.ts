@@ -1,3 +1,4 @@
+import { fett, ohneAuszeichnung } from './vertragsLayout';
 import { describe, expect, it } from 'vitest';
 import { betragInWorten, istIbanGueltig, formatIban } from '../pdf/briefLayout';
 import { pruefeVertragsdaten, hatBlocker } from './pflichtpruefung';
@@ -380,14 +381,13 @@ describe('Klauseltexte', () => {
     expect(p.find(x => x.nummer === '§ 24')?.titel).toBe('Zustand der Mieträume bei Übergabe');
   });
 
-  it('nennt die Gesamtwohnfläche nur, wenn sie am Objekt gepflegt ist', () => {
-    const ohne = wohnraumParagraphen(basisVertrag()).find(p => p.nummer === '§ 1')!;
-    expect(ohne.absaetze.map(a => a.text).join(' ')).not.toMatch(/Gesamtwohnfläche/);
-
+  it('nennt keine Wohnfläche mehr, auch keine Gesamtwohnfläche (Besprechung 12.11.2026)', () => {
     const d = basisVertrag();
     d.objekt.gesamtwohnflaecheQm = 612.5;
-    const mit = wohnraumParagraphen(d).find(p => p.nummer === '§ 1')!;
-    expect(mit.absaetze.map(a => a.text).join(' ')).toMatch(/Gesamtwohnfläche des Hauses.*612,5 m²/);
+    const p1 = wohnraumParagraphen(d).find(p => p.nummer === '§ 1')!;
+    const text = p1.absaetze.map(a => a.text).join(' ');
+    expect(text).not.toMatch(/Wohnfläche|m²/);
+    expect(alleAbsaetze(d)).not.toMatch(/612,5|Die Wohnfläche beträgt/);
   });
 });
 
@@ -426,12 +426,13 @@ describe('Objektangaben', () => {
     expect(befunde.some(f => f.feld === 'betriebskostenVorauszahlung')).toBe(false);
   });
 
-  it('warnt ohne Gesamtwohnfläche und blockiert eine zu kleine', () => {
+  it('sperrt das PDF nicht wegen der Wohnfläche — sie steht nicht mehr im Vertrag (12.11.2026)', () => {
     const d = basisVertrag();
-    expect(pruefeVertragsdaten(d).find(f => f.feld === 'objekt.gesamtwohnflaecheQm')?.schwere).toBe('warnung');
-
-    d.objekt.gesamtwohnflaecheQm = d.einheit.wohnflaecheQm - 1;
-    expect(pruefeVertragsdaten(d).find(f => f.feld === 'objekt.gesamtwohnflaecheQm')?.schwere).toBe('blocker');
+    d.einheit.wohnflaecheQm = 0;
+    d.objekt.gesamtwohnflaecheQm = null;
+    const felder = pruefeVertragsdaten(d).map(f => f.feld);
+    expect(felder).not.toContain('einheit.wohnflaecheQm');
+    expect(felder).not.toContain('objekt.gesamtwohnflaecheQm');
   });
 });
 
@@ -500,18 +501,22 @@ describe('Kundenvorgaben zum Vertragstext (04.11.2026)', () => {
     const d = basisVertrag({ kautionArt: 'barkaution', kautionBetrag: 1500 });
     d.vermieter = { ...d.vermieter, kautionIban: 'DE08255914133155410504', kautionBic: 'GENODEF1BCK' };
     const p7 = wohnraumParagraphen(d).find(p => p.titel === 'Mietkaution')!;
-    const text = p7.absaetze.map(a => a.text).join('\n');
+    const roh = p7.absaetze.map(a => a.text).join('\n');
+    const text = ohneAuszeichnung(roh);
     expect(text).toContain(
       'Die Barkaution ist auf ein gesondertes Konto zu überweisen. Kautionskonto: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE08 2559 1413 3155 4105 04, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG.'
     );
+    // Die IBAN steht fett (Besprechung 12.11.2026)
+    expect(roh).toContain(fett('IBAN DE08 2559 1413 3155 4105 04'));
     expect(text).not.toMatch(/Teilzahlung/);
     expect(text).not.toMatch(/getrennt von seinem Vermögen/);
     expect(p7.absaetze.map(a => a.nummer)).toEqual(['1.', '2.', '3.', '4.']);
   });
 
   it('nennt die Zahlung an das Mietkonto aus den Stammdaten mit Kreditinstitut', () => {
-    const text = alleAbsaetze(basisVertrag());
-    expect(text).toMatch(/Die Zahlung erfolgt an: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE76 2559 1413 3155 4105 41, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG\./);
+    const roh = alleAbsaetze(basisVertrag());
+    expect(ohneAuszeichnung(roh)).toMatch(/Die Zahlung erfolgt an: NiImmo Wohnungsbaugesellschaft mbH, IBAN DE76 2559 1413 3155 4105 41, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG\./);
+    expect(roh).toContain(fett('IBAN DE76 2559 1413 3155 4105 41'));
   });
 
   it('rechnet in § 15 keinen Betrag mehr aus', () => {

@@ -10,16 +10,15 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
-import { kautionFuer, kuendigungsverzichtNachMonaten, mitMietbeginn, rund2 } from '@/utils/mietvertrag/entwurf';
+import { kautionFuer, mitMietbeginn, rund2 } from '@/utils/mietvertrag/entwurf';
 import { istPlausiblesDatum } from '@/utils/pdf/briefLayout';
 import type { Befristungsgrund, BetriebskostenModus, KautionArt } from '@/utils/mietvertrag/typen';
-import { MietanpassungFelder } from '../mietvertrag-formular/Abschnitte';
+import { MietanpassungFelder, MindestmietdauerFelder } from '../mietvertrag-formular/Abschnitte';
 import { Feldname, ZahlFeld, type AbschnittProps } from '../mietvertrag-formular/Bausteine';
 
 function eur(n: number): string {
@@ -68,9 +67,6 @@ export function MieteSchritt({
   // Letzter vollständiger Mietbeginn: Beim Tippen des Jahres liefert das Feld
   // Zwischenstände („0002-11-01", ""), der Verzicht wandert erst mit dem fertigen Datum.
   const letzterBeginn = useRef(istPlausiblesDatum(entwurf.mietbeginn) ? entwurf.mietbeginn : '');
-  const beginnGueltig = istPlausiblesDatum(entwurf.mietbeginn);
-  // Angehakt heißt: ein Ende ist vereinbart, auch während das Datumsfeld beim Bearbeiten leer ist ("")
-  const verzichtGewaehlt = typeof entwurf.kuendigungsverzichtBis === 'string';
   useEffect(() => {
     // Auch von außen gesetzt (Selbstauskunft, während der Schritt offen ist)
     if (istPlausiblesDatum(entwurf.mietbeginn)) letzterBeginn.current = entwurf.mietbeginn;
@@ -162,62 +158,7 @@ export function MieteSchritt({
           </div>
         )}
 
-        <div className="space-y-2 rounded-md border p-3">
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={verzichtGewaehlt}
-              // Ohne vollständigen Mietbeginn lässt sich kein Ende berechnen
-              disabled={!verzichtGewaehlt && !beginnGueltig}
-              onCheckedChange={c => {
-                if (c === true) {
-                  setEntwurf(d => ({
-                    ...d,
-                    kuendigungsverzichtBis: istPlausiblesDatum(d.mietbeginn) ? kuendigungsverzichtNachMonaten(d.mietbeginn, 12) : null,
-                  }));
-                  geaendert?.('kuendigungsverzichtBis');
-                  setzeHerkunft?.('kuendigungsverzichtBis', 'berechnet');
-                } else {
-                  setze('kuendigungsverzichtBis', null);
-                }
-              }}
-            />
-            Beidseitiger Kündigungsverzicht
-            {markierung?.('kuendigungsverzichtBis')}
-          </label>
-          {verzichtGewaehlt && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-muted-foreground">bis</span>
-              <Input
-                type="date"
-                aria-label="Kündigungsverzicht bis"
-                className="w-auto"
-                value={entwurf.kuendigungsverzichtBis ?? ''}
-                onChange={e => setze('kuendigungsverzichtBis', e.target.value)}
-              />
-              {[12, 24].map(m => (
-                <Button
-                  key={m}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  disabled={!beginnGueltig}
-                  onClick={() => {
-                    if (!istPlausiblesDatum(entwurf.mietbeginn)) return;
-                    setEntwurf(d => ({ ...d, kuendigungsverzichtBis: kuendigungsverzichtNachMonaten(d.mietbeginn, m) }));
-                    geaendert?.('kuendigungsverzichtBis');
-                    setzeHerkunft?.('kuendigungsverzichtBis', 'berechnet');
-                  }}
-                >
-                  {m / 12} {m === 12 ? 'Jahr' : 'Jahre'}
-                </Button>
-              ))}
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Höchstens vier Jahre ab Vertragsschluss. Die NiImmo-Vorlage vom 01.06.2025 vereinbart ein Jahr.
-          </p>
-        </div>
+        <MindestmietdauerFelder entwurf={entwurf} setEntwurf={setEntwurf} markierung={markierung} geaendert={geaendert} setzeHerkunft={setzeHerkunft} />
       </Abschnitt>
 
       <Separator />

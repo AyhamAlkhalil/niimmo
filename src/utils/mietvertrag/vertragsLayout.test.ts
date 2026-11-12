@@ -12,12 +12,55 @@ import { kreditinstitut } from '../pdf/briefLayout';
 import type { Anlage } from './anlagen';
 import { anlageRendern, generateMietvertragPdf, paragraphRendern } from './mietvertragPdfGenerator';
 import type { MietvertragDaten } from './typen';
-import { OBEN, UNTEN, schuetzeUmbrueche, vertragsLayout } from './vertragsLayout';
+import { ausgezeichneteWoerter, fett, ohneAuszeichnung, OBEN, UNTEN, schuetzeUmbrueche, vertragsLayout } from './vertragsLayout';
 import type { Absatz } from './wohnraumKlauseln';
 import { geaenderteSchluessel, schluesselJeKategorie } from './verteilerschluesselObjekt';
 import { vertreterMitTitel, vertreterTeile } from './vertretung';
 
 const NBSP = '\u00a0';
+
+describe('Fett im Absatz (IBAN, Besprechung 12.11.2026)', () => {
+  it('bindet eine fette IBAN wie eine normale und behält die Auszeichnung', () => {
+    const text = schuetzeUmbrueche(`Konto: ${fett('IBAN DE08 2559 1413 3155 4105 04')}, BIC GENODEF1BCK`);
+    expect(ohneAuszeichnung(text)).toBe(`Konto: IBAN${NBSP}DE08${NBSP}2559${NBSP}1413${NBSP}3155${NBSP}4105${NBSP}04, BIC${NBSP}GENODEF1BCK`);
+    const woerter = ausgezeichneteWoerter(text, false);
+    // Die gebundene IBAN ist ein Wort: fett bis zur letzten Gruppe, das Komma wieder normal
+    const iban = woerter.find(w => w.some(s => s.text.includes('DE08')))!;
+    expect(iban).toEqual([
+      { text: `IBAN${NBSP}DE08${NBSP}2559${NBSP}1413${NBSP}3155${NBSP}4105${NBSP}04`, fett: true },
+      { text: ',', fett: false },
+    ]);
+    expect(woerter[0]).toEqual([{ text: 'Konto:', fett: false }]);
+  });
+
+  it('trägt die Auszeichnung über Wortgrenzen und kehrt zur Grundschrift zurück', () => {
+    expect(ausgezeichneteWoerter(`a ${fett('b c')} d`, false).map(w => w.map(s => `${s.text}${s.fett ? '*' : ''}`).join(''))).toEqual([
+      'a',
+      'b*',
+      'c*',
+      'd',
+    ]);
+    // In einem fetten Absatz bleibt nach der Auszeichnung fett
+    expect(ausgezeichneteWoerter(`a ${fett('b')} c`, true).every(w => w.every(s => s.fett))).toBe(true);
+  });
+
+  it('setzt die IBAN im PDF fett und bricht den Absatz nicht über den Rand', () => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const layout = vertragsLayout(doc, { schrift: null, logo: null });
+    const lang = `Die Zahlung erfolgt an: NiImmo Wohnungsbaugesellschaft mbH, ${fett('IBAN DE76 2559 1413 3155 4105 41')}, BIC GENODEF1BCK, Volksbank in Schaumburg und Nienburg eG. Als Verwendungszweck sind die Wohnung und der Name des Mieters anzugeben.`;
+    const ohne = ohneAuszeichnung(lang);
+    // Fett ist breiter — höchstens eine Zeile mehr als ohne Auszeichnung
+    const hoeheMit = layout.absatzHoehe(lang, { nummer: '3.' });
+    const hoeheOhne = layout.absatzHoehe(ohne, { nummer: '3.' });
+    expect(hoeheMit).toBeGreaterThanOrEqual(hoeheOhne);
+    expect(hoeheMit - hoeheOhne).toBeLessThan(5);
+    const y = layout.absatz(lang, OBEN, { nummer: '3.' });
+    expect(y).toBeCloseTo(OBEN + hoeheMit, 5);
+    const roh = doc.output();
+    expect(roh).toContain('Helvetica-Bold');
+    expect(roh).not.toMatch(/\ue000|\ue001/);
+  });
+});
 
 describe('Geschützte Leerzeichen', () => {
   it('hält Betrag und Einheit, Paragraph und Ziffer, IBAN-Gruppen zusammen', () => {

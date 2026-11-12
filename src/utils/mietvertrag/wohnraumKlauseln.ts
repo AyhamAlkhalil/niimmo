@@ -21,7 +21,7 @@ import {
   kreditinstitut,
 } from '../pdf/briefLayout';
 import { ausgehaendigteSchluessel, positionsText, verteilungKurz, vertragsNummer, type MietvertragDaten } from './typen';
-import type { Kostentabelle } from './vertragsLayout';
+import { fett, type Kostentabelle } from './vertragsLayout';
 
 export interface Absatz {
   /** Gliederungsziffer wie „1." oder „2.1" — optional. */
@@ -199,13 +199,9 @@ export function wohnraumParagraphen(d: MietvertragDaten): Paragraph[] {
       nummer: '1.',
       text: `Der Vermieter vermietet dem Mieter im Hause ${objektAdresse}, ${d.einheit.bezeichnung}, ${d.einheit.lage}, folgende Wohn- und Nebenräume: ${d.einheit.raumaufstellung}.`,
     },
-    {
-      text: `Die Wohnfläche beträgt ${d.einheit.wohnflaecheQm.toLocaleString('de-DE')} m². Die Angabe der Wohnfläche dient der Beschreibung der Mietsache und ist Grundlage der Betriebskostenverteilung.${
-        d.objekt.gesamtwohnflaecheQm
-          ? ` Die Gesamtwohnfläche des Hauses, auf die nach Wohnfläche umgelegte Kosten verteilt werden, beträgt ${d.objekt.gesamtwohnflaecheQm.toLocaleString('de-DE')} m².`
-          : ''
-      }`,
-    },
+    // Keine Wohnfläche mehr im Vertrag (Besprechung 12.11.2026: „Wohnflächenangabe aus dem generierten Mietvertrag
+    // entfernen“). Bis dahin stand hier „Die Wohnfläche beträgt … m²“ samt Gesamtwohnfläche des Hauses. Die Flächen
+    // bleiben an Einheit und Objekt — für die Betriebskostenabrechnung.
   ];
 
   if (d.einheit.nebenraeume?.trim()) {
@@ -894,10 +890,13 @@ function betriebskostenTabelle(d: MietvertragDaten, vorauszahlung: number): Kost
   };
 }
 
-/** Kontoangabe wie vom Kunden vorgegeben: Inhaber, IBAN, BIC, Kreditinstitut. */
+/**
+ * Kontoangabe wie vom Kunden vorgegeben: Inhaber, IBAN, BIC, Kreditinstitut. Die IBAN steht fett (Besprechung
+ * 12.11.2026: „IBAN im PDF fett darstellen“ bei Mietzahlung und Kaution).
+ */
 function kontoText(inhaber: string, iban: string | null, bic: string | null): string {
   const bank = kreditinstitut(iban);
-  return [inhaber, iban ? `IBAN ${formatIban(iban)}` : '', bic ? `BIC ${bic}` : '', bank ?? ''].filter(Boolean).join(', ');
+  return [inhaber, iban ? fett(`IBAN ${formatIban(iban)}`) : '', bic ? `BIC ${bic}` : '', bank ?? ''].filter(Boolean).join(', ');
 }
 
 function uebergabezustandText(d: MietvertragDaten): string {

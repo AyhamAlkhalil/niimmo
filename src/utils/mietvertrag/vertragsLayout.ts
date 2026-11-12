@@ -93,6 +93,60 @@ export function ladeVertragsschrift(): Promise<Vertragsschrift | null> {
 const NBSP = '\u00a0';
 
 /**
+ * Auszeichnung fett innerhalb eines Absatzes (seit 12.11.2026, Besprechung: „IBAN im PDF fett darstellen“). Die
+ * Klauseln markieren die Stelle mit `fett()`; nur solche Absätze setzt das Layout wortweise mit eigener Messung,
+ * alle anderen laufen unverändert über splitTextToSize — das abgenommene Seitenbild bleibt gleich.
+ */
+export const FETT_AN = '\ue000';
+export const FETT_AUS = '\ue001';
+const AUSZEICHNUNG = /[\ue000\ue001]/g;
+
+export function fett(text: string): string {
+  return `${FETT_AN}${text}${FETT_AUS}`;
+}
+
+/** Text ohne Auszeichnung — für Prüfungen und überall, wo nicht gedruckt wird. */
+export function ohneAuszeichnung(text: string): string {
+  return text.replace(AUSZEICHNUNG, '');
+}
+
+function hatAuszeichnung(text: string): boolean {
+  return text.includes(FETT_AN) || text.includes(FETT_AUS);
+}
+
+interface Stueck {
+  text: string;
+  fett: boolean;
+}
+
+/** Wörter (an Leerzeichen getrennt) aus Stücken gleicher Schriftstärke; Auszeichnung darf über Wortgrenzen reichen. */
+export function ausgezeichneteWoerter(text: string, grundFett: boolean): Stueck[][] {
+  const woerter: Stueck[][] = [];
+  let wort: Stueck[] = [];
+  let puffer = '';
+  let fettJetzt = grundFett;
+  const schiebe = () => {
+    if (puffer) wort.push({ text: puffer, fett: fettJetzt });
+    puffer = '';
+  };
+  for (const zeichen of text) {
+    if (zeichen === FETT_AN || zeichen === FETT_AUS) {
+      schiebe();
+      fettJetzt = zeichen === FETT_AN ? true : grundFett;
+    } else if (zeichen === ' ') {
+      schiebe();
+      if (wort.length > 0) woerter.push(wort);
+      wort = [];
+    } else {
+      puffer += zeichen;
+    }
+  }
+  schiebe();
+  if (wort.length > 0) woerter.push(wort);
+  return woerter;
+}
+
+/**
  * Bindet die Vierergruppen einer IBAN — aber nur so viele, wie zusammen eine
  * gültige IBAN ergeben. Ein kurzes Wort dahinter („BIC“, „UND“) oder eine
  * zweite IBAN sähe sonst wie eine weitere Gruppe aus (QA 05.11.2026). Wörter
@@ -102,12 +156,13 @@ function ibanGruppenBinden(text: string): string {
   const woerter = text.split(' ');
   const aus: string[] = [];
   for (let i = 0; i < woerter.length; i++) {
-    if (/^[A-Z]{2}\d{2}$/.test(woerter[i])) {
+    // Eine fette IBAN trägt die Auszeichnung am ersten oder letzten Wort (12.11.2026)
+    if (/^[A-Z]{2}\d{2}$/.test(ohneAuszeichnung(woerter[i]))) {
       let laenge = 0;
       for (let n = Math.min(9, woerter.length - i); n >= 3; n--) {
-        const gruppen = woerter.slice(i + 1, i + n);
+        const gruppen = woerter.slice(i + 1, i + n).map(ohneAuszeichnung);
         if (gruppen.every(g => /^[0-9A-Z]{1,4}[,.;:)]?$/.test(g))) {
-          const kandidat = woerter.slice(i, i + n).join('').replace(/[,.;:)]$/, '');
+          const kandidat = ohneAuszeichnung(woerter.slice(i, i + n).join('')).replace(/[,.;:)]$/, '');
           // Satzzeichen nur an der letzten Gruppe
           if (gruppen.slice(0, -1).every(g => /^[0-9A-Z]{1,4}$/.test(g)) && istIbanGueltig(kandidat)) {
             laenge = n;
@@ -133,7 +188,7 @@ function ibanGruppenBinden(text: string): string {
  */
 export function schuetzeUmbrueche(text: string): string {
   return ibanGruppenBinden(text)
-    .replace(/\b(IBAN|BIC) (?=[A-Z0-9])/g, `$1${NBSP}`)
+    .replace(/\b(IBAN|BIC) (?=[\ue000\ue001]?[A-Z0-9])/g, `$1${NBSP}`)
     .replace(/(\d) (€|%)/g, `$1${NBSP}$2`)
     .replace(/(§§?) (?=\d)/g, `$1${NBSP}`)
     .replace(/\b(Abs\.|Ziff\.|Nr\.|S\.|Art\.|lit\.) (?=[0-9a-z])/g, `$1${NBSP}`);
@@ -253,12 +308,81 @@ export function vertragsLayout(
     };
   }
 
+  function wortBreite(wort: Stueck[], groesse: number): number {
+    return wort.reduce((summe, s) => {
+      setzeSchrift(groesse, s.fett);
+      return summe + doc.getTextWidth(s.text);
+    }, 0);
+  }
+
+  /** Umbruch für Absätze mit Auszeichnung: Wort für Wort in der jeweiligen Schriftstärke gemessen. */
+  function ausgezeichnetUmbrochen(text: string, opts: AbsatzOptionen) {
+    const groesse = opts.groesse ?? GROESSE;
+    const eingerueckt = !!opts.nummer || !!opts.einzug;
+    const breite = TEXTBREITE - (eingerueckt ? EINZUG : 0);
+    const woerter = ausgezeichneteWoerter(familie === 'Carlito' ? schuetzeUmbrueche(text) : text, !!opts.fett);
+    setzeSchrift(groesse, opts.fett);
+    const leer = doc.getTextWidth(' ');
+    const zeilen: { woerter: Stueck[][]; breiten: number[] }[] = [];
+    let zeile: { woerter: Stueck[][]; breiten: number[] } = { woerter: [], breiten: [] };
+    let belegt = 0;
+    for (const wort of woerter) {
+      const b = wortBreite(wort, groesse);
+      if (zeile.woerter.length > 0 && belegt + leer + b > breite) {
+        zeilen.push(zeile);
+        zeile = { woerter: [], breiten: [] };
+        belegt = 0;
+      }
+      belegt += (zeile.woerter.length > 0 ? leer : 0) + b;
+      zeile.woerter.push(wort);
+      zeile.breiten.push(b);
+    }
+    if (zeile.woerter.length > 0) zeilen.push(zeile);
+    return { zeilen, zeilenhoehe: (ZEILE * groesse) / GROESSE, x: RAND + (eingerueckt ? EINZUG : 0), breite, groesse, leer };
+  }
+
   function absatzHoehe(text: string, opts: AbsatzOptionen = {}): number {
-    const { zeilen, zeilenhoehe } = umbrochen(text, opts);
+    if (hatAuszeichnung(text) && !opts.zentriert) {
+      const { zeilen, zeilenhoehe } = ausgezeichnetUmbrochen(text, opts);
+      return zeilen.length * zeilenhoehe;
+    }
+    const { zeilen, zeilenhoehe } = umbrochen(ohneAuszeichnung(text), opts);
     return zeilen.length * zeilenhoehe;
   }
 
+  function ausgezeichneterAbsatz(text: string, y: number, opts: AbsatzOptionen): number {
+    const { zeilen, zeilenhoehe, x, breite, groesse, leer } = ausgezeichnetUmbrochen(text, opts);
+    y = umbruch(y, Math.min(zeilen.length, 2) * zeilenhoehe);
+    zeilen.forEach((zeile, i) => {
+      if (i > 0) y = umbruch(y, zeilenhoehe);
+      setzeSchrift(groesse, opts.fett);
+      if (i === 0 && opts.nummer) doc.text(opts.nummer, RAND, y);
+      // Blocksatz wie blockzeile(): ein unnatürlich weiter Abstand sieht schlechter aus als Flattersatz
+      let luecke = leer;
+      if (!opts.linksbuendig && i < zeilen.length - 1 && zeile.woerter.length > 1) {
+        const gleichmaessig = (breite - zeile.breiten.reduce((a, b) => a + b, 0)) / (zeile.woerter.length - 1);
+        if (gleichmaessig <= leer * 4) luecke = gleichmaessig;
+      }
+      let cx = x;
+      for (const wort of zeile.woerter) {
+        for (const stueck of wort) {
+          setzeSchrift(groesse, stueck.fett);
+          doc.text(stueck.text, cx, y);
+          cx += doc.getTextWidth(stueck.text);
+        }
+        cx += luecke;
+      }
+      y += zeilenhoehe;
+    });
+    setzeSchrift(groesse, opts.fett);
+    return y;
+  }
+
   function absatz(text: string, y: number, opts: AbsatzOptionen = {}): number {
+    if (hatAuszeichnung(text)) {
+      if (!opts.zentriert) return ausgezeichneterAbsatz(text, y, opts);
+      text = ohneAuszeichnung(text);
+    }
     const { zeilen, zeilenhoehe, x, breite, groesse } = umbrochen(text, opts);
     // Eine Ziffer nie allein am Seitenende: mindestens zwei Zeilen zusammenhalten
     y = umbruch(y, Math.min(zeilen.length, 2) * zeilenhoehe);
