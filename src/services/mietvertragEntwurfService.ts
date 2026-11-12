@@ -30,6 +30,7 @@ import {
   type MoeglicheDublette,
 } from '@/utils/mietvertrag/entwurf';
 import { weitesterAusAltbestand } from '@/utils/mietvertrag/entwurfProzess';
+import { vertragsTitel, type VertragsKennung } from '@/utils/mietvertrag/fassungen';
 import type { MietvertragDaten } from '@/utils/mietvertrag/typen';
 
 export const ENTWURF_ORDNER = 'mietvertrag-entwuerfe';
@@ -399,11 +400,42 @@ export async function legeMieterAusEntwurfAn(entwurfId: string): Promise<MieterA
 
 // ─── Unterschriebene Fassung ────────────────────────────────────────────────
 
-function unterschriftDokument(vertragId: string, datei: File) {
-  const endung = dateiendung(datei.name, datei.type, 'pdf');
+/**
+ * Mieter, Adresse und Lage eines Vertrags für den Titel seiner Dokumente (`vertragsTitel`). Scheitert das Laden, bleibt
+ * der Titel kürzer — das Ablegen der unterschriebenen Fassung hängt nicht daran.
+ */
+export async function ladeVertragsKennung(vertragId: string): Promise<VertragsKennung> {
+  const leer: VertragsKennung = { mieter: [], adresse: '', lage: '' };
+  const { data, error } = await supabase
+    .from('mietvertrag')
+    .select(
+      'einheit:einheit_id (etage, bezeichnung, immobilie:immobilie_id (strasse, hausnummer)), mietvertrag_mieter (position, mieter:mieter_id (nachname, firmenname, ist_unternehmen))'
+    )
+    .eq('id', vertragId)
+    .maybeSingle();
+  if (error || !data) return leer;
+  const einheit = data.einheit as { etage: string | null; bezeichnung: string | null; immobilie: { strasse: string | null; hausnummer: string | null } | null } | null;
+  const verknuepfungen = (data.mietvertrag_mieter ?? []) as {
+    position: number | null;
+    mieter: { nachname: string | null; firmenname: string | null; ist_unternehmen: boolean | null } | null;
+  }[];
   return {
-    titel: `Mietvertrag (unterschrieben).${endung}`,
-    pfad: `mietvertraege/${vertragId}/Mietvertrag_unterschrieben_${stempel(new Date())}.${endung}`,
+    mieter: [...verknuepfungen]
+      .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
+      .map(v => (v.mieter?.ist_unternehmen && v.mieter.firmenname?.trim()) || v.mieter?.nachname?.trim() || '')
+      .filter(Boolean),
+    adresse: [einheit?.immobilie?.strasse, einheit?.immobilie?.hausnummer].filter(Boolean).join(' ').trim(),
+    lage: (einheit?.etage || einheit?.bezeichnung || '').trim(),
+  };
+}
+
+function unterschriftDokument(vertragId: string, datei: File, kennung: VertragsKennung) {
+  const endung = dateiendung(datei.name, datei.type, 'pdf');
+  const jetzt = new Date();
+  return {
+    // Mieter, Mietsache und Zeitpunkt: mehrere Fassungen lassen sich nach dem Herunterladen unterscheiden (12.11.2026)
+    titel: vertragsTitel(kennung, { art: 'unterschrieben', zeitpunkt: jetzt }),
+    pfad: `mietvertraege/${vertragId}/Mietvertrag_unterschrieben_${stempel(jetzt)}.${endung}`,
     kategorie: 'Mietvertrag' as const,
     dateityp: datei.type || 'application/pdf',
     groesse_bytes: datei.size,
@@ -415,7 +447,7 @@ function unterschriftDokument(vertragId: string, datei: File) {
  * dann Dokument und Merker in einer Transaktion (`unterschrift_nachreichen`); scheitert das, fliegt die Datei wieder raus.
  */
 export async function reicheUnterschriftNach(vertragId: string, datei: File): Promise<void> {
-  const dokument = unterschriftDokument(vertragId, datei);
+  const dokument = unterschriftDokument(vertragId, datei, await ladeVertragsKennung(vertragId));
   await hochladen(dokument.pfad, datei, dokument.dateityp);
   const { error } = await supabase.rpc('unterschrift_nachreichen', {
     p_vertrag_id: vertragId,
@@ -459,7 +491,7 @@ export async function legeUnterschriebeneFassungAb(vertragId: string, datei: Fil
   if (merkerFehler) throw new Error(`Der Vertrag konnte nicht geladen werden: ${merkerFehler.message}`);
   if (!vertrag) throw new Error('Den Vertrag gibt es nicht mehr.');
   if (vertrag.unterschrift_ausstehend) return reicheUnterschriftNach(vertragId, datei);
-  const dokument = unterschriftDokument(vertragId, datei);
+  const dokument = unterschriftDokument(vertragId, datei, await ladeVertragsKennung(vertragId));
   await hochladen(dokument.pfad, datei, dokument.dateityp);
   const { data: user } = await supabase.auth.getUser();
   const { error } = await supabase.from('dokumente').insert({

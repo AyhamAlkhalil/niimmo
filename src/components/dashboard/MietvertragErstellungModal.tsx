@@ -34,6 +34,7 @@ import { hatBlocker, pruefeVertragsdaten, type Befund } from '@/utils/mietvertra
 import VermieterStammdatenDialog from '@/components/dashboard/VermieterStammdatenDialog';
 import { AENDERUNGEN } from '@/utils/mietvertrag/wohnraumKlauseln';
 import { schluesselFuerDb } from '@/utils/mietvertrag/entwurf';
+import { vertragsTitel } from '@/utils/mietvertrag/fassungen';
 import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from '@/utils/mietvertrag/vertretung';
 import { positionFuerDb, VORLAGE_VERSION, type MietvertragDaten } from '@/utils/mietvertrag/typen';
 import { schriftstueckPfad } from '@/utils/storagePfad';
@@ -68,6 +69,8 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
 
   const [entwurf, setEntwurfRoh] = useState<MietvertragDaten | null>(null);
   const [speichert, setSpeichert] = useState(false);
+  // Sperrt sofort, nicht erst nach dem nächsten Rendern: Ein Doppelklick legte zwei Verträge an (Besprechung 12.11.2026)
+  const speichertGerade = useRef(false);
   const [zeigeVermieter, setZeigeVermieter] = useState(false);
 
   // Je Öffnen einmal übernehmen, und zwar den frisch geladenen Stand. Bis zum 11.11.2026 setzte jedes Neuladen den
@@ -146,14 +149,23 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
 
   // ─── Speichern ────────────────────────────────────────────────────────────
   async function speichern() {
-    if (!entwurf || !pdfBlob || zahlFehler) return;
+    if (!entwurf || !pdfBlob || zahlFehler || speichertGerade.current) return;
+    speichertGerade.current = true;
     setSpeichert(true);
     try {
       const { data: user } = await supabase.auth.getUser();
 
-      // Pfad nie aus Namen bauen: Umlaute lässt der Storage nicht zu (storagePfad.ts)
-      const pfad = schriftstueckPfad('mietvertraege', vertragId, 'Mietvertrag', new Date());
-      const dateiname = pfad.split('/').pop()!;
+      // Pfad nie aus Namen bauen: Umlaute lässt der Storage nicht zu (storagePfad.ts) — der Titel trägt die Namen
+      const jetzt = new Date();
+      const pfad = schriftstueckPfad('mietvertraege', vertragId, 'Mietvertrag', jetzt);
+      const titel = vertragsTitel(
+        {
+          mieter: entwurf.mieter.map(m => (m.istUnternehmen && m.firmenname?.trim()) || m.nachname),
+          adresse: `${entwurf.objekt.strasse} ${entwurf.objekt.hausnummer}`,
+          lage: entwurf.einheit.lage || entwurf.einheit.bezeichnung,
+        },
+        { art: 'erstellt', zeitpunkt: jetzt }
+      );
 
       const bytes = new Uint8Array(await pdfBlob.arrayBuffer());
       const { error: uploadError } = await supabase.storage
@@ -162,7 +174,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
       if (uploadError) throw uploadError;
 
       const { error: dokError } = await supabase.from('dokumente').insert({
-        titel: `Mietvertrag ${entwurf.einheit.bezeichnung}`,
+        titel,
         pfad,
         kategorie: 'Mietvertrag',
         dateityp: 'application/pdf',
@@ -172,7 +184,11 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
         erstellt_von: user.user?.id ?? null,
         geloescht: false,
       });
-      if (dokError) throw dokError;
+      if (dokError) {
+        // Ohne Zeile in `dokumente` wäre die Datei unsichtbar
+        await supabase.storage.from('dokumente').remove([pfad]);
+        throw dokError;
+      }
 
       // Die im Dialog getroffenen Entscheidungen am Vertrag festhalten,
       // damit ein Nachdruck denselben Wortlaut ergibt.
@@ -292,7 +308,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
       }
 
       logActivity('mietvertrag_pdf_erzeugt', 'mietvertrag', vertragId, {
-        datei: dateiname,
+        datei: pfad.split("/").pop(),
         vorlage: VORLAGE_VERSION,
       });
 
@@ -303,7 +319,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
 
       toast({
         title: 'Mietvertrag gespeichert',
-        description: `${dateiname} liegt jetzt in den Dokumenten des Vertrags.`,
+        description: `„${titel}“ liegt jetzt in den Dokumenten des Vertrags.`,
       });
       onClose();
     } catch (e) {
@@ -313,6 +329,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
         variant: 'destructive',
       });
     } finally {
+      speichertGerade.current = false;
       setSpeichert(false);
     }
   }

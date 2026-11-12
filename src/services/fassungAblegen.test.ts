@@ -85,7 +85,7 @@ describe('legeUnterschriebeneFassungAb', () => {
     expect(z.eingefuegt[0]).toMatchObject({
       mietvertrag_id: 'v1',
       kategorie: 'Mietvertrag',
-      titel: 'Mietvertrag (unterschrieben).pdf',
+      titel: expect.stringMatching(/^Mietvertrag \(unterschrieben\) – hochgeladen \d{2}\.\d{2}\.\d{4} \d{2}\.\d{2} Uhr$/),
       erstellt_von: 'nutzer-1',
       geloescht: false,
     });

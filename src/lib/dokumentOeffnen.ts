@@ -38,3 +38,26 @@ export async function dokumentOeffnen(pfad: string): Promise<boolean> {
   zweiter.opener = null;
   return true;
 }
+
+/**
+ * Lädt eine Datei aus dem Bucket „dokumente“ mit sprechendem Namen herunter (seit 12.11.2026 für den Mietvertrag:
+ * „Dateiname muss passen — man kann den Mietvertrag ja beliebig oft erstellen“). „Ansehen“ zeigt die Datei im
+ * Browser, dessen Speichern-Knopf aber nur den Speicherpfad kennt; deshalb ein eigener Knopf. Liefert false bei Fehler.
+ */
+export async function dokumentHerunterladen(pfad: string, dateiname: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.storage.from("dokumente").download(pfad);
+    if (error || !data) return false;
+    const adresse = URL.createObjectURL(data);
+    const a = document.createElement("a");
+    a.href = adresse;
+    a.download = dateiname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(adresse), 60_000);
+    return true;
+  } catch {
+    return false;
+  }
+}

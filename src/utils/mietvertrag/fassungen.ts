@@ -71,3 +71,44 @@ export function fassungDatum(d: VertragsDokument | null): string {
   const t = new Date(d.hochgeladen_am);
   return Number.isNaN(t.getTime()) ? '' : t.toLocaleDateString('de-DE');
 }
+
+// ─── Titel und Dateiname ────────────────────────────────────────────────────
+
+export interface VertragsKennung {
+  /** Nachnamen bzw. Firmen der Mieter, in Vertragsreihenfolge. */
+  mieter: string[];
+  /** „Mühlenweg 5“ */
+  adresse: string;
+  /** „EG links“ — Lage oder Bezeichnung der Einheit, sonst leer. */
+  lage: string;
+}
+
+/** Zeichen, die in Dateinamen unter Windows oder macOS nicht gehen. */
+function dateinamenSicher(text: string): string {
+  return text.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function zeitpunktText(z: Date): string {
+  const zwei = (n: number) => String(n).padStart(2, '0');
+  return `${zwei(z.getDate())}.${zwei(z.getMonth() + 1)}.${z.getFullYear()} ${zwei(z.getHours())}.${zwei(z.getMinutes())} Uhr`;
+}
+
+/**
+ * Titel eines Vertragsdokuments — er ist zugleich der Dateiname beim Herunterladen (`downloadDateiname`). Bis zum
+ * 12.11.2026 hieß jede erstellte Fassung „Mietvertrag “ plus Einheitenbezeichnung (live fast immer leer) und jede
+ * unterschriebene „Mietvertrag (unterschrieben)“ — mehrere Fassungen ließen sich nach dem Herunterladen nicht
+ * unterscheiden (Nutzer: „Dateiname muss passen — man kann den Mietvertrag ja beliebig oft erstellen“). Deshalb mit
+ * Mieter, Mietsache und Zeitpunkt auf die Minute.
+ */
+export function vertragsTitel(
+  k: VertragsKennung,
+  a: { art: 'erstellt' | 'unterschrieben'; zeitpunkt: Date; mitAnlagen?: boolean }
+): string {
+  const namen = k.mieter.map(n => n.trim()).filter(Boolean);
+  const mieter = namen.length > 2 ? `${namen.slice(0, 2).join(', ')} u. a.` : namen.join(', ');
+  const mietsache = [k.adresse.trim(), k.lage.trim()].filter(Boolean).join(', ');
+  const kopf =
+    a.art === 'unterschrieben' ? 'Mietvertrag (unterschrieben)' : a.mitAnlagen ? 'Mietvertrag einschließlich Anlagen' : 'Mietvertrag';
+  const wann = `${a.art === 'unterschrieben' ? 'hochgeladen' : 'erstellt'} ${zeitpunktText(a.zeitpunkt)}`;
+  return dateinamenSicher([kopf, mieter, mietsache, wann].filter(Boolean).join(' – '));
+}

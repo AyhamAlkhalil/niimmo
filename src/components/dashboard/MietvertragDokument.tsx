@@ -14,7 +14,7 @@
  */
 import { useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Circle, Eye, FileText, FileUp, Loader2, Undo2 } from 'lucide-react';
+import { CheckCircle2, Circle, Download, Eye, FileText, FileUp, Loader2, Undo2 } from 'lucide-react';
 
 import {
   AlertDialog,
@@ -30,9 +30,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useActivityLog } from '@/hooks/useActivityLog';
 import { useMietvertragFassungen } from '@/hooks/useMietvertragFassungen';
-import { dokumentOeffnen } from '@/lib/dokumentOeffnen';
+import { dokumentHerunterladen, dokumentOeffnen } from '@/lib/dokumentOeffnen';
 import { cn } from '@/lib/utils';
 import { legeUnterschriebeneFassungAb, nimmVermietungZurueck } from '@/services/mietvertragEntwurfService';
+import { downloadDateiname } from '@/utils/dokumentDateiname';
 import { fassungDatum, fassungenStand, type VertragsDokument } from '@/utils/mietvertrag/fassungen';
 
 import MietvertragErstellungModal from './MietvertragErstellungModal';
@@ -110,6 +111,13 @@ export function MietvertragDokument({
     }
   }
 
+  async function herunterladen(d: VertragsDokument) {
+    // Der Titel trägt Mieter, Mietsache und Zeitpunkt (vertragsTitel) — so unterscheiden sich mehrere Fassungen
+    if (!d.pfad || !(await dokumentHerunterladen(d.pfad, downloadDateiname(d.titel, d.pfad)))) {
+      toast({ title: 'Nicht heruntergeladen', description: 'Die Datei ließ sich nicht laden. Bitte erneut versuchen.', variant: 'destructive' });
+    }
+  }
+
   async function hochladen(datei: File) {
     setLaedtHoch(true);
     try {
@@ -181,10 +189,16 @@ export function MietvertragDokument({
               : 'Kein Mietvertrag hinterlegt'}
         </span>
         {stand.unterschrieben && (
-          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void ansehen(stand.unterschrieben!)}>
-            <Eye className="h-3 w-3" />
-            Ansehen
-          </Button>
+          <>
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void ansehen(stand.unterschrieben!)}>
+              <Eye className="h-3 w-3" />
+              Ansehen
+            </Button>
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void herunterladen(stand.unterschrieben!)}>
+              <Download className="h-3 w-3" />
+              Herunterladen
+            </Button>
+          </>
         )}
       </Zeile>
       {stand.offenesPdf && (
@@ -195,6 +209,10 @@ export function MietvertragDokument({
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void ansehen(stand.offenesPdf!)}>
             <Eye className="h-3 w-3" />
             Ansehen
+          </Button>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void herunterladen(stand.offenesPdf!)}>
+            <Download className="h-3 w-3" />
+            Herunterladen
           </Button>
         </Zeile>
       )}

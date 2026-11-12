@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { fassungArt, fassungDatum, fassungenStand, type VertragsDokument } from './fassungen';
+import { fassungArt, fassungDatum, fassungenStand, vertragsTitel, type VertragsDokument } from './fassungen';
 
 const V = '3c000000-0000-4000-8000-000000000001';
 const dok = (id: string, pfad: string, am: string, mehr: Partial<VertragsDokument> = {}): VertragsDokument => ({
@@ -85,5 +85,38 @@ describe('fassungenStand', () => {
     expect(fassungDatum(null)).toBe('');
     expect(fassungDatum(dok('x', 'x', 'kaputt'))).toBe('');
     expect(fassungDatum(dok('x', 'x', '2026-11-12T10:00:00Z'))).toBe('12.11.2026');
+  });
+});
+
+describe('vertragsTitel', () => {
+  const k = { mieter: ['Probe', 'Muster'], adresse: 'Mühlenweg 5', lage: 'EG links' };
+  const zeit = new Date(2026, 10, 12, 10, 5);
+
+  it('unterscheidet Fassungen nach Mieter, Mietsache und Zeitpunkt', () => {
+    expect(vertragsTitel(k, { art: 'erstellt', zeitpunkt: zeit })).toBe(
+      'Mietvertrag – Probe, Muster – Mühlenweg 5, EG links – erstellt 12.11.2026 10.05 Uhr'
+    );
+    expect(vertragsTitel(k, { art: 'erstellt', zeitpunkt: new Date(2026, 10, 12, 10, 6) })).not.toBe(
+      vertragsTitel(k, { art: 'erstellt', zeitpunkt: zeit })
+    );
+  });
+
+  it('nennt Anlagen und unterschriebene Fassungen', () => {
+    expect(vertragsTitel(k, { art: 'erstellt', zeitpunkt: zeit, mitAnlagen: true })).toMatch(/^Mietvertrag einschließlich Anlagen – /);
+    expect(vertragsTitel(k, { art: 'unterschrieben', zeitpunkt: zeit })).toBe(
+      'Mietvertrag (unterschrieben) – Probe, Muster – Mühlenweg 5, EG links – hochgeladen 12.11.2026 10.05 Uhr'
+    );
+  });
+
+  it('kürzt lange Mieterlisten, lässt Leeres weg und entfernt Zeichen, die kein Dateiname verträgt', () => {
+    expect(vertragsTitel({ mieter: ['A', 'B', 'C'], adresse: 'Weg 1', lage: '' }, { art: 'erstellt', zeitpunkt: zeit })).toBe(
+      'Mietvertrag – A, B u. a. – Weg 1 – erstellt 12.11.2026 10.05 Uhr'
+    );
+    expect(vertragsTitel({ mieter: [], adresse: '', lage: '' }, { art: 'erstellt', zeitpunkt: zeit })).toBe(
+      'Mietvertrag – erstellt 12.11.2026 10.05 Uhr'
+    );
+    expect(vertragsTitel({ mieter: ['Probe/Muster'], adresse: 'Weg 1: "Hof"', lage: 'EG' }, { art: 'erstellt', zeitpunkt: zeit })).not.toMatch(
+      /[\\/:*?"<>|]/
+    );
   });
 });
