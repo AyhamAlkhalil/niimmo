@@ -65,6 +65,7 @@ import {
   historieEintraege,
   historieAufteilen,
   aktuelleStaende,
+  standFilter,
   fehlendeDokumente,
   LEERE_ZAEHLER,
   istNetzfehler,
@@ -1219,6 +1220,10 @@ export const UebergabeDialog = ({
         if (leseFehler) throw leseFehler;
         const vorher = (vorherRoh ?? {}) as unknown as Record<string, unknown>;
         for (const a of staende) {
+          // Kein or-Filter: PostgREST wendet ihn auf die Rückgabe noch einmal an und
+          // scheiterte daran mit 400 (utils/uebergabeSpeicherung.ts, standFilter)
+          const filter = standFilter(vorher[a.datumSpalte], historieDatum);
+          if (filter === "spaeter_vorhanden") continue;
           const neu = { [a.standSpalte]: a.stand, [a.datumSpalte]: historieDatum };
           const zeile: Rueckbau["zeilen"][number] = {
             tabelle: "einheiten",
@@ -1228,14 +1233,16 @@ export const UebergabeDialog = ({
           };
           rueckbau.zeilen.push(zeile);
           rueckbauMerken(rueckbau);
-          const { data: getroffen, error: standFehler } = await db(supabase
+          const aenderung = supabase
             .from("einheiten")
             .update(neu as TablesUpdate<"einheiten">)
-            .eq("id", contract.einheit.id)
-            .or(`${a.datumSpalte}.is.null,${a.datumSpalte}.lte.${historieDatum}`)
-            .select("id"), "Zählerstand der Einheit schreiben");
+            .eq("id", contract.einheit.id);
+          const { data: getroffen, error: standFehler } = await db(
+            (filter === "leer" ? aenderung.is(a.datumSpalte, null) : aenderung.lte(a.datumSpalte, historieDatum)).select("id"),
+            "Zählerstand der Einheit schreiben"
+          );
           if (standFehler) throw standFehler;
-          // Ein späterer Stand stand schon da — nichts geschrieben, nichts zurückzunehmen
+          // Das Datum an der Einheit hat sich seit dem Lesen geändert — nichts geschrieben, nichts zurückzunehmen
           if (!getroffen || getroffen.length === 0) {
             rueckbau.zeilen.splice(rueckbau.zeilen.indexOf(zeile), 1);
             rueckbauMerken(rueckbau);

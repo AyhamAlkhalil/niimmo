@@ -360,6 +360,33 @@ export function aktuelleStaende(z: ZaehlerEingaben): AktuellerStand[] {
 }
 
 /**
+ * Mit welchem Filter der aktuelle Stand der Einheit geschrieben wird, gewählt nach dem
+ * Datum, das unmittelbar vorher an der Einheit gelesen wurde:
+ * - „leer“: Dort steht noch kein Datum, Filter `is null`.
+ * - „bis_datum“: Dort steht ein Stand vom Übergabetag oder früher, Filter `lte`.
+ * - „spaeter_vorhanden“: Dort steht schon ein späterer Stand, also nichts schreiben.
+ * Der Filter bleibt die eigentliche Sperre. Hat sich das Datum seit dem Lesen geändert,
+ * trifft das Update keine Zeile, und ein späterer Stand wird nie überschrieben.
+ *
+ * Bis zum 12.11.2026 stand die Bedingung als `or=(datum.is.null,datum.lte.X)` im Update.
+ * PostgREST wendet einen or-Filter bei einem Update mit Rückgabe ein zweites Mal auf die
+ * zurückgegebenen Zeilen an. Die enthielten nur `id`, deshalb kam „column
+ * einheiten.strom_stand_datum does not exist“ (42703, HTTP 400). Seit dem 22.10.2026
+ * scheiterte so jede Übergabe mit Zählerstand an diesem Schritt und wurde zurückgenommen.
+ * Einfache Filter wiederholt PostgREST nicht; das wurde am 12.11.2026 gegen die Live-API geprüft.
+ */
+export type StandFilter = "leer" | "bis_datum" | "spaeter_vorhanden";
+
+export function standFilter(vorherDatum: unknown, uebergabeDatum: string): StandFilter {
+  if (vorherDatum === null || vorherDatum === undefined) return "leer";
+  const tag = typeof vorherDatum === "string" ? vorherDatum.slice(0, 10) : "";
+  // Ein lesbares späteres Datum: Das Update träfe ohnehin nichts, also gar nicht erst senden
+  if (/^\d{4}-\d{2}-\d{2}$/.test(tag) && tag > uebergabeDatum) return "spaeter_vorhanden";
+  // Sonst entscheidet der Filter in der Datenbank
+  return "bis_datum";
+}
+
+/**
  * Je Einheit, Zähler, Tag und Übergabeart gibt es genau eine Ablesung. Was es
  * schon gibt — aus einem abgebrochenen Lauf oder einer Korrektur am selben Tag —,
  * wird aktualisiert statt ein zweites Mal eingetragen.

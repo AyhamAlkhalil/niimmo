@@ -13,6 +13,7 @@ import {
   unbelegterRueckbau,
   mitZeitlimit,
   aktuelleStaende,
+  standFilter,
   fehlendeDokumente,
   dateienHochladen,
   LEERE_ZAEHLER,
@@ -106,6 +107,37 @@ describe("aktuelleStaende", () => {
       { standSpalte: "kaltwasser_stand_aktuell", datumSpalte: "kaltwasser_stand_datum", stand: 7 },
     ]);
     expect(aktuelleStaende(LEERE_ZAEHLER)).toEqual([]);
+  });
+});
+
+describe("standFilter", () => {
+  it("schreibt in ein leeres Datum mit is null", () => {
+    expect(standFilter(null, "2026-10-16")).toBe("leer");
+    expect(standFilter(undefined, "2026-10-16")).toBe("leer");
+  });
+
+  it("schreibt über einen Stand vom selben oder einem früheren Tag", () => {
+    expect(standFilter("2026-10-16", "2026-10-16")).toBe("bis_datum");
+    expect(standFilter("2026-02-24", "2026-10-16")).toBe("bis_datum");
+    expect(standFilter("2026-02-24T00:00:00+00:00", "2026-10-16")).toBe("bis_datum");
+  });
+
+  it("lässt einen späteren Stand stehen und sendet dann gar nichts", () => {
+    expect(standFilter("2026-10-17", "2026-10-16")).toBe("spaeter_vorhanden");
+    expect(standFilter("2027-01-01T00:00:00", "2026-10-16")).toBe("spaeter_vorhanden");
+  });
+
+  it("überlässt Unlesbares dem Filter in der Datenbank", () => {
+    expect(standFilter("kein Datum", "2026-10-16")).toBe("bis_datum");
+    expect(standFilter(20261017, "2026-10-16")).toBe("bis_datum");
+  });
+
+  it("der Dialog schreibt den Stand der Einheit ohne or-Filter", () => {
+    // 12.11.2026: or-Filter im Update mit Rückgabe → 42703, jede Übergabe mit Zählerstand scheiterte
+    const dialog = readFileSync("src/components/dashboard/handover/UebergabeDialog.tsx", "utf-8");
+    const schritt = dialog.slice(dialog.indexOf("// 5. Aktueller Stand der Einheit"), dialog.indexOf("// 6. Fotos und PDF als Dokumente"));
+    expect(schritt).toMatch(/standFilter\(vorher\[a\.datumSpalte\], historieDatum\)/);
+    expect(schritt).not.toMatch(/\.or\(/);
   });
 });
 
