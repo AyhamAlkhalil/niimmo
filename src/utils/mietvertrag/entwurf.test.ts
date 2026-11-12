@@ -55,8 +55,10 @@ import { wohnraumParagraphen } from './wohnraumKlauseln';
 import {
   istSonstigePosition,
   naechsteSonstigeNummer,
+  positionsKennung,
   positionsText,
   SONSTIGE_NUMMER,
+  vertragsNummer,
   type MietvertragDaten,
 } from './typen';
 import { BETRKV_KATEGORIEN } from '@/components/dashboard/nebenkosten/nebenkostenKategorien';
@@ -993,7 +995,43 @@ describe('Sonstige Betriebskosten benennen (03.11.2026)', () => {
     expect(positionsText({ nummer: '2.4', bezeichnung: 'Heizung', benennung: 'x' })).toBe('Heizung');
     const tabelle = wohnraumParagraphen(daten).flatMap(p => p.absaetze).find(a => a.kosten)!.kosten!;
     expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten: Lüftungsanlage' }));
-    expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.20', bezeichnung: 'Sonstige Betriebskosten: Dachrinnenreinigung' }));
+    // Jede weitere sonstige Position steht ebenfalls unter 2.19, nie unter 2.20 (12.11.2026)
+    expect(tabelle.zeilen).toContainEqual(expect.objectContaining({ nummer: '2.19', bezeichnung: 'Sonstige Betriebskosten: Dachrinnenreinigung' }));
+    expect(tabelle.zeilen.map(z => z.nummer)).not.toContain('2.20');
+    expect(tabelle.zeilen.filter(z => z.nummer === '2.19')).toHaveLength(2);
+  });
+
+  it('nummeriert alle sonstigen Betriebskosten als 2.19 (12.11.2026)', () => {
+    expect(vertragsNummer('2.19')).toBe('2.19');
+    expect(vertragsNummer('2.20')).toBe('2.19');
+    expect(vertragsNummer('2.23')).toBe('2.19');
+    expect(vertragsNummer('2.18')).toBe('2.18');
+    expect(vertragsNummer(' 2.4 ')).toBe('2.4');
+    expect(positionsKennung({ nummer: '2.21', benennung: ' Lüftungsanlage ' })).toBe('2.19 (Lüftungsanlage)');
+    expect(positionsKennung({ nummer: '2.20', benennung: '' })).toBe('2.19');
+    expect(positionsKennung({ nummer: '2.4', benennung: 'x' })).toBe('2.4');
+  });
+
+  it('nennt in den Hinweisen 2.19 statt der internen Kennung', () => {
+    const daten = mitLueftung(baueEntwurf(grundlagen()).daten);
+    const ohneBetrag = {
+      ...daten,
+      betriebskostenVorauszahlung: 50,
+      betriebskostenPositionen: daten.betriebskostenPositionen.map(p =>
+        p.nummer === '2.1' ? { ...p, umgelegt: true, betrag: 50 } : p
+      ),
+    };
+    const befund = pruefeVertragsdaten(ohneBetrag).find(b => b.text.includes('haben keinen Betrag'));
+    expect(befund?.text).toContain('2.19 (Lüftungsanlage), 2.19 (Dachrinnenreinigung)');
+    expect(befund?.text).not.toContain('2.20');
+
+    const zweiUnbenannt = {
+      ...daten,
+      betriebskostenPositionen: daten.betriebskostenPositionen.map(p => (istSonstigePosition(p.nummer) ? { ...p, benennung: '' } : p)),
+    };
+    const unbenannt = pruefeVertragsdaten(zweiUnbenannt).find(b => b.text.startsWith('Sonstige Betriebskosten werden umgelegt'));
+    expect(unbenannt?.text).toContain('2 Positionen unter 2.19');
+    expect(unbenannt?.text).not.toContain('2.20');
   });
 
   it('speichert die Benennung am Vertrag und liest weitere Positionen zurück', () => {

@@ -24,6 +24,7 @@ import {
   istSonstigePosition,
   naechsteSonstigeNummer,
   SONSTIGE_NUMMER,
+  vertragsNummer,
   VERTEILERSCHLUESSEL,
   verteilerschluesselName,
   type BetriebskostenPosition,
@@ -473,7 +474,8 @@ export function BetriebskostenEditor({
     }));
     geaendert?.('betriebskostenPositionen');
   };
-  // Weitere sonstige Betriebskosten ab 2.20 (03.11.2026: „manchmal kommen mehrere sonstige Betriebskosten“)
+  // Weitere sonstige Betriebskosten (03.11.2026: „manchmal kommen mehrere sonstige Betriebskosten“). Sie stehen
+  // wie die erste unter 2.19 (12.11.2026); 2.20, 2.21, … ist nur ihre Kennung, damit `aendere` die richtige trifft.
   const weitereSonstige = () => {
     setEntwurf(d => {
       const basis = d.betriebskostenPositionen.find(p => p.nummer === SONSTIGE_NUMMER);
@@ -532,25 +534,29 @@ export function BetriebskostenEditor({
             pos.umgelegt &&
             !!pos.schluesselObjekt &&
             !gleicherSchluessel(pos.schluessel, pos.schluesselObjekt);
+          const nr = vertragsNummer(pos.nummer);
+          const weitere = istSonstigePosition(pos.nummer) && pos.nummer !== SONSTIGE_NUMMER;
+          // Für Bildschirmleser bleibt die weitere 2.19 von der ersten unterscheidbar
+          const ariaName = weitere ? `${nr} weitere sonstige` : nr;
           return (
             <div key={pos.nummer} className="grid grid-cols-[24px_1fr_96px] items-center gap-2">
               <Checkbox
                 checked={pos.umgelegt}
-                aria-label={`${pos.nummer} umlegen`}
+                aria-label={`${ariaName} umlegen`}
                 onCheckedChange={c => aendere(pos.nummer, { umgelegt: c === true, betrag: c === true ? pos.betrag : null })}
               />
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-1">
                   <p className="min-w-0 flex-1 text-xs sm:truncate" title={pos.bezeichnung}>
-                    <span className="text-muted-foreground">{pos.nummer}</span> {pos.bezeichnung}
+                    <span className="text-muted-foreground">{nr}</span> {pos.bezeichnung}
                   </p>
-                  {istSonstigePosition(pos.nummer) && pos.nummer !== SONSTIGE_NUMMER && (
+                  {weitere && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 shrink-0"
-                      aria-label={`${pos.nummer} entfernen`}
+                      aria-label={`${ariaName} entfernen`}
                       onClick={() => entferne(pos.nummer)}
                     >
                       <X className="h-3.5 w-3.5" />
@@ -559,7 +565,7 @@ export function BetriebskostenEditor({
                 </div>
                 {istSonstigePosition(pos.nummer) && pos.umgelegt && (
                   <Input
-                    aria-label={`${pos.nummer} welche Kosten`}
+                    aria-label={`${ariaName} welche Kosten`}
                     className={pos.benennung?.trim() ? 'h-7 text-xs' : 'h-7 border-warning text-xs'}
                     placeholder="Welche Kosten? z. B. Lüftungsanlage"
                     value={pos.benennung ?? ''}
@@ -576,7 +582,7 @@ export function BetriebskostenEditor({
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Select value={pos.schluessel} onValueChange={v => aendere(pos.nummer, { schluessel: v })}>
                       <SelectTrigger
-                        aria-label={`${pos.nummer} Verteilerschlüssel`}
+                        aria-label={`${ariaName} Verteilerschlüssel`}
                         className={abweichend ? 'h-7 w-[220px] max-w-full border-warning text-xs' : 'h-7 w-[220px] max-w-full text-xs'}
                       >
                         <SelectValue />

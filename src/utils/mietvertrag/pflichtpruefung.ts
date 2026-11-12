@@ -7,7 +7,14 @@
  * Abs. 1 S. 2 BGB), die Kaution und den Übergabezustand.
  */
 import { istIbanGueltig, istPlausiblesDatum } from '../pdf/briefLayout';
-import { gleicherSchluessel, istSonstigePosition, verteilerschluesselName, type MietvertragDaten } from './typen';
+import {
+  gleicherSchluessel,
+  istSonstigePosition,
+  positionsKennung,
+  SONSTIGE_NUMMER,
+  verteilerschluesselName,
+  type MietvertragDaten,
+} from './typen';
 import { brauchtUnterzeichnerWahl, gewaehlterUnterzeichner } from './vertretung';
 import { format } from 'date-fns';
 
@@ -253,7 +260,10 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
     if (unbenannt.length > 0) {
       warnung(
         'betriebskostenPositionen',
-        `Sonstige Betriebskosten werden umgelegt, aber nicht benannt: ${unbenannt.map(p => p.nummer).join(', ')}.`,
+        // Alle stehen unter 2.19 (12.11.2026) — bei mehreren nennt der Hinweis die Anzahl statt „2.19, 2.19“
+        `Sonstige Betriebskosten werden umgelegt, aber nicht benannt: ${
+          unbenannt.length === 1 ? SONSTIGE_NUMMER : `${unbenannt.length} Positionen unter ${SONSTIGE_NUMMER}`
+        }.`,
         'Eintragen, welche Kosten es sind (z. B. Lüftungsanlage) — unbenannt sind sie nicht umlagefähig. Sonst die Position nicht umlegen.'
       );
     }
@@ -278,7 +288,7 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
       if (ohneBetrag.length > 0) {
         warnung(
           'betriebskostenPositionen',
-          `${ohneBetrag.length} umgelegte Position(en) haben keinen Betrag: ${ohneBetrag.map(p => p.nummer).join(', ')}.`,
+          `${ohneBetrag.length} umgelegte Position(en) haben keinen Betrag: ${ohneBetrag.map(positionsKennung).join(', ')}.`,
           'Betrag ergänzen oder Position von der Umlage ausnehmen.'
         );
       }
@@ -298,7 +308,7 @@ export function pruefeVertragsdaten(d: MietvertragDaten): Befund[] {
         `Verteilerschlüssel weicht von der Betriebskostenabrechnung des Objekts ab: ${abweichend
           .map(
             p =>
-              `${p.nummer} im Vertrag nach ${verteilerschluesselName(p.schluessel)}, in der Abrechnung nach ${verteilerschluesselName(p.schluesselObjekt ?? '')}`
+              `${positionsKennung(p)} im Vertrag nach ${verteilerschluesselName(p.schluessel)}, in der Abrechnung nach ${verteilerschluesselName(p.schluesselObjekt ?? '')}`
           )
           .join('; ')}.`,
         'Schlüssel im Vertrag angleichen oder den Schlüssel am Objekt in der Betriebskostenabrechnung ändern.'

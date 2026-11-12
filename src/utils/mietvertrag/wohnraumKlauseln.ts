@@ -20,7 +20,7 @@ import {
   type TabellenZeile,
   kreditinstitut,
 } from '../pdf/briefLayout';
-import { ausgehaendigteSchluessel, positionsText, verteilungKurz, type MietvertragDaten } from './typen';
+import { ausgehaendigteSchluessel, positionsText, verteilungKurz, vertragsNummer, type MietvertragDaten } from './typen';
 import type { Kostentabelle } from './vertragsLayout';
 
 export interface Absatz {
@@ -879,7 +879,8 @@ function betriebskostenTabelle(d: MietvertragDaten, vorauszahlung: number): Kost
   return {
     kopf: { bezeichnung: 'Vorauszahlung', verteilung: 'Verteilung', betrag: 'EUR monatlich' },
     zeilen: d.betriebskostenPositionen.map(pos => ({
-      nummer: pos.nummer,
+      // Alle sonstigen Betriebskosten stehen unter 2.19 (12.11.2026)
+      nummer: vertragsNummer(pos.nummer),
       bezeichnung: positionsText(pos),
       // Der Schlüssel steht nur bei umgelegten Positionen — die übrigen werden nicht verteilt
       verteilung: pos.umgelegt ? verteilungKurz(pos.schluessel) : '',

@@ -121,20 +121,36 @@ export interface BetriebskostenPosition {
    */
   betrag: number | null;
   /**
-   * Nur bei sonstigen Betriebskosten (2.19 und weitere ab 2.20): was genau
+   * Nur bei sonstigen Betriebskosten (2.19, auch die weiteren): was genau
    * umgelegt wird, z. B. „Lüftungsanlage“ (seit 03.11.2026). Unbenannt sind
    * sonstige Betriebskosten nicht umlagefähig.
    */
   benennung?: string | null;
 }
 
-/** Letzte feste Position der Hausvorlage; ab hier folgen weitere sonstige Betriebskosten. */
+/** Letzte feste Position der Hausvorlage; alle sonstigen Betriebskosten stehen unter dieser Nummer. */
 export const SONSTIGE_NUMMER = '2.19';
 
-/** Sonstige Betriebskosten: 2.19 und die von Hand angefügten ab 2.20. */
+/** Sonstige Betriebskosten: 2.19 und die von Hand angefügten (intern ab 2.20). */
 export function istSonstigePosition(nummer: string): boolean {
   const m = /^2\.(\d+)$/.exec(nummer.trim());
   return !!m && Number(m[1]) >= 19;
+}
+
+/**
+ * Nummer, unter der die Position im Vertrag und im Formular steht. Jede weitere sonstige Position steht wie die
+ * erste unter 2.19 (12.11.2026, Nutzer: „muss 2.19 bleiben, weil es Sonstiges ist … jeder weitere sonstige
+ * Betriebskosten ist dann 2.19“). Die gespeicherte `nummer` (2.20, 2.21, …) bleibt nur die Kennung, die die
+ * Positionen im Formular und im Schnappschuss am Vertrag auseinanderhält.
+ */
+export function vertragsNummer(nummer: string): string {
+  return istSonstigePosition(nummer) ? SONSTIGE_NUMMER : nummer.trim();
+}
+
+/** Für Hinweise: „2.4“, bei sonstigen mit Benennung „2.19 (Lüftungsanlage)“ — mehrere 2.19 bleiben unterscheidbar. */
+export function positionsKennung(pos: Pick<BetriebskostenPosition, 'nummer' | 'benennung'>): string {
+  const benennung = istSonstigePosition(pos.nummer) ? pos.benennung?.trim() : '';
+  return benennung ? `${vertragsNummer(pos.nummer)} (${benennung})` : vertragsNummer(pos.nummer);
 }
 
 /** Die Zeile, wie sie im Vertrag steht: „Sonstige Betriebskosten: Lüftungsanlage“. */
@@ -143,7 +159,7 @@ export function positionsText(pos: Pick<BetriebskostenPosition, 'nummer' | 'beze
   return benennung ? `${pos.bezeichnung}: ${benennung}` : pos.bezeichnung;
 }
 
-/** Nächste freie Nummer für eine weitere sonstige Position (2.20, 2.21, …). */
+/** Nächste freie Kennung für eine weitere sonstige Position (2.20, 2.21, …); gedruckt wird sie als 2.19. */
 export function naechsteSonstigeNummer(positionen: readonly Pick<BetriebskostenPosition, 'nummer'>[]): string {
   const hoechste = positionen.reduce((max, p) => {
     const m = /^2\.(\d+)$/.exec(p.nummer.trim());

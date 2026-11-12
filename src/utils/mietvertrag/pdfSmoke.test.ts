@@ -292,6 +292,22 @@ describe('PDF-Erzeugung', () => {
     expect(pruefeVertragsdaten(ohneWahl).some(b => b.feld === 'unterzeichnerVermieter' && b.schwere === 'blocker')).toBe(true);
   });
 
+  it('druckt jede weitere sonstige Betriebskostenart unter 2.19 (12.11.2026)', async () => {
+    const sonstige = { bezeichnung: 'Sonstige Betriebskosten', umgelegt: true, schluessel: 'qm', betrag: null };
+    const nurEine = { ...WOHNRAUM, betriebskostenPositionen: [...WOHNRAUM.betriebskostenPositionen, { ...sonstige, nummer: '2.19', benennung: 'Lüftungsanlage' }] };
+    const mitZweien = {
+      ...nurEine,
+      // 2.20 ist nur die Kennung der angefügten Position
+      betriebskostenPositionen: [...nurEine.betriebskostenPositionen, { ...sonstige, nummer: '2.20', benennung: 'Dachrinnenreinigung' }],
+    };
+    const nummer = (t: string, n: string) => (t.match(new RegExp(`(?<![\\d.])${n.replace('.', '\\.')}(?![\\d])`, 'g')) ?? []).length;
+    const eins = textAusPdf(await bytesVon(await generateMietvertragPdf(nurEine)));
+    const zwei = textAusPdf(await bytesVon(await generateMietvertragPdf(mitZweien)));
+    expect(zwei).toContain('Sonstige Betriebskosten: Dachrinnenreinigung');
+    expect(nummer(zwei, '2.19')).toBe(nummer(eins, '2.19') + 1);
+    expect(nummer(zwei, '2.20')).toBe(0);
+  });
+
   it('lässt bei Gesamtvertretung beide Geschäftsführer zeichnen', async () => {
     const t = textAusPdf(await bytesVon(await generateMietvertragPdf({ ...WOHNRAUM, unterzeichnerVermieter: 'Ayhan Yeyrek' })));
     expect(t).toContain('gemeinsam vertreten durch Ayhan Yeyrek und Dennis Mikyas');
