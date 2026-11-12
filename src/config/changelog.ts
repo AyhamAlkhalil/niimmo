@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.17.0",
+    datum: "2026-11-12",
+    aenderungen: [
+      { art: "verbessert", titel: "Übergabeprotokoll im Bild des Mietvertrags: Logo, Schrift und Aufbau wie der Vertrag, Fotos nummeriert" },
+    ],
+  },
+  {
     version: "1.16.0",
     datum: "2026-11-12",
     aenderungen: [

@@ -1,5 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { UnterschriftFehler, generateUebergabePdf, type UebergabePdfData } from './uebergabePdfGenerator';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { MITTEL_ZEITLIMIT_MS, UnterschriftFehler, generateUebergabePdf, type UebergabePdfData } from './uebergabePdfGenerator';
+import { COMPANY } from '@/config/company';
+import { readFileSync } from 'node:fs';
 import type { PdfImage } from './pdfImageUtils';
 
 /**
@@ -48,7 +50,8 @@ const baseData: UebergabePdfData = {
 };
 
 async function renderText(data: UebergabePdfData): Promise<string> {
-  const blob = await generateUebergabePdf(data);
+  // Ohne Carlito und Logo: unkomprimiert in Helvetica, wie in Node ohnehin
+  const blob = await generateUebergabePdf(data, { schrift: null, logo: null });
   // Unkomprimierte jsPDF-Ausgabe: Text und Bild-Operatoren stehen im Klartext
   return Buffer.from(await blob.arrayBuffer()).toString('latin1');
 }
@@ -58,6 +61,10 @@ const BILD_MATRIX = /([\d.]+) 0 0 ([\d.]+) [\d.]+ [\d.]+ cm/;
 
 const zaehleBildOperationen = (pdf: string): number =>
   (pdf.match(new RegExp(BILD_MATRIX, 'g')) ?? []).length;
+
+/** Alle Textstücke des Content-Streams aneinander — eine umbrochene Angabe steht dann wieder am Stück */
+const textAmStueck = (pdf: string): string =>
+  [...pdf.matchAll(/\(((?:\\.|[^\\()])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join('');
 
 describe('generateUebergabePdf', () => {
   let ohneFotos: string;
@@ -103,7 +110,29 @@ describe('generateUebergabePdf', () => {
   });
 
   it('rendert den Notizen-Abschnitt', () => {
-    expect(ohneFotos).toContain('Bemerkungen / Zustand');
+    expect(ohneFotos).toContain('Zustand und Bemerkungen');
+    expect(ohneFotos).toContain('Wohnung besenrein');
+  });
+
+  it('setzt Titel, Art und Datum der Übergabe und die Seitenzahl wie der Mietvertrag', async () => {
+    expect(ohneFotos).toContain('(Übergabeprotokoll)');
+    expect(ohneFotos).toContain('(Auszug am 03.08.2026)');
+    expect(ohneFotos).toContain('(Seite 1 von 1)');
+    expect(await renderText({ ...baseData, isEinzug: true })).toContain('(Einzug am 03.08.2026)');
+  });
+
+  it('nennt die Verwaltung als solche, nicht als Vermieter, und trägt keinen Firmenfuß mehr', () => {
+    expect(ohneFotos).toContain('(Verwaltung)');
+    expect(ohneFotos).toContain(`(${COMPANY.name})`);
+    expect(ohneFotos).not.toContain('Registergericht');
+    expect(ohneFotos).not.toContain('Creditreform');
+  });
+
+  it('bricht eine lange Zählernummer in ihrer Spalte um, statt sie abzuschneiden', async () => {
+    const lang = 'KW-SEHR-LANGE-NUMMER-0123456789-ABCDEFGH';
+    const pdf = await renderText({ ...baseData, einheiten: [{ ...baseData.einheiten[0], zaehlernummern: { wasser: lang } }] });
+    expect(pdf).not.toContain(`(${lang})`);
+    expect(textAmStueck(pdf)).toContain(lang);
   });
 
   it('bettet Zustandsfotos aus dem Notizen-Bereich ein', async () => {
@@ -113,6 +142,9 @@ describe('generateUebergabePdf', () => {
     });
 
     expect(mitFotos).toContain('Fotos zum Zustand');
+    // Nummeriert, damit die Bemerkungen darauf verweisen können
+    expect(mitFotos).toContain('(Foto 1)');
+    expect(mitFotos).toContain('(Foto 2)');
     // Zwei zusätzliche Bild-Zeichenoperationen gegenüber der Variante ohne Fotos.
     // Gezählt wird das Zeichnen, nicht das eingebettete Objekt: jsPDF legt
     // identische Bilddaten nur einmal ab und referenziert sie mehrfach.
@@ -126,7 +158,7 @@ describe('generateUebergabePdf', () => {
       notizenFotos: [portraitImage],
     });
 
-    expect(nurFotos).toContain('Bemerkungen / Zustand');
+    expect(nurFotos).toContain('Zustand und Bemerkungen');
     expect(nurFotos).toContain('Fotos zum Zustand');
   });
 
@@ -162,14 +194,28 @@ describe('generateUebergabePdf', () => {
 });
 
 describe('generateUebergabePdf: Mietsache und Sonderzeichen', () => {
-  it('nennt die Mietsache im Kopf und in der Zählerüberschrift', async () => {
+  it('nennt die Mietsache im Kopf, bei einer Einheit nur dort', async () => {
     const pdf = await renderText({
       ...baseData,
       mietsache: 'Wohnung, 1. OG links, 3 Zimmer, 72,5 m²',
       einheiten: [{ ...baseData.einheiten[0], mietsache: 'Wohnung, 1. OG links, 3 Zimmer, 72,5 m²' }],
     });
-    expect(pdf).toContain('Mietsache:');
-    expect(pdf.match(/3 Zimmer, 72,5 m²/g)?.length).toBe(2);
+    expect(pdf).toContain('(Mietsache)');
+    expect(pdf.match(/3 Zimmer, 72,5 m²/g)?.length).toBe(1);
+  });
+
+  it('setzt bei mehreren Einheiten jede in den Kopf und über ihre eigene Zählertabelle', async () => {
+    const pdf = await renderText({
+      ...baseData,
+      mietsache: '',
+      einheiten: [
+        { ...baseData.einheiten[0], mietsache: 'Wohnung, EG rechts, 2 Zimmer, 54 m²' },
+        { ...baseData.einheiten[0], mietsache: 'Stellplatz Nr. 4', zaehlerstaende: { strom: '77', gas: '', wasser: '', warmwasser: '' } },
+      ],
+    });
+    expect(pdf.match(/\(Wohnung, EG rechts, 2 Zimmer, 54 m²\)/g)?.length).toBe(2);
+    expect(pdf.match(/\(Stellplatz Nr\. 4\)/g)?.length).toBe(2);
+    expect(pdf.match(/\(Zählerstand\)/g)?.length).toBe(2);
   });
 
   it('druckt Minus, Pfeile und Emojis in den Bemerkungen lesbar', async () => {
@@ -186,12 +232,130 @@ describe('generateUebergabePdf: kaputte Unterschrift', () => {
 });
 
 describe('generateUebergabePdf: lange Mietsache', () => {
-  it('bricht die Zählerüberschrift um, statt über den Rand zu laufen', async () => {
+  it('bricht die Mietsache im Kopf um, statt über den Rand zu laufen', async () => {
     const lang = 'Haus (Doppelhaushälfte, Reihenhaus), Erdgeschoss und Obergeschoss rechts mit Anbau, 5,5 Zimmer, 142,75 m²';
     const pdf = await renderText({ ...baseData, einheiten: [{ ...baseData.einheiten[0], mietsache: lang }] });
-    // Im Content-Stream steht jede Textzeile für sich: Der Schluss gehört nicht mehr in die Zeile der Überschrift
+    // Im Content-Stream steht jede Textzeile für sich: Der Schluss steht nicht mehr in der Zeile des Anfangs
     const schluss = pdf.split('\n').find((z) => z.includes('142,75 m'));
     expect(schluss).toBeDefined();
-    expect(schluss).not.toContain('hlerst');
+    expect(schluss).not.toContain('Doppelhaus');
+  });
+});
+
+/** Content-Streams der Seiten in Reihenfolge — jsPDF schreibt sie unkomprimiert nacheinander */
+const seitenText = (pdf: string): string[] => pdf.split('endstream').filter((teil) => teil.includes(' Tj'));
+
+describe('generateUebergabePdf: Seitenumbruch', () => {
+  it('lässt weder die Überschrift Zählerstände noch eine Einheit allein am Seitenende stehen', async () => {
+    // 30 Einheiten: Der Kopf wird so lang, dass die Überschrift in die untere Seitenhälfte rutscht
+    const einheiten = Array.from({ length: 30 }, (_, i) => ({
+      ...baseData.einheiten[0],
+      mietsache: `Stellplatz Nr. ${i + 1}`,
+      zaehlernummern: i % 4 === 0 ? { strom: 'KW-SEHR-LANGE-NUMMER-0123456789-ABCDEFGH' } : undefined,
+    }));
+    const seiten = seitenText(await renderText({ ...baseData, mietsache: '', einheiten }));
+    expect(seiten.length).toBeGreaterThan(2);
+    const kopfSeite = seiten.findIndex((t) => t.includes('(Zählerstände) Tj'));
+    expect(seiten[kopfSeite].indexOf('(Zählerstand) Tj')).toBeGreaterThan(seiten[kopfSeite].indexOf('(Zählerstände) Tj'));
+    for (let i = 1; i <= 30; i++) {
+      // Die zweite Nennung ist die Überschrift über der Tabelle; ihre Seite trägt danach den Tabellenkopf
+      let seite = -1;
+      seiten.forEach((t, n) => {
+        if (t.includes(`(Stellplatz Nr. ${i}) Tj`)) seite = n;
+      });
+      const t = seiten[seite];
+      expect(t.indexOf('(Zählerstand) Tj', t.lastIndexOf(`(Stellplatz Nr. ${i}) Tj`))).toBeGreaterThan(-1);
+    }
+  });
+
+  it('nennt eine Einheit in einem anderen Haus mit Haus und Anschrift', async () => {
+    const pdf = await renderText({
+      ...baseData,
+      mietsache: '',
+      einheiten: [
+        { ...baseData.einheiten[0], mietsache: 'Wohnung, EG' },
+        { ...baseData.einheiten[0], name: 'Nachbarhaus', adresse: 'Musterweg 3, 31319 Sehnde', mietsache: 'Stellplatz 7' },
+      ],
+    });
+    // Der Gedankenstrich steht in Helvetica als WinAnsi-Byte 0x96 im Content-Stream
+    expect(textAmStueck(pdf)).toContain('Stellplatz 7 \u0096 Nachbarhaus, Musterweg 3, 31319 Sehnde');
+  });
+});
+
+describe('generateUebergabePdf: Bemerkungen gegliedert', () => {
+  it('behält Leerzeilen als Abstand und rückt Aufzählungen ein', async () => {
+    const pdf = await renderText({ ...baseData, protokollNotizen: 'Küche:\n- Herd defekt\n\nBad:\n  Fliese lose' });
+    const zeile = (text: string) => {
+      const m = pdf.match(new RegExp(`([\\d.]+) ([\\d.]+) Td\\s*\\(${text.replace(/[()]/g, '\\$&')}\\) Tj`));
+      expect(m, text).not.toBeNull();
+      return { x: Number(m![1]), y: Number(m![2]) };
+    };
+    const kueche = zeile('Küche:');
+    const herd = zeile('- Herd defekt');
+    const bad = zeile('Bad:');
+    const fliese = zeile('Fliese lose');
+    expect(herd.x).toBeGreaterThan(kueche.x);
+    expect(fliese.x).toBeGreaterThan(bad.x);
+    // Die Leerzeile vor „Bad:“ ist größer als der Abstand zwischen den Zeilen eines Blocks
+    expect(herd.y - bad.y).toBeGreaterThan(kueche.y - herd.y + 3);
+  });
+});
+
+describe('generateUebergabePdf: mit Carlito und Logo', () => {
+  const datei = (pfad: string) => readFileSync(new URL(`../../public/${pfad}`, import.meta.url)).toString('base64');
+  const schrift = { regular: datei('fonts/Carlito-Regular.ttf'), bold: datei('fonts/Carlito-Bold.ttf') };
+  const logo = `data:image/png;base64,${datei('brief/niimmo-logo.png')}`;
+
+  it('bettet Carlito als Teilmenge und das Logo ein, ohne das Protokoll aufzublähen', async () => {
+    const blob = await generateUebergabePdf({ ...baseData, notizenFotos: [portraitImage] }, { schrift, logo });
+    const pdf = Buffer.from(await blob.arrayBuffer()).toString('latin1');
+    expect(pdf).toContain('/Carlito');
+    expect(pdf).toContain('/FontFile2');
+    // Zwei Schnitte zu je ~650 KB: eingebettet wird nur, was gebraucht wird
+    expect(blob.size).toBeLessThan(250_000);
+  });
+
+  it('setzt mit beschädigter Schrift Helvetica, statt die Übergabe abzubrechen', async () => {
+    const blob = await generateUebergabePdf(baseData, { schrift: { regular: 'AAEAAAAA', bold: 'AAEAAAAA' }, logo });
+    const pdf = Buffer.from(await blob.arrayBuffer()).toString('latin1');
+    expect(pdf).toContain('/Helvetica');
+    expect(pdf).toContain('(Übergabeprotokoll)');
+  });
+
+  it('lässt ein beschädigtes Logo weg, statt die Übergabe abzubrechen', async () => {
+    const blob = await generateUebergabePdf(baseData, { schrift: null, logo: 'data:image/png;base64,iVBORw0KGgoAAAA' });
+    expect(Buffer.from(await blob.arrayBuffer()).toString('latin1')).toContain('(Übergabeprotokoll)');
+  });
+
+  it('meldet eine kaputte Unterschrift auch mit Schrift und Logo als UnterschriftFehler', async () => {
+    await expect(generateUebergabePdf({ ...baseData, vermieterSignature: 'data:image/png;base64,kaputt' }, { schrift, logo })).rejects.toBeInstanceOf(UnterschriftFehler);
+  });
+});
+
+describe('generateUebergabePdf: Schrift und Logo laden', () => {
+  it('entsteht in Node ohne Schrift und Logo (kein fetch auf relative Pfade)', async () => {
+    const blob = await generateUebergabePdf(baseData);
+    expect(Buffer.from(await blob.arrayBuffer()).toString('latin1')).toContain('/Helvetica');
+  });
+
+  // Vor Ort im Funkloch: Eine Schrift, die nicht ankommt, darf das Protokoll nicht aufhalten
+  it('wartet höchstens MITTEL_ZEITLIMIT_MS auf Schrift und Logo und setzt dann Helvetica', async () => {
+    const fetchVorher = globalThis.fetch;
+    globalThis.fetch = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+    vi.useFakeTimers();
+    try {
+      const laeuft = generateUebergabePdf(baseData);
+      await vi.advanceTimersByTimeAsync(MITTEL_ZEITLIMIT_MS);
+      const pdf = Buffer.from(await (await laeuft).arrayBuffer()).toString('latin1');
+      expect(pdf).toContain('/Helvetica');
+      expect(pdf).toContain('(Übergabeprotokoll)');
+      // Ist die Frist einmal abgelaufen, wartet das nächste Protokoll nicht erneut (Review 12.11.2026)
+      const zweites = generateUebergabePdf(baseData);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(Buffer.from(await (await zweites).arrayBuffer()).toString('latin1')).toContain('(Übergabeprotokoll)');
+    } finally {
+      vi.useRealTimers();
+      globalThis.fetch = fetchVorher;
+    }
   });
 });

@@ -52,7 +52,7 @@ import { UebergabeAbschluss } from "./UebergabeAbschluss";
 import { PdfSeitenVorschau } from "./PdfSeitenVorschau";
 import { UebergabeEmailDialog } from "./UebergabeEmailDialog";
 import { VersorgerBenachrichtigungDialog } from "./VersorgerBenachrichtigungDialog";
-import { generateUebergabePdf, UnterschriftFehler, type UebergabePdfData } from "@/utils/uebergabePdfGenerator";
+import { generateUebergabePdf, protokollMittelVorladen, UnterschriftFehler, type UebergabePdfData } from "@/utils/uebergabePdfGenerator";
 import { mailadressen } from "@/utils/uebergabeMail";
 import { blobToPdfImage, type PdfImage } from "@/utils/pdfImageUtils";
 import { sanitizeZaehlerstand, zaehlerstandText } from "@/utils/zaehlerstandUtils";
@@ -230,6 +230,11 @@ export const UebergabeDialog = ({
   useEffect(() => {
     entwuerfeAufraeumen(ablage);
   }, [ablage]);
+  // Schrift und Logo des Protokolls (seit 12.11.2026 im Bild des Mietvertrags) holen, solange das Netz noch da ist —
+  // erst beim Öffnen: Der Dialog ist an jeder Vertragsseite eingehängt (UebergabeButton)
+  useEffect(() => {
+    if (isOpen) protokollMittelVorladen();
+  }, [isOpen]);
 
   // Das Vertragsende taugt nur beim Auszug als Vorschlag. Beim Einzug stand dort
   // bis zum 19.10.2026 bei befristeten Verträgen das Ende in der Zukunft — und
