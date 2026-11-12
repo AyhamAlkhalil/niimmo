@@ -9,7 +9,7 @@ import MietvertragDetailsModal from "./MietvertragDetailsModal";
 import { NewTenantContractDialog } from "./NewTenantContractDialog";
 import { MietvertragEntwurfDialog } from "./mietvertrag-entwurf/MietvertragEntwurfDialog";
 import { EntwuerfeAnEinheit } from "./mietvertrag-entwurf/EntwuerfeAnEinheit";
-import { MietvertragOhneUnterschrift } from "./MietvertragOhneUnterschrift";
+import { MietvertragDokument } from "./MietvertragDokument";
 import { istWohnraumEinheit } from "@/utils/mietvertrag/entwurf";
 import type { SchrittId } from "@/utils/mietvertrag/entwurfProzess";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -62,7 +62,7 @@ interface EinheitCardProps {
    * Verträge der Einheit ohne hinterlegte unterschriebene Fassung (seit 11.11.2026) — alle, nicht nur der angezeigte:
    * Beim Mieterwechsel zeigt die Karte den Vormieter, das neue Mietverhältnis beginnt erst später.
    */
-  vertraegeOhneUnterschrift?: Array<{ id: string; start_datum?: string | null }>;
+  vertraegeOhneUnterschrift?: Array<{ id: string; start_datum?: string | null; status?: string | null }>;
   einheitIndex: number;
   onContractModalClose?: () => void;
 }
@@ -394,12 +394,16 @@ export const EinheitCard = ({ einheit, vertrag, immobilie, openMietvertragId, ve
             </div>
           )}
 
-          {/* Ohne unterschriebene Fassung abgeschlossen: Mietvertrag erstellen, nachreichen oder zurücknehmen (11.11.2026) */}
+          {/* Ohne unterschriebene Fassung abgeschlossen: Mietvertrag erstellen, nachreichen oder zurücknehmen (11.11.2026).
+              Derselbe Baustein steht in der Vertragsansicht für jeden Vertrag (12.11.2026). */}
           {isAdmin &&
             (vertraegeOhneUnterschrift ?? []).map(v => (
-              <MietvertragOhneUnterschrift
+              <MietvertragDokument
                 key={v.id}
+                variante="karte"
                 vertragId={v.id}
+                ausstehend
+                status={v.status}
                 wohnraum={istWohnraumEinheit(einheit.einheitentyp)}
                 beginn={v.id === vertrag?.id ? null : v.start_datum}
               />

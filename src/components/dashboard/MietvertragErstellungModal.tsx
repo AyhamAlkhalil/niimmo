@@ -53,9 +53,9 @@ interface Props {
   onClose: () => void;
   vertragId: string;
   /**
-   * Vertrag, zu dem noch keine unterschriebene Fassung vorliegt (seit 11.11.2026, von der Einheit aus): Dann
-   * unterschreibt in der Regel, wer ihn anlegt — vorbelegt wie früher im Vermietungsablauf. Beim Nachdruck eines
-   * unterschriebenen Vertrags (Vertragsdetails) bleibt die Wahl offen.
+   * Vertrag, zu dem noch keine unterschriebene Fassung vorliegt (seit 11.11.2026): Dann unterschreibt in der Regel, wer
+   * ihn anlegt — vorbelegt wie früher im Vermietungsablauf. Für einen schon unterschriebenen Vertrag bleibt die Wahl
+   * offen: Wer damals unterschrieben hat, steht nicht am Vertrag.
    */
   ersteFassung?: boolean;
 }
@@ -296,6 +296,7 @@ export default function MietvertragErstellungModal({ isOpen, onClose, vertragId,
         vorlage: VORLAGE_VERSION,
       });
 
+      // Präfix: auch der Stand des Mietvertrags an Einheit und Vertragsansicht (useMietvertragFassungen)
       queryClient.invalidateQueries({ queryKey: ['dokumente-detail', vertragId] });
       queryClient.invalidateQueries({ queryKey: ['mietvertrag-detail', vertragId] });
       queryClient.invalidateQueries({ queryKey: ['mietvertrag-pdf-daten', vertragId] });

@@ -441,6 +441,46 @@ export async function reicheUnterschriftNach(vertragId: string, datei: File): Pr
   }
 }
 
+/**
+ * Unterschriebene Fassung ablegen — für jeden Vertrag (12.11.2026: der Mietvertrag lässt sich an jeder Stelle erstellen,
+ * ändern und nachreichen). Steht der Merker `unterschrift_ausstehend`, läuft es über `reicheUnterschriftNach` (Dokument
+ * und Merker in einer Transaktion). Sonst ist es eine weitere Fassung, etwa nach einer Änderung oder ein Nachtrag:
+ * Datei hochladen und als Vertragsdokument eintragen; scheitert der Eintrag, fliegt die Datei wieder raus.
+ */
+export async function legeUnterschriebeneFassungAb(vertragId: string, datei: File, ausstehend: boolean): Promise<void> {
+  if (ausstehend) return reicheUnterschriftNach(vertragId, datei);
+  // Die Anzeige kann veraltet sein: Steht der Merker in der Datenbank doch, muss er weg — sonst bliebe der Vertrag
+  // als nicht unterschrieben stehen (Review 12.11.2026). Andersherum fängt die RPC ein zweites Nachreichen ab.
+  const { data: vertrag, error: merkerFehler } = await supabase
+    .from('mietvertrag')
+    .select('unterschrift_ausstehend')
+    .eq('id', vertragId)
+    .maybeSingle();
+  if (merkerFehler) throw new Error(`Der Vertrag konnte nicht geladen werden: ${merkerFehler.message}`);
+  if (!vertrag) throw new Error('Den Vertrag gibt es nicht mehr.');
+  if (vertrag.unterschrift_ausstehend) return reicheUnterschriftNach(vertragId, datei);
+  const dokument = unterschriftDokument(vertragId, datei);
+  await hochladen(dokument.pfad, datei, dokument.dateityp);
+  const { data: user } = await supabase.auth.getUser();
+  const { error } = await supabase.from('dokumente').insert({
+    ...dokument,
+    mietvertrag_id: vertragId,
+    erstellt_von: user.user?.id ?? null,
+    geloescht: false,
+  });
+  if (!error) return;
+  // Kam nur die Antwort nicht an, steht der Eintrag schon — dann bleibt die Datei
+  const { data: liegt, error: pruefFehler } = await supabase.from('dokumente').select('id').eq('pfad', dokument.pfad).limit(1);
+  if (pruefFehler) {
+    throw new Error(
+      `${error.message} Ob die Fassung abgelegt wurde, ließ sich nicht prüfen. Bitte die Seite neu laden und in den Dokumenten des Vertrags nachsehen.`
+    );
+  }
+  if (liegt && liegt.length > 0) return;
+  await entfernen([dokument.pfad]);
+  throw new Error(`Die unterschriebene Fassung wurde nicht abgelegt: ${error.message}`);
+}
+
 // ─── Vermietung zurücknehmen ────────────────────────────────────────────────
 
 export interface RuecknahmeErgebnis {

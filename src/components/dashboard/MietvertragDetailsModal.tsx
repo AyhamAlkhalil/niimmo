@@ -9,7 +9,6 @@ import { MietvertragDocumentsTab } from "./mietvertrag-details/MietvertragDocume
 import { TerminationDialog } from "./termination/TerminationDialog";
 import { KuendigungsbestaetigungDialog } from "./termination/KuendigungsbestaetigungDialog";
 import { MahnungErstellungModal } from "./MahnungErstellungModal";
-import MietvertragErstellungModal from "./MietvertragErstellungModal";
 import { useMietvertragData } from "@/hooks/useMietvertragData";
 import { useToast } from "@/hooks/use-toast";
 import { useMietvertragMutations } from "@/hooks/useMietvertragMutations";
@@ -44,7 +43,6 @@ export default function MietvertragDetailsModal({
   const { toast } = useToast();
 
   const einheitData = fetchedEinheit || einheit;
-  const [showVertragPdfModal, setShowVertragPdfModal] = useState(false);
   const [showBestaetigung, setShowBestaetigung] = useState(false);
   const [bestaetigungVorbelegung, setBestaetigungVorbelegung] = useState<{ schreibenVom: string | null; eingangAm: string | null } | null>(null);
 
@@ -192,7 +190,7 @@ export default function MietvertragDetailsModal({
                 finanzLaedt={finanzLaedt}
                 onShowKuendigung={() => mutations.setShowTerminationDialog(true)}
                 onShowKuendigungsbestaetigung={() => { setBestaetigungVorbelegung(null); setShowBestaetigung(true); }}
-                onShowVertragPdf={() => setShowVertragPdfModal(true)}
+                onZurueckgenommen={onClose}
                 allMietvertraege={allMietvertraege}
                 vertragId={vertragId}
                 formatDatum={formatDatum}
@@ -209,6 +207,7 @@ export default function MietvertragDetailsModal({
                 onErneutLaden={() => { void refetchDokumente(); }}
                 formatDatum={formatDatum}
                 mietvertragId={vertragId}
+                unterschriftAusstehend={!!vertrag?.unterschrift_ausstehend}
                 onDocumentsChange={() => {
                   queryClient.invalidateQueries({ queryKey: ['dokumente-detail', vertragId] });
                 }}
@@ -245,13 +244,6 @@ export default function MietvertragDetailsModal({
           onGespeichert={() => {
             queryClient.invalidateQueries({ queryKey: ['dokumente-detail', vertragId] });
           }}
-        />
-
-        {/* Mietvertrag als PDF erzeugen */}
-        <MietvertragErstellungModal
-          isOpen={showVertragPdfModal}
-          onClose={() => setShowVertragPdfModal(false)}
-          vertragId={vertragId}
         />
 
         {/* Mahnung Modal */}

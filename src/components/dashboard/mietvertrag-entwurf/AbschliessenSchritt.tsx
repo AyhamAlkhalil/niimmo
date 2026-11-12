@@ -6,7 +6,7 @@
  * anderer Prozess als einen Mietvertrag im System zu haben … Man soll ganz normal abschließen können, und die
  * Erstellung des Mietvertrags ist optional und kann jederzeit nachträglich erzeugt werden“). Der Vertrag trägt dann
  * `unterschrift_ausstehend`; an der Einheit lässt sich der Mietvertrag erstellen, die unterschriebene Fassung
- * hochladen und — solange nichts darauf aufbaut — die Vermietung zurücknehmen (`MietvertragOhneUnterschrift`).
+ * hochladen und — solange nichts darauf aufbaut — die Vermietung zurücknehmen (`MietvertragDokument`, auch in der Vertragsansicht).
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';

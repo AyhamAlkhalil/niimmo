@@ -18,6 +18,8 @@ import { downloadDateiname } from "@/utils/dokumentDateiname";
 import type { Database } from "@/integrations/supabase/types";
 import { istProtokollPdf, protokollArt } from "@/utils/uebergabeProtokolle";
 import { UebergabeProtokollVersand } from "../handover/UebergabeProtokollVersand";
+import { Checkbox } from "@/components/ui/checkbox";
+import { legeUnterschriebeneFassungAb } from "@/services/mietvertragEntwurfService";
 
 type DokumentKategorie = Database["public"]["Enums"]["kategorie"];
 
@@ -41,6 +43,12 @@ interface MietvertragDocumentsTabProps {
   formatDatum: (datum: string) => string;
   onDocumentsChange?: () => void;
   mietvertragId: string;
+  /**
+   * Der Vertrag wartet auf die unterschriebene Fassung (`unterschrift_ausstehend`). Wer sie hier als „Mietvertrag“
+   * hochlädt, legt sie wie im Abschnitt „Mietvertrag“ ab — sonst bliebe der Vertrag als nicht unterschrieben stehen
+   * (12.11.2026: überall derselbe Stand).
+   */
+  unterschriftAusstehend?: boolean;
 }
 
 type SortBy = 'kategorie' | 'titel' | 'datum';
@@ -65,7 +73,8 @@ export function MietvertragDocumentsTab({
   onErneutLaden,
   formatDatum,
   onDocumentsChange,
-  mietvertragId
+  mietvertragId,
+  unterschriftAusstehend = false,
 }: MietvertragDocumentsTabProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -82,6 +91,14 @@ export function MietvertragDocumentsTab({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTitel, setUploadTitel] = useState("");
   const [uploadKategorie, setUploadKategorie] = useState<DokumentKategorie>("Sonstiges");
+  const [alsUnterschrieben, setAlsUnterschrieben] = useState(true);
+  const [legtAb, setLegtAb] = useState(false);
+  const unterschriebeneFassung = unterschriftAusstehend && uploadKategorie === "Mietvertrag" && alsUnterschrieben;
+  /** Der Haken „unterschriebene Fassung“ gilt je Upload und steht zu Beginn immer (Review 12.11.2026). */
+  const oeffneUpload = () => {
+    setAlsUnterschrieben(true);
+    setIsUploadDialogOpen(true);
+  };
   
   // Delete dialog state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -267,7 +284,7 @@ export function MietvertragDocumentsTab({
     setSelectedFile(file);
     setUploadTitel(file.name);
     setUploadKategorie("Sonstiges");
-    setIsUploadDialogOpen(true);
+    oeffneUpload();
   };
 
   const handleUpload = async () => {
@@ -277,6 +294,26 @@ export function MietvertragDocumentsTab({
         description: "Bitte wählen Sie eine Datei aus.",
         variant: "destructive",
       });
+      return;
+    }
+
+    if (unterschriebeneFassung) {
+      setLegtAb(true);
+      try {
+        await legeUnterschriebeneFassungAb(mietvertragId, selectedFile, true);
+        toast({ title: "Unterschriebene Fassung abgelegt", description: "Der Mietvertrag gilt jetzt als unterschrieben." });
+        setSelectedFile(null);
+        setUploadTitel("");
+        setUploadKategorie("Sonstiges");
+        setIsUploadDialogOpen(false);
+        onDocumentsChange?.();
+      } catch (e) {
+        toast({ title: "Nicht abgelegt", description: e instanceof Error ? e.message : "Unbekannter Fehler", variant: "destructive" });
+      } finally {
+        setLegtAb(false);
+        // Vertrag, Einheit und Dokumente hängen am Merker
+        void queryClient.invalidateQueries();
+      }
       return;
     }
 
@@ -362,7 +399,7 @@ export function MietvertragDocumentsTab({
                     setSelectedFile(null);
                     setUploadTitel("");
                     setUploadKategorie("Sonstiges");
-                    setIsUploadDialogOpen(true);
+                    oeffneUpload();
                   }}
                   size="sm"
                   className="gap-2"
@@ -722,9 +759,10 @@ export function MietvertragDocumentsTab({
             <Label htmlFor="titel">Titel</Label>
             <Input
               id="titel"
-              value={uploadTitel}
+              value={unterschriebeneFassung ? "Mietvertrag (unterschrieben)" : uploadTitel}
               onChange={(e) => setUploadTitel(e.target.value)}
               placeholder="Dokumententitel"
+              disabled={unterschriebeneFassung}
             />
           </div>
           <div className="space-y-2">
@@ -742,6 +780,17 @@ export function MietvertragDocumentsTab({
               </SelectContent>
             </Select>
           </div>
+          {unterschriftAusstehend && uploadKategorie === "Mietvertrag" && (
+            <div className="flex items-start gap-2 rounded-md border p-3">
+              <Checkbox id="als-unterschrieben" checked={alsUnterschrieben} onCheckedChange={(c) => setAlsUnterschrieben(c === true)} />
+              <Label htmlFor="als-unterschrieben" className="text-sm font-normal leading-snug">
+                <span className="font-medium">Das ist die unterschriebene Fassung.</span>{" "}
+                <span className="text-muted-foreground">
+                  Dann gilt der Mietvertrag als unterschrieben; der Titel lautet „Mietvertrag (unterschrieben)“.
+                </span>
+              </Label>
+            </div>
+          )}
           {uploading && (
             <div className="space-y-2">
               <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -760,12 +809,12 @@ export function MietvertragDocumentsTab({
           <Button
             variant="outline"
             onClick={() => setIsUploadDialogOpen(false)}
-            disabled={uploading}
+            disabled={uploading || legtAb}
           >
             Abbrechen
           </Button>
-          <Button onClick={handleUpload} disabled={!selectedFile || uploading}>
-            {uploading ? (
+          <Button onClick={handleUpload} disabled={!selectedFile || uploading || legtAb}>
+            {uploading || legtAb ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Wird hochgeladen...

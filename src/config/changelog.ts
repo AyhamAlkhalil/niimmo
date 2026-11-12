@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.14.0",
+    datum: "2026-11-12",
+    aenderungen: [
+      { art: "verbessert", titel: "Mietvertrag in der Vertragsansicht: Stand sehen, erstellen, neue Fassung, unterschriebene Fassung hochladen – an der Einheit und im Reiter Dokumente gleich" },
+    ],
+  },
+  {
     version: "1.13.0",
     datum: "2026-11-11",
     aenderungen: [

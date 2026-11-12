@@ -1,4 +1,6 @@
 import { MietvertragContractInfo } from "./MietvertragContractInfo";
+import { MietvertragDokument } from "../MietvertragDokument";
+import { istWohnraumEinheit } from "@/utils/mietvertrag/entwurf";
 import { MietvertragKautionSection } from "./MietvertragKautionSection";
 import { MietvertragPaymentsSection } from "./MietvertragPaymentsSection";
 import { MietvertragMeterReadings } from "./MietvertragMeterReadings";
@@ -40,7 +42,8 @@ interface MietvertragOverviewTabProps {
   onShowMahnung?: () => void;
   onShowKuendigung?: () => void;
   onShowKuendigungsbestaetigung?: () => void;
-  onShowVertragPdf?: () => void;
+  /** Nach „Zurücknehmen“ gibt es den Vertrag nicht mehr. */
+  onZurueckgenommen?: () => void;
   formatDatum: (datum: string) => string;
   formatBetrag: (betrag: number) => string;
 }
@@ -80,7 +83,7 @@ export function MietvertragOverviewTab({
   onShowMahnung,
   onShowKuendigung,
   onShowKuendigungsbestaetigung,
-  onShowVertragPdf,
+  onZurueckgenommen,
   formatDatum,
   formatBetrag
 }: MietvertragOverviewTabProps) {
@@ -104,7 +107,21 @@ export function MietvertragOverviewTab({
         onShowMahnung={onShowMahnung}
         onShowKuendigung={onShowKuendigung}
         onShowKuendigungsbestaetigung={onShowKuendigungsbestaetigung}
-        onShowVertragPdf={onShowVertragPdf}
+      />
+
+      {/* Der Mietvertrag als Schriftstück: Stand, erstellen, neue Fassung, hochladen, zurücknehmen (12.11.2026) */}
+      <MietvertragDokument
+        variante="details"
+        vertragId={vertragId}
+        ausstehend={!!vertrag?.unterschrift_ausstehend}
+        status={vertrag?.status}
+        wohnraum={istWohnraumEinheit(einheit?.einheitentyp)}
+        gesperrt={
+          isGlobalEditMode
+            ? 'Während des Bearbeitens gesperrt — erst speichern oder abbrechen. Das PDF nimmt den gespeicherten Stand des Vertrags.'
+            : null
+        }
+        onZurueckgenommen={onZurueckgenommen}
       />
 
       {/* Kaution Section */}
