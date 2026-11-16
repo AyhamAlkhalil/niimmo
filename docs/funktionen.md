@@ -354,7 +354,7 @@ Seit 14.09.2026 ausgedünnt: Es gibt nur noch eine Benachrichtigung, den Hinweis
 
 | Funktion | Was sie leistet | Einstieg | Reife |
 |---|---|---|---|
-| **Claude verbinden (MCP-Server)** | Mitarbeiter verbinden Claude per OAuth mit der Verwaltung; 48 Werkzeuge lesen Bestand, Mietkonten, Zahlungen, Aufgaben, Darlehen und Dokumente und pflegen Zuordnungen, Forderungen, Zähler, Mieterdaten und Vorgänge — mit den Rechten des Kontos | `supabase/functions/mcp/index.ts`, `src/pages/OAuthZustimmung.tsx` | teilweise |
+| **Claude verbinden (MCP-Server)** | Mitarbeiter verbinden Claude per OAuth mit der Verwaltung; 49 Werkzeuge lesen Bestand, Mietkonten, Zahlungen, Aufgaben, Darlehen und Dokumente und pflegen Zuordnungen, Forderungen, Zähler, Mieterdaten und Vorgänge — mit den Rechten des Kontos | `supabase/functions/mcp/index.ts`, `src/pages/OAuthZustimmung.tsx` | teilweise |
 | **Anmelden mit E-Mail und Passwort** | Supabase-Login per E-Mail/Passwort mit uebersetzten Fehlermeldungen; nach Erfolg leitet Auth.tsx:23-27… | `src/components/auth/AuthForm.tsx:80-99 (ueber src/pages/Auth.…` | fertig |
 | **Selbstregistrierung** | Die Maske bietet weiterhin supabase.auth.signUp an; ein so angelegtes Konto bekommt keine Zeile in… | `src/components/auth/AuthForm.tsx:100-128` | prototyp |
 | **Passwort vergessen — Link anfordern** | Eigener Mailweg ueber den bestaetigten Mahnungs-SMTP statt des Supabase-Auth-Mailers; die Antwort ist… | `src/components/auth/AuthForm.tsx:28-50 → supabase/functions/s…` | fertig |
