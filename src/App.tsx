@@ -12,6 +12,7 @@ import { SchwebendeKnoepfe } from "@/components/dashboard/SchwebendeKnoepfe";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import PasswortNeu from "./pages/PasswortNeu";
+import OAuthZustimmung from "./pages/OAuthZustimmung";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,8 @@ const App = () => (
             <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/passwort-neu" element={<PasswortNeu />} />
+              {/* Zustimmung zum MCP-Zugang (OAuth-Server von Supabase Auth, 16.11.2026); prüft die Anmeldung selbst */}
+              <Route path="/oauth/consent" element={<OAuthZustimmung />} />
               <Route path="/" element={
                 <ProtectedRoute>
                   <Index />

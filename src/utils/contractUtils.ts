@@ -4,7 +4,13 @@
  */
 
 import { supabase } from "@/integrations/supabase/client";
-import { getVertragsende } from '../../supabase/functions/_shared/mietkonto.ts';
+import {
+  getVertragsende,
+  getLaufenderVertrag,
+  istLaufenderVertrag,
+  summiereLaufendeMieten,
+  type VertragZeitraum,
+} from '../../supabase/functions/_shared/mietkonto.ts';
 
 export interface ContractFilter {
   mietstatus: "all" | "aktiv" | "gekuendigt" | "beendet";
@@ -238,94 +244,11 @@ export const alsIsoTag = (d: Date): string =>
 export const istVergangenerTag = (tag: string | null | undefined, heute: Date = new Date()): boolean =>
   !!tag && !Number.isNaN(heute.getTime()) && tag.slice(0, 10) < alsIsoTag(heute);
 
-export interface VertragZeitraum {
-  status?: string | null;
-  start_datum?: string | null;
-  ende_datum?: string | null;
-  kuendigungsdatum?: string | null;
-}
-
-/**
- * Laeuft das Mietverhaeltnis am Stichtag tatsaechlich?
- *
- * Massgeblich fuer jede Mietsumme. Vorher hatte jede Auswertung ihre eigene
- * Regel: Das Dashboard verlangte Start <= heute und Ende >= heute, die
- * Mietaufstellung pruefte gar keine Daten, die Mietuebersicht zaehlte sogar
- * beendete Vertraege mit. Dieselbe Kaltmiete stand deshalb an drei Stellen mit
- * drei Betraegen -- 50.078 EUR, 51.478 EUR und 55.196 EUR.
- */
-export const istLaufenderVertrag = (
-  vertrag: VertragZeitraum | null | undefined,
-  stichtag: Date = new Date()
-): boolean => {
-  if (!vertrag) return false;
-  if (vertrag.status !== "aktiv" && vertrag.status !== "gekuendigt") return false;
-
-  const tag = alsIsoTag(stichtag);
-  if (vertrag.start_datum && vertrag.start_datum > tag) return false;
-
-  const ende = getVertragsende(vertrag);
-  if (ende && ende < tag) return false;
-
-  return true;
-};
-
-/**
- * Der am Stichtag laufende Vertrag einer Einheit, sonst null (= Leerstand).
- *
- * Anders als getCurrentContract faellt diese Funktion nicht auf beendete oder
- * noch nicht begonnene Vertraege zurueck -- fuer Mietsummen ist ein Vertrag,
- * der erst in Wochen beginnt, kein Ertrag.
- */
-export const getLaufenderVertrag = <T extends VertragZeitraum>(
-  contracts: T[] | null | undefined,
-  stichtag: Date = new Date()
-): T | null => {
-  const laufende = (contracts ?? []).filter((c) => istLaufenderVertrag(c, stichtag));
-  if (laufende.length === 0) return null;
-  if (laufende.length === 1) return laufende[0];
-  // Mehrere gleichzeitig laufende Vertraege auf einer Einheit sind ein
-  // Datenfehler. Damit die Summe nicht doppelt zaehlt, gewinnt der zuletzt
-  // begonnene.
-  return [...laufende].sort((a, b) => (b.start_datum ?? "").localeCompare(a.start_datum ?? ""))[0];
-};
-
-/**
- * Kalt- und Betriebskostensumme eines Bestands: je Einheit nur der am Stichtag
- * laufende Vertrag (getLaufenderVertrag).
- *
- * Der Objektkopf summierte bis zum 07.10.2026 alle aktiven und gekuendigten
- * Vertraege. Bei einem Mieterwechsel standen der gekuendigte Vormieter und der
- * Nachmieter, der erst im Folgemonat einzieht, gleichzeitig in der Summe --
- * Objekt 5 zeigte 9.280 EUR statt 7.970 EUR Kaltmiete (Kundenmeldung vom 02.10.2026).
- */
-export const summiereLaufendeMieten = <
-  T extends VertragZeitraum & {
-    einheit_id?: string | null;
-    kaltmiete?: number | null;
-    betriebskosten?: number | null;
-  }
->(
-  vertraege: T[] | null | undefined,
-  stichtag: Date = new Date()
-): { kaltmiete: number; betriebskosten: number } => {
-  const jeEinheit = new Map<string, T[]>();
-  (vertraege ?? []).forEach((v, i) => {
-    // Ohne Einheit kann kein Nachfolger kollidieren -- jeder Vertrag zaehlt fuer sich.
-    const schluessel = v.einheit_id ?? `ohne-einheit-${i}`;
-    jeEinheit.set(schluessel, [...(jeEinheit.get(schluessel) ?? []), v]);
-  });
-
-  let kaltmiete = 0;
-  let betriebskosten = 0;
-  for (const liste of jeEinheit.values()) {
-    const laufend = getLaufenderVertrag(liste, stichtag);
-    if (!laufend) continue;
-    kaltmiete += Number(laufend.kaltmiete) || 0;
-    betriebskosten += Number(laufend.betriebskosten) || 0;
-  }
-  return { kaltmiete, betriebskosten };
-};
+// istLaufenderVertrag, getLaufenderVertrag und summiereLaufendeMieten liegen seit dem 16.11.2026 im Rechenkern
+// (supabase/functions/_shared/mietkonto.ts), damit auch der MCP-Server (Edge Function mcp) Leerstand und Mietsummen
+// nach derselben Regel bildet. Hier nur weitergereicht.
+export { istLaufenderVertrag, getLaufenderVertrag, summiereLaufendeMieten };
+export type { VertragZeitraum };
 
 /**
  * Formats currency values consistently

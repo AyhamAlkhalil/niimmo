@@ -13,7 +13,8 @@ export function SchwebendeKnoepfe() {
   // Nicht auf den Anmeldeseiten. Nach dem Einloesen des Zuruecksetz-Links
   // besteht bereits eine Sitzung — ohne diese Ausnahme staende die Leiste
   // ueber dem Formular fuer das neue Passwort.
-  if (location.pathname === "/auth" || location.pathname === "/passwort-neu") {
+  // Ebenso nicht auf der Zustimmungsseite für Claude (/oauth/consent).
+  if (location.pathname === "/auth" || location.pathname === "/passwort-neu" || location.pathname === "/oauth/consent") {
     return null;
   }
 

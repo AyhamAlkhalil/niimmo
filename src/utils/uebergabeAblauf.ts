@@ -285,25 +285,9 @@ export function handyAnsicht(breite: number, hoehe: number, touch: boolean, gren
   return touch && Math.min(breite, hoehe) < kurzeSeite;
 }
 
-export interface MietsacheAngaben {
-  einheitentyp?: string | null;
-  etage?: string | null;
-  anzahlZimmer?: number | null;
-  qm?: number | null;
-  bezeichnung?: string | null;
-}
-
-/**
- * Die Mietsache so genau, wie die Stammdaten es hergeben: „Wohnung, 1. OG links,
- * 3 Zimmer, 72,5 m²“. Bis zum 23.10.2026 nannte das Protokoll nur Objekt und
- * Etage — bei 11 von 113 Einheiten war daraus nicht erkennbar, welche übergeben
- * wurde. Eine Wohnungsnummer gibt es in den Stammdaten nicht (bezeichnung ist leer).
- */
-export function mietsacheText(e: MietsacheAngaben): string {
-  const zimmer = e.anzahlZimmer && e.anzahlZimmer > 0 ? `${String(e.anzahlZimmer).replace(".", ",")} Zimmer` : null;
-  const flaeche = e.qm && e.qm > 0 ? `${e.qm.toLocaleString("de-DE", { maximumFractionDigits: 2 })} m²` : null;
-  return [e.bezeichnung?.trim(), e.einheitentyp?.trim(), e.etage?.trim(), zimmer, flaeche].filter(Boolean).join(", ");
-}
+// mietsacheText liegt seit dem 16.11.2026 in supabase/functions/_shared/namen.ts, damit der MCP-Server (Edge Function
+// mcp) Einheiten genauso benennt. Hier nur weitergereicht.
+export { mietsacheText, type MietsacheAngaben } from "../../supabase/functions/_shared/namen.ts";
 
 /**
  * Welche Ablesungen als Vergleich taugen. Heraus fallen:

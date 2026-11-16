@@ -37,3 +37,8 @@ verify_jwt = false
 
 [functions.fetch-marktdaten]
 verify_jwt = false
+
+# MCP-Server für Claude (16.11.2026). Prüft Token und Rolle selbst (siehe index.ts); angemeldet wird per OAuth über
+# den OAuth-Server von Supabase Auth mit der Zustimmungsseite /oauth/consent der App.
+[functions.mcp]
+verify_jwt = false

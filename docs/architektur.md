@@ -182,6 +182,9 @@ wird, muss zusätzlich in RLS oder in der Edge Function durchgesetzt sein — so
 - **Fachliche Werte, die eine Regel tragen, kommen nicht aus dem Request** (z. B. die neue Mahnstufe).
 - **Suchbegriffe nie in PostgREST-Filter interpolieren** — vorher auf Buchstaben, Ziffern, Leerzeichen und
   Bindestrich beschränken.
+- **Der MCP-Server (Edge Function `mcp`, seit 16.11.2026) arbeitet nur mit dem Token des Nutzers.** Anmeldung per
+  OAuth über Supabase Auth; die Zustimmungsseite `/oauth/consent` lässt Codes nur an Claude gehen. Kein Service-Role-
+  Client, keine Bank-, Ausweis- oder Geburtsdaten in Werkzeugergebnissen. Einzelheiten in `.claude/CLAUDE.md`.
 - **Personenbezogene Daten nur im nötigen Umfang an KI-Gateways.** Geburtsdatum, Telefon, Mail, IBAN,
   WhatsApp-Verlauf und Bewerber-Blacklist gehören nicht in einen Systemprompt.
 - **Keine Mieternamen, IBANs oder Beträge in `console.log`** — nur IDs, Zählwerte, Entscheidungsgründe.

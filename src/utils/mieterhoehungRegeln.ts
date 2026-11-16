@@ -14,6 +14,7 @@
 
 import { format } from 'date-fns';
 import { leseKautionsbetrag } from './vertragKaution';
+import { uebernahmeMeldung, vereinbarungVerlangtAmTag } from '../../supabase/functions/_shared/mieterhoehung.ts';
 
 /** § 558 Abs. 3 Satz 1 BGB — Regelfall: höchstens 20 % in drei Jahren. */
 export const KAPPUNGSGRENZE_REGEL_PROZENT = 20;
@@ -93,9 +94,7 @@ export function erhoehungRueckwirkend(giltAbIso: string, heute: Date = new Date(
  * vorher vereinbart (der Vortag des Wirksamkeitstags), sonst heute.
  */
 export function vereinbarungVerlangtAm(giltAbIso: string, heute: Date = new Date()): string {
-  if (!erhoehungRueckwirkend(giltAbIso, heute)) return format(heute, 'yyyy-MM-dd');
-  const [j, m, t] = giltAbIso.slice(0, 10).split('-').map(Number);
-  return format(new Date(j, m - 1, t - 1), 'yyyy-MM-dd');
+  return vereinbarungVerlangtAmTag(giltAbIso, format(heute, 'yyyy-MM-dd'));
 }
 
 /** offizielleErhoehungGiltAb als Text für Dialoge, z. B. „1. November 2026“ */
@@ -331,31 +330,5 @@ export function nachzuberechnendeMonate(wirksamAbIso: string, heute: Date): numb
   return wirksamAbIso.slice(0, 10) <= format(heute, 'yyyy-MM-dd') ? Math.max(anzahl, 0) : 0;
 }
 
-/** Fachliche Meldung zu den Hinweisen der Datenbankfunktionen mieterhoehung_zustimmen/_anwenden. */
-export function uebernahmeMeldung(hinweis: string | null | undefined, ersatz?: string): string {
-  switch (hinweis) {
-    case 'MIETE_GEAENDERT':
-      return 'Die Miete am Vertrag hat sich seit dem Verlangen geändert. Bitte prüfen und gegebenenfalls „Trotzdem übernehmen“ wählen.';
-    case 'STAFFEL_ODER_INDEX':
-      return 'Der Vertrag hat eine Staffel- oder Indexmiete; eine Erhöhung nach § 558 BGB ist ausgeschlossen.';
-    case 'VERTRAG_ENDET_VORHER':
-      return 'Der Vertrag endet vor dem Wirksamwerden der Erhöhung.';
-    case 'NICHT_OFFEN':
-      return 'Das Verlangen ist nicht mehr offen. Bitte den Dialog neu öffnen.';
-    case 'NOCH_NICHT_WIRKSAM':
-      // Meist am Monatsersten kurz nach Mitternacht: Die Datenbank rechnet in UTC noch mit dem Vortag
-      return 'Die Erhöhung wird heute früh automatisch übernommen.';
-    case 'NICHT_ZUGESTIMMT':
-      return 'Der Vorgang ist nicht mehr als zugestimmt erfasst. Bitte den Dialog neu öffnen.';
-    case 'SCHON_VEREINBART':
-      return 'Für diesen Vertrag ist schon eine Erhöhung vereinbart. Eine weitere ist erst nach deren Wirksamwerden möglich.';
-    case 'NUR_UEBER_ZURUECKNEHMEN':
-      return 'Eine Zustimmung lässt sich nur über „Zustimmung zurücknehmen“ aufheben.';
-    case 'NICHT_GEFUNDEN':
-      return 'Vorgang oder Vertrag wurde nicht gefunden. Bitte den Dialog neu öffnen.';
-    case 'NUR_ADMIN':
-      return 'Nur Administratoren dürfen Mieterhöhungen erfassen.';
-    default:
-      return ersatz || 'Die Mieterhöhung konnte nicht gespeichert werden.';
-  }
-}
+// uebernahmeMeldung liegt seit dem 16.11.2026 in supabase/functions/_shared/mieterhoehung.ts (App und MCP-Server).
+export { uebernahmeMeldung };

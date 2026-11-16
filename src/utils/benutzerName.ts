@@ -14,10 +14,6 @@ export function kurzName(benutzer: { anzeigename: string }): string {
   return `${teile[0]} ${teile[teile.length - 1].charAt(0)}.`;
 }
 
-/**
- * „Vorname Nachname“ eines Mieters ohne „null“ oder doppelte Leerzeichen; die Spalten dürfen leer
- * sein. Bis zum 27.10.2026 stand bei fehlendem Nachnamen „null“ in Übergabeprotokoll und Mails.
- */
-export function mieterName(m: { vorname?: string | null; nachname?: string | null }): string {
-  return [m.vorname, m.nachname].map((t) => (t ?? '').trim()).filter(Boolean).join(' ');
-}
+// mieterName liegt seit dem 16.11.2026 in supabase/functions/_shared/namen.ts, damit der MCP-Server (Edge Function
+// mcp) Mieter genauso benennt. Hier nur weitergereicht.
+export { mieterName } from '../../supabase/functions/_shared/namen.ts';

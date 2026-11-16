@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.18.0",
+    datum: "2026-11-16",
+    aenderungen: [
+      { art: "neu", titel: "Die Verwaltung lässt sich mit Claude verbinden: Daten abfragen und pflegen per Chat" },
+    ],
+  },
+  {
     version: "1.17.0",
     datum: "2026-11-12",
     aenderungen: [

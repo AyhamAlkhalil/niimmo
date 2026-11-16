@@ -4,15 +4,20 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthForm } from '@/components/auth/AuthForm';
 import { vertragAusAdresse, vertragsLink } from '@/utils/vertragsLink';
+import { gueltigeAutorisierungsId, zustimmungsPfad } from '@/utils/oauthZustimmung';
 
 const Auth = () => {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const navigate = useNavigate();
   const location = useLocation();
-  // Nach der Anmeldung zurück zum Vertrag, der in einem neuen Tab geöffnet werden sollte (ProtectedRoute)
-  const zurueck = (location.state as { zurueck?: unknown } | null)?.zurueck;
+  // Nach der Anmeldung zurück zum Vertrag, der in einem neuen Tab geöffnet werden sollte (ProtectedRoute),
+  // oder zur Zustimmung für Claude (OAuthZustimmung, 16.11.2026)
+  const zustand = location.state as { zurueck?: unknown; oauth?: unknown } | null;
+  const zurueck = zustand?.zurueck;
   const vertragId = typeof zurueck === 'string' ? vertragAusAdresse(zurueck) : null;
-  const ziel = vertragId ? vertragsLink(vertragId) : '/';
+  const ziel = gueltigeAutorisierungsId(zustand?.oauth)
+    ? zustimmungsPfad(zustand.oauth)
+    : vertragId ? vertragsLink(vertragId) : '/';
 
   useEffect(() => {
     // Check if user is already logged in
