@@ -58,7 +58,7 @@ Einstieg: Vertragsdetails → „Mietvertrag erstellen"
 - [ ] Ohne Mieteranschrift → **kein PDF**
 - [ ] Kaution über drei Nettokaltmieten → **kein PDF**
 - [ ] Vollständige Daten → PDF entsteht
-- [ ] ⚠️ **Briefkopf und Fußzeile prüfen**: Egestorffstraße 11, 31319 Sehnde, HRB 208111, Steuer-Nr. 16/204/50864
+- [ ] ⚠️ **Briefkopf und Fußzeile prüfen**: Egestorffstraße 11, 31319 Sehnde, HRB 208111, Steuer-Nr. 16/204/50884
 - [ ] Betriebskostenaufstellung im Vertrag: Positionen einzeln mit Betrag, Summe stimmt
 - [ ] Vertrag gegen ein unterschriebenes Original legen — Paragraphenfolge und Text
 - [ ] 🔒 Gewerbevertrag: **nicht testen** — die Vertragsart ist im UI nicht wählbar, jeder Vertrag wird als

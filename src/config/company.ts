@@ -57,13 +57,14 @@ export const COMPANY = {
   },
 
   /**
-   * Vom Kunden am 06.09.2026 bestätigt. Dieselbe Nummer steht in der Tabelle
-   * `vermieter` und damit in allen erzeugten Mietverträgen. Die abweichende
-   * Fassung 16/204/50884 stand in den vier Briefgeneratoren und ging damit auf
-   * Mahnungen, Kündigungen, Übergabeprotokollen und Erhöhungsschreiben hinaus —
-   * sie ist falsch und darf nicht zurückkehren.
+   * Steuernummer der Wohnungsbaugesellschaft laut Geschäftsführung vom 17.11.2026:
+   * „884 ist Wohnungsbaugesellschaft, 817 Holding“. Vom 06.09. bis 17.11.2026
+   * druckte die Software 16/204/50864, das galt damals als bestätigt und war
+   * falsch. Nicht verwechseln mit der Holding (Amtsgericht Hildesheim HRB 206538,
+   * Steuer-Nr. 16/204/50817): Deren Nummern stehen in den E-Mail-Signaturen der
+   * Geschäftsführer und gehören nicht auf Post der Wohnungsbaugesellschaft.
    */
-  steuernummer: "16/204/50864",
+  steuernummer: "16/204/50884",
 
   gewerbeerlaubnis: {
     grundlage: "Gewerbeerlaubnis nach § 34c GewO",

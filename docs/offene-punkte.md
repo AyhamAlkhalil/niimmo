@@ -78,8 +78,7 @@ nichts und wird beim nächsten Versuch wiederverwendet.
 **Als Nächstes:** C8 (drei
 Restschulden), A4 (personenbezogene Daten am KI-Gateway), E (Briefgeneratoren zusammenführen).
 
-**Nur mit dem Kunden zu klären:** D1 (Betriebskosten), D2 (Übergabe), D3 (Gewerbeverträge) und die
-Steuernummer aus B5.
+**Nur mit dem Kunden zu klären:** D1 (Betriebskosten), D2 (Übergabe), D3 (Gewerbeverträge).
 
 ---
 
@@ -140,7 +139,7 @@ einseitig wirksam und Schweigen als Zustimmung. Tatsächlich braucht es die Zust
 `mahnungPdfGenerator.ts:284-299`. Der Mieter hält ein Kündigungsschreiben, im System bleibt der Vertrag `aktiv`:
 Die Sollstellung läuft weiter, das Dashboard zählt die Einheit als vermietet, keine Auswertung kennt den Vorgang.
 
-**B5 ⚠️ · Widersprüchliche Firmenstammdaten auf ausgehenden Briefen.** *(Anschrift und HRB geklärt und umgesetzt; die Steuernummer ist weiterhin offen.)* Im Repo stehen nebeneinander:
+**B5 ✅ · Widersprüchliche Firmenstammdaten auf ausgehenden Briefen.** *(Anschrift und HRB am 06.09.2026 geklärt. Steuernummer am 17.11.2026 von der Geschäftsführung geklärt: Wohnungsbaugesellschaft HRB 208111 / 16/204/50884, Holding HRB 206538 / 16/204/50817. Die Software druckte vom 06.09. bis 17.11.2026 die falsche 16/204/50864.)* Im Repo standen nebeneinander:
 Egerstorffstraße/Egestorffstraße, PLZ 33119/31319, HRB 208151/208111, Steuernummer 16/204/50864 vs. 50884, dazu
 „NiImmo Wohnungsbaugesellschaft mbH" gegen „NiImmo Projektentwicklung & Bau GmbH". Mindestens zwei Fassungen sind
 falsch. **Das ist eine Kundenfrage, keine technische** — bitte verbindlich klären, dann `src/config/company.ts`

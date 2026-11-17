@@ -8,7 +8,8 @@ import { COMPANY } from './company';
  * Auf Mieterpost stand deshalb je nach Schreiben eine andere Absenderadresse.
  *
  * Diese Tests halten den belegten Stand fest (Handelsregisterauszug, Kundenauskunft
- * vom 06.09.2026) und verhindern, dass wieder Literale in die Generatoren wandern.
+ * vom 06.09.2026; Steuernummer laut Geschäftsführung vom 17.11.2026) und verhindern,
+ * dass wieder Literale in die Generatoren wandern.
  */
 describe('Firmenstammdaten', () => {
   it('führt die im Handelsregister eingetragenen Angaben', () => {
@@ -18,11 +19,13 @@ describe('Firmenstammdaten', () => {
     expect(COMPANY.register.nummer).toBe('HRB 208111');
     expect(COMPANY.register.gericht).toBe('Amtsgericht Hildesheim');
     expect(COMPANY.register.euid).toBe('DEP2408.HRB208111');
+    expect(COMPANY.steuernummer).toBe('16/204/50884');
   });
 
   it('nennt keine der früher kursierenden Falschangaben', () => {
     const alles = JSON.stringify({ ...COMPANY, rechtliches: COMPANY.rechtliches });
-    for (const falsch of ['Egerstorff', '33119', '208151', '50884', 'Nilmmo', 'Egonstraße']) {
+    // 50864 druckte die Software bis zum 17.11.2026; 206538 und 50817 gehören zur Holding.
+    for (const falsch of ['Egerstorff', '33119', '208151', '50864', '206538', '50817', 'Nilmmo', 'Egonstraße']) {
       expect(alles).not.toContain(falsch);
     }
   });
@@ -60,7 +63,7 @@ describe('Generatoren enthalten keine Firmendaten als Literal', () => {
     'Egestorffstraße 11',
     '31319 Sehnde',
     'HRB 208111',
-    '16/204/50864',
+    '16/204/50884',
     'Ayhan Yeyrek',
     // Die Mieterhöhung unterschrieb bis zum 31.10.2026 fest im Code
     'Mikyas',
