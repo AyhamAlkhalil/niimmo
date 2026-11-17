@@ -175,9 +175,10 @@ Antworten ändern nur Werte, keinen Aufbau.
    „NiImmo Projektentwicklung & Bau GmbH" (trägt alle Wohnraumverträge),
    „… GmbH & Co. KG" und „NiImmo Wohnungsbaugesellschaft mbH". Hinterlegt ist
    derzeit die Wohnungsbaugesellschaft mbH als Standard. Welcher Rechtsträger
-   ist Eigentümer welcher Objekte? Bitte HRB, Registergericht, Steuernummer und
-   USt-ID aus dem Handelsregisterauszug bestätigen — im Code standen abweichende
-   Werte (HRB 208151 vs. 208111, Steuer-Nr. …50864 vs. …50884).
+   ist Eigentümer welcher Objekte? Bitte HRB, Registergericht und Steuernummer
+   bestätigen — im Code standen abweichende Werte (HRB 208151 vs. 208111,
+   Steuer-Nr. …50864 vs. …50884). Eine USt-IdNr. gibt es nicht: Wohnraummiete
+   ist umsatzsteuerfrei (Nutzer, 17.11.2026); `vermieter.ust_id` bleibt leer.
    *Anschrift wurde korrigiert auf Egestorffstraße 11, 31319 Sehnde — so steht
    sie in allen 14 Verträgen; `company.ts` führte „Egerstorffstraße 11, 33119 Sehnde".*
 2. **Kautionskonto.** Gibt es ein getrenntes, insolvenzfestes Kautionskonto
