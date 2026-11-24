@@ -141,6 +141,7 @@ export function MietvertragOverviewTab({
       <MietvertragMeterReadings
         vertrag={vertrag}
         einheit={einheit}
+        immobilie={immobilie}
         isGlobalEditMode={isGlobalEditMode}
         editedValues={editedValues}
         onUpdateEditedValue={onUpdateEditedValue}

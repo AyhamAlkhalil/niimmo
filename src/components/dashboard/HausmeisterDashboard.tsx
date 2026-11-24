@@ -22,6 +22,7 @@ import { de } from "date-fns/locale";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { einheitenInReihenfolge } from "@/utils/einheitenReihenfolge";
+import { einheitZaehlerarten, hausanschlussZaehlerarten, hausanschlussZweiterZaehler } from "@/utils/zaehlerarten";
 
 interface MeterReading {
   einheitId: string;
@@ -55,6 +56,7 @@ export const HausmeisterDashboard = () => {
         .from('immobilien')
         .select(`
           id, name, adresse,
+          hat_wasser, hat_strom, hat_gas, zaehlerarten_einheiten, hausanschluss_zweiter_zaehler,
           allgemein_wasser_zaehler, allgemein_wasser_stand, allgemein_wasser_datum,
           allgemein_strom_zaehler, allgemein_strom_stand, allgemein_strom_datum,
           allgemein_gas_zaehler, allgemein_gas_stand, allgemein_gas_datum,
@@ -375,8 +377,6 @@ export const HausmeisterDashboard = () => {
     );
   }
 
-  const meterTypes = ['kaltwasser', 'warmwasser', 'strom', 'gas'] as const;
-
   return (
     <div className="min-h-screen modern-dashboard-bg">
       <div className="mx-auto max-w-[1400px] px-4 pb-12 sm:px-6 lg:px-10">
@@ -433,8 +433,9 @@ export const HausmeisterDashboard = () => {
                           </Button>
                         )}
                       </div>
+                      {/* Nur die am Objekt gewählten Zähler (utils/zaehlerarten.ts, 24.11.2026) */}
                       <div className="grid grid-cols-3 gap-2">
-                        {(['wasser', 'strom', 'gas'] as const).map((type) => {
+                        {hausanschlussZaehlerarten(immobilie).map((type) => {
                           const zaehlerKey = `allgemein_${type}_zaehler` as keyof typeof immobilie;
                           const standKey = `allgemein_${type}_stand` as keyof typeof immobilie;
                           const datumKey = `allgemein_${type}_datum` as keyof typeof immobilie;
@@ -480,15 +481,14 @@ export const HausmeisterDashboard = () => {
                         })}
                       </div>
 
-                      {/* Zweiter Satz Hausanschlusszähler (Sonderfall) */}
-                      {(immobilie.allgemein_strom_zaehler_2 != null || immobilie.allgemein_gas_zaehler_2 != null || immobilie.allgemein_wasser_zaehler_2 != null ||
-                        immobilie.allgemein_strom_stand_2 || immobilie.allgemein_gas_stand_2 || immobilie.allgemein_wasser_stand_2) && (
+                      {/* Zweiter Satz Hausanschlusszähler: nur für die am Objekt gewählten Arten */}
+                      {hausanschlussZweiterZaehler(immobilie).length > 0 && (
                         <>
                           <div className="mt-2 mb-1">
                             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Hausanschlusszähler 2</span>
                           </div>
                           <div className="grid grid-cols-3 gap-2">
-                            {(['wasser_2', 'strom_2', 'gas_2'] as const).map((type) => {
+                            {hausanschlussZweiterZaehler(immobilie).map((art) => `${art}_2` as const).map((type) => {
                               const baseType = type.replace('_2', '');
                               const zaehlerKey = `allgemein_${baseType}_zaehler_2` as keyof typeof immobilie;
                               const standKey = `allgemein_${baseType}_stand_2` as keyof typeof immobilie;
@@ -545,7 +545,7 @@ export const HausmeisterDashboard = () => {
                           <TableRow className="text-xs">
                             <TableHead className="w-[80px] py-2">Einheit</TableHead>
                             <TableHead className="w-[120px] py-2 hidden sm:table-cell">Mieter</TableHead>
-                            {meterTypes.map(type => (
+                            {einheitZaehlerarten(immobilie).map(type => (
                               <TableHead key={type} className="py-2 text-center min-w-[100px]">
                                 <div className="flex items-center justify-center gap-1">
                                   {getMeterIcon(type)}
@@ -576,7 +576,7 @@ export const HausmeisterDashboard = () => {
                                 <TableCell className="py-1.5 text-muted-foreground hidden sm:table-cell truncate max-w-[120px]">
                                   {tenantName}
                                 </TableCell>
-                                {meterTypes.map((type) => {
+                                {einheitZaehlerarten(immobilie).map((type) => {
                                   const zaehlerKey = `${type}_zaehler` as keyof typeof einheit;
                                   const standKey = `${type}_stand_aktuell` as keyof typeof einheit;
                                   const datumKey = `${type}_stand_datum` as keyof typeof einheit;

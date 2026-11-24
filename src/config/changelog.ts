@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.19.0",
+    datum: "2026-11-24",
+    aenderungen: [
+      { art: "neu", titel: "Je Objekt festlegen, welche Zähler Hausanschluss und Einheiten haben" },
+    ],
+  },
+  {
     version: "1.18.0",
     datum: "2026-11-16",
     aenderungen: [

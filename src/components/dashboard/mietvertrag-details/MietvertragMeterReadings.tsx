@@ -7,10 +7,13 @@ import { format, parseISO } from "date-fns";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { ZaehlerHistorie } from "../ZaehlerHistorie";
 import { zaehlerVerbrauch } from "@/utils/vertragZaehlerstaende";
+import { vertragZaehlerarten, type ObjektZaehlerKonfiguration } from "@/utils/zaehlerarten";
 
 interface MietvertragMeterReadingsProps {
   vertrag: any;
   einheit?: any;
+  /** Objekt der Einheit: bestimmt, welche Zählerarten erscheinen (utils/zaehlerarten.ts) */
+  immobilie?: ObjektZaehlerKonfiguration | null;
   isGlobalEditMode?: boolean;
   editedValues?: Record<string, any>;
   onUpdateEditedValue?: (key: string, value: any) => void;
@@ -27,6 +30,7 @@ interface MietvertragMeterReadingsProps {
 export function MietvertragMeterReadings({
   vertrag,
   einheit,
+  immobilie,
   isGlobalEditMode = false,
   editedValues = {},
   onUpdateEditedValue,
@@ -68,6 +72,9 @@ export function MietvertragMeterReadings({
     aktuell: einheit?.[`${key}_stand_aktuell`] as number | string | null | undefined,
     aktuellDatum: einheit?.[`${key}_stand_datum`] as string | null | undefined,
   });
+
+  // Nur Zählerarten, die das Objekt hat (24.11.2026), dazu jede mit erfasstem Ein- oder Auszugsstand
+  const gezeigteArten: string[] = vertragZaehlerarten(immobilie, vertrag);
 
   const meterReadings = [
     {
@@ -114,7 +121,7 @@ export function MietvertragMeterReadings({
       auszug: vertrag.gas_auszug,
       ...letzteAblesung("gas")
     }
-  ];
+  ].filter((meter) => gezeigteArten.includes(meter.key));
 
   // Im eingeklappten Kopf sichtbar machen, dass es Ablesungen gibt
   const juengsteAblesung = meterReadings

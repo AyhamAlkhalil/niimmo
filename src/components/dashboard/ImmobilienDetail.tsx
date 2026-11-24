@@ -11,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
 import { getCurrentContract, filterActiveAndTerminatedContracts, summiereLaufendeMieten } from "@/utils/contractUtils";
 import { einheitenInReihenfolge, einheitenNummern } from "@/utils/einheitenReihenfolge";
+import { hausanschlussZaehlerarten, hausanschlussZweiterZaehler } from "@/utils/zaehlerarten";
+import { ZaehlerartenAuswahl } from "@/components/dashboard/ZaehlerartenAuswahl";
 import { useEditableField } from "@/hooks/useEditableField";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -348,23 +350,24 @@ export const ImmobilienDetail = ({
 
               {/* Allgemeine Zähler (Hausanschluss) - editable */}
               {(() => {
+                // Nur die am Objekt gewählten Zähler; bis zum 24.11.2026 immer alle drei, der zweite Satz
+                // nur, wenn schon Daten vorlagen (utils/zaehlerarten.ts)
+                const gewaehlt = hausanschlussZaehlerarten(immobilie);
+                const gewaehlt2 = hausanschlussZweiterZaehler(immobilie);
                 const meterTypes = [
                   { key: 'wasser', label: 'Wasser', icon: Droplets, zaehlerField: 'allgemein_wasser_zaehler' as const, standField: 'allgemein_wasser_stand' as const, datumField: 'allgemein_wasser_datum' as const },
                   { key: 'strom', label: 'Strom', icon: Zap, zaehlerField: 'allgemein_strom_zaehler' as const, standField: 'allgemein_strom_stand' as const, datumField: 'allgemein_strom_datum' as const },
                   { key: 'gas', label: 'Gas', icon: Flame, zaehlerField: 'allgemein_gas_zaehler' as const, standField: 'allgemein_gas_stand' as const, datumField: 'allgemein_gas_datum' as const },
-                ];
+                ].filter(({ key }) => (gewaehlt as string[]).includes(key));
                 
                 // Also check for second set (_2)
                 const meterTypes2 = [
                   { key: 'wasser_2', label: 'Wasser 2', icon: Droplets, zaehlerField: 'allgemein_wasser_zaehler_2' as const, standField: 'allgemein_wasser_stand_2' as const, datumField: 'allgemein_wasser_datum_2' as const },
                   { key: 'strom_2', label: 'Strom 2', icon: Zap, zaehlerField: 'allgemein_strom_zaehler_2' as const, standField: 'allgemein_strom_stand_2' as const, datumField: 'allgemein_strom_datum_2' as const },
                   { key: 'gas_2', label: 'Gas 2', icon: Flame, zaehlerField: 'allgemein_gas_zaehler_2' as const, standField: 'allgemein_gas_stand_2' as const, datumField: 'allgemein_gas_datum_2' as const },
-                ];
+                ].filter(({ key }) => (gewaehlt2 as string[]).includes(key.replace('_2', '')));
                 
-                const hasSecondSet = immobilie && (
-                  immobilie.allgemein_wasser_zaehler_2 != null || immobilie.allgemein_strom_zaehler_2 != null || immobilie.allgemein_gas_zaehler_2 != null ||
-                  immobilie.allgemein_wasser_stand_2 || immobilie.allgemein_strom_stand_2 || immobilie.allgemein_gas_stand_2
-                );
+                const hasSecondSet = meterTypes2.length > 0;
                 
                 const renderMeterRow = (meters: Array<{ key: string; label: string; icon: any; zaehlerField: string; standField: string; datumField: string }>, title?: string) => (
                   <>
@@ -482,11 +485,19 @@ export const ImmobilienDetail = ({
                 
                 return (
                   <div className="bg-muted/30 rounded-lg p-3 border border-border/30">
-                    <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                      <Info className="h-4 w-4 text-muted-foreground" />
-                      Hausanschlusszähler
-                    </h4>
-                    {renderMeterRow(meterTypes)}
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                        <Info className="h-4 w-4 text-muted-foreground" />
+                        Hausanschlusszähler
+                      </h4>
+                      {/* Welche Zähler das Objekt hat, bei den Objektdaten (Kundenmeldung 07.11.2026) */}
+                      {immobilie && <ZaehlerartenAuswahl immobilie={immobilie} />}
+                    </div>
+                    {meterTypes.length > 0 ? (
+                      renderMeterRow(meterTypes)
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Kein Hausanschlusszähler gewählt.</p>
+                    )}
                     {hasSecondSet && (
                       <div className="mt-3">
                         {renderMeterRow(meterTypes2, 'Hausanschlusszähler 2')}

@@ -941,6 +941,7 @@ export type Database = {
           hat_gas: boolean
           hat_strom: boolean
           hat_wasser: boolean
+          hausanschluss_zweiter_zaehler: string[]
           hausnummer: string | null
           heizkosten_schluessel: string
           heizungsart: string | null
@@ -967,6 +968,7 @@ export type Database = {
           versorger_wasser_email: string | null
           versorger_wasser_name: string | null
           warmwasser: string | null
+          zaehlerarten_einheiten: string[]
         }
         Insert: {
           adresse: string
@@ -1007,6 +1009,7 @@ export type Database = {
           hat_gas?: boolean
           hat_strom?: boolean
           hat_wasser?: boolean
+          hausanschluss_zweiter_zaehler?: string[]
           hausnummer?: string | null
           heizkosten_schluessel?: string
           heizungsart?: string | null
@@ -1033,6 +1036,7 @@ export type Database = {
           versorger_wasser_email?: string | null
           versorger_wasser_name?: string | null
           warmwasser?: string | null
+          zaehlerarten_einheiten?: string[]
         }
         Update: {
           adresse?: string
@@ -1073,6 +1077,7 @@ export type Database = {
           hat_gas?: boolean
           hat_strom?: boolean
           hat_wasser?: boolean
+          hausanschluss_zweiter_zaehler?: string[]
           hausnummer?: string | null
           heizkosten_schluessel?: string
           heizungsart?: string | null
@@ -1099,6 +1104,7 @@ export type Database = {
           versorger_wasser_email?: string | null
           versorger_wasser_name?: string | null
           warmwasser?: string | null
+          zaehlerarten_einheiten?: string[]
         }
         Relationships: [
           {

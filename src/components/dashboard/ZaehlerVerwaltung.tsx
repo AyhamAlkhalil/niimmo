@@ -4,7 +4,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -27,6 +26,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ZaehlerHistorie } from "@/components/dashboard/ZaehlerHistorie";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
 import { einheitenInReihenfolge } from "@/utils/einheitenReihenfolge";
+import { einheitZaehlerarten, hausanschlussZaehlerarten, hausanschlussZweiterZaehler, versorgerArten } from "@/utils/zaehlerarten";
+import { ZaehlerartenAuswahl } from "@/components/dashboard/ZaehlerartenAuswahl";
 import { getLaufenderVertrag } from "@/utils/contractUtils";
 import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
 
@@ -121,6 +122,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
         .from('immobilien')
         .select(`
           id, name, adresse, hat_strom, hat_gas, hat_wasser,
+          zaehlerarten_einheiten, hausanschluss_zweiter_zaehler,
           versorger_strom_name, versorger_strom_email,
           versorger_gas_name, versorger_gas_email,
           versorger_wasser_name, versorger_wasser_email,
@@ -393,17 +395,6 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  const toggleUtilityConfig = async (immobilieId: string, field: 'hat_strom' | 'hat_gas' | 'hat_wasser', value: boolean) => {
-    try {
-      const { error } = await supabase.from('immobilien').update({ [field]: value }).eq('id', immobilieId);
-      if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] });
-      toast.success('Versorgungskonfiguration gespeichert');
-    } catch {
-      toast.error('Fehler beim Speichern');
-    }
-  };
-
   const toggleImmobilie = (id: string) => {
     setExpandedImmobilien(prev => {
       const next = new Set(prev);
@@ -444,26 +435,10 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
   const formatStandDatum = (datum: string | null) =>
     datum ? format(new Date(datum), 'dd.MM.yy', { locale: de }) : '-';
 
-  const getPropertyMeterTypes = (immobilie: any) => {
-    const types: Array<'wasser' | 'strom' | 'gas'> = [];
-    if (immobilie.hat_wasser !== false) types.push('wasser');
-    if (immobilie.hat_strom  !== false) types.push('strom');
-    if (immobilie.hat_gas    !== false) types.push('gas');
-    return types;
-  };
-
-  const getUnitMeterTypes = (immobilie: any) => {
-    const types: Array<UnitType> = [];
-    if (immobilie.hat_wasser !== false) { types.push('kaltwasser'); types.push('warmwasser'); }
-    if (immobilie.hat_strom  !== false) types.push('strom');
-    if (immobilie.hat_gas    !== false) types.push('gas');
-    return types;
-  };
-
-  const hasSecondSet = (immobilie: any) =>
-    immobilie.allgemein_strom_zaehler_2 != null || immobilie.allgemein_gas_zaehler_2 != null ||
-    immobilie.allgemein_wasser_zaehler_2 != null || immobilie.allgemein_strom_stand_2 ||
-    immobilie.allgemein_gas_stand_2 || immobilie.allgemein_wasser_stand_2;
+  // Seit 24.11.2026 getrennt: Hausanschluss (hat_*), zweiter Hausanschlusszähler und die Zählerarten
+  // der Einheiten (utils/zaehlerarten.ts). Bis dahin schaltete hat_* beides, Wasser = KW + WW.
+  const getPropertyMeterTypes = (immobilie: any) => hausanschlussZaehlerarten(immobilie);
+  const getUnitMeterTypes = (immobilie: any): UnitType[] => einheitZaehlerarten(immobilie);
 
   const matchesSearch = (value: string | null | undefined) => {
     if (!searchTerm || !value) return false;
@@ -521,6 +496,8 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
         <div className="mt-8 space-y-3">
           {filteredImmobilien?.map((immobilie) => {
             const propTypes = getPropertyMeterTypes(immobilie);
+            // Versorger auch für Zähler, die nur die Einheiten haben (z. B. Gas ohne zentralen Gaszähler)
+            const versorgerTypes = versorgerArten(immobilie);
             const isEditingProp = editingPropertyId === immobilie.id;
 
             return (
@@ -553,24 +530,9 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                             Hausanschlusszähler
                           </span>
-                          <div className="flex items-center gap-3">
-                            {/* Versorgungsart-Checkboxen */}
-                            <div className="flex items-center gap-3 mr-2">
-                              {[
-                                { field: 'hat_strom' as const, icon: <Zap className="h-3 w-3 text-yellow-600" />, label: 'Strom' },
-                                { field: 'hat_gas'   as const, icon: <Flame className="h-3 w-3 text-red-500" />,    label: 'Gas' },
-                                { field: 'hat_wasser' as const, icon: <Droplets className="h-3 w-3 text-blue-500" />, label: 'Wasser' },
-                              ].map(({ field, icon, label }) => (
-                                <label key={field} className="flex items-center gap-1.5 cursor-pointer">
-                                  <Checkbox
-                                    checked={immobilie[field] !== false}
-                                    onCheckedChange={(checked) => toggleUtilityConfig(immobilie.id, field, !!checked)}
-                                  />
-                                  {icon}
-                                  <span className="text-xs">{label}</span>
-                                </label>
-                              ))}
-                            </div>
+                          <div className="flex items-center gap-2">
+                            {/* Welche Zähler Hausanschluss und Einheiten haben (24.11.2026) */}
+                            <ZaehlerartenAuswahl immobilie={immobilie} />
                             {/* Bearbeiten / Speichern / Abbrechen */}
                             {isEditingProp ? (
                               <div className="flex items-center gap-1">
@@ -607,11 +569,10 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                           </div>
                         </div>
 
-                        {propTypes.length > 0 && (
-                          <>
-                            {/* Versorger */}
-                            <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: `repeat(${propTypes.length}, 1fr)` }}>
-                              {propTypes.map((type) => (
+                        {/* Versorger */}
+                        {versorgerTypes.length > 0 && (
+                            <div className="grid gap-2 mb-2" style={{ gridTemplateColumns: `repeat(${versorgerTypes.length}, 1fr)` }}>
+                              {versorgerTypes.map((type) => (
                                 <div key={`versorger-${type}`} className="bg-background rounded p-1.5 sm:p-2">
                                   <div className="flex items-center gap-1 mb-1">
                                     {type === 'strom'  && <Zap      className="h-3 w-3 text-yellow-600" />}
@@ -644,22 +605,28 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                 </div>
                               ))}
                             </div>
+                        )}
 
+                        {propTypes.length > 0 && (
+                          <>
                             {/* Zähler (Hauptsatz) */}
+                            {/* Zweiter Satz nur für die gewählten Hausanschlüsse; bis zum 24.11.2026 erschien er
+                                nur, wenn schon Daten dafür vorlagen, und ließ sich nicht anlegen */}
                             {[
-                              { label: 'Hausanschlusszähler', suffix: '' as const },
-                              ...(hasSecondSet(immobilie) ? [{ label: 'Hausanschlusszähler 2', suffix: '_2' as const }] : []),
-                            ].map(({ label, suffix }) => (
+                              { label: 'Hausanschlusszähler', suffix: '' as const, arten: propTypes },
+                              { label: 'Hausanschlusszähler 2', suffix: '_2' as const, arten: hausanschlussZweiterZaehler(immobilie) },
+                            ].filter(({ arten }) => arten.length > 0).map(({ label, suffix, arten }) => (
                               <div key={suffix || 'main'} className={suffix ? 'mt-2' : ''}>
                                 {suffix && <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">{label}</p>}
                                 <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${propTypes.length}, 1fr)` }}>
-                                  {propTypes.map((type) => {
+                                  {arten.map((type) => {
                                     const draftKey = suffix ? `${type}_2` : type;
                                     const dbZ = (immobilie as any)[`allgemein_${type}_zaehler${suffix}`] as string | null;
                                     const dbS = (immobilie as any)[`allgemein_${type}_stand${suffix}`]  as number | null;
                                     const dbD = (immobilie as any)[`allgemein_${type}_datum${suffix}`]  as string | null;
                                     return (
-                                      <div key={draftKey} className="bg-background rounded p-1.5 sm:p-2">
+                                      // Spalte wie im Hauptsatz, auch wenn nur ein Teil einen zweiten Zähler hat
+                                      <div key={draftKey} className="bg-background rounded p-1.5 sm:p-2" style={{ gridColumnStart: propTypes.indexOf(type) + 1 }}>
                                         <div className="flex items-center gap-1 mb-1">
                                           {getPropertyMeterIcon(type, "h-3 w-3")}
                                           <span className="text-xs font-medium">{getMeterLabel(type)}{suffix ? ' (2)' : ''}</span>
