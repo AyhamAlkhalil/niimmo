@@ -94,7 +94,7 @@ export const MelderLeiste = () => {
           type="button"
           onClick={() => boardOeffnen()}
           title="Aufgaben-Board öffnen"
-          className="flex h-12 w-12 items-center justify-center rounded-full border border-border/80 bg-card text-foreground/80 shadow-lg transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-neutral-50 hover:text-foreground hover:shadow-xl"
+          className="melder-board-knopf flex h-12 w-12 items-center justify-center rounded-full border border-border/80 bg-card text-foreground/80 shadow-lg transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-neutral-50 hover:text-foreground hover:shadow-xl"
         >
           <ListChecks className="h-5 w-5" />
         </button>
@@ -102,9 +102,11 @@ export const MelderLeiste = () => {
         <button
           type="button"
           onClick={() => void melden()}
-          disabled={nimmtAuf}
+          // Solange das Meldefenster offen ist, nicht noch einmal: Die neue Aufnahme
+          // zeigte nur das Meldefenster selbst.
+          disabled={nimmtAuf || dialogOffen}
           title="Bildschirm aufnehmen und Problem melden"
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-800 text-neutral-50 shadow-lg ring-1 ring-white/10 transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-neutral-700 hover:shadow-xl disabled:opacity-70"
+          className="melder-kamera-knopf flex h-12 w-12 items-center justify-center rounded-full bg-neutral-800 text-neutral-50 shadow-lg ring-1 ring-white/10 transition-[transform,background-color,box-shadow] duration-300 ease-sanft hover:-translate-y-0.5 hover:bg-neutral-700 hover:shadow-xl disabled:opacity-70"
         >
           {nimmtAuf ? (
             <Loader2 className="h-5 w-5 animate-spin" />

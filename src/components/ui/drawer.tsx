@@ -3,6 +3,7 @@ import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
 import { titelKlassen } from "@/components/ui/titelschrift"
+import { schwebendeKnoepfeDurchlassen } from "@/utils/schwebendeKnoepfe"
 
 const Drawer = ({
   shouldScaleBackground = true,
@@ -36,7 +37,7 @@ DrawerOverlay.displayName = DrawerPrimitive.Overlay.displayName
 const DrawerContent = React.forwardRef<
   React.ElementRef<typeof DrawerPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DrawerPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onPointerDownOutside, ...props }, ref) => (
   <DrawerPortal>
     <DrawerOverlay />
     <DrawerPrimitive.Content
@@ -45,6 +46,11 @@ const DrawerContent = React.forwardRef<
         "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[1.25rem] border border-border/70 bg-card shadow-dialog",
         className
       )}
+      onPointerDownOutside={(ereignis) => {
+        // Der Kamera-Knopf schließt das Fenster nicht (24.11.2026, utils/schwebendeKnoepfe.ts)
+        schwebendeKnoepfeDurchlassen(ereignis)
+        onPointerDownOutside?.(ereignis)
+      }}
       {...props}
     >
       <div className="mx-auto mt-3 h-1.5 w-12 rounded-full bg-neutral-300" />

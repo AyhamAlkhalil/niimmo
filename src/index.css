@@ -349,3 +349,24 @@
 html[data-aufnahme] .schwebende-knoepfe {
   visibility: hidden;
 }
+
+/* Bei offenem Fenster (Radix sperrt dann das Scrollen: body[data-scroll-locked])
+   bleibt nur der Kamera-Knopf, klein und in der äußersten Ecke. Die großen Fenster
+   (95vw, Vollbild mit 16px Rand) haben ihre Schaltflächen unten rechts; 28px bei 4px
+   Abstand reichen bis 32px und berühren sie nicht (24.11.2026). Das Board öffnete
+   sich hinter dem Fenster und entfällt solange. */
+body[data-scroll-locked] .schwebende-knoepfe {
+  bottom: 0.25rem;
+  right: 0.25rem;
+}
+body[data-scroll-locked] .melder-board-knopf {
+  display: none;
+}
+body[data-scroll-locked] .melder-kamera-knopf {
+  height: 1.75rem;
+  width: 1.75rem;
+}
+body[data-scroll-locked] .melder-kamera-knopf svg {
+  height: 0.875rem;
+  width: 0.875rem;
+}

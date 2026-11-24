@@ -5,6 +5,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 import { titelKlassen } from "@/components/ui/titelschrift"
+import { schwebendeKnoepfeDurchlassen } from "@/utils/schwebendeKnoepfe"
 
 const Sheet = SheetPrimitive.Root
 
@@ -55,12 +56,17 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, ...props }, ref) => (
+>(({ side = "right", className, children, onPointerDownOutside, ...props }, ref) => (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
       ref={ref}
       className={cn(sheetVariants({ side }), className)}
+      onPointerDownOutside={(ereignis) => {
+        // Der Kamera-Knopf schließt das Fenster nicht (24.11.2026, utils/schwebendeKnoepfe.ts)
+        schwebendeKnoepfeDurchlassen(ereignis)
+        onPointerDownOutside?.(ereignis)
+      }}
       {...props}
     >
       {children}

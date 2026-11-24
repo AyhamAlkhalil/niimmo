@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { titelKlassen } from "@/components/ui/titelschrift"
+import { schwebendeKnoepfeDurchlassen } from "@/utils/schwebendeKnoepfe"
 
 const Dialog = DialogPrimitive.Root
 
@@ -53,7 +54,7 @@ const VOLLBILD =
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { size?: DialogGroesse }
->(({ className, children, size, ...props }, ref) => (
+>(({ className, children, size, onPointerDownOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -63,6 +64,11 @@ const DialogContent = React.forwardRef<
         size && size !== "vollbild" ? DIALOG_BREITEN[size] : undefined,
         className
       )}
+      onPointerDownOutside={(ereignis) => {
+        // Der Kamera-Knopf schließt das Fenster nicht (24.11.2026, utils/schwebendeKnoepfe.ts)
+        schwebendeKnoepfeDurchlassen(ereignis)
+        onPointerDownOutside?.(ereignis)
+      }}
       {...props}
     >
       {children}
