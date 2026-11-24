@@ -9,7 +9,8 @@ import { ArrowLeft, MapPin, Calendar, Info, Loader2, Pencil, Check, X, Droplets,
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
-import { sortUnitsByNumber, getCurrentContract, filterActiveAndTerminatedContracts, summiereLaufendeMieten } from "@/utils/contractUtils";
+import { getCurrentContract, filterActiveAndTerminatedContracts, summiereLaufendeMieten } from "@/utils/contractUtils";
+import { einheitenInReihenfolge, einheitenNummern } from "@/utils/einheitenReihenfolge";
 import { useEditableField } from "@/hooks/useEditableField";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -105,7 +106,7 @@ export const ImmobilienDetail = ({
       // verschwand dann lautlos samt Vertrag aus Detailansicht, Suche und
       // Kuendigung. Ein fachlicher Grund fuer die Gruppierung war nicht
       // erkennbar; die Eindeutigkeit sichert bereits der Primaerschluessel.
-      return sortUnitsByNumber(data || []);
+      return einheitenInReihenfolge(data || []);
     }
   });
   const {
@@ -533,11 +534,15 @@ export const ImmobilienDetail = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {(() => {
+                // Nummer aus allen Einheiten, nicht aus dem Suchergebnis: Bis zum 24.11.2026 hieß
+                // der einzige Treffer einer Suche immer „Einheit 1“ (utils/einheitenReihenfolge.ts)
+                const nummern = einheitenNummern(einheiten ?? []);
                 const searchLower = searchTerm.trim().toLowerCase();
                 const filtered = searchLower
                   ? einheiten?.filter(einheit => {
                       if (
-                        einheit.nummer?.toLowerCase().includes(searchLower) ||
+                        // Die Spalte nummer gibt es nicht; gesucht wird nach der angezeigten Nummer (24.11.2026)
+                        `einheit ${nummern.get(einheit.id) ?? ''}`.includes(searchLower) ||
                         einheit.etage?.toLowerCase().includes(searchLower) ||
                         einheit.einheitentyp?.toLowerCase().includes(searchLower)
                       ) return true;
@@ -549,8 +554,8 @@ export const ImmobilienDetail = ({
                       );
                     })
                   : einheiten;
-                return filtered;
-              })()?.map((einheit, index) => {
+                return filtered?.map((einheit) => ({ einheit, nummer: nummern.get(einheit.id) }));
+              })()?.map(({ einheit, nummer }, index) => {
                 // Find all rental contracts for this unit
                 const vertraegeForEinheit = mietvertraege?.filter(v => v.einheit_id === einheit.id) || [];
                 
@@ -577,7 +582,7 @@ export const ImmobilienDetail = ({
                       immobilie={immobilie} 
                       openMietvertragId={openMietvertragId}
                       vertraegeOhneUnterschrift={vertraegeForEinheit.filter(v => v.unterschrift_ausstehend && v.status !== 'beendet')}
-                      einheitIndex={index + 1}
+                      einheitIndex={nummer ?? index + 1}
                       onContractModalClose={onContractModalClose}
                     />
                   </div>
@@ -596,9 +601,10 @@ export const ImmobilienDetail = ({
             )}
             {einheiten && einheiten.length > 0 && searchTerm.trim() && (() => {
               const searchLower = searchTerm.trim().toLowerCase();
+              const nummern = einheitenNummern(einheiten);
               const matchCount = einheiten.filter(einheit => {
                 if (
-                  einheit.nummer?.toLowerCase().includes(searchLower) ||
+                  `einheit ${nummern.get(einheit.id) ?? ''}`.includes(searchLower) ||
                   einheit.etage?.toLowerCase().includes(searchLower) ||
                   einheit.einheitentyp?.toLowerCase().includes(searchLower)
                 ) return true;

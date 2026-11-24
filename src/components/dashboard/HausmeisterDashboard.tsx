@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { einheitenInReihenfolge } from "@/utils/einheitenReihenfolge";
 
 interface MeterReading {
   einheitId: string;
@@ -77,6 +78,7 @@ export const HausmeisterDashboard = () => {
               id, 
               zaehler,
               etage,
+              erstellt_am,
               qm,
               einheitentyp,
               kaltwasser_zaehler,
@@ -92,8 +94,7 @@ export const HausmeisterDashboard = () => {
               gas_stand_aktuell,
               gas_stand_datum
             `)
-            .eq('immobilie_id', prop.id)
-            .order('zaehler');
+            .eq('immobilie_id', prop.id);
           
           if (unitsError) throw unitsError;
 
@@ -115,10 +116,12 @@ export const HausmeisterDashboard = () => {
 
           return {
             ...prop,
-            einheiten: units?.map(u => ({
+            // Reihenfolge und Nummer wie in der Objektübersicht (utils/einheitenReihenfolge.ts)
+            einheiten: einheitenInReihenfolge(units ?? []).map((u, index) => ({
               ...u,
+              einheitNummer: index + 1,
               vertrag: contractMap.get(u.id)
-            })) || []
+            }))
           };
         })
       );
@@ -562,10 +565,11 @@ export const HausmeisterDashboard = () => {
                             return (
                               <TableRow key={einheit.id} className="text-xs">
                                 <TableCell className="py-1.5 font-medium">
+                                  {/* Nummer wie in der Objektübersicht, Lage darunter (24.11.2026) */}
                                   <div>
-                                    <span>{einheit.zaehler}</span>
+                                    <span>Einheit {einheit.einheitNummer}</span>
                                     {einheit.etage && (
-                                      <span className="text-muted-foreground ml-1">({einheit.etage})</span>
+                                      <span className="block font-normal text-muted-foreground">{einheit.etage}</span>
                                     )}
                                   </div>
                                 </TableCell>

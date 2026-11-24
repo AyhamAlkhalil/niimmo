@@ -26,6 +26,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ZaehlerHistorie } from "@/components/dashboard/ZaehlerHistorie";
 import { Seitenkopf } from "@/components/dashboard/Seitenkopf";
+import { einheitenInReihenfolge } from "@/utils/einheitenReihenfolge";
 import { getLaufenderVertrag } from "@/utils/contractUtils";
 import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
 
@@ -141,15 +142,14 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           const { data: units, error: unitsError } = await supabase
             .from('einheiten')
             .select(`
-              id, zaehler, etage, qm, einheitentyp,
+              id, zaehler, etage, qm, einheitentyp, erstellt_am,
               kaltwasser_zaehler, warmwasser_zaehler, strom_zaehler, gas_zaehler,
               kaltwasser_stand_aktuell, kaltwasser_stand_datum,
               warmwasser_stand_aktuell, warmwasser_stand_datum,
               strom_stand_aktuell, strom_stand_datum,
               gas_stand_aktuell, gas_stand_datum
             `)
-            .eq('immobilie_id', prop.id)
-            .order('zaehler');
+            .eq('immobilie_id', prop.id);
           if (unitsError) throw unitsError;
 
           const unitIds = units?.map(u => u.id) || [];
@@ -172,7 +172,12 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
           }
           return {
             ...prop,
-            einheiten: units?.map(u => ({ ...u, vertrag: contractMap.get(u.id) })) || [],
+            // Reihenfolge und Nummer wie in der Objektübersicht (utils/einheitenReihenfolge.ts)
+            einheiten: einheitenInReihenfolge(units ?? []).map((u, index) => ({
+              ...u,
+              einheitNummer: index + 1,
+              vertrag: contractMap.get(u.id),
+            })),
           };
         })
       );
@@ -740,9 +745,11 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                 <React.Fragment key={einheit.id}>
                                   <TableRow className={`text-xs${isEditingUnit ? ' bg-muted/20' : ''}`}>
                                     <TableCell className="py-1.5 font-medium">
+                                      {/* Nummer wie in der Objektübersicht, Lage darunter. Bis zum 24.11.2026 stand
+                                          hier das leere Feld zaehler und die Lage in Klammern: „(Linkes Erdgeschoss links)“ */}
                                       <div>
-                                        <span>{einheit.zaehler}</span>
-                                        {einheit.etage && <span className="text-muted-foreground ml-1">({einheit.etage})</span>}
+                                        <span>Einheit {einheit.einheitNummer}</span>
+                                        {einheit.etage && <span className="block font-normal text-muted-foreground">{einheit.etage}</span>}
                                       </div>
                                     </TableCell>
                                     <TableCell className="py-1.5 text-muted-foreground hidden sm:table-cell truncate max-w-[120px]">
