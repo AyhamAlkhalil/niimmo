@@ -8,6 +8,7 @@ import {
   zaehlerFeldBezeichnung,
   zaehlerstandHistorieDatum,
   zaehlerstandHistorienZeilen,
+  zaehlerVerbrauch,
 } from "./vertragZaehlerstaende";
 
 const HEUTE = "2026-10-23";
@@ -216,5 +217,59 @@ describe("geaenderteZaehlernummern", () => {
     const nummern = geaenderteZaehlernummern(einheit, { kaltwasser_zaehler: "KW-NEU" });
     const [zeile] = zaehlerstandHistorienZeilen({ kaltwasser_einzug: 1.5 }, { start_datum: "2026-10-01" }, { ...einheit, ...nummern }, HEUTE);
     expect(zeile.zaehler_nummer).toBe("KW-NEU");
+  });
+});
+
+describe("zaehlerVerbrauch", () => {
+  const laufend = { start_datum: "2025-03-01", ende_datum: null, kuendigungsdatum: null };
+
+  it("rechnet bei laufendem Vertrag bis zur letzten Ablesung der Einheit", () => {
+    expect(
+      zaehlerVerbrauch({ einzug: 30.1, auszug: null, aktuell: 42.018, aktuellDatum: "2026-10-29", vertrag: laufend })
+    ).toEqual({ wert: 11.918, bis: "letzte_ablesung", datum: "2026-10-29" });
+  });
+
+  it("nimmt mit Auszugsstand den Auszug, nicht die letzte Ablesung", () => {
+    expect(
+      zaehlerVerbrauch({ einzug: "100", auszug: "150.5", aktuell: 400, aktuellDatum: "2026-10-29", vertrag: laufend })
+    ).toEqual({ wert: 50.5, bis: "auszug", datum: null });
+  });
+
+  it("ohne belegten Einzugsstand kein Verbrauch (leer oder 0)", () => {
+    for (const einzug of [null, undefined, "", 0, "0"]) {
+      expect(zaehlerVerbrauch({ einzug, auszug: null, aktuell: 50, aktuellDatum: "2026-10-29", vertrag: laufend })).toBeNull();
+    }
+  });
+
+  it("eine Ablesung vor Vertragsbeginn oder nach Vertragsende gehört zu einem anderen Mieter", () => {
+    expect(
+      zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: "2025-02-28", vertrag: laufend })
+    ).toBeNull();
+    const beendet = { start_datum: "2024-01-01", ende_datum: "2025-12-31", kuendigungsdatum: null };
+    expect(
+      zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: "2026-01-15", vertrag: beendet })
+    ).toBeNull();
+    expect(
+      zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: "2025-12-31", vertrag: beendet })
+    ).toEqual({ wert: 40, bis: "letzte_ablesung", datum: "2025-12-31" });
+  });
+
+  it("Vertragsende kommt aus getVertragsende (Kündigungsdatum als Rückfall)", () => {
+    const gekuendigt = { start_datum: "2024-01-01", ende_datum: null, kuendigungsdatum: "2026-06-30" };
+    expect(
+      zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: "2026-07-01", vertrag: gekuendigt })
+    ).toBeNull();
+  });
+
+  it("ein Stand unter dem Einzug (Zählertausch) oder ohne Datum ergibt nichts", () => {
+    expect(zaehlerVerbrauch({ einzug: 500, auszug: null, aktuell: 12, aktuellDatum: "2026-10-29", vertrag: laufend })).toBeNull();
+    expect(zaehlerVerbrauch({ einzug: 500, auszug: 400, aktuell: null, aktuellDatum: null, vertrag: laufend })).toBeNull();
+    expect(zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: null, vertrag: laufend })).toBeNull();
+  });
+
+  it("ohne Vertragsbeginn keine Rechnung bis zur letzten Ablesung", () => {
+    expect(
+      zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: "2026-10-29", vertrag: { start_datum: null } })
+    ).toBeNull();
   });
 });

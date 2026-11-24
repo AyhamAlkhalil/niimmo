@@ -3,7 +3,10 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronRight, Gauge, Droplet, Thermometer, Zap, Flame } from "lucide-react";
 import { useState } from "react";
+import { format, parseISO } from "date-fns";
 import { MietvertragEditableField } from "./MietvertragEditableField";
+import { ZaehlerHistorie } from "../ZaehlerHistorie";
+import { zaehlerVerbrauch } from "@/utils/vertragZaehlerstaende";
 
 interface MietvertragMeterReadingsProps {
   vertrag: any;
@@ -54,6 +57,18 @@ export function MietvertragMeterReadings({
     else onEditMeter(feld, value);
   };
 
+  const datumText = (datum: string) => format(parseISO(datum.slice(0, 10)), "dd.MM.yyyy");
+  const standText = (stand: number | string) =>
+    Number(stand).toLocaleString("de-DE", { maximumFractionDigits: 3 });
+
+  // Letzte Ablesung an der Einheit -- dieselben Felder wie in der Zählerliste
+  // (ZaehlerVerwaltung). Bis zum 24.11.2026 zeigte die Karte nur Ein- und Auszug
+  // und blieb bei laufenden Verträgen leer (Kundenmeldung 23.11.2026).
+  const letzteAblesung = (key: string) => ({
+    aktuell: einheit?.[`${key}_stand_aktuell`] as number | string | null | undefined,
+    aktuellDatum: einheit?.[`${key}_stand_datum`] as string | null | undefined,
+  });
+
   const meterReadings = [
     {
       key: "kaltwasser",
@@ -63,7 +78,8 @@ export function MietvertragMeterReadings({
       label: "Kaltwasser",
       number: einheit?.kaltwasser_zaehler,
       einzug: vertrag.kaltwasser_einzug,
-      auszug: vertrag.kaltwasser_auszug
+      auszug: vertrag.kaltwasser_auszug,
+      ...letzteAblesung("kaltwasser")
     },
     {
       key: "warmwasser", 
@@ -73,7 +89,8 @@ export function MietvertragMeterReadings({
       label: "Warmwasser",
       number: einheit?.warmwasser_zaehler,
       einzug: vertrag.warmwasser_einzug,
-      auszug: vertrag.warmwasser_auszug
+      auszug: vertrag.warmwasser_auszug,
+      ...letzteAblesung("warmwasser")
     },
     {
       key: "strom",
@@ -83,7 +100,8 @@ export function MietvertragMeterReadings({
       label: "Strom",
       number: einheit?.strom_zaehler,
       einzug: vertrag.strom_einzug,
-      auszug: vertrag.strom_auszug
+      auszug: vertrag.strom_auszug,
+      ...letzteAblesung("strom")
     },
     {
       key: "gas",
@@ -93,9 +111,17 @@ export function MietvertragMeterReadings({
       label: "Gas",
       number: einheit?.gas_zaehler,
       einzug: vertrag.gas_einzug,
-      auszug: vertrag.gas_auszug
+      auszug: vertrag.gas_auszug,
+      ...letzteAblesung("gas")
     }
   ];
+
+  // Im eingeklappten Kopf sichtbar machen, dass es Ablesungen gibt
+  const juengsteAblesung = meterReadings
+    .map((meter) => (meter.aktuell != null && meter.aktuell !== "" ? meter.aktuellDatum?.slice(0, 10) : null))
+    .filter((datum): datum is string => !!datum)
+    .sort()
+    .pop();
 
   return (
     <Card className="overflow-hidden rounded-2xl">
@@ -107,7 +133,12 @@ export function MietvertragMeterReadings({
                 <div className="flex h-10 w-10 items-center justify-center border border-border/80 bg-muted/60 transition-colors group-hover:bg-muted">
                   <Gauge className="h-4 w-4 text-foreground/70" />
                 </div>
-                <CardTitle className="text-lg">Zählerstände & Verbrauch</CardTitle>
+                <div className="text-left">
+                  <CardTitle className="text-lg">Zählerstände & Verbrauch</CardTitle>
+                  <p className="text-xs font-normal text-muted-foreground">
+                    {juengsteAblesung ? `Letzte Ablesung ${datumText(juengsteAblesung)}` : "Noch keine Ablesung an der Einheit"}
+                  </p>
+                </div>
               </div>
               <div className="rounded-full p-2 transition-colors group-hover:bg-accent">
                 {isOpen ? (
@@ -128,7 +159,14 @@ export function MietvertragMeterReadings({
               // Vertragsbearbeitung leere Stände als 0 — ein „Verbrauch“ wäre dann der
               // ganze Zählerstand (Validierung 24.10.2026). Bei der Bereinigung am 26.10.2026
               // blieben 8 Einzugsstände 0 stehen, die echt sein können, aber nicht belegt sind.
-              const hasConsumption = meter.einzug != null && meter.auszug != null && Number(meter.einzug) > 0 && Number(meter.auszug) > Number(meter.einzug);
+              // Seit 24.11.2026 auch bei laufendem Vertrag bis zur letzten Ablesung (zaehlerVerbrauch)
+              const verbrauch = zaehlerVerbrauch({
+                einzug: meter.einzug,
+                auszug: meter.auszug,
+                aktuell: meter.aktuell,
+                aktuellDatum: meter.aktuellDatum,
+                vertrag,
+              });
               
               return (
                 <div 
@@ -172,7 +210,7 @@ export function MietvertragMeterReadings({
                   </div>
                   
                   {/* Reading Values */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div className="rounded-lg border border-border/80 bg-neutral-50/60 p-4">
                       <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                         <span className="h-1.5 w-1.5 rounded-full bg-forest-500" aria-hidden="true" />
@@ -198,6 +236,24 @@ export function MietvertragMeterReadings({
                     
                     <div className="rounded-lg border border-border/80 bg-neutral-50/60 p-4">
                       <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                        <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" aria-hidden="true" />
+                        Letzte Ablesung
+                      </div>
+                      {/* Nur Anzeige: Erfasst und korrigiert wird in der Zählerliste bzw. der Historie unten */}
+                      {meter.aktuell != null && meter.aktuell !== "" ? (
+                        <div>
+                          <div className="font-medium tabular-nums text-foreground">{standText(meter.aktuell)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {meter.aktuellDatum ? `am ${datumText(meter.aktuellDatum)}` : "ohne Datum"}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">Nicht erfasst</div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-border/80 bg-neutral-50/60 p-4">
+                      <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
                         <span className="h-1.5 w-1.5 rounded-full bg-brand" aria-hidden="true" />
                         Auszugsstand
                       </div>
@@ -218,16 +274,20 @@ export function MietvertragMeterReadings({
                   </div>
                   
                   {/* Consumption Calculation */}
-                  {hasConsumption && (
+                  {verbrauch && (
                     <div className="rounded-lg border border-border/80 bg-muted/50 p-4 animate-fade-in">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                           <div className="h-2 w-2 rounded-full bg-brand" />
-                          <span className="text-sm font-medium text-foreground">Gesamtverbrauch</span>
+                          <span className="text-sm font-medium text-foreground">
+                            {verbrauch.bis === "auszug"
+                              ? "Verbrauch Einzug bis Auszug"
+                              : `Verbrauch seit Einzug (bis ${datumText(verbrauch.datum!)})`}
+                          </span>
                         </div>
                         <div className="text-right">
                           <div className="font-display text-3xl leading-none tabular-nums text-foreground">
-                            {(Number(meter.auszug) - Number(meter.einzug)).toFixed(2)}
+                            {verbrauch.wert.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {meter.key === 'kaltwasser' || meter.key === 'warmwasser' ? 'm³' : 
@@ -246,6 +306,13 @@ export function MietvertragMeterReadings({
                 </div>
               );
             })}
+
+            {/* Alle Ablesungen der Einheit, dieselbe Liste wie „Historie“ in der Zählerliste */}
+            {einheit?.id && (
+              <div className="rounded-xl border border-border/80 bg-card px-4 py-3">
+                <ZaehlerHistorie einheitId={einheit.id} label="Alle Ablesungen der Einheit" />
+              </div>
+            )}
           </CardContent>
         </CollapsibleContent>
       </Collapsible>

@@ -190,3 +190,60 @@ export function zaehlerstandHistorienZeilen(
   }
   return zeilen;
 }
+
+export interface ZaehlerVerbrauch {
+  /** Verbrauch in der Einheit des Zählers, auf drei Nachkommastellen gerundet */
+  wert: number;
+  /** Bis wann gerechnet wurde: Auszugsstand oder letzte Ablesung an der Einheit */
+  bis: "auszug" | "letzte_ablesung";
+  /** Datum der letzten Ablesung (nur bei `letzte_ablesung`) */
+  datum: string | null;
+}
+
+export interface ZaehlerVerbrauchEingabe {
+  einzug: number | string | null | undefined;
+  auszug: number | string | null | undefined;
+  /** Letzter Stand an der Einheit (`einheiten.<typ>_stand_aktuell`) */
+  aktuell: number | string | null | undefined;
+  aktuellDatum: string | null | undefined;
+  vertrag: VertragDatumsangaben | null | undefined;
+}
+
+const alsZahl = (wert: number | string | null | undefined): number | null => {
+  if (wert === null || wert === undefined || wert === "") return null;
+  const zahl = Number(wert);
+  return Number.isFinite(zahl) ? zahl : null;
+};
+
+/**
+ * Verbrauch für die Karte „Zählerstände & Verbrauch“ in den Vertragsdetails.
+ *
+ * Bis zum 24.11.2026 rechnete die Karte nur Einzug bis Auszug; bei einem laufenden
+ * Vertrag stand dort nichts, obwohl die Zählerliste eine aktuelle Ablesung zeigte
+ * (Kundenmeldung 23.11.2026). Seither gilt:
+ * - Erst ab einem Einzugsstand über 0 (8 Einzugsnullen sind nicht belegt, 26.10.2026).
+ * - Mit Auszugsstand: Auszug minus Einzug.
+ * - Sonst die letzte Ablesung der Einheit, aber nur, wenn sie in die Vertragszeit fällt
+ *   (nicht vor Beginn, nicht nach dem Ende nach getVertragsende()) — sonst gehört sie zu
+ *   einem anderen Mieter.
+ * - Ein Stand unter dem Einzugsstand ergibt nichts: Meist wurde der Zähler getauscht.
+ */
+export function zaehlerVerbrauch(e: ZaehlerVerbrauchEingabe): ZaehlerVerbrauch | null {
+  const einzug = alsZahl(e.einzug);
+  if (einzug === null || einzug <= 0) return null;
+  const runde = (wert: number) => Math.round(wert * 1000) / 1000;
+
+  const auszug = alsZahl(e.auszug);
+  if (auszug !== null) {
+    return auszug > einzug ? { wert: runde(auszug - einzug), bis: "auszug", datum: null } : null;
+  }
+
+  const aktuell = alsZahl(e.aktuell);
+  const datum = e.aktuellDatum?.slice(0, 10) ?? null;
+  if (aktuell === null || !datum || aktuell <= einzug) return null;
+  const beginn = e.vertrag?.start_datum?.slice(0, 10) ?? null;
+  const ende = getVertragsende(e.vertrag)?.slice(0, 10) ?? null;
+  if (!beginn || datum < beginn) return null;
+  if (ende && datum > ende) return null;
+  return { wert: runde(aktuell - einzug), bis: "letzte_ablesung", datum };
+}
