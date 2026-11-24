@@ -45,6 +45,9 @@ export function ZaehlerartenAuswahl({ immobilie }: ZaehlerartenAuswahlProps) {
   const [speichert, setSpeichert] = useState(false);
 
   if (!isAdmin) return null;
+  // Nur mit geladener Konfiguration: Fehlte die Spalte in der Abfrage, gälten „alle Arten“, und ein
+  // Umschalten schriebe „alle bis auf eine“ über die echte Wahl (Review 24.11.2026)
+  if (!Array.isArray(immobilie.zaehlerarten_einheiten) || !Array.isArray(immobilie.hausanschluss_zweiter_zaehler)) return null;
 
   const hausanschluss = hausanschlussZaehlerarten(immobilie);
   const zweiter = hausanschlussZweiterZaehler(immobilie);
