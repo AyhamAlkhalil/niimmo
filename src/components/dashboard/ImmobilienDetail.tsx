@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useEffect, useRef, useState } from "react";
 import { getCurrentContract, filterActiveAndTerminatedContracts, summiereLaufendeMieten } from "@/utils/contractUtils";
-import { einheitenInReihenfolge, einheitenNummern } from "@/utils/einheitenReihenfolge";
+import { einheitenInReihenfolge, einheitenNummern, sucheTrifftEinheitNummer } from "@/utils/einheitenReihenfolge";
 import { hausanschlussZaehlerarten, hausanschlussZweiterZaehler } from "@/utils/zaehlerarten";
 import { ZaehlerartenAuswahl } from "@/components/dashboard/ZaehlerartenAuswahl";
 import { useEditableField } from "@/hooks/useEditableField";
@@ -552,8 +552,8 @@ export const ImmobilienDetail = ({
                 const filtered = searchLower
                   ? einheiten?.filter(einheit => {
                       if (
-                        // Die Spalte nummer gibt es nicht; gesucht wird nach der angezeigten Nummer (24.11.2026)
-                        `einheit ${nummern.get(einheit.id) ?? ''}`.includes(searchLower) ||
+                        // Die Spalte nummer gibt es nicht; gesucht wird genau nach der angezeigten Nummer (24.11.2026)
+                        sucheTrifftEinheitNummer(searchLower, nummern.get(einheit.id)) ||
                         einheit.etage?.toLowerCase().includes(searchLower) ||
                         einheit.einheitentyp?.toLowerCase().includes(searchLower)
                       ) return true;
@@ -615,7 +615,7 @@ export const ImmobilienDetail = ({
               const nummern = einheitenNummern(einheiten);
               const matchCount = einheiten.filter(einheit => {
                 if (
-                  `einheit ${nummern.get(einheit.id) ?? ''}`.includes(searchLower) ||
+                  sucheTrifftEinheitNummer(searchLower, nummern.get(einheit.id)) ||
                   einheit.etage?.toLowerCase().includes(searchLower) ||
                   einheit.einheitentyp?.toLowerCase().includes(searchLower)
                 ) return true;

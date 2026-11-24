@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { einheitenInReihenfolge, einheitenNummern } from "./einheitenReihenfolge";
+import { einheitenInReihenfolge, einheitenNummern, sucheTrifftEinheitNummer } from "./einheitenReihenfolge";
 
 // Ziffern in den letzten zwei Zeichen der ID bestimmen die Reihenfolge der Objektübersicht,
 // danach das Anlagedatum (sortUnitsByNumber).
@@ -37,6 +37,27 @@ describe("einheitenNummern", () => {
   });
 });
 
+describe("sucheTrifftEinheitNummer", () => {
+  it("trifft die Nummer genau, mit oder ohne „Einheit“", () => {
+    expect(sucheTrifftEinheitNummer("12", 12)).toBe(true);
+    expect(sucheTrifftEinheitNummer(" Einheit 12 ", 12)).toBe(true);
+    expect(sucheTrifftEinheitNummer("einheit12", 12)).toBe(true);
+    expect(sucheTrifftEinheitNummer("012", 12)).toBe(true);
+  });
+
+  it("keine Teiltreffer", () => {
+    expect(sucheTrifftEinheitNummer("1", 12)).toBe(false);
+    expect(sucheTrifftEinheitNummer("12", 112)).toBe(false);
+    expect(sucheTrifftEinheitNummer("ein", 3)).toBe(false);
+    expect(sucheTrifftEinheitNummer("einheit", 3)).toBe(false);
+    expect(sucheTrifftEinheitNummer("1. OG", 1)).toBe(false);
+  });
+
+  it("ohne Nummer kein Treffer", () => {
+    expect(sucheTrifftEinheitNummer("3", undefined)).toBe(false);
+  });
+});
+
 describe("Verdrahtung", () => {
   const lies = (pfad: string) => readFileSync(new URL(pfad, import.meta.url), "utf8");
 
@@ -49,6 +70,8 @@ describe("Verdrahtung", () => {
   });
 
   it("die Objektübersicht nummeriert aus allen Einheiten, nicht aus dem Suchergebnis", () => {
-    expect(lies("../components/dashboard/ImmobilienDetail.tsx")).toContain("einheitenNummern(");
+    const uebersicht = lies("../components/dashboard/ImmobilienDetail.tsx");
+    expect(uebersicht).toContain("einheitenNummern(");
+    expect(uebersicht).toContain("sucheTrifftEinheitNummer(");
   });
 });

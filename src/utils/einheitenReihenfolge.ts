@@ -28,3 +28,13 @@ export function einheitenInReihenfolge<T extends EinheitFuerReihenfolge>(einheit
 export function einheitenNummern(einheiten: readonly EinheitFuerReihenfolge[]): Map<string, number> {
   return new Map(einheitenInReihenfolge(einheiten).map((einheit, index) => [einheit.id, index + 1]));
 }
+
+/**
+ * Trifft eine Suche die angezeigte Nummer? „12“ oder „Einheit 12“ findet genau Einheit 12 — nicht
+ * Einheit 1 oder 112, und „ein“ findet nicht jede Einheit (Review 24.11.2026).
+ */
+export function sucheTrifftEinheitNummer(suche: string, nummer: number | undefined): boolean {
+  if (nummer === undefined) return false;
+  const treffer = suche.trim().toLowerCase().match(/^(?:einheit\s*)?(\d+)$/);
+  return !!treffer && Number(treffer[1]) === nummer;
+}
