@@ -63,7 +63,7 @@ export function MietvertragMeterReadings({
 
   const datumText = (datum: string) => format(parseISO(datum.slice(0, 10)), "dd.MM.yyyy");
   const standText = (stand: number | string) =>
-    Number(stand).toLocaleString("de-DE", { maximumFractionDigits: 3 });
+    Number.isFinite(Number(stand)) ? Number(stand).toLocaleString("de-DE", { maximumFractionDigits: 3 }) : String(stand);
 
   // Letzte Ablesung an der Einheit -- dieselben Felder wie in der Zählerliste
   // (ZaehlerVerwaltung). Bis zum 24.11.2026 zeigte die Karte nur Ein- und Auszug
@@ -142,9 +142,12 @@ export function MietvertragMeterReadings({
                 </div>
                 <div className="text-left">
                   <CardTitle className="text-lg">Zählerstände & Verbrauch</CardTitle>
-                  <p className="text-xs font-normal text-muted-foreground">
-                    {juengsteAblesung ? `Letzte Ablesung ${datumText(juengsteAblesung)}` : "Noch keine Ablesung an der Einheit"}
-                  </p>
+                  {/* Ohne geladene Einheit nichts behaupten */}
+                  {einheit && (
+                    <p className="text-xs font-normal text-muted-foreground">
+                      {juengsteAblesung ? `Letzte Ablesung ${datumText(juengsteAblesung)}` : "Noch keine Ablesung an der Einheit"}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="rounded-full p-2 transition-colors group-hover:bg-accent">
