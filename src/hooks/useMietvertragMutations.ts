@@ -17,7 +17,9 @@ import {
   type VertragDatumsangaben,
   type VertragZaehlerEinheit,
   type ZaehlerstandAenderungen,
+  geleerteZaehlerstaende,
 } from "@/utils/vertragZaehlerstaende";
+import { zaehlerAnsichtenAktualisieren } from "@/lib/zaehlerAblesung";
 import { geaenderteKaution, kautionFeldBezeichnung, leseKautionsbetrag } from "@/utils/vertragKaution";
 import { geaenderteMietbetraege, mietFeldBezeichnung, mietfeldVorbelegung } from "@/utils/vertragMiete";
 import { EURO_BETRAG_HINWEIS, leseEuroBetrag } from "@/utils/euroBetrag";
@@ -402,8 +404,23 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
     einheitNachher: VertragZaehlerEinheit | null = einheitData
   ): Promise<boolean> => {
     if (!einheitNachher?.id) return true;
+    // Geleerte Stände: die Ablesung dieses Vertrags entfernen (geleerteZaehlerstaende, 26.11.2026)
+    for (const geleert of geleerteZaehlerstaende(aenderungen)) {
+      const { error: loeschFehler } = await supabase
+        .from('zaehlerstand_historie')
+        .delete()
+        .eq('einheit_id', einheitNachher.id)
+        .eq('zaehler_typ', geleert.zaehler_typ)
+        .eq('quelle', geleert.quelle)
+        .eq('mietvertrag_id', vertragId);
+      if (loeschFehler) return false;
+    }
     const zeilen = zaehlerstandHistorienZeilen(aenderungen, vertragNachher, einheitNachher, format(new Date(), 'yyyy-MM-dd'), vertragId);
-    if (zeilen.length === 0) return true;
+    // Die Zählerliste zeigt die jüngste Ablesung; die Datenbank zieht sie nach (Migration 20261126100000)
+    if (zeilen.length === 0) {
+      await zaehlerAnsichtenAktualisieren(queryClient);
+      return true;
+    }
     // Eine zweite Korrektur desselben Felds aktualisiert ihre Zeile: Zwei Zeilen
     // am selben Tag machten es zum Zufall, welche die Übergabe als Vergleich nimmt
     for (const zeile of zeilen) {
@@ -426,7 +443,7 @@ export function useMietvertragMutations({ vertragId, vertrag, einheitData, miete
         : await supabase.from('zaehlerstand_historie').insert(zeile);
       if (histError) return false;
     }
-    queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
+    await zaehlerAnsichtenAktualisieren(queryClient);
     return true;
   };
 

@@ -9,6 +9,7 @@ import {
   zaehlerstandHistorieDatum,
   zaehlerstandHistorienZeilen,
   zaehlerVerbrauch,
+  geleerteZaehlerstaende,
 } from "./vertragZaehlerstaende";
 
 const HEUTE = "2026-10-23";
@@ -271,5 +272,19 @@ describe("zaehlerVerbrauch", () => {
     expect(
       zaehlerVerbrauch({ einzug: 10, auszug: null, aktuell: 50, aktuellDatum: "2026-10-29", vertrag: { start_datum: null } })
     ).toBeNull();
+  });
+});
+
+describe("geleerteZaehlerstaende", () => {
+  it("nennt nur geleerte Felder, mit Typ und Anlass", () => {
+    expect(geleerteZaehlerstaende({ gas_auszug: null, strom_einzug: 120, kaltwasser_einzug: null })).toEqual([
+      { zaehler_typ: "kaltwasser", quelle: "einzug" },
+      { zaehler_typ: "gas", quelle: "auszug" },
+    ]);
+  });
+
+  it("ohne geleerte Felder nichts", () => {
+    expect(geleerteZaehlerstaende({ strom_einzug: 0 })).toEqual([]);
+    expect(geleerteZaehlerstaende({})).toEqual([]);
   });
 });

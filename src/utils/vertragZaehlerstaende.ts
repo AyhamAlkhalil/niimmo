@@ -191,6 +191,22 @@ export function zaehlerstandHistorienZeilen(
   return zeilen;
 }
 
+/**
+ * Ablesungen dieses Vertrags, die beim Leeren eines Ein- oder Auszugsstands entfallen. Bis zum 26.11.2026
+ * blieb die Historienzeile stehen; seit der aktuelle Stand aus der Historie folgt (Migration
+ * 20261126100000), gälte ein geleerter, weil falscher Wert sonst weiter als letzte Ablesung der Einheit.
+ * Betroffen sind nur Zeilen dieser Vertragsbearbeitung (quelle einzug/auszug, eigener Vertrag), nicht
+ * die der Übergabe.
+ */
+export function geleerteZaehlerstaende(
+  aenderungen: ZaehlerstandAenderungen
+): Array<{ zaehler_typ: VertragZaehlerTyp; quelle: VertragZaehlerAnlass }> {
+  return VERTRAG_ZAEHLER_FELDER.filter((feld) => feld in aenderungen && aenderungen[feld] === null).map((feld) => ({
+    zaehler_typ: typVon(feld),
+    quelle: anlassVon(feld),
+  }));
+}
+
 export interface ZaehlerVerbrauch {
   /** Verbrauch in der Einheit des Zählers, auf drei Nachkommastellen gerundet */
   wert: number;
