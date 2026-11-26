@@ -4,6 +4,13 @@
 
 import { getLaufenderVertrag, getVertragsende, istLaufenderVertrag, summiereLaufendeMieten } from '../../_shared/mietkonto.ts';
 import { ilikeInSpalten, suchwoerter } from '../../_shared/suchbegriff.ts';
+import { einheitenInReihenfolge, einheitenNummern } from '../../_shared/einheitenReihenfolge.ts';
+import {
+  einheitZaehlerarten,
+  hausanschlussZaehlerarten,
+  hausanschlussZweiterZaehler,
+  type ObjektZaehlerKonfiguration,
+} from '../../_shared/zaehlerarten.ts';
 import { ANZAHL, ID, objekt, TEXT } from '../eingabe.ts';
 import {
   anschrift,
@@ -146,23 +153,42 @@ const OBJEKT_DETAIL_SPALTEN = `${IMMOBILIE_SPALTEN}, baujahr, gesamtwohnflaeche,
   'versorger_wasser_name, allgemein_strom_zaehler, allgemein_strom_stand, allgemein_strom_datum, allgemein_gas_zaehler, ' +
   'allgemein_gas_stand, allgemein_gas_datum, allgemein_wasser_zaehler, allgemein_wasser_stand, allgemein_wasser_datum, ' +
   'allgemein_strom_zaehler_2, allgemein_strom_stand_2, allgemein_strom_datum_2, allgemein_gas_zaehler_2, allgemein_gas_stand_2, ' +
-  'allgemein_gas_datum_2, allgemein_wasser_zaehler_2, allgemein_wasser_stand_2, allgemein_wasser_datum_2';
+  'allgemein_gas_datum_2, allgemein_wasser_zaehler_2, allgemein_wasser_stand_2, allgemein_wasser_datum_2, ' +
+  'zaehlerarten_einheiten, hausanschluss_zweiter_zaehler';
 
-type ObjektDetail = ImmobilieZeile & Record<string, unknown>;
+/** Welche Zähler ein Objekt hat (Migration 20261124100000) */
+export const ZAEHLERARTEN_SPALTEN = 'hat_wasser, hat_strom, hat_gas, zaehlerarten_einheiten, hausanschluss_zweiter_zaehler';
 
-/** Hausanschlusszähler eines Objekts, nur befüllte Sätze */
+type ObjektDetail = ImmobilieZeile & ObjektZaehlerKonfiguration & Record<string, unknown>;
+
+/** Zählerarten eines Objekts in Worten, wie die Auswahl „Zählerarten“ der App (ZaehlerartenAuswahl.tsx) */
+export function zaehlerartenText(i: ObjektZaehlerKonfiguration | null | undefined) {
+  return {
+    hausanschluss: hausanschlussZaehlerarten(i),
+    zweiter_zaehler: hausanschlussZweiterZaehler(i),
+    einheiten: einheitZaehlerarten(i),
+  };
+}
+
+/**
+ * Hausanschlusszähler eines Objekts: die am Objekt gewählten, mit zweitem Satz nur, wo gewählt — wie Zählerverwaltung
+ * und Objektübersicht (seit 26.11.2026; vorher alle befüllten Sätze, auch abgewählte).
+ */
 export function hausanschluesse(i: ObjektDetail) {
-  const saetze: { art: string; satz: 1 | 2; zaehlernummer: unknown; stand: unknown; datum: unknown }[] = [];
-  for (const art of ['strom', 'gas', 'wasser'] as const) {
-    for (const satz of [1, 2] as const) {
-      const n = satz === 2 ? '_2' : '';
-      const zaehlernummer = i[`allgemein_${art}_zaehler${n}`];
-      const stand = i[`allgemein_${art}_stand${n}`];
-      if (zaehlernummer == null && stand == null) continue;
-      saetze.push({ art, satz, zaehlernummer, stand, datum: i[`allgemein_${art}_datum${n}`] });
-    }
-  }
-  return saetze;
+  const eintrag = (art: string, satz: 1 | 2) => {
+    const n = satz === 2 ? '_2' : '';
+    return {
+      art,
+      satz,
+      zaehlernummer: i[`allgemein_${art}_zaehler${n}`] ?? null,
+      stand: i[`allgemein_${art}_stand${n}`] ?? null,
+      datum: i[`allgemein_${art}_datum${n}`] ?? null,
+    };
+  };
+  return [
+    ...hausanschlussZaehlerarten(i).map((art) => eintrag(art, 1)),
+    ...hausanschlussZweiterZaehler(i).map((art) => eintrag(art, 2)),
+  ];
 }
 
 const objektAnzeigen: Werkzeug = {
@@ -180,10 +206,11 @@ const objektAnzeigen: Werkzeug = {
       await ctx.db.from('immobilien').select(OBJEKT_DETAIL_SPALTEN).eq('id', id).maybeSingle(),
       'Objekt',
     );
-    const einheiten = ergebnis<EinheitZeile[]>(
-      await ctx.db.from('einheiten').select(EINHEIT_SPALTEN).eq('immobilie_id', id).order('etage').order('id'),
+    // Reihenfolge und Nummer wie Objektübersicht und Zählerliste der App (_shared/einheitenReihenfolge.ts)
+    const einheiten = einheitenInReihenfolge(ergebnis<EinheitZeile[]>(
+      await ctx.db.from('einheiten').select(EINHEIT_SPALTEN).eq('immobilie_id', id).order('id'),
       'Lesen: Einheiten',
-    ) ?? [];
+    ) ?? []);
     const einheitIds = einheiten.map((x) => x.id);
     const vertraege = einheitIds.length === 0 ? [] : await alleZeilen<VertragZeile>(
       (von, bis) => ctx.db.from('mietvertrag').select(VERTRAG_SPALTEN).in('einheit_id', einheitIds).order('start_datum').order('id').range(von, bis),
@@ -191,8 +218,9 @@ const objektAnzeigen: Werkzeug = {
     );
     const mieter = await ladeVertragsmieter(ctx, vertraege.map((v) => v.id));
     const jeEinheit = gruppiere(vertraege, (v) => v.einheit_id);
-    const zeilen = einheiten.map((einheit) => ({
+    const zeilen = einheiten.map((einheit, index) => ({
       einheit_id: einheit.id,
+      einheit_nummer: index + 1,
       mietsache: einheitText(einheit),
       ...belegung(jeEinheit.get(einheit.id) ?? [], mieter, ctx.stichtag, ctx.heute),
     }));
@@ -216,6 +244,7 @@ const objektAnzeigen: Werkzeug = {
           gas: immobilie.versorger_gas_name ?? null,
           wasser: immobilie.versorger_wasser_name ?? null,
         },
+        zaehlerarten: zaehlerartenText(immobilie),
         hausanschlusszaehler: hausanschluesse(immobilie),
       },
       kennzahlen: {
@@ -235,16 +264,31 @@ const EINHEIT_DETAIL_SPALTEN = `${EINHEIT_SPALTEN}, raeume, nebenraeume, ausstat
 
 type EinheitDetail = EinheitZeile & Record<string, unknown>;
 
-/** Aktuelle Zählerstände einer Einheit (Felder *_stand_aktuell), nur befüllte */
-export function einheitZaehler(e: EinheitDetail) {
-  return (['strom', 'gas', 'kaltwasser', 'warmwasser'] as const)
-    .map((art) => ({
-      art,
-      zaehlernummer: e[`${art}_zaehler`] ?? null,
-      stand: e[`${art}_stand_aktuell`] ?? null,
-      datum: e[`${art}_stand_datum`] ?? null,
-    }))
-    .filter((z) => z.zaehlernummer != null || z.stand != null);
+/**
+ * Zähler einer Einheit mit aktuellem Stand (= jüngste Ablesung, Migration 20261126100000): die Zählerarten, die das
+ * Objekt für seine Einheiten gewählt hat — wie die Spalten der Zählerliste (seit 26.11.2026; vorher alle befüllten).
+ */
+export function einheitZaehler(e: EinheitDetail, objekt: ObjektZaehlerKonfiguration | null | undefined) {
+  return einheitZaehlerarten(objekt).map((art) => ({
+    art,
+    zaehlernummer: e[`${art}_zaehler`] ?? null,
+    stand: e[`${art}_stand_aktuell`] ?? null,
+    datum: e[`${art}_stand_datum`] ?? null,
+  }));
+}
+
+/** Zählerarten und Einheitennummer zu einer Einheit (ein Objekt, dessen Einheiten) */
+async function objektZurEinheit(ctx: Kontext, einheit: EinheitZeile) {
+  if (!einheit.immobilie_id) return { objekt: null, nummer: null };
+  const [objekt, geschwister] = await Promise.all([
+    ctx.db.from('immobilien').select(`${IMMOBILIE_SPALTEN}, ${ZAEHLERARTEN_SPALTEN}`).eq('id', einheit.immobilie_id).maybeSingle(),
+    ctx.db.from('einheiten').select('id, erstellt_am').eq('immobilie_id', einheit.immobilie_id),
+  ]);
+  const nummern = einheitenNummern(ergebnis<{ id: string; erstellt_am: string | null }[]>(geschwister, 'Lesen: Einheiten') ?? []);
+  return {
+    objekt: ergebnis<(ImmobilieZeile & ObjektZaehlerKonfiguration) | null>(objekt, 'Lesen: Objekt'),
+    nummer: nummern.get(einheit.id) ?? null,
+  };
 }
 
 const einheitAnzeigen: Werkzeug = {
@@ -260,10 +304,8 @@ const einheitAnzeigen: Werkzeug = {
       await ctx.db.from('einheiten').select(EINHEIT_DETAIL_SPALTEN).eq('id', e.einheit_id).maybeSingle(),
       'Einheit',
     );
-    const [immobilie, vertraege] = await Promise.all([
-      einheit.immobilie_id
-        ? ctx.db.from('immobilien').select(IMMOBILIE_SPALTEN).eq('id', einheit.immobilie_id).maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
+    const [{ objekt: immobilie, nummer }, vertraege] = await Promise.all([
+      objektZurEinheit(ctx, einheit),
       ctx.db.from('mietvertrag').select(VERTRAG_SPALTEN).eq('einheit_id', einheit.id).order('start_datum', { ascending: false }),
     ]);
     const liste = ergebnis<VertragZeile[]>(vertraege, 'Lesen: Mietverträge') ?? [];
@@ -272,9 +314,10 @@ const einheitAnzeigen: Werkzeug = {
       stichtag: ctx.heute,
       einheit: {
         id: einheit.id,
+        einheit_nummer: nummer,
         mietsache: einheitText(einheit),
         objekt_id: einheit.immobilie_id,
-        objekt: objektName(ergebnis(immobilie, 'Lesen: Objekt')),
+        objekt: objektName(immobilie),
         einheitentyp: einheit.einheitentyp,
         etage: einheit.etage,
         qm: einheit.qm,
@@ -283,7 +326,7 @@ const einheitAnzeigen: Werkzeug = {
         nebenraeume: einheit.nebenraeume ?? null,
         ausstattung: einheit.ausstattung ?? null,
         soll_miete: einheit.soll_miete ?? null,
-        zaehler: einheitZaehler(einheit),
+        zaehler: einheitZaehler(einheit, immobilie),
       },
       ...belegung(liste, mieter, ctx.stichtag, ctx.heute),
       vertraege: liste.map((v) => vertragKurz(v, mieter.get(v.id) ?? [], ctx.stichtag)),
@@ -455,7 +498,8 @@ const zaehlerstaendeAnzeigen: Werkzeug = {
     const objektId = e.objekt_id as string | undefined;
     if (!einheitId === !objektId) throw new Fachfehler('Genau eines von einheit_id oder objekt_id angeben.');
     const anzahl = (e.anzahl as number | undefined) ?? 20;
-    let q = ctx.db.from('zaehlerstand_historie').select('zaehler_typ, zaehler_nummer, stand, datum, quelle, mietvertrag_id, erfassung');
+    // Mit ID: Damit lässt sich eine Ablesung über ablesung_korrigieren oder ablesung_loeschen ändern
+    let q = ctx.db.from('zaehlerstand_historie').select('id, zaehler_typ, zaehler_nummer, stand, datum, quelle, mietvertrag_id, erfassung');
     q = einheitId ? q.eq('einheit_id', einheitId) : q.eq('immobilie_id', objektId).is('einheit_id', null);
     const historie = ergebnis<Record<string, unknown>[]>(
       await q.order('datum', { ascending: false }).order('id').limit(anzahl),
@@ -466,7 +510,8 @@ const zaehlerstaendeAnzeigen: Werkzeug = {
         await ctx.db.from('einheiten').select(EINHEIT_DETAIL_SPALTEN).eq('id', einheitId).maybeSingle(),
         'Einheit',
       );
-      return { einheit_id: einheit.id, mietsache: einheitText(einheit), aktuell: einheitZaehler(einheit), historie };
+      const { objekt, nummer } = await objektZurEinheit(ctx, einheit);
+      return { einheit_id: einheit.id, einheit_nummer: nummer, mietsache: einheitText(einheit), aktuell: einheitZaehler(einheit, objekt), historie };
     }
     const immobilie = genauEine<ObjektDetail>(
       await ctx.db.from('immobilien').select(OBJEKT_DETAIL_SPALTEN).eq('id', objektId).maybeSingle(),
@@ -480,8 +525,9 @@ const zaehlerAuflisten: Werkzeug = {
   name: 'zaehler_auflisten',
   titel: 'Zähler auflisten',
   beschreibung:
-    'Zählerverzeichnis wie die Ablesetabelle der App: je Objekt die Hausanschlusszähler und je Einheit (Mietsache) die ' +
-    'Zähler mit Nummer, aktuellem Stand und Ablesedatum. Liefert objekt_id und einheit_id für zaehlerstand_erfassen.',
+    'Zählerverzeichnis wie die Zählerliste der App: je Objekt die gewählten Zählerarten, die Hausanschlusszähler und je ' +
+    'Einheit („Einheit N“ wie in der App, Mietsache) die vorhandenen Zähler mit Nummer, aktuellem Stand und Ablesedatum. ' +
+    'Liefert objekt_id und einheit_id für zaehlerstand_erfassen.',
   eingabe: objekt({ objekt_id: ID('Nur dieses Objekt') }),
   rollen: ALLE,
   schreibt: false,
@@ -497,7 +543,7 @@ const zaehlerAuflisten: Werkzeug = {
     };
     const [objekte, einheiten] = await Promise.all([
       alleZeilen<ObjektDetail>((von, bis) => objektAbfrage().order('name').order('id').range(von, bis), 'Objekte'),
-      alleZeilen<EinheitDetail>((von, bis) => einheitAbfrage().order('etage').order('id').range(von, bis), 'Einheiten'),
+      alleZeilen<EinheitDetail>((von, bis) => einheitAbfrage().order('id').range(von, bis), 'Einheiten'),
     ]);
     const jeObjekt = gruppiere(einheiten, (x) => x.immobilie_id);
     return {
@@ -505,8 +551,15 @@ const zaehlerAuflisten: Werkzeug = {
         objekt_id: o.id,
         objekt: objektName(o),
         anschrift: anschrift(o),
+        zaehlerarten: zaehlerartenText(o),
         hausanschlusszaehler: hausanschluesse(o),
-        einheiten: (jeObjekt.get(o.id) ?? []).map((x) => ({ einheit_id: x.id, mietsache: einheitText(x), zaehler: einheitZaehler(x) })),
+        // Reihenfolge und „Einheit N“ wie die Zählerliste der App
+        einheiten: einheitenInReihenfolge(jeObjekt.get(o.id) ?? []).map((x, index) => ({
+          einheit_id: x.id,
+          einheit_nummer: index + 1,
+          mietsache: einheitText(x),
+          zaehler: einheitZaehler(x, o),
+        })),
       })),
     };
   },

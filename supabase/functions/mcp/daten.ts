@@ -25,6 +25,8 @@ export interface EinheitZeile {
   qm: number | null;
   anzahl_zimmer: number | null;
   bezeichnung: string | null;
+  /** Für die Einheitennummer der App (_shared/einheitenReihenfolge.ts) */
+  erstellt_am?: string | null;
 }
 
 export interface VertragZeile {
@@ -45,7 +47,7 @@ export interface MieterKurz {
 }
 
 export const IMMOBILIE_SPALTEN = 'id, name, adresse, strasse, hausnummer, plz, ort, objekttyp, ist_angespannt';
-export const EINHEIT_SPALTEN = 'id, immobilie_id, einheitentyp, etage, qm, anzahl_zimmer, bezeichnung';
+export const EINHEIT_SPALTEN = 'id, immobilie_id, einheitentyp, etage, qm, anzahl_zimmer, bezeichnung, erstellt_am';
 export const VERTRAG_SPALTEN = 'id, einheit_id, status, start_datum, ende_datum, kuendigungsdatum, kaltmiete, betriebskosten, mahnstufe';
 
 /** Anschrift aus den atomaren Feldern (führend), sonst der Freitext (docs/datenmodell.md §3) */

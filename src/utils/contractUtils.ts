@@ -11,6 +11,7 @@ import {
   summiereLaufendeMieten,
   type VertragZeitraum,
 } from '../../supabase/functions/_shared/mietkonto.ts';
+import { vergleicheEinheiten, type EinheitFuerReihenfolge } from '../../supabase/functions/_shared/einheitenReihenfolge.ts';
 
 export interface ContractFilter {
   mietstatus: "all" | "aktiv" | "gekuendigt" | "beendet";
@@ -41,38 +42,10 @@ export const filterActiveAndTerminatedContracts = (contracts: any[]): any[] => {
 };
 
 /**
- * Sorts units by number (ascending), with fallbacks to creation date and ID
+ * Sortiert Einheiten in der Reihenfolge der Objektübersicht (an Ort und Stelle). Die Regel liegt seit dem 26.11.2026
+ * in supabase/functions/_shared/einheitenReihenfolge.ts; neue Aufrufer nehmen einheitenInReihenfolge.
  */
-export const sortUnitsByNumber = (units: any[]): any[] => {
-  return units.sort((a, b) => {
-    const extractNum = (val?: string | number) => {
-      if (val == null) return null;
-      const s = val.toString();
-      const match = s.match(/\d+/g);
-      if (match && match.length) {
-        return parseInt(match.join(''), 10);
-      }
-      return null;
-    };
-    
-    const aNum = extractNum(a.nummer ?? (a.id ? a.id.slice(-2) : undefined));
-    const bNum = extractNum(b.nummer ?? (b.id ? b.id.slice(-2) : undefined));
-    
-    if (aNum != null && bNum != null && aNum !== bNum) {
-      return aNum - bNum;
-    }
-    if (aNum != null && bNum == null) return -1;
-    if (aNum == null && bNum != null) return 1;
-    
-    // Fallback: sort by creation date
-    const aCreated = a.erstellt_am ? new Date(a.erstellt_am).getTime() : 0;
-    const bCreated = b.erstellt_am ? new Date(b.erstellt_am).getTime() : 0;
-    if (aCreated !== bCreated) return aCreated - bCreated;
-    
-    // Final fallback: ID
-    return (a.id || '').localeCompare(b.id || '');
-  });
-};
+export const sortUnitsByNumber = <T extends EinheitFuerReihenfolge>(units: T[]): T[] => units.sort(vergleicheEinheiten);
 
 /**
  * Sorts properties alphabetically by name (ascending) with natural number sorting

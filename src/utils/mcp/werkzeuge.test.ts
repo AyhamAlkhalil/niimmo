@@ -8,9 +8,9 @@ import { vereinbarungVerlangtAmTag } from '../../../supabase/functions/_shared/m
 import { pruefeSchema } from '../../../supabase/functions/mcp/eingabe.ts';
 import { WERKZEUGE } from '../../../supabase/functions/mcp/server.ts';
 import { Fachfehler, heuteInBerlin, type Kontext, ohneIban, type Rolle } from '../../../supabase/functions/mcp/werkzeug.ts';
-import { belegung, objektUebersicht } from '../../../supabase/functions/mcp/werkzeuge/bestand.ts';
+import { belegung, einheitZaehler, hausanschluesse, objektUebersicht, zaehlerartenText } from '../../../supabase/functions/mcp/werkzeuge/bestand.ts';
 import { kontostand, rueckstandsliste } from '../../../supabase/functions/mcp/werkzeuge/mietkonto.ts';
-import { ablesungPlan, mieterFelder, zaehlerSpalten } from '../../../supabase/functions/mcp/werkzeuge/pflege.ts';
+import { ablesungPlan, mieterFelder, zaehlerartenFelder, zaehlerSpalten, zaehlerVorhanden } from '../../../supabase/functions/mcp/werkzeuge/pflege.ts';
 import { giltAbErlaubt, mietendePlausibel, vertragsFelder } from '../../../supabase/functions/mcp/werkzeuge/vertraege.ts';
 import {
   AUFGABEN_PRIORITAET,
@@ -354,5 +354,90 @@ describe('Schreibwege', () => {
       : ok({ id: V1, status: 'aktiv', start_datum: '2024-01-01', ende_datum: null, kuendigungsdatum: null })));
     await werkzeug('kuendigung_erfassen').ausfuehren({ mietvertrag_id: V1, mietende: '2027-01-31' }, ctx(db));
     expect(aufrufe.find((a) => a.art === 'update')?.daten).toMatchObject({ status: 'gekuendigt', kuendigungsdatum: '2027-01-31', ende_datum: '2027-01-31' });
+  });
+});
+
+// ---------- Zählerarten, Einheitennummer und Ablesungen (26.11.2026) ----------
+
+describe('Zähler wie die Zählerliste der App', () => {
+  // Gehrden laut Meldung vom 07.11.2026: zwei Wasserzähler am Hausanschluss, kein zentraler Gaszähler
+  const gehrden = {
+    id: 'o1', name: 'Objekt 11', hat_wasser: true, hat_strom: true, hat_gas: false,
+    hausanschluss_zweiter_zaehler: ['wasser'], zaehlerarten_einheiten: ['kaltwasser', 'strom', 'gas'],
+    allgemein_wasser_zaehler: 'W-1', allgemein_wasser_stand: 2666, allgemein_wasser_datum: '2026-11-10',
+    allgemein_gas_zaehler: 'G-alt', allgemein_gas_stand: 5, allgemein_gas_datum: '2020-01-01',
+  };
+
+  it('zeigt nur gewählte Hausanschlüsse, den zweiten nur, wo gewählt', () => {
+    expect(hausanschluesse(gehrden as never).map((h) => `${h.art}${h.satz}`)).toEqual(['wasser1', 'strom1', 'wasser2']);
+    expect(zaehlerartenText(gehrden)).toEqual({ hausanschluss: ['wasser', 'strom'], zweiter_zaehler: ['wasser'], einheiten: ['kaltwasser', 'strom', 'gas'] });
+  });
+
+  it('Einheiten zeigen die Zählerarten des Objekts, auch noch ohne Stand', () => {
+    const einheit = { id: 'e1', gas_zaehler: 'G-7', gas_stand_aktuell: 21936.049, gas_stand_datum: '2026-10-29', warmwasser_stand_aktuell: 3 };
+    expect(einheitZaehler(einheit as never, gehrden).map((z) => z.art)).toEqual(['kaltwasser', 'strom', 'gas']);
+    expect(einheitZaehler(einheit as never, gehrden)[2]).toEqual({ art: 'gas', zaehlernummer: 'G-7', stand: 21936.049, datum: '2026-10-29' });
+    // Ohne Konfiguration (alte Abfrage) alle vier
+    expect(einheitZaehler(einheit as never, null)).toHaveLength(4);
+  });
+
+  it('zaehlerVorhanden folgt der Wahl am Objekt', () => {
+    expect(zaehlerVorhanden('einheit', 'warmwasser', 1, gehrden)).toBe(false);
+    expect(zaehlerVorhanden('einheit', 'gas', 1, gehrden)).toBe(true);
+    expect(zaehlerVorhanden('objekt', 'gas', 1, gehrden)).toBe(false);
+    expect(zaehlerVorhanden('objekt', 'wasser', 2, gehrden)).toBe(true);
+    expect(zaehlerVorhanden('objekt', 'strom', 2, gehrden)).toBe(false);
+  });
+
+  it('zaehlerartenFelder schreibt nur angegebene Listen, in fester Reihenfolge', () => {
+    expect(zaehlerartenFelder({ hausanschluss: ['strom', 'wasser'] })).toEqual({ hat_wasser: true, hat_strom: true, hat_gas: false });
+    expect(zaehlerartenFelder({ einheiten: ['gas', 'kaltwasser'], zweiter_zaehler: [] })).toEqual({
+      zaehlerarten_einheiten: ['kaltwasser', 'gas'], hausanschluss_zweiter_zaehler: [],
+    });
+    expect(zaehlerartenFelder({ objekt_id: 'o1' })).toEqual({});
+  });
+});
+
+describe('Zählerwerkzeuge mit Zählerarten', () => {
+  const O1 = '55555555-5555-4555-8555-555555555555';
+  const ohneWarmwasser = { id: O1, hat_wasser: true, hat_strom: true, hat_gas: true, zaehlerarten_einheiten: ['kaltwasser', 'strom', 'gas'], hausanschluss_zweiter_zaehler: [] };
+
+  it('zaehlerstand_erfassen lehnt einen Zähler ab, den das Objekt nicht hat', async () => {
+    const { db, aufrufe } = attrappe((a) => {
+      if (a.tabelle === 'einheiten') return ok({ id: E1, immobilie_id: O1 });
+      if (a.tabelle === 'immobilien') return ok(ohneWarmwasser);
+      throw new Error('unerwartet');
+    });
+    await expect(werkzeug('zaehlerstand_erfassen').ausfuehren({ einheit_id: E1, zaehler: 'warmwasser', stand: 5 }, ctx(db, ['hausmeister'])))
+      .rejects.toThrow(/keinen Warmwasser-Zähler/);
+    expect(aufrufe.some((a) => a.art !== 'select')).toBe(false);
+  });
+
+  it('zaehlerarten_festlegen schreibt nur die genannten Listen und meldet vorher/nachher', async () => {
+    const { db, aufrufe } = attrappe((a) => (a.art === 'update' ? ok([{ id: O1 }]) : ok({ ...ohneWarmwasser, name: 'Objekt 11' })));
+    const ergebnis = await werkzeug('zaehlerarten_festlegen').ausfuehren({ objekt_id: O1, hausanschluss: ['wasser', 'strom'], zweiter_zaehler: ['wasser', 'gas'] }, ctx(db));
+    expect(aufrufe.find((a) => a.art === 'update')?.daten).toEqual({ hat_wasser: true, hat_strom: true, hat_gas: false, hausanschluss_zweiter_zaehler: ['wasser', 'gas'] });
+    expect(ergebnis).toMatchObject({ nachher: { hausanschluss: ['wasser', 'strom'], zweiter_zaehler: ['wasser'], einheiten: ['kaltwasser', 'strom', 'gas'] } });
+    expect((ergebnis as { hinweis?: string }).hinweis).toMatch(/gas hat keinen Hausanschlusszähler/);
+    expect(werkzeug('zaehlerarten_festlegen').rollen).toEqual(['admin']);
+  });
+
+  it('ablesung_korrigieren lehnt ein Datum in der Zukunft ab und nennt danach den aktuellen Stand', async () => {
+    const ablesung = { id: Z1, einheit_id: E1, immobilie_id: null, zaehler_typ: 'gas', zaehler_nummer: 'G-7', stand: 21936.049, datum: '2026-11-07', quelle: 'manuell' };
+    const { db, aufrufe } = attrappe((a) => {
+      if (a.tabelle === 'zaehlerstand_historie' && a.art === 'select') return ok(ablesung);
+      if (a.art === 'update') return ok([{ id: Z1 }]);
+      if (a.tabelle === 'einheiten') return ok({ id: E1, gas_stand_aktuell: 21936.049, gas_stand_datum: '2026-10-29' });
+      throw new Error('unerwartet');
+    });
+    await expect(werkzeug('ablesung_korrigieren').ausfuehren({ ablesung_id: Z1, datum: '2026-12-01' }, ctx(db))).rejects.toThrow(/Zukunft/);
+    const ergebnis = await werkzeug('ablesung_korrigieren').ausfuehren({ ablesung_id: Z1, datum: '2026-10-29' }, ctx(db));
+    expect(aufrufe.find((a) => a.art === 'update')?.daten).toEqual({ datum: '2026-10-29' });
+    expect(ergebnis).toMatchObject({ vorher: { datum: '2026-11-07' }, aktueller_stand: { stand: 21936.049, datum: '2026-10-29' } });
+  });
+
+  it('ablesung_loeschen ist nur für Admins und als zerstörend markiert', () => {
+    expect(werkzeug('ablesung_loeschen').rollen).toEqual(['admin']);
+    expect(werkzeug('ablesung_loeschen').zerstoerend).toBe(true);
   });
 });

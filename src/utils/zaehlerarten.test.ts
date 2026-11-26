@@ -107,4 +107,21 @@ describe("Verdrahtung", () => {
     expect(lies("../components/dashboard/ImmobilienDetail.tsx")).toContain("hausanschlussZweiterZaehler(");
     expect(lies("../components/dashboard/mietvertrag-details/MietvertragMeterReadings.tsx")).toContain("vertragZaehlerarten(");
   });
+
+  it("Übergabe und direkt erfasster Vertrag fragen nur die Zähler des Objekts ab (26.11.2026)", () => {
+    const uebergabe = lies("../components/dashboard/handover/UebergabeDialog.tsx");
+    expect(uebergabe).toContain("uebergabeZaehlerTypen(");
+    expect(uebergabe).toContain("zaehlerTypen: zaehlerTypenJeVertrag");
+    expect(lies("../utils/uebergabePdfGenerator.ts")).toContain("einheit.zaehlerTypen");
+    const vertrag = lies("../components/dashboard/NewTenantContractDialog.tsx");
+    expect(vertrag).toContain("einheitZaehlerarten(immobilie)");
+    // Einzugsstände auch als Ablesung, sonst fehlen sie in Zählerliste und Historie
+    expect(vertrag).toContain("zaehlerstandHistorienZeilen(");
+  });
+
+  it("der MCP-Server nutzt dieselben Regeln aus _shared", () => {
+    expect(lies("../../supabase/functions/mcp/werkzeuge/bestand.ts")).toContain("../../_shared/zaehlerarten.ts");
+    expect(lies("../../supabase/functions/mcp/werkzeuge/pflege.ts")).toContain("../../_shared/zaehlerarten.ts");
+    expect(lies("../../supabase/functions/mcp/werkzeuge/bestand.ts")).toContain("../../_shared/einheitenReihenfolge.ts");
+  });
 });

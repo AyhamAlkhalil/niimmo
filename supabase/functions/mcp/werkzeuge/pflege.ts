@@ -1,7 +1,16 @@
 // MCP-Werkzeuge zur Pflege von Mietern, Zählern und Objekten (16.11.2026).
 
 import { DATUM_FELD, ID, objekt, TEXT } from '../eingabe.ts';
-import { aendereZeile, ALLE, Fachfehler, genauEine, type Kontext, NUR_ADMIN, schreibfehler, type Werkzeug } from '../werkzeug.ts';
+import { aendereZeile, ALLE, ergebnis, Fachfehler, genauEine, type Kontext, loescheZeile, NUR_ADMIN, schreibfehler, type Werkzeug } from '../werkzeug.ts';
+import {
+  EINHEIT_ZAEHLERARTEN,
+  einheitZaehlerarten,
+  HAUSANSCHLUSS_ZAEHLERARTEN,
+  hausanschlussZaehlerarten,
+  hausanschlussZweiterZaehler,
+  type ObjektZaehlerKonfiguration,
+  ZAEHLERART_BEZEICHNUNG,
+} from '../../_shared/zaehlerarten.ts';
 
 export const EINHEIT_ZAEHLER = ['strom', 'gas', 'kaltwasser', 'warmwasser'] as const;
 export const OBJEKT_ZAEHLER = ['strom', 'gas', 'wasser'] as const;
@@ -48,6 +57,44 @@ export function ablesungPlan(
     return { stammsatz: spaeter ? 'nur_datum' : 'nichts', historie: spaeter };
   }
   return { stammsatz: aktuell ? 'stand_und_datum' : 'nichts', historie: true };
+}
+
+/**
+ * Hat das Objekt diesen Zähler? Wie Zählerverwaltung und Hausmeister-Ansicht der App, die abgewählte Zählerarten gar
+ * nicht erst anbieten (_shared/zaehlerarten.ts, seit 26.11.2026 auch hier).
+ */
+export function zaehlerVorhanden(
+  ort: 'einheit' | 'objekt',
+  art: string,
+  satz: 1 | 2,
+  konfig: ObjektZaehlerKonfiguration | null | undefined,
+): boolean {
+  if (ort === 'einheit') return (einheitZaehlerarten(konfig) as string[]).includes(art);
+  return ((satz === 2 ? hausanschlussZweiterZaehler(konfig) : hausanschlussZaehlerarten(konfig)) as string[]).includes(art);
+}
+
+const ZAEHLERARTEN_SPALTEN = 'hat_wasser, hat_strom, hat_gas, zaehlerarten_einheiten, hausanschluss_zweiter_zaehler';
+
+/** Bricht ab, wenn das Objekt diesen Zähler laut seinen Zählerarten nicht hat */
+async function pruefeZaehlerart(ctx: Kontext, ort: { ort: 'einheit' | 'objekt'; id: string }, art: string, satz: 1 | 2): Promise<void> {
+  let objektId: string | null = ort.ort === 'objekt' ? ort.id : null;
+  if (ort.ort === 'einheit') {
+    const einheit = genauEine<{ id: string; immobilie_id?: string | null }>(
+      await ctx.db.from('einheiten').select('id, immobilie_id').eq('id', ort.id).maybeSingle(),
+      'Einheit',
+    );
+    objektId = einheit.immobilie_id ?? null;
+  }
+  if (!objektId) return;
+  const konfig = ergebnis<ObjektZaehlerKonfiguration | null>(
+    await ctx.db.from('immobilien').select(`id, ${ZAEHLERARTEN_SPALTEN}`).eq('id', objektId).maybeSingle(),
+    'Lesen: Objekt',
+  );
+  if (!konfig || zaehlerVorhanden(ort.ort, art, satz, konfig)) return;
+  const was = ort.ort === 'einheit'
+    ? `Die Einheiten dieses Objekts haben keinen ${ZAEHLERART_BEZEICHNUNG[art as keyof typeof ZAEHLERART_BEZEICHNUNG] ?? art}-Zähler`
+    : `Das Objekt hat keinen ${satz === 2 ? 'zweiten ' : ''}${ZAEHLERART_BEZEICHNUNG[art as keyof typeof ZAEHLERART_BEZEICHNUNG] ?? art}-Hausanschlusszähler`;
+  throw new Fachfehler(`${was} (Zählerarten am Objekt). Ist das falsch, zuerst zaehlerarten_festlegen.`);
 }
 
 /** Text der Eingabe getrimmt, leer wird null (useMietvertragMutations.ts:712: trim || null) */
@@ -113,6 +160,7 @@ const zaehlerstandErfassen: Werkzeug = {
     const spalten = zaehlerSpalten(ort.ort, e.zaehler as string, ((e.satz as number | undefined) ?? 1) as 1 | 2);
     const datum = (e.datum as string | undefined) ?? ctx.heute;
     if (datum > ctx.heute) throw new Fachfehler('Das Ablesedatum liegt in der Zukunft.');
+    await pruefeZaehlerart(ctx, ort, e.zaehler as string, ((e.satz as number | undefined) ?? 1) as 1 | 2);
     const alt = genauEine<Record<string, unknown> & { id: string }>(
       await ctx.db.from(ort.tabelle).select(`id, ${spalten.stand}, ${spalten.datum}, ${spalten.nummer}`).eq('id', ort.id).maybeSingle(),
       ort.ort === 'einheit' ? 'Einheit' : 'Objekt',
@@ -165,6 +213,7 @@ const zaehlernummerAendern: Werkzeug = {
     const ort = zaehlerOrt(e);
     const spalten = zaehlerSpalten(ort.ort, e.zaehler as string, ((e.satz as number | undefined) ?? 1) as 1 | 2);
     const nummer = textOderNull(e.nummer);
+    await pruefeZaehlerart(ctx, ort, e.zaehler as string, ((e.satz as number | undefined) ?? 1) as 1 | 2);
     // useMietvertragMutations.ts:471 (trim || null); eine neue Nummer allein erzeugt keine Historie
     await aendereZeile(ctx, ort.tabelle, ort.id, { [spalten.nummer]: nummer }, 'Zählernummer ändern');
     return { ok: true, zaehler: spalten.typ, nummer };
@@ -240,10 +289,177 @@ const objektMarktSetzen: Werkzeug = {
   },
 };
 
+// ---------- Zählerarten und Ablesungen (26.11.2026) ----------
+
+const ARTEN_LISTE = (arten: readonly string[], description: string) => ({
+  type: 'array' as const,
+  items: { type: 'string' as const, enum: arten },
+  maxItems: arten.length,
+  description,
+});
+
+const zaehlerartenFestlegen: Werkzeug = {
+  name: 'zaehlerarten_festlegen',
+  titel: 'Zählerarten eines Objekts festlegen',
+  beschreibung:
+    'Legt fest, welche Zähler ein Objekt hat — wie die Auswahl „Zählerarten“ der App: Hausanschluss (wasser, strom, gas), ' +
+    'Hausanschlüsse mit zweitem Zähler und die Zählerarten der Einheiten (kaltwasser, warmwasser, strom, gas). Nur ' +
+    'angegebene Listen ändern sich; eine Liste nennt alle Arten, die vorhanden sind. Abgewählte Zähler erscheinen nicht ' +
+    'mehr in Zählerliste, Objektübersicht und Vertragsansicht; gespeicherte Stände bleiben erhalten.',
+  eingabe: objekt({
+    objekt_id: ID('ID des Objekts'),
+    hausanschluss: ARTEN_LISTE(HAUSANSCHLUSS_ZAEHLERARTEN, 'Hausanschlüsse mit Zähler, z. B. ["wasser", "strom"]'),
+    zweiter_zaehler: ARTEN_LISTE(HAUSANSCHLUSS_ZAEHLERARTEN, 'Hausanschlüsse mit zweitem Zähler, z. B. ["wasser"]'),
+    einheiten: ARTEN_LISTE(EINHEIT_ZAEHLERARTEN, 'Zähler der Einheiten, z. B. ["kaltwasser", "strom", "gas"]'),
+  }, ['objekt_id']),
+  rollen: NUR_ADMIN,
+  schreibt: true,
+  async ausfuehren(e, ctx) {
+    // ZaehlerartenAuswahl.tsx:58 (speichere)
+    const alt = genauEine<ObjektZaehlerKonfiguration & { id: string; name: string | null }>(
+      await ctx.db.from('immobilien').select(`id, name, ${ZAEHLERARTEN_SPALTEN}`).eq('id', e.objekt_id).maybeSingle(),
+      'Objekt',
+    );
+    const felder = zaehlerartenFelder(e);
+    if (Object.keys(felder).length === 0) throw new Fachfehler('Keine Änderung angegeben.');
+    await aendereZeile(ctx, 'immobilien', alt.id, felder, 'Zählerarten speichern');
+    const neu = { ...alt, ...felder } as ObjektZaehlerKonfiguration;
+    const beschreibe = (k: ObjektZaehlerKonfiguration) => ({
+      hausanschluss: hausanschlussZaehlerarten(k),
+      zweiter_zaehler: hausanschlussZweiterZaehler(k),
+      einheiten: einheitZaehlerarten(k),
+    });
+    const ohneErsten = (Array.isArray(e.zweiter_zaehler) ? e.zweiter_zaehler as string[] : [])
+      .filter((art) => !(hausanschlussZaehlerarten(neu) as string[]).includes(art));
+    return {
+      ok: true,
+      objekt_id: alt.id,
+      vorher: beschreibe(alt),
+      nachher: beschreibe(neu),
+      hinweis: ohneErsten.length > 0
+        ? `Ein zweiter Zähler gilt nur mit erstem: ${ohneErsten.join(', ')} hat keinen Hausanschlusszähler.`
+        : undefined,
+    };
+  },
+};
+
+/** Spalten zu den angegebenen Listen (reine Fachlogik, Vitest) */
+export function zaehlerartenFelder(e: Record<string, unknown>): Record<string, unknown> {
+  const liste = (wert: unknown) => (Array.isArray(wert) ? (wert as string[]) : null);
+  const felder: Record<string, unknown> = {};
+  const hausanschluss = liste(e.hausanschluss);
+  if (hausanschluss) for (const art of HAUSANSCHLUSS_ZAEHLERARTEN) felder[`hat_${art}`] = hausanschluss.includes(art);
+  const zweiter = liste(e.zweiter_zaehler);
+  if (zweiter) felder.hausanschluss_zweiter_zaehler = HAUSANSCHLUSS_ZAEHLERARTEN.filter((art) => zweiter.includes(art));
+  const einheiten = liste(e.einheiten);
+  if (einheiten) felder.zaehlerarten_einheiten = EINHEIT_ZAEHLERARTEN.filter((art) => einheiten.includes(art));
+  return felder;
+}
+
+type AblesungZeile = {
+  id: string;
+  einheit_id: string | null;
+  immobilie_id: string | null;
+  zaehler_typ: string;
+  zaehler_nummer: string | null;
+  stand: number | null;
+  datum: string;
+  quelle: string | null;
+};
+
+const ABLESUNG_SPALTEN = 'id, einheit_id, immobilie_id, zaehler_typ, zaehler_nummer, stand, datum, quelle';
+
+/** Der aktuelle Stand nach einer Änderung — die Datenbank zieht ihn aus der Historie nach (Migration 20261126100000) */
+async function aktuellerStand(ctx: Kontext, a: AblesungZeile) {
+  const einheit = !!a.einheit_id;
+  const art = a.zaehler_typ.replace('_2', '');
+  const satz: 1 | 2 = a.zaehler_typ.endsWith('_2') ? 2 : 1;
+  let spalten: ZaehlerSpalten;
+  try {
+    spalten = zaehlerSpalten(einheit ? 'einheit' : 'objekt', art, satz);
+  } catch {
+    return null;
+  }
+  const zeile = ergebnis<Record<string, unknown> | null>(
+    await ctx.db.from(einheit ? 'einheiten' : 'immobilien').select(`id, ${spalten.stand}, ${spalten.datum}`)
+      .eq('id', einheit ? a.einheit_id : a.immobilie_id).maybeSingle(),
+    'Lesen: aktueller Stand',
+  );
+  return zeile ? { stand: zeile[spalten.stand] ?? null, datum: zeile[spalten.datum] ?? null } : null;
+}
+
+const ablesungKorrigieren: Werkzeug = {
+  name: 'ablesung_korrigieren',
+  titel: 'Ablesung korrigieren',
+  beschreibung:
+    'Korrigiert eine Ablesung der Historie (ID aus zaehlerstaende_anzeigen): Stand, Datum oder Zählernummer — wie die ' +
+    'Historie in der App. Der aktuelle Stand folgt danach immer der jüngsten Ablesung; die Antwort nennt ihn.',
+  eingabe: objekt({
+    ablesung_id: ID('ID der Ablesung'),
+    stand: { type: 'number', minimum: 0, maximum: 100_000_000, description: 'Richtiger Stand' },
+    datum: DATUM_FELD('Richtiger Tag der Ablesung (nicht in der Zukunft)'),
+    zaehlernummer: TEXT('Richtige Zählernummer; leer zum Löschen', 80),
+  }, ['ablesung_id']),
+  rollen: NUR_ADMIN,
+  schreibt: true,
+  async ausfuehren(e, ctx) {
+    // ZaehlerHistorie.tsx (updateMutation)
+    const alt = genauEine<AblesungZeile>(
+      await ctx.db.from('zaehlerstand_historie').select(ABLESUNG_SPALTEN).eq('id', e.ablesung_id).maybeSingle(),
+      'Ablesung',
+    );
+    const felder: Record<string, unknown> = {};
+    if (typeof e.stand === 'number') felder.stand = e.stand;
+    if (typeof e.datum === 'string') {
+      if (e.datum > ctx.heute) throw new Fachfehler('Das Ablesedatum liegt in der Zukunft.');
+      felder.datum = e.datum;
+    }
+    if (e.zaehlernummer !== undefined) felder.zaehler_nummer = textOderNull(e.zaehlernummer);
+    if (Object.keys(felder).length === 0) throw new Fachfehler('Keine Änderung angegeben.');
+    await aendereZeile(ctx, 'zaehlerstand_historie', alt.id, felder, 'Ablesung korrigieren');
+    return {
+      ok: true,
+      ablesung_id: alt.id,
+      zaehler: alt.zaehler_typ,
+      vorher: { stand: alt.stand, datum: alt.datum, zaehlernummer: alt.zaehler_nummer },
+      aktueller_stand: await aktuellerStand(ctx, alt),
+    };
+  },
+};
+
+const ablesungLoeschen: Werkzeug = {
+  name: 'ablesung_loeschen',
+  titel: 'Ablesung löschen',
+  beschreibung:
+    'Löscht eine falsche Ablesung aus der Historie (ID aus zaehlerstaende_anzeigen) — wie die Historie in der App. Der ' +
+    'aktuelle Stand fällt dann auf die nächstjüngere Ablesung zurück; die Antwort nennt ihn.',
+  eingabe: objekt({ ablesung_id: ID('ID der Ablesung') }, ['ablesung_id']),
+  rollen: NUR_ADMIN,
+  schreibt: true,
+  zerstoerend: true,
+  async ausfuehren(e, ctx) {
+    // ZaehlerHistorie.tsx (deleteMutation)
+    const alt = genauEine<AblesungZeile>(
+      await ctx.db.from('zaehlerstand_historie').select(ABLESUNG_SPALTEN).eq('id', e.ablesung_id).maybeSingle(),
+      'Ablesung',
+    );
+    await loescheZeile(ctx, 'zaehlerstand_historie', alt.id, 'Ablesung löschen');
+    return {
+      ok: true,
+      zaehler: alt.zaehler_typ,
+      vorher: { stand: alt.stand, datum: alt.datum, quelle: alt.quelle },
+      aktueller_stand: await aktuellerStand(ctx, alt),
+    };
+  },
+};
+
 export const PFLEGE_WERKZEUGE: readonly Werkzeug[] = [
   zaehlerstandErfassen,
   zaehlernummerAendern,
   mieterAendern,
   mieterLoeschen,
   objektMarktSetzen,
+  zaehlerartenFestlegen,
+  ablesungKorrigieren,
+  ablesungLoeschen,
 ];

@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.20.0",
+    datum: "2026-11-26",
+    aenderungen: [
+      { art: "neu", titel: "Claude kann Zählerarten festlegen und Ablesungen korrigieren oder löschen" },
+    ],
+  },
+  {
     version: "1.19.0",
     datum: "2026-11-24",
     aenderungen: [
