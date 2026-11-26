@@ -63,7 +63,7 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('immobilien')
-        .select('id, name, adresse, strasse, hausnummer, plz, ort');
+        .select('id, name, adresse, strasse, hausnummer, plz, ort, zaehlerarten_einheiten');
       if (error) throw error;
       return sortPropertiesByName(data ?? []);
     },
@@ -299,6 +299,8 @@ export function NeuerMietvertragDialog({ isOpen, onClose }: Props) {
             adresse: immobilie.strasse
               ? `${immobilie.strasse} ${immobilie.hausnummer ?? ''}, ${immobilie.plz ?? ''} ${immobilie.ort ?? ''}`.replace(/\s+/g, ' ').trim()
               : (immobilie.adresse ?? ''),
+            // Einzugsstände nur für die Zähler des Objekts (26.11.2026)
+            zaehlerarten_einheiten: immobilie.zaehlerarten_einheiten,
           }}
         />
       )}

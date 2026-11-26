@@ -23,6 +23,11 @@ import { sucheMieter } from "@/utils/mietvertrag/entwurf";
 import { alleSeiten } from "@/utils/supabaseSeiten";
 import { EURO_BETRAG_HINWEIS, leseEuroBetrag } from "@/utils/euroBetrag";
 import type { Tables } from "@/integrations/supabase/types";
+import { format } from "date-fns";
+import { einheitZaehlerarten, type ObjektZaehlerKonfiguration } from "@/utils/zaehlerarten";
+import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
+import { zaehlerstandHistorienZeilen, type ZaehlerstandAenderungen } from "@/utils/vertragZaehlerstaende";
+import { zaehlerAnsichtenAktualisieren } from "@/lib/zaehlerAblesung";
 
 /** Eine nie ausgefüllte Karte im Reiter „Neue Mieter" — zählt nicht und sperrt nichts. */
 const istLeererNeuerMieter = (t: NewTenant) =>
@@ -38,11 +43,20 @@ interface NewTenantContractDialogProps {
   isOpen: boolean;
   onClose: () => void;
   einheitId: string;
+  /** Mit den Zählerarten des Objekts (ImmobilienDetail lädt `*`); fehlen sie, gelten alle vier */
   immobilie?: {
     name: string;
     adresse: string;
-  };
+  } & ObjektZaehlerKonfiguration;
 }
+
+// Einzugsstände je Zählerart — gezeigt werden nur die des Objekts (seit 26.11.2026, utils/zaehlerarten.ts)
+const EINZUG_FELDER = [
+  { art: 'strom', feld: 'strom_einzug', label: 'Strom (kWh)', platzhalter: '12345' },
+  { art: 'gas', feld: 'gas_einzug', label: 'Gas (m³)', platzhalter: '6789' },
+  { art: 'kaltwasser', feld: 'kaltwasser_einzug', label: 'Kaltwasser (m³)', platzhalter: '1234' },
+  { art: 'warmwasser', feld: 'warmwasser_einzug', label: 'Warmwasser (m³)', platzhalter: '567' },
+] as const;
 
 interface NewTenant {
   vorname: string;
@@ -489,6 +503,14 @@ export const NewTenantContractDialog = ({
       if (kaltmiete === null || betriebskosten === null || !contractData.start_datum) {
         throw new Error('Bitte füllen Sie alle Pflichtfelder aus (Kaltmiete, Betriebskosten, Mietbeginn).');
       }
+      // Einzugsstände vor dem Anlegen prüfen: Eine unlesbare Eingabe wird nicht still zu „nicht erfasst“
+      const einzugStaende: ZaehlerstandAenderungen = {};
+      for (const f of EINZUG_FELDER) {
+        const roh = contractData[f.feld].trim();
+        const wert = parseZaehlerstand(roh);
+        if (roh && wert === null) throw new Error(`${f.label}: „${roh}“ ist kein gültiger Zählerstand.`);
+        einzugStaende[f.feld] = wert;
+      }
       
       
       // Step 2: Überschneidung prüfen, bevor irgendetwas angelegt wird — bis zum
@@ -581,10 +603,8 @@ export const NewTenantContractDialog = ({
           bankkonto_mieter: contractData.bankkonto_mieter?.trim() || null,
           ruecklastschrift_gebuehr: gebuehr,
           verwendungszweck: contractData.verwendungszweck?.trim() ? [contractData.verwendungszweck.trim()] : null,
-          strom_einzug: contractData.strom_einzug ? parseFloat(contractData.strom_einzug) : null,
-          gas_einzug: contractData.gas_einzug ? parseFloat(contractData.gas_einzug) : null,
-          kaltwasser_einzug: contractData.kaltwasser_einzug ? parseFloat(contractData.kaltwasser_einzug) : null,
-          warmwasser_einzug: contractData.warmwasser_einzug ? parseFloat(contractData.warmwasser_einzug) : null,
+          // parseZaehlerstand statt parseFloat: „12.345.678“ wurde sonst still zu 12,345
+          ...einzugStaende,
           kaution_status: 'offen',
           status: 'aktiv'
         })
@@ -596,6 +616,22 @@ export const NewTenantContractDialog = ({
       }
 
       createdContractId = contractResult.id;
+
+      // Step 4b: Einzugsstände auch als Ablesung, wie die Vertragsbearbeitung (useMietvertragMutations,
+      // schreibeZaehlerHistorie). Bis zum 26.11.2026 standen sie nur am Vertrag und erschienen nie in
+      // Zählerliste und Historie; den aktuellen Stand der Einheit zieht die Datenbank nach (Migration 20261126100000).
+      const hinweise: string[] = [];
+      const einzugZeilen = zaehlerstandHistorienZeilen(
+        einzugStaende,
+        { start_datum: contractData.start_datum, ende_datum: contractData.ende_datum || null },
+        { id: einheitId },
+        format(new Date(), 'yyyy-MM-dd'),
+        contractResult.id
+      );
+      if (einzugZeilen.length > 0) {
+        const { error: historieFehler } = await supabase.from('zaehlerstand_historie').insert(einzugZeilen);
+        if (historieFehler) hinweise.push('Die Einzugsstände stehen am Vertrag, aber nicht in der Zählerhistorie.');
+      }
 
       // Step 5: Link tenants to contract via mietvertrag_mieter
       const tenantLinks = reihenfolge.map(m => ({
@@ -626,7 +662,6 @@ export const NewTenantContractDialog = ({
       // Step 5b: Forderungen seit Mietbeginn — wie beim Aktivieren eines Entwurfs. Bis zum 27.10.2026
       // entstand für einen rückwirkend erfassten Vertrag (Beginn 01.09., erfasst 27.10.) nie eine
       // Septemberforderung; der Rückstand war still zu niedrig.
-      const hinweise: string[] = [];
       const { error: nachholFehler } = await supabase.rpc('mietforderungen_nachholen', { p_mietvertrag_id: contractResult.id });
       if (nachholFehler) {
         hinweise.push('Die Forderungen seit Mietbeginn konnten nicht angelegt werden — bitte in der Vertragsansicht prüfen.');
@@ -683,6 +718,8 @@ export const NewTenantContractDialog = ({
         // Nachgeholte Forderungen seit Mietbeginn
         queryClient.invalidateQueries({ queryKey: ['rueckstaende'] }),
         queryClient.invalidateQueries({ queryKey: ['all-tenants'] }),
+        // Einzugsstände in Zählerliste, Historie und Objektansicht
+        zaehlerAnsichtenAktualisieren(queryClient),
       ]);
       
       // Nur ein Toast (TOAST_LIMIT = 1): Hinweise statt der Erfolgsmeldung
@@ -1118,53 +1155,19 @@ export const NewTenantContractDialog = ({
         </div>
         
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="strom_einzug">Strom (kWh)</Label>
-            <Input
-              id="strom_einzug"
-              type="number"
-              step="0.01"
-              value={contractData.strom_einzug}
-              onChange={(e) => setContractData(prev => ({ ...prev, strom_einzug: e.target.value }))}
-              placeholder="12345"
-            />
-          </div>
-          <div>
-            <Label htmlFor="gas_einzug">Gas (m³)</Label>
-            <Input
-              id="gas_einzug"
-              type="number"
-              step="0.01"
-              value={contractData.gas_einzug}
-              onChange={(e) => setContractData(prev => ({ ...prev, gas_einzug: e.target.value }))}
-              placeholder="6789"
-            />
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="kaltwasser_einzug">Kaltwasser (m³)</Label>
-            <Input
-              id="kaltwasser_einzug"
-              type="number"
-              step="0.01"
-              value={contractData.kaltwasser_einzug}
-              onChange={(e) => setContractData(prev => ({ ...prev, kaltwasser_einzug: e.target.value }))}
-              placeholder="1234"
-            />
-          </div>
-          <div>
-            <Label htmlFor="warmwasser_einzug">Warmwasser (m³)</Label>
-            <Input
-              id="warmwasser_einzug"
-              type="number"
-              step="0.01"
-              value={contractData.warmwasser_einzug}
-              onChange={(e) => setContractData(prev => ({ ...prev, warmwasser_einzug: e.target.value }))}
-              placeholder="567"
-            />
-          </div>
+          {EINZUG_FELDER.filter((f) => (einheitZaehlerarten(immobilie) as string[]).includes(f.art)).map((f) => (
+            <div key={f.feld}>
+              <Label htmlFor={f.feld}>{f.label}</Label>
+              <Input
+                id={f.feld}
+                type="number"
+                step="0.01"
+                value={contractData[f.feld]}
+                onChange={(e) => setContractData(prev => ({ ...prev, [f.feld]: e.target.value }))}
+                placeholder={f.platzhalter}
+              />
+            </div>
+          ))}
         </div>
       </div>
       
