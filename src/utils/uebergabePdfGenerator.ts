@@ -370,8 +370,10 @@ interface TabellenMasse {
 /** Spalte Zählernummer nur, wenn die Einheit welche kennt (20.10.2026: bei 82 von 113 Einheiten hinterlegt) */
 function tabellenMasse(doc: jsPDF, layout: VertragsLayout, einheit: Einheit): TabellenMasse {
   const nummern = einheit.zaehlernummern ?? {};
-  const mitNummer = Object.values(nummern).some((n) => !!n?.trim());
-  const roh = ZAEHLER.filter(({ typ }) => !einheit.zaehlerTypen || einheit.zaehlerTypen.includes(typ)).map(({ typ, art, einheit: masseinheit }) => ({
+  const sichtbar = ZAEHLER.filter(({ typ }) => !einheit.zaehlerTypen || einheit.zaehlerTypen.includes(typ));
+  // Nur die gezeigten Zähler zählen: Die Nummer eines nicht abgefragten Zählers brächte sonst eine leere Spalte
+  const mitNummer = sichtbar.some(({ typ }) => !!nummern[typ]?.trim());
+  const roh = sichtbar.map(({ typ, art, einheit: masseinheit }) => ({
     art,
     // Der gelesene Wert, wie er gespeichert wird — nicht die Roheingabe (zaehlerstandText)
     stand: zaehlerstandText(einheit.zaehlerstaende[typ]) || '–',

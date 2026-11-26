@@ -329,16 +329,22 @@ const zaehlerartenFestlegen: Werkzeug = {
       zweiter_zaehler: hausanschlussZweiterZaehler(k),
       einheiten: einheitZaehlerarten(k),
     });
-    const ohneErsten = (Array.isArray(e.zweiter_zaehler) ? e.zweiter_zaehler as string[] : [])
-      .filter((art) => !(hausanschlussZaehlerarten(neu) as string[]).includes(art));
+    // Ein zweiter Zähler gilt nur mit erstem — angefragt oder bisher vorhanden, jetzt aber ohne ersten (Review 26.11.2026)
+    const ersteNeu = hausanschlussZaehlerarten(neu) as string[];
+    const ohneErsten = [...new Set([
+      ...(Array.isArray(e.zweiter_zaehler) ? e.zweiter_zaehler as string[] : []),
+      ...(hausanschlussZweiterZaehler(alt) as string[]),
+    ])].filter((art) => !ersteNeu.includes(art) && (neu.hausanschluss_zweiter_zaehler ?? []).includes(art));
+    const hinweise = [
+      ohneErsten.length > 0 ? `Ein zweiter Zähler gilt nur mit erstem: ${ohneErsten.join(', ')} hat keinen Hausanschlusszähler.` : null,
+      Array.isArray(e.einheiten) && einheitZaehlerarten(neu).length === 0 ? 'Die Einheiten haben jetzt keine Zähler mehr.' : null,
+    ].filter(Boolean);
     return {
       ok: true,
       objekt_id: alt.id,
       vorher: beschreibe(alt),
       nachher: beschreibe(neu),
-      hinweis: ohneErsten.length > 0
-        ? `Ein zweiter Zähler gilt nur mit erstem: ${ohneErsten.join(', ')} hat keinen Hausanschlusszähler.`
-        : undefined,
+      hinweis: hinweise.length > 0 ? hinweise.join(' ') : undefined,
     };
   },
 };

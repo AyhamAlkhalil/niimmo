@@ -135,6 +135,11 @@ export const NewTenantContractDialog = ({
     kaltwasser_einzug: '',
     warmwasser_einzug: ''
   });
+  // Sichtbare Einzugsfelder: die Zählerarten des Objekts, dazu jedes Feld mit Wert — die PDF-Auslese füllt alle
+  // vier; ein ausgelesener Wert für einen abgewählten Zähler bleibt so sichtbar und änderbar (Review 26.11.2026)
+  const einzugFelder = EINZUG_FELDER.filter(
+    (f) => (einheitZaehlerarten(immobilie) as string[]).includes(f.art) || contractData[f.feld].trim() !== ''
+  );
 
   // Beträge über leseEuroBetrag (28.10.2026): parseFloat speicherte „1.200“ als 1,20 €. Ein
   // mehrdeutiger oder negativer Betrag ist undefined, sperrt „Weiter“ und wird am Feld markiert.
@@ -617,21 +622,7 @@ export const NewTenantContractDialog = ({
 
       createdContractId = contractResult.id;
 
-      // Step 4b: Einzugsstände auch als Ablesung, wie die Vertragsbearbeitung (useMietvertragMutations,
-      // schreibeZaehlerHistorie). Bis zum 26.11.2026 standen sie nur am Vertrag und erschienen nie in
-      // Zählerliste und Historie; den aktuellen Stand der Einheit zieht die Datenbank nach (Migration 20261126100000).
       const hinweise: string[] = [];
-      const einzugZeilen = zaehlerstandHistorienZeilen(
-        einzugStaende,
-        { start_datum: contractData.start_datum, ende_datum: contractData.ende_datum || null },
-        { id: einheitId },
-        format(new Date(), 'yyyy-MM-dd'),
-        contractResult.id
-      );
-      if (einzugZeilen.length > 0) {
-        const { error: historieFehler } = await supabase.from('zaehlerstand_historie').insert(einzugZeilen);
-        if (historieFehler) hinweise.push('Die Einzugsstände stehen am Vertrag, aber nicht in der Zählerhistorie.');
-      }
 
       // Step 5: Link tenants to contract via mietvertrag_mieter
       const tenantLinks = reihenfolge.map(m => ({
@@ -657,6 +648,23 @@ export const NewTenantContractDialog = ({
       
       if (verifyError || !verifyLinks || verifyLinks.length !== tenantIds.length) {
         throw new Error('Fehler: Nicht alle Mieter wurden korrekt verknüpft.');
+      }
+
+      // Step 5a: Einzugsstände auch als Ablesung, wie die Vertragsbearbeitung (useMietvertragMutations,
+      // schreibeZaehlerHistorie). Bis zum 26.11.2026 standen sie nur am Vertrag und erschienen nie in
+      // Zählerliste und Historie; den aktuellen Stand der Einheit zieht die Datenbank nach (Migration 20261126100000).
+      // Erst hier, nach dem letzten Schritt, der den Vertrag zurücknehmen kann (Review 26.11.2026): Der
+      // Fremdschlüssel steht auf ON DELETE SET NULL, eine frühere Ablesung bliebe sonst als „aktueller Stand“ stehen.
+      const einzugZeilen = zaehlerstandHistorienZeilen(
+        einzugStaende,
+        { start_datum: contractData.start_datum, ende_datum: contractData.ende_datum || null },
+        { id: einheitId },
+        format(new Date(), 'yyyy-MM-dd'),
+        contractResult.id
+      );
+      if (einzugZeilen.length > 0) {
+        const { error: historieFehler } = await supabase.from('zaehlerstand_historie').insert(einzugZeilen);
+        if (historieFehler) hinweise.push('Die Einzugsstände stehen am Vertrag, aber nicht in der Zählerhistorie.');
       }
 
       // Step 5b: Forderungen seit Mietbeginn — wie beim Aktivieren eines Entwurfs. Bis zum 27.10.2026
@@ -1147,7 +1155,8 @@ export const NewTenantContractDialog = ({
         />
       </div>
       
-      {/* Meter Readings Section */}
+      {/* Meter Readings Section — nur, wenn es Zähler gibt */}
+      {einzugFelder.length > 0 && (
       <div className="space-y-4">
         <div className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-primary" />
@@ -1155,7 +1164,7 @@ export const NewTenantContractDialog = ({
         </div>
         
         <div className="grid grid-cols-2 gap-4">
-          {EINZUG_FELDER.filter((f) => (einheitZaehlerarten(immobilie) as string[]).includes(f.art)).map((f) => (
+          {einzugFelder.map((f) => (
             <div key={f.feld}>
               <Label htmlFor={f.feld}>{f.label}</Label>
               <Input
@@ -1170,6 +1179,7 @@ export const NewTenantContractDialog = ({
           ))}
         </div>
       </div>
+      )}
       
       <div className="flex items-center space-x-2">
         <Switch
