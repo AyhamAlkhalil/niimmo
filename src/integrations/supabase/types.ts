@@ -3171,6 +3171,10 @@ export type Database = {
         Args: { p_vertrag_id: string }
         Returns: Json
       }
+      zaehlerstand_aktuell_nachziehen: {
+        Args: { p_einheit: string; p_immobilie: string; p_typ: string }
+        Returns: undefined
+      }
     }
     Enums: {
       anrede: "Herr" | "Frau" | "Divers" | "Firma"
