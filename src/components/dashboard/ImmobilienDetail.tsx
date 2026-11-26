@@ -434,9 +434,8 @@ export const ImmobilienDetail = ({
                                         if (error) throw error;
                                         if (!data || data.length === 0) throw new Error('Nicht gespeichert');
                                       }
-                                      await ablesungSpeichern({ immobilieId }, key, aktion, zVal || null);
+                                      const hinweis = (await ablesungSpeichern({ immobilieId }, key, aktion, zVal || null)) ?? ablesungHinweis(aktion, aktuell);
                                       await zaehlerAnsichtenAktualisieren(queryClient);
-                                      const hinweis = ablesungHinweis(aktion, aktuell);
                                       if (hinweis) toast.info('Gespeichert', { description: hinweis });
                                       else toast.success('Gespeichert');
                                       setEditingMeter(null);

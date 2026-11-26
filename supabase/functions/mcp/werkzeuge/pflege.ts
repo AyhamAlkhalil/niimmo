@@ -32,9 +32,10 @@ export function zaehlerSpalten(ort: 'einheit' | 'objekt', art: string, satz: 1 |
 }
 
 /**
- * Was eine Ablesung schreibt (ZaehlerVerwaltung.tsx:219, saveUnitDraft): Der aktuelle Stand am Stammsatz ändert sich nur,
- * wenn es noch kein Datum gibt oder die Ablesung nicht älter ist; eine Historienzeile entsteht nur bei geändertem Stand.
- * Ist nur das Datum neuer, rückt nur das Datum nach.
+ * Was eine Ablesung schreibt: Der aktuelle Stand am Stammsatz ändert sich nur, wenn es noch kein Datum gibt oder die
+ * Ablesung nicht älter ist. Seit dem 26.11.2026 folgt er in der Datenbank ohnehin der jüngsten Ablesung der Historie
+ * (Migration 20261126100000); derselbe Stand an einem späteren Tag ist deshalb ebenfalls eine Ablesung (Historie),
+ * sonst legte der Trigger sie still an und die Antwort meldete „historie: false“.
  */
 export function ablesungPlan(
   neu: { stand: number; datum: string },
@@ -42,7 +43,10 @@ export function ablesungPlan(
 ): { stammsatz: 'stand_und_datum' | 'nur_datum' | 'nichts'; historie: boolean } {
   const gleicherStand = alt.stand !== null && Number(alt.stand) === neu.stand;
   const aktuell = !alt.datum || neu.datum >= alt.datum;
-  if (gleicherStand) return { stammsatz: alt.datum && neu.datum > alt.datum ? 'nur_datum' : 'nichts', historie: false };
+  if (gleicherStand) {
+    const spaeter = !!alt.datum && neu.datum > alt.datum;
+    return { stammsatz: spaeter ? 'nur_datum' : 'nichts', historie: spaeter };
+  }
   return { stammsatz: aktuell ? 'stand_und_datum' : 'nichts', historie: true };
 }
 

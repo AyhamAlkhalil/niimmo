@@ -292,7 +292,11 @@ export const HausmeisterDashboard = () => {
     try {
       const nummern = Object.fromEntries(plan.filter((p) => p.nummerGeaendert).map((p) => [p.nummerSpalte, p.nummerNeu || null]));
       if (Object.keys(nummern).length > 0) await updatePropertyMeterMutation.mutateAsync({ immobilieId, updates: nummern });
-      for (const p of plan) await ablesungSpeichern({ immobilieId }, p.typ, p.aktion, p.nummerNeu || null);
+      const hinweise: string[] = [];
+      for (const p of plan) {
+        const hinweis = (await ablesungSpeichern({ immobilieId }, p.typ, p.aktion, p.nummerNeu || null)) ?? ablesungHinweis(p.aktion, p.aktuellFuerHinweis);
+        if (hinweis) hinweise.push(`${p.label}: ${hinweis}`);
+      }
       await zaehlerAnsichtenAktualisieren(queryClient);
 
       setEditedPropertyReadings(prev => {
@@ -303,7 +307,6 @@ export const HausmeisterDashboard = () => {
         return next;
       });
 
-      const hinweise = plan.map((p) => ablesungHinweis(p.aktion, p.aktuellFuerHinweis)).filter((h): h is string => !!h);
       if (hinweise.length > 0) toast.info("Hausanschlusszähler gespeichert", { description: hinweise.join(" ") });
       else toast.success("Hausanschlusszähler gespeichert");
     } catch {
@@ -350,7 +353,11 @@ export const HausmeisterDashboard = () => {
     try {
       const nummern = Object.fromEntries(plan.filter((p) => p.nummerGeaendert).map((p) => [`${p.typ}_zaehler`, p.nummerNeu || null]));
       if (Object.keys(nummern).length > 0) await updateMeterMutation.mutateAsync({ einheitId, updates: nummern });
-      for (const p of plan) await ablesungSpeichern({ einheitId }, p.typ, p.aktion, p.nummerNeu || null);
+      const hinweise: string[] = [];
+      for (const p of plan) {
+        const hinweis = (await ablesungSpeichern({ einheitId }, p.typ, p.aktion, p.nummerNeu || null)) ?? ablesungHinweis(p.aktion, p.aktuellFuerHinweis);
+        if (hinweis) hinweise.push(`${getMeterLabel(p.typ)}: ${hinweis}`);
+      }
       await zaehlerAnsichtenAktualisieren(queryClient);
 
       setEditedReadings(prev => {
@@ -361,7 +368,6 @@ export const HausmeisterDashboard = () => {
         return next;
       });
 
-      const hinweise = plan.map((p) => ablesungHinweis(p.aktion, p.aktuellFuerHinweis)).filter((h): h is string => !!h);
       if (hinweise.length > 0) toast.info("Zählerstände gespeichert", { description: hinweise.join(" ") });
       else toast.success("Zählerstände gespeichert");
     } catch {

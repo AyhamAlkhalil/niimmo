@@ -243,10 +243,13 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     try {
       // Erst die Nummer: Eine Ablesung nach einem Zählertausch gehört zur neuen
       if (Object.keys(nummern).length > 0) await updateUnitMutation.mutateAsync({ einheitId: einheit.id, updates: nummern });
-      for (const p of ablesungen) await ablesungSpeichern({ einheitId: einheit.id }, p.t, p.aktion, p.nummerNeu || null);
+      const hinweise: string[] = [];
+      for (const p of ablesungen) {
+        const hinweis = (await ablesungSpeichern({ einheitId: einheit.id }, p.t, p.aktion, p.nummerNeu || null)) ?? ablesungHinweis(p.aktion, p.aktuell);
+        if (hinweis) hinweise.push(`${getMeterLabel(p.t)}: ${hinweis}`);
+      }
       await zaehlerAnsichtenAktualisieren(queryClient);
       cancelEditUnit();
-      const hinweise = ablesungen.map((p) => ablesungHinweis(p.aktion, p.aktuell)).filter((h): h is string => !!h);
       if (hinweise.length > 0) toast.info('Zählerstände gespeichert', { description: hinweise.join(' ') });
       else toast.success('Zählerstände gespeichert');
     } catch {
@@ -325,10 +328,13 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     setSavingProperty(true);
     try {
       if (Object.keys(updates).length > 0) await updatePropertyMutation.mutateAsync({ immobilieId: immobilie.id, updates });
-      for (const p of ablesungen) await ablesungSpeichern({ immobilieId: immobilie.id }, p.key, p.aktion, p.nummerNeu || null);
+      const hinweise: string[] = [];
+      for (const p of ablesungen) {
+        const hinweis = (await ablesungSpeichern({ immobilieId: immobilie.id }, p.key, p.aktion, p.nummerNeu || null)) ?? ablesungHinweis(p.aktion, p.aktuell);
+        if (hinweis) hinweise.push(`${p.label}: ${hinweis}`);
+      }
       await zaehlerAnsichtenAktualisieren(queryClient);
       cancelEditProperty();
-      const hinweise = ablesungen.map((p) => ablesungHinweis(p.aktion, p.aktuell)).filter((h): h is string => !!h);
       if (hinweise.length > 0) toast.info('Hausanschlusszähler gespeichert', { description: hinweise.join(' ') });
       else toast.success('Hausanschlusszähler gespeichert');
     } catch {

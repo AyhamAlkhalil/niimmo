@@ -15,6 +15,7 @@ import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
  * - Neuer Stand → neue Ablesung zum angegebenen Tag (leer: heute). Ist sie älter als der aktuelle
  *   Stand, landet sie nur in der Historie — das meldet die Maske.
  * - Gleicher Stand, anderes Datum → das Datum der aktuellen Ablesung wird korrigiert, in beide Richtungen.
+ *   Ein geleertes Datumsfeld bei gleichem Stand ändert nichts.
  * - Leeres Feld bei vorhandenem Stand → nicht erlaubt; eine Ablesung wird in der Historie gelöscht.
  * - Datum in der Zukunft, nicht lesbarer oder negativer Stand → nicht erlaubt.
  */
@@ -56,7 +57,11 @@ export function ablesungAktion(
   const stand = parseZaehlerstand(text);
   if (stand === null) return { art: "ungueltig", grund: `„${text}“ ist kein gültiger Zählerstand.` };
 
-  const datum = tag(eingabe.datum.trim()) || heute;
+  const datumEingabe = tag(eingabe.datum.trim());
+  // Gleicher Stand und das Datumsfeld geleert: nichts verschieben (Review 26.11.2026). Sonst rückte die
+  // Ablesung still auf heute.
+  if (altStand !== null && stand === altStand && !datumEingabe) return { art: "keine" };
+  const datum = datumEingabe || heute;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(datum)) return { art: "ungueltig", grund: "Das Ablesedatum ist ungültig." };
   if (datum > heute) return { art: "ungueltig", grund: "Das Ablesedatum liegt in der Zukunft." };
 

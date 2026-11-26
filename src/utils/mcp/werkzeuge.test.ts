@@ -229,7 +229,8 @@ describe('Zahlungen, Verträge, Pflege', () => {
   it('schreibt Ablesungen wie die Zählerverwaltung', () => {
     expect(ablesungPlan({ stand: 120, datum: '2026-11-16' }, { stand: 100, datum: '2026-10-01' })).toEqual({ stammsatz: 'stand_und_datum', historie: true });
     expect(ablesungPlan({ stand: 90, datum: '2026-09-01' }, { stand: 100, datum: '2026-10-01' })).toEqual({ stammsatz: 'nichts', historie: true });
-    expect(ablesungPlan({ stand: 100, datum: '2026-11-16' }, { stand: 100, datum: '2026-10-01' })).toEqual({ stammsatz: 'nur_datum', historie: false });
+    expect(ablesungPlan({ stand: 100, datum: '2026-11-16' }, { stand: 100, datum: '2026-10-01' })).toEqual({ stammsatz: 'nur_datum', historie: true });
+    expect(ablesungPlan({ stand: 100, datum: '2026-09-01' }, { stand: 100, datum: '2026-10-01' })).toEqual({ stammsatz: 'nichts', historie: false });
     expect(ablesungPlan({ stand: 5, datum: '2026-11-16' }, { stand: null, datum: null })).toEqual({ stammsatz: 'stand_und_datum', historie: true });
     expect(zaehlerSpalten('objekt', 'wasser', 2)).toEqual({ stand: 'allgemein_wasser_stand_2', datum: 'allgemein_wasser_datum_2', nummer: 'allgemein_wasser_zaehler_2', typ: 'wasser_2' });
     expect(() => zaehlerSpalten('einheit', 'wasser')).toThrow(Fachfehler);

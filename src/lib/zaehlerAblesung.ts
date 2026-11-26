@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { AblesungAktion } from "@/utils/zaehlerAblesung";
+import { zaehlerstandAnzeige } from "@/utils/zaehlerstandUtils";
 
 /** Zähler an einer Einheit oder am Hausanschluss eines Objekts */
 export type ZaehlerOrt = { einheitId: string } | { immobilieId: string };
@@ -18,8 +19,8 @@ export async function ablesungSpeichern(
   typ: string,
   aktion: AblesungAktion,
   zaehlerNummer: string | null
-): Promise<void> {
-  if (aktion.art !== "neu" && aktion.art !== "datum_korrigieren") return;
+): Promise<string | null> {
+  if (aktion.art !== "neu" && aktion.art !== "datum_korrigieren") return null;
   const ortSpalten = "einheitId" in ort ? { einheit_id: ort.einheitId } : { immobilie_id: ort.immobilieId };
 
   const einfuegen = async (stand: number, datum: string) => {
@@ -34,21 +35,47 @@ export async function ablesungSpeichern(
 
   if (aktion.art === "neu") {
     await einfuegen(aktion.stand, aktion.datum);
-    return;
+    return null;
   }
 
-  // Datum der aktuellen Ablesung korrigieren: die Zeile mit diesem Stand und Datum verschieben
-  let abfrage = supabase
+  // Datum der aktuellen Ablesung korrigieren. Sie ist die jüngste Zeile dieses Tages (so wählt der Trigger);
+  // genau diese eine Zeile verschieben und den Stand in JavaScript vergleichen statt per Filter auf numeric
+  // (Review 26.11.2026: ein ungenauer Treffer hätte eine zweite, ältere Zeile angelegt).
+  let suche = supabase
     .from("zaehlerstand_historie")
-    .update({ datum: aktion.aufDatum })
+    .select("id, stand")
     .eq("zaehler_typ", typ)
-    .eq("stand", aktion.stand)
     .eq("datum", aktion.vonDatum);
-  abfrage = "einheitId" in ort ? abfrage.eq("einheit_id", ort.einheitId) : abfrage.eq("immobilie_id", ort.immobilieId).is("einheit_id", null);
-  const { data, error } = await abfrage.select("id");
-  if (error) throw error;
-  // Ohne passende Zeile (Altbestand): als Ablesung zum neuen Tag eintragen
-  if (!data || data.length === 0) await einfuegen(aktion.stand, aktion.aufDatum);
+  suche = "einheitId" in ort ? suche.eq("einheit_id", ort.einheitId) : suche.eq("immobilie_id", ort.immobilieId).is("einheit_id", null);
+  const { data: zeilen, error: suchFehler } = await suche.order("erstellt_am", { ascending: false }).order("id", { ascending: false });
+  if (suchFehler) throw suchFehler;
+  const zeile = (zeilen ?? []).find((z) => z.stand !== null && Number(z.stand) === aktion.stand);
+  if (zeile) {
+    const { data, error } = await supabase.from("zaehlerstand_historie").update({ datum: aktion.aufDatum }).eq("id", zeile.id).select("id");
+    if (error) throw error;
+    if (!data || data.length === 0) throw new Error("Ablesung wurde nicht geändert");
+  } else {
+    // Ohne passende Zeile (Altbestand): als Ablesung zum neuen Tag eintragen
+    await einfuegen(aktion.stand, aktion.aufDatum);
+  }
+
+  // Liegt zwischen altem und neuem Tag eine andere Ablesung, gilt jetzt diese — sagen, statt still zu wechseln
+  const [standSpalte, datumSpalte] =
+    "einheitId" in ort
+      ? [`${typ}_stand_aktuell`, `${typ}_stand_datum`]
+      : [`allgemein_${typ.replace("_2", "")}_stand${typ.endsWith("_2") ? "_2" : ""}`, `allgemein_${typ.replace("_2", "")}_datum${typ.endsWith("_2") ? "_2" : ""}`];
+  const { data: nachher } = await supabase
+    .from("einheitId" in ort ? "einheiten" : "immobilien")
+    .select(`${standSpalte}, ${datumSpalte}`)
+    .eq("id", "einheitId" in ort ? ort.einheitId : ort.immobilieId)
+    .maybeSingle();
+  const jetzt = nachher as unknown as Record<string, unknown> | null;
+  const jetztDatum = typeof jetzt?.[datumSpalte] === "string" ? (jetzt[datumSpalte] as string) : null;
+  if (jetztDatum && jetztDatum !== aktion.aufDatum) {
+    const [j, m, t] = jetztDatum.slice(0, 10).split("-");
+    return `Datum geändert. Als aktueller Stand gilt jetzt die Ablesung vom ${t}.${m}.${j} (${zaehlerstandAnzeige(jetzt?.[standSpalte] as number | string | null)}).`;
+  }
+  return null;
 }
 
 /** Nach jeder Änderung an Zählern: alle Ansichten neu laden, die Stände zeigen */

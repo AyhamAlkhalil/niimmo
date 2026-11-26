@@ -30,6 +30,10 @@ describe("ablesungAktion", () => {
     expect(ablesungAktion({ stand: "", datum: "" }, { stand: null, datum: null }, HEUTE)).toEqual({ art: "keine" });
   });
 
+  it("gleicher Stand mit geleertem Datumsfeld verschiebt nichts", () => {
+    expect(ablesungAktion({ stand: "21936.049", datum: "" }, aktuell, HEUTE)).toEqual({ art: "keine" });
+  });
+
   it("ein vorhandener Stand lässt sich nicht leeren", () => {
     expect(ablesungAktion({ stand: "  ", datum: "2026-11-07" }, aktuell, HEUTE)).toMatchObject({ art: "ungueltig" });
   });
