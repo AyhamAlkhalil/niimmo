@@ -72,6 +72,11 @@ export interface UebergabePdfData {
       wasser?: string | null;
       warmwasser?: string | null;
     };
+    /**
+     * Abgefragte Zähler (uebergabeZaehlerTypen, seit 26.11.2026); ohne Angabe alle vier. Ein Zähler, den die Einheit
+     * nicht hat, steht nicht als „–“ im Protokoll.
+     */
+    zaehlerTypen?: ReadonlyArray<'strom' | 'gas' | 'wasser' | 'warmwasser'>;
     // Zählerfotos, gruppiert nach Zählertyp
     zaehlerfotos?: {
       strom?: PdfImage[];
@@ -366,7 +371,7 @@ interface TabellenMasse {
 function tabellenMasse(doc: jsPDF, layout: VertragsLayout, einheit: Einheit): TabellenMasse {
   const nummern = einheit.zaehlernummern ?? {};
   const mitNummer = Object.values(nummern).some((n) => !!n?.trim());
-  const roh = ZAEHLER.map(({ typ, art, einheit: masseinheit }) => ({
+  const roh = ZAEHLER.filter(({ typ }) => !einheit.zaehlerTypen || einheit.zaehlerTypen.includes(typ)).map(({ typ, art, einheit: masseinheit }) => ({
     art,
     // Der gelesene Wert, wie er gespeichert wird — nicht die Roheingabe (zaehlerstandText)
     stand: zaehlerstandText(einheit.zaehlerstaende[typ]) || '–',

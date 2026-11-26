@@ -12,6 +12,7 @@ import {
   schrittZustaende,
   zaehlerHinweise,
   zaehlernummerHinweis,
+  uebergabeZaehlerTypen,
   type AblaufEingaben,
 } from "./uebergabeAblauf";
 
@@ -145,6 +146,30 @@ describe("pruefpunkte und schrittZustaende", () => {
   it("ohne Zählerstand ein Hinweis", () => {
     const punkte = pruefpunkte(eingaben({ zaehlerstaende: { [V]: {} } }), [V]);
     expect(punkte).toContainEqual({ schritt: "zaehler", art: "hinweis", text: "Kein Zählerstand erfasst." });
+  });
+});
+
+describe("uebergabeZaehlerTypen", () => {
+  const ohneWarmwasser = { zaehlerarten_einheiten: ["kaltwasser", "strom", "gas"] };
+
+  it("fragt nur die Zählerarten des Objekts ab", () => {
+    expect(uebergabeZaehlerTypen(ohneWarmwasser)).toEqual(["strom", "gas", "wasser"]);
+    expect(uebergabeZaehlerTypen({ zaehlerarten_einheiten: ["strom"] })).toEqual(["strom"]);
+  });
+
+  it("ohne Angabe zum Objekt alle vier", () => {
+    expect(uebergabeZaehlerTypen(undefined)).toEqual(["strom", "gas", "wasser", "warmwasser"]);
+  });
+
+  it("Erfasstes verschwindet nie: ein Stand oder Foto hält den Zähler sichtbar", () => {
+    expect(uebergabeZaehlerTypen(ohneWarmwasser, { warmwasser: "12,5" })).toContain("warmwasser");
+    expect(uebergabeZaehlerTypen(ohneWarmwasser, { warmwasser: "  " }, { warmwasser: 1 })).toContain("warmwasser");
+    expect(uebergabeZaehlerTypen(ohneWarmwasser, { warmwasser: "" }, { warmwasser: 0 })).not.toContain("warmwasser");
+  });
+
+  it("die Prüfung zählt nur die abgefragten Zähler", () => {
+    const punkte = pruefpunkte(eingaben({ zaehlerTypen: { [V]: ["strom", "gas", "wasser"] } }), [V]);
+    expect(punkte.find((p) => p.schritt === "zaehler")?.text).toBe("2 von 3 Zählerständen erfasst.");
   });
 });
 

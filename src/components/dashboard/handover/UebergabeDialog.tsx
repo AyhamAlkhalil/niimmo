@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
+import type { ObjektZaehlerKonfiguration } from "@/utils/zaehlerarten";
 import { format, parse } from "date-fns";
 import { de } from "date-fns/locale";
 import {
@@ -100,6 +101,7 @@ import {
   ZAEHLER_BEZEICHNUNG,
   ZAEHLER_DB_TYP,
   ZAEHLER_TYPEN,
+  uebergabeZaehlerTypen,
   bausteinAnhaengen,
   handyAnsicht,
   istUebergabeSchritt,
@@ -262,6 +264,25 @@ export const UebergabeDialog = ({
     });
     return initial;
   });
+  // Zählerarten der beteiligten Objekte (seit 26.11.2026, uebergabeZaehlerTypen). Bis sie geladen sind — oder
+  // wenn das Laden scheitert — fragt die Übergabe wie bisher alle vier Zähler ab; es fehlt also nie ein Feld.
+  const [zaehlerKonfig, setZaehlerKonfig] = useState<Record<string, ObjektZaehlerKonfiguration>>({});
+  const objektIdsSchluessel = [...new Set(contracts.map((c) => c.einheit.immobilie_id ?? c.einheit.immobilie.id).filter((id): id is string => !!id))].sort().join(",");
+  useEffect(() => {
+    if (!objektIdsSchluessel) return;
+    let aktiv = true;
+    void supabase
+      .from("immobilien")
+      .select("id, zaehlerarten_einheiten")
+      .in("id", objektIdsSchluessel.split(","))
+      .then(({ data, error }) => {
+        if (!aktiv || error || !data) return;
+        setZaehlerKonfig(Object.fromEntries(data.map((o) => [o.id, o])));
+      });
+    return () => {
+      aktiv = false;
+    };
+  }, [objektIdsSchluessel]);
   // In der Übergabe eingetragene oder geänderte Zählernummern (seit 12.11.2026). Nur die
   // geänderten stehen hier; sonst gilt die aus den Stammdaten. So schreibt das bloße Öffnen
   // nichts in den Entwurf, auch wenn die Stammdaten erst danach geladen sind.
@@ -927,6 +948,8 @@ export const UebergabeDialog = ({
           // Die in der Übergabe eingetragene Nummer, sonst die aus den Stammdaten
           zaehlernummern: Object.fromEntries(METER_TYPEN.map((typ) => [typ, effektiveZaehlernummer(nummerEingabe(c.id, typ), stammNummer(c.id, typ))])),
           zaehlerfotos: Object.keys(zaehlerfotos).length > 0 ? zaehlerfotos : undefined,
+          // Nur die abgefragten Zähler ins Protokoll — kein „Warmwasser –“ ohne Warmwasserzähler
+          zaehlerTypen: zaehlerTypenJeVertrag[c.id],
         };
       })
     );
@@ -1673,6 +1696,18 @@ export const UebergabeDialog = ({
     return r;
   }, [contracts, meterPhotosPerContract]);
 
+  // Je Vertrag die abgefragten Zähler: die des Objekts plus alles schon Erfasste (uebergabeZaehlerTypen)
+  const zaehlerTypenJeVertrag = useMemo(
+    () =>
+      Object.fromEntries(
+        contracts.map((c) => {
+          const objektId = c.einheit.immobilie_id ?? c.einheit.immobilie.id;
+          return [c.id, uebergabeZaehlerTypen(objektId ? zaehlerKonfig[objektId] : undefined, zaehlerstaendePerContract[c.id], fotoAnzahl[c.id])];
+        })
+      ) as Record<string, MeterTyp[]>,
+    [contracts, zaehlerKonfig, zaehlerstaendePerContract, fotoAnzahl]
+  );
+
   const punkte = useMemo(
     () =>
       pruefpunkte(
@@ -1681,13 +1716,14 @@ export const UebergabeDialog = ({
           zaehlerstaende: zaehlerstaendePerContract,
           zaehlerfotos: fotoAnzahl,
           referenzen,
+          zaehlerTypen: zaehlerTypenJeVertrag,
           unterschriftVermieter: !!vermieterSignature,
           unterschriftMieter: !!mieterSignature,
           heute: format(new Date(), "yyyy-MM-dd"),
         },
         contracts.map((c) => c.id)
       ),
-    [datumText, zaehlerstaendePerContract, fotoAnzahl, referenzen, vermieterSignature, mieterSignature, contracts]
+    [datumText, zaehlerstaendePerContract, fotoAnzahl, referenzen, zaehlerTypenJeVertrag, vermieterSignature, mieterSignature, contracts]
   );
   const zustaende = schrittZustaende(punkte);
   const speichernGesperrt = punkte.some((p) => p.art === "fehler");
@@ -1871,7 +1907,7 @@ export const UebergabeDialog = ({
             </h3>
           )}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {METER_TYPEN.map((typ) => (
+            {(zaehlerTypenJeVertrag[contract.id] ?? METER_TYPEN).map((typ) => (
               <ZaehlerFeld
                 key={`${typ}-${formResetKey}`}
                 contractId={contract.id}
@@ -1968,6 +2004,7 @@ export const UebergabeDialog = ({
         titel: objektTitel(c),
         zaehlerstaende: zaehlerstaendePerContract[c.id] ?? {},
         zaehlernummern: Object.fromEntries(METER_TYPEN.map((typ) => [typ, effektiveZaehlernummer(nummerEingabe(c.id, typ), stammNummer(c.id, typ))])),
+        zaehlerTypen: zaehlerTypenJeVertrag[c.id],
       }))}
       zaehlerfotos={zaehlerfotoGesamt}
       zustandsfotos={notizenPhotos.length}

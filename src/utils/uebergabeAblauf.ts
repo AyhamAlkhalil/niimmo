@@ -12,6 +12,7 @@
 import { format, isValid, parseISO } from "date-fns";
 import { parseZaehlerstand, istGueltigeZaehlerstandEingabe } from "./zaehlerstandUtils";
 import { zaehlernummerText } from "./uebergabeSpeicherung";
+import { einheitZaehlerarten, type ObjektZaehlerKonfiguration } from "./zaehlerarten";
 
 export const UEBERGABE_SCHRITTE = ["allgemein", "zaehler", "zustand", "unterschriften", "pruefen"] as const;
 export type UebergabeSchritt = (typeof UEBERGABE_SCHRITTE)[number];
@@ -52,6 +53,23 @@ export const ZAEHLER_DB_TYP: Record<ZaehlerTyp, string> = {
   wasser: "kaltwasser",
   warmwasser: "warmwasser",
 };
+
+/**
+ * Zähler, die die Übergabe für einen Vertrag abfragt: die Zählerarten, die das Objekt für seine Einheiten gewählt
+ * hat (seit 26.11.2026, utils/zaehlerarten.ts), dazu jeder Zähler, für den schon ein Stand oder Foto erfasst ist —
+ * Erfasstes verschwindet nie. Ohne Angabe zum Objekt alle vier. Bis dahin fragte die Übergabe immer alle vier ab,
+ * und ein fehlender Warmwasserzähler stand als „nicht erfasst“ in Prüfung und Protokoll.
+ */
+export function uebergabeZaehlerTypen(
+  konfig: ObjektZaehlerKonfiguration | null | undefined,
+  eingaben?: Partial<Record<ZaehlerTyp, string>> | null,
+  fotos?: Partial<Record<ZaehlerTyp, number>> | null
+): ZaehlerTyp[] {
+  const gewaehlt = new Set<string>(einheitZaehlerarten(konfig));
+  return ZAEHLER_TYPEN.filter(
+    (typ) => gewaehlt.has(ZAEHLER_DB_TYP[typ]) || !!eingaben?.[typ]?.trim() || (fotos?.[typ] ?? 0) > 0
+  );
+}
 
 /** Bekannter Stand eines Zählers, gegen den eine neue Ablesung geprüft wird. */
 export interface Referenzstand {
@@ -158,6 +176,8 @@ export interface AblaufEingaben {
   zaehlerfotos: Record<string, Partial<Record<ZaehlerTyp, number>>>;
   /** je Vertrag und Zähler der Vergleichsstand */
   referenzen?: Record<string, Partial<Record<ZaehlerTyp, Referenzstand | null>>>;
+  /** je Vertrag die abgefragten Zähler (uebergabeZaehlerTypen); ohne Angabe alle vier */
+  zaehlerTypen?: Record<string, readonly ZaehlerTyp[]>;
   unterschriftVermieter: boolean;
   unterschriftMieter: boolean;
   /** yyyy-MM-dd — Bezug für „liegt in der Zukunft"; ohne Angabe wird das nicht geprüft */
@@ -192,7 +212,7 @@ export function pruefpunkte(e: AblaufEingaben, vertragIds: string[]): Pruefpunkt
   let fotoOhneStand = 0;
   let auffaellig = 0;
   for (const id of vertragIds) {
-    for (const typ of ZAEHLER_TYPEN) {
+    for (const typ of e.zaehlerTypen?.[id] ?? ZAEHLER_TYPEN) {
       gesamt++;
       const eingabe = e.zaehlerstaende[id]?.[typ];
       const hinweise = zaehlerHinweise(eingabe, e.zaehlerfotos[id]?.[typ] ?? 0, e.referenzen?.[id]?.[typ] ?? null);

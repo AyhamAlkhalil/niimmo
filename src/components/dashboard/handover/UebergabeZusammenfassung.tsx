@@ -14,6 +14,8 @@ interface UebergabeZusammenfassungProps {
     zaehlerstaende: Partial<Record<ZaehlerTyp, string>>;
     /** wie im Protokoll: eingetragen oder aus den Stammdaten */
     zaehlernummern?: Partial<Record<ZaehlerTyp, string | null>>;
+    /** Abgefragte Zähler (uebergabeZaehlerTypen); ohne Angabe alle vier */
+    zaehlerTypen?: readonly ZaehlerTyp[];
   }>;
   zaehlerfotos: number;
   zustandsfotos: number;
@@ -73,7 +75,7 @@ export const UebergabeZusammenfassung = ({
         <div key={e.id} className="space-y-1">
           <p className="text-xs font-medium text-muted-foreground">{einheiten.length > 1 ? `Zählerstände · ${e.titel}` : "Zählerstände"}</p>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
-            {ZAEHLER_TYPEN.map((typ) => {
+            {(e.zaehlerTypen ?? ZAEHLER_TYPEN).map((typ) => {
               const wert = e.zaehlerstaende[typ] ?? "";
               const erfasst = parseZaehlerstand(wert) !== null;
               // Die Nummer steht mit im Protokoll, also auch hier vor den Unterschriften
