@@ -17,6 +17,7 @@ import { offenePosten } from "@/utils/rueckstandSeit";
 import { MietaenderungBestaetigung } from "./rent-increase/MietaenderungBestaetigung";
 import { VormonateErhoehungBestaetigung } from "./rent-increase/VormonateErhoehungBestaetigung";
 import { getVertragsende } from "@/utils/contractUtils";
+import { useEinheitNummer } from "@/hooks/useEinheitNummer";
 
 interface MietvertragDetailsModalProps {
   isOpen: boolean;
@@ -43,6 +44,7 @@ export default function MietvertragDetailsModal({
   const { toast } = useToast();
 
   const einheitData = fetchedEinheit || einheit;
+  const einheitNummer = useEinheitNummer(einheitData);
   const [showBestaetigung, setShowBestaetigung] = useState(false);
   const [bestaetigungVorbelegung, setBestaetigungVorbelegung] = useState<{ schreibenVom: string | null; eingangAm: string | null } | null>(null);
 
@@ -110,7 +112,11 @@ export default function MietvertragDetailsModal({
                 </DialogTitle>
                 {(immobilie || einheitData) && (
                   <p className="mt-1.5 truncate text-sm text-muted-foreground">
-                    {immobilie?.adresse ?? ''}{einheitData ? `${immobilie?.adresse ? ' · ' : ''}Einheit ${einheitData.zaehler ? String(einheitData.zaehler).padStart(2, '0') : (einheitData.id ? einheitData.id.slice(-2) : '')} · ${einheitData.einheitentyp || ''}${einheitData.etage ? ` ${einheitData.etage}` : ''}` : ''}
+                    {[
+                      immobilie?.adresse,
+                      einheitNummer ? `Einheit ${einheitNummer}` : null,
+                      einheitData ? [einheitData.einheitentyp, einheitData.etage].filter(Boolean).join(' ') : null,
+                    ].filter(Boolean).join(' · ')}
                   </p>
                 )}
               </div>

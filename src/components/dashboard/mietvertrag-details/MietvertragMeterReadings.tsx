@@ -7,6 +7,7 @@ import { format, parseISO } from "date-fns";
 import { MietvertragEditableField } from "./MietvertragEditableField";
 import { ZaehlerHistorie } from "../ZaehlerHistorie";
 import { zaehlerVerbrauch } from "@/utils/vertragZaehlerstaende";
+import { zaehlerstandAnzeige } from "@/utils/zaehlerstandUtils";
 import { vertragZaehlerarten, type ObjektZaehlerKonfiguration } from "@/utils/zaehlerarten";
 
 interface MietvertragMeterReadingsProps {
@@ -47,8 +48,9 @@ export function MietvertragMeterReadings({
 
   // Ein leerer Stand ist „nicht erfasst", keine 0. Bis 23.10.2026 zeigte das Feld für leer
   // eine 0 und belegte die Eingabe damit vor -- gespeichert wurde dann auch eine 0.
+  // Seit 26.11.2026 im selben Format wie Zählerliste und Historie (vorher „16.02“ neben „158,39“)
   const formatMeterValue = (value: string | number | null | undefined) =>
-    value === null || value === undefined || value === "" ? "Nicht erfasst" : String(value);
+    value === null || value === undefined || value === "" ? "Nicht erfasst" : zaehlerstandAnzeige(value);
 
   // Leeres Feld = "" statt null: MietvertragEditableField erwartet string | number,
   // und das Eingabefeld bleibt so kontrolliert.
@@ -62,8 +64,7 @@ export function MietvertragMeterReadings({
   };
 
   const datumText = (datum: string) => format(parseISO(datum.slice(0, 10)), "dd.MM.yyyy");
-  const standText = (stand: number | string) =>
-    Number.isFinite(Number(stand)) ? Number(stand).toLocaleString("de-DE", { maximumFractionDigits: 3 }) : String(stand);
+  const standText = (stand: number | string) => zaehlerstandAnzeige(stand);
 
   // Letzte Ablesung an der Einheit -- dieselben Felder wie in der Zählerliste
   // (ZaehlerVerwaltung). Bis zum 24.11.2026 zeigte die Karte nur Ein- und Auszug
@@ -121,7 +122,22 @@ export function MietvertragMeterReadings({
       auszug: vertrag.gas_auszug,
       ...letzteAblesung("gas")
     }
-  ].filter((meter) => gezeigteArten.includes(meter.key));
+  ]
+    .filter((meter) => gezeigteArten.includes(meter.key))
+    // Erst ab einem Einzugsstand über 0: Bis zum 23.10.2026 schrieb die Vertragsbearbeitung leere
+    // Stände als 0 — ein „Verbrauch“ wäre dann der ganze Zählerstand (Validierung 24.10.2026). Seit
+    // 24.11.2026 auch bei laufendem Vertrag bis zur letzten Ablesung (zaehlerVerbrauch)
+    .map((meter) => ({
+      ...meter,
+      verbrauch: zaehlerVerbrauch({
+        einzug: meter.einzug,
+        auszug: meter.auszug,
+        aktuell: meter.aktuell,
+        aktuellDatum: meter.aktuellDatum,
+        vertrag,
+      }),
+      masseinheit: meter.key === "strom" ? "kWh" : "m³",
+    }));
 
   // Im eingeklappten Kopf sichtbar machen, dass es Ablesungen gibt
   const juengsteAblesung = meterReadings
@@ -160,23 +176,48 @@ export function MietvertragMeterReadings({
             </Button>
           </CollapsibleTrigger>
         </CardHeader>
-        
+
+        {/* Eingeklappt eine kurze Übersicht je Zähler (26.11.2026). Bis dahin zeigte die eingeklappte Karte
+            nichts — als einziger Abschnitt der Vertragsdetails —, und die Stände wirkten wie nicht vorhanden. */}
+        {!isOpen && einheit && meterReadings.length > 0 && (
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {meterReadings.map((meter) => {
+                const IconComponent = meter.icon;
+                const hatStand = meter.aktuell != null && meter.aktuell !== "";
+                return (
+                  <button
+                    type="button"
+                    key={meter.key}
+                    onClick={() => setIsOpen(true)}
+                    className="rounded-lg border border-border/70 bg-neutral-50/60 px-3 py-2 text-left transition-colors hover:border-neutral-300"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <IconComponent className={`h-3.5 w-3.5 ${meter.color}`} />
+                      {meter.label}
+                    </div>
+                    <div className="mt-1 font-medium tabular-nums text-foreground">{hatStand ? standText(meter.aktuell as number | string) : "—"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {hatStand && meter.aktuellDatum ? `am ${datumText(meter.aktuellDatum)}` : "keine Ablesung"}
+                    </div>
+                    {meter.verbrauch && (
+                      <div className="mt-1 text-xs tabular-nums text-foreground/80">
+                        +{meter.verbrauch.wert.toLocaleString("de-DE", { maximumFractionDigits: 3 })} {meter.masseinheit}{" "}
+                        {meter.verbrauch.bis === "auszug" ? "Einzug bis Auszug" : "seit Einzug"}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        )}
+
         <CollapsibleContent className="animate-accordion-down">
           <CardContent className="space-y-4 border-t border-border/70 pt-5">
             {meterReadings.map((meter, index) => {
               const IconComponent = meter.icon;
-              // Erst ab einem Einzugsstand über 0: Bis zum 23.10.2026 schrieb die
-              // Vertragsbearbeitung leere Stände als 0 — ein „Verbrauch“ wäre dann der
-              // ganze Zählerstand (Validierung 24.10.2026). Bei der Bereinigung am 26.10.2026
-              // blieben 8 Einzugsstände 0 stehen, die echt sein können, aber nicht belegt sind.
-              // Seit 24.11.2026 auch bei laufendem Vertrag bis zur letzten Ablesung (zaehlerVerbrauch)
-              const verbrauch = zaehlerVerbrauch({
-                einzug: meter.einzug,
-                auszug: meter.auszug,
-                aktuell: meter.aktuell,
-                aktuellDatum: meter.aktuellDatum,
-                vertrag,
-              });
+              const verbrauch = meter.verbrauch;
               
               return (
                 <div 
@@ -300,9 +341,7 @@ export function MietvertragMeterReadings({
                             {verbrauch.wert.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {meter.key === 'kaltwasser' || meter.key === 'warmwasser' ? 'm³' : 
-                             meter.key === 'strom' ? 'kWh' : 
-                             meter.key === 'gas' ? 'm³' : 'Einheiten'}
+                            {meter.masseinheit}
                           </div>
                         </div>
                       </div>
