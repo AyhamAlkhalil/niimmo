@@ -15,6 +15,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { dokumentOeffnen } from "@/lib/dokumentOeffnen";
+import { parseZaehlerstand, zaehlerstandAnzeige } from "@/utils/zaehlerstandUtils";
+import { zaehlerAnsichtenAktualisieren } from "@/lib/zaehlerAblesung";
 
 interface ZaehlerHistorieProps {
   einheitId?: string;
@@ -87,7 +89,7 @@ const Belege = ({ entry }: { entry: HistorieEntry }) => {
     <span className="ml-1 inline-flex items-center gap-0.5 align-middle">
       {erkannt && (() => {
         const text = entry.erfassung === 'foto_korrigiert'
-          ? `Aus dem Foto erkannt${entry.erkannter_stand != null ? ` (${Number(entry.erkannter_stand).toLocaleString('de-DE')})` : ''}, danach von Hand korrigiert`
+          ? `Aus dem Foto erkannt${entry.erkannter_stand != null ? ` (${zaehlerstandAnzeige(entry.erkannter_stand)})` : ''}, danach von Hand korrigiert`
           : 'Aus dem Foto erkannt';
         return (
           <span className="inline-flex text-muted-foreground" title={text} role="img" aria-label={text}>
@@ -168,14 +170,18 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
     mutationFn: async ({ id, stand, datum, zaehlerNummer }: {
       id: string; stand: number; datum: string; zaehlerNummer: string;
     }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('zaehlerstand_historie')
-        .update({ stand, datum, zaehler_nummer: zaehlerNummer || null })
-        .eq('id', id);
+        .update({ stand, datum, zaehler_nummer: zaehlerNummer.trim() || null })
+        .eq('id', id)
+        .select('id');
       if (error) throw error;
+      if (!data || data.length === 0) throw new Error('Nicht gespeichert');
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
+    // Den aktuellen Stand an Einheit bzw. Objekt zieht die Datenbank nach (seit 26.11.2026); bis dahin
+    // blieb er nach einer Korrektur hier unverändert stehen (Kundenmeldung 07.11.2026)
+    onSuccess: async () => {
+      await zaehlerAnsichtenAktualisieren(queryClient);
       setEditingId(null);
       toast.success('Eintrag aktualisiert');
     },
@@ -184,14 +190,16 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('zaehlerstand_historie')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select('id');
       if (error) throw error;
+      if (!data || data.length === 0) throw new Error('Nicht gelöscht');
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey });
+    onSuccess: async () => {
+      await zaehlerAnsichtenAktualisieren(queryClient);
       setDeletePopoverOpen(null);
       toast.success('Eintrag gelöscht');
     },
@@ -208,13 +216,18 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
   const cancelEdit = () => setEditingId(null);
 
   const saveEdit = () => {
-    const standNum = parseFloat(editStand);
-    if (isNaN(standNum)) {
+    // Dieselben Regeln wie beim Erfassen (utils/zaehlerAblesung.ts); parseFloat las „12.345.678“ als 12,345
+    const standNum = parseZaehlerstand(editStand);
+    if (standNum === null) {
       toast.error('Ungültiger Stand');
       return;
     }
-    if (!editDatum) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editDatum)) {
       toast.error('Datum fehlt');
+      return;
+    }
+    if (editDatum > format(new Date(), 'yyyy-MM-dd')) {
+      toast.error('Das Ablesedatum liegt in der Zukunft.');
       return;
     }
     updateMutation.mutate({ id: editingId!, stand: standNum, datum: editDatum, zaehlerNummer: editZaehlerNr });
@@ -336,7 +349,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                       </TableCell>
                       <TableCell className="py-0.5 px-2 text-right font-mono">
                         {entry.stand != null
-                          ? Number(entry.stand).toLocaleString('de-DE', { minimumFractionDigits: 1 })
+                          ? zaehlerstandAnzeige(entry.stand)
                           : '-'}
                       </TableCell>
                       <TableCell className="py-0.5 px-2 text-right font-mono">
@@ -377,7 +390,7 @@ export const ZaehlerHistorie = ({ einheitId, immobilieId, label }: ZaehlerHistor
                             <PopoverContent className="w-48 p-3" side="left">
                               <p className="text-xs font-medium mb-2">Eintrag löschen?</p>
                               <p className="text-xs text-muted-foreground mb-3">
-                                {format(new Date(entry.datum), 'dd.MM.yyyy', { locale: de })} · {getTypLabel(entry.zaehler_typ)} · {entry.stand != null ? Number(entry.stand).toLocaleString('de-DE', { minimumFractionDigits: 1 }) : '–'}
+                                {format(new Date(entry.datum), 'dd.MM.yyyy', { locale: de })} · {getTypLabel(entry.zaehler_typ)} · {entry.stand != null ? zaehlerstandAnzeige(entry.stand) : '–'}
                               </p>
                               <div className="flex gap-2">
                                 <Button

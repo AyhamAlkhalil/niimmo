@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe, punktAlsKomma, zaehlerstandText } from './zaehlerstandUtils';
+import { sanitizeZaehlerstand, parseZaehlerstand, istGueltigeZaehlerstandEingabe, punktAlsKomma, zaehlerstandText, zaehlerstandAnzeige } from './zaehlerstandUtils';
 
 describe('sanitizeZaehlerstand', () => {
   it('behält die Komma-Eingabe der deutschen Tastatur', () => {
@@ -119,5 +119,22 @@ describe("punktAlsKomma", () => {
 
   it.each(["12345", "12,5", "1.234,5", "12.345.678", "12.", ""])("schweigt bei %j", (wert) => {
     expect(punktAlsKomma(wert)).toBe(false);
+  });
+});
+
+describe('zaehlerstandAnzeige', () => {
+  it('zeigt jeden gespeicherten Stand gleich: Tausenderpunkt, bis drei Nachkommastellen', () => {
+    expect(zaehlerstandAnzeige(6207.531)).toBe('6.207,531');
+    expect(zaehlerstandAnzeige('16.02')).toBe('16,02');
+    expect(zaehlerstandAnzeige(4275)).toBe('4.275');
+    expect(zaehlerstandAnzeige(0)).toBe('0');
+    expect(zaehlerstandAnzeige(1.23456)).toBe('1,235');
+  });
+
+  it('leer bleibt leer, Unlesbares unverändert', () => {
+    expect(zaehlerstandAnzeige(null)).toBe('');
+    expect(zaehlerstandAnzeige(undefined)).toBe('');
+    expect(zaehlerstandAnzeige('')).toBe('');
+    expect(zaehlerstandAnzeige('abc')).toBe('abc');
   });
 });

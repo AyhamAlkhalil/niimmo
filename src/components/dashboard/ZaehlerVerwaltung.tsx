@@ -29,7 +29,9 @@ import { einheitenInReihenfolge } from "@/utils/einheitenReihenfolge";
 import { einheitZaehlerarten, hausanschlussZaehlerarten, hausanschlussZweiterZaehler, versorgerArten } from "@/utils/zaehlerarten";
 import { ZaehlerartenAuswahl } from "@/components/dashboard/ZaehlerartenAuswahl";
 import { getLaufenderVertrag } from "@/utils/contractUtils";
-import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
+import { parseZaehlerstand, zaehlerstandAnzeige } from "@/utils/zaehlerstandUtils";
+import { ablesungAktion, ablesungHinweis } from "@/utils/zaehlerAblesung";
+import { ablesungSpeichern, zaehlerAnsichtenAktualisieren } from "@/lib/zaehlerAblesung";
 
 interface ZaehlerVerwaltungProps {
   onBack: () => void;
@@ -81,25 +83,6 @@ export function standImEntwurf(
   }
   return naechster;
 }
-
-/**
- * Schreibt Historienzeilen und meldet, ob alle gelangen. Bis zum 28.10.2026 wurde der Fehler
- * ignoriert und „gespeichert“ gemeldet, obwohl die Historie fehlte — Muster wie
- * schreibeZaehlerHistorie in useMietvertragMutations.ts.
- */
-async function schreibeHistorie(zeilen: Record<string, unknown>[]): Promise<boolean> {
-  let alleOk = true;
-  for (const zeile of zeilen) {
-    const { error } = await supabase.from('zaehlerstand_historie').insert(zeile as never);
-    if (error) alleOk = false;
-  }
-  return alleOk;
-}
-
-const HISTORIE_FEHLT = {
-  titel: 'Gespeichert, Historie unvollständig',
-  text: 'Die Zählerstände sind gespeichert, die Zählerhistorie konnte aber nicht ergänzt werden.',
-};
 
 export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
   const queryClient = useQueryClient();
@@ -189,16 +172,20 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
 
   const updateUnitMutation = useMutation({
     mutationFn: async ({ einheitId, updates }: { einheitId: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase.from('einheiten').update(updates).eq('id', einheitId);
+      const { data, error } = await supabase.from('einheiten').update(updates).eq('id', einheitId).select('id');
       if (error) throw error;
+      // RLS lässt einen verweigerten Schreibzugriff still ins Leere laufen
+      if (!data || data.length === 0) throw new Error('Nicht gespeichert');
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] }),
   });
 
   const updatePropertyMutation = useMutation({
     mutationFn: async ({ immobilieId, updates }: { immobilieId: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase.from('immobilien').update(updates).eq('id', immobilieId);
+      const { data, error } = await supabase.from('immobilien').update(updates).eq('id', immobilieId).select('id');
       if (error) throw error;
+      // RLS lässt einen verweigerten Schreibzugriff still ins Leere laufen
+      if (!data || data.length === 0) throw new Error('Nicht gespeichert');
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['zaehler-verwaltung-immobilien'] }),
   });
@@ -223,67 +210,45 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     setUnitDraft({});
   };
 
+  // Seit 26.11.2026 nur noch Ablesungen über ablesungSpeichern; den aktuellen Stand zieht die Datenbank
+  // aus der Historie nach. Bis dahin wurde er hier selbst geschrieben, und ein zurückgestelltes Datum
+  // verschwand ohne Meldung (Kundenmeldung 07.11.2026).
   const saveUnitDraft = async (einheit: any) => {
+    const heute = format(new Date(), 'yyyy-MM-dd');
+    const plan = UNIT_TYPES.map((t) => {
+      const aktuell = { stand: einheit[`${t}_stand_aktuell`], datum: einheit[`${t}_stand_datum`] };
+      const nummerAlt = String(einheit[`${t}_zaehler`] ?? '').trim();
+      const nummerNeu = (unitDraft[`${t}_zaehler`] ?? '').trim();
+      return {
+        t,
+        aktuell,
+        aktion: ablesungAktion({ stand: unitDraft[`${t}_stand`] ?? '', datum: unitDraft[`${t}_datum`] ?? '' }, aktuell, heute),
+        nummerNeu,
+        nummerGeaendert: nummerNeu !== nummerAlt,
+      };
+    });
+    const fehler = plan.find((p) => p.aktion.art === 'ungueltig');
+    if (fehler && fehler.aktion.art === 'ungueltig') {
+      toast.error(`${getMeterLabel(fehler.t)}: ${fehler.aktion.grund}`);
+      return;
+    }
+    const nummern = Object.fromEntries(plan.filter((p) => p.nummerGeaendert).map((p) => [`${p.t}_zaehler`, p.nummerNeu || null]));
+    const ablesungen = plan.filter((p) => p.aktion.art !== 'keine');
+    if (Object.keys(nummern).length === 0 && ablesungen.length === 0) {
+      cancelEditUnit();
+      return;
+    }
+
     setSavingUnit(true);
     try {
-      const updates: Record<string, unknown> = {};
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const historyInserts: any[] = [];
-
-      for (const t of UNIT_TYPES) {
-        const origZaehler = einheit[`${t}_zaehler`] ?? '';
-        const origStand   = einheit[`${t}_stand_aktuell`]?.toString() ?? '';
-        const origDatum   = einheit[`${t}_stand_datum`] ?? '';
-        const newZaehler  = unitDraft[`${t}_zaehler`] ?? '';
-        const newStand    = unitDraft[`${t}_stand`] ?? '';
-        const newDatum    = unitDraft[`${t}_datum`] || '';
-
-        if (newZaehler !== origZaehler) {
-          updates[`${t}_zaehler`] = newZaehler || null;
-        }
-
-        // Numerisch verglichen (28.10.2026): „1234.50“ gegen gespeicherte 1234.5 ist keine neue Ablesung
-        if (!gleicherStand(newStand, origStand)) {
-          const standValue = newStand ? parseFloat(newStand) : null;
-          const effectiveDatum = newDatum || today;
-          // Datum-Guard: aktuellen Stand nur überschreiben wenn neues Datum nicht älter
-          const isNewerOrSame = !newDatum || !origDatum || new Date(effectiveDatum) >= new Date(origDatum);
-          if (isNewerOrSame) {
-            updates[`${t}_stand_aktuell`] = standValue;
-            updates[`${t}_stand_datum`]   = effectiveDatum;
-          }
-          if (standValue !== null) {
-            historyInserts.push({
-              einheit_id: einheit.id,
-              zaehler_typ: t,
-              zaehler_nummer: (updates[`${t}_zaehler`] as string ?? newZaehler) || null,
-              stand: standValue,
-              datum: newDatum || today,
-              quelle: 'manuell',
-            });
-          }
-        } else if (newDatum !== origDatum && newDatum) {
-          const isNewerOrSame = !origDatum || new Date(newDatum) >= new Date(origDatum);
-          if (isNewerOrSame) updates[`${t}_stand_datum`] = newDatum;
-        }
-      }
-
-      if (Object.keys(updates).length === 0 && historyInserts.length === 0) {
-        cancelEditUnit();
-        return;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await updateUnitMutation.mutateAsync({ einheitId: einheit.id, updates });
-      }
-      const historieOk = await schreibeHistorie(historyInserts);
-      if (historyInserts.length > 0) {
-        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-      }
-
+      // Erst die Nummer: Eine Ablesung nach einem Zählertausch gehört zur neuen
+      if (Object.keys(nummern).length > 0) await updateUnitMutation.mutateAsync({ einheitId: einheit.id, updates: nummern });
+      for (const p of ablesungen) await ablesungSpeichern({ einheitId: einheit.id }, p.t, p.aktion, p.nummerNeu || null);
+      await zaehlerAnsichtenAktualisieren(queryClient);
       cancelEditUnit();
-      if (historieOk) toast.success('Zählerstände gespeichert');
-      else toast.error(HISTORIE_FEHLT.titel, { description: HISTORIE_FEHLT.text });
+      const hinweise = ablesungen.map((p) => ablesungHinweis(p.aktion, p.aktuell)).filter((h): h is string => !!h);
+      if (hinweise.length > 0) toast.info('Zählerstände gespeichert', { description: hinweise.join(' ') });
+      else toast.success('Zählerstände gespeichert');
     } catch {
       toast.error('Fehler beim Speichern');
     } finally {
@@ -315,77 +280,57 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
     setPropertyDraft({});
   };
 
+  // Wie bei den Einheiten (26.11.2026): Ablesungen über ablesungSpeichern, Typ wasser … gas_2
   const savePropertyDraft = async (immobilie: any) => {
+    const heute = format(new Date(), 'yyyy-MM-dd');
+    const plan = (['wasser', 'strom', 'gas'] as const).flatMap((t) =>
+      (['', '_2'] as const).map((suffix) => {
+        const key = suffix ? `${t}_2` : t;
+        const aktuell = { stand: immobilie[`allgemein_${t}_stand${suffix}`], datum: immobilie[`allgemein_${t}_datum${suffix}`] };
+        const nummerAlt = String(immobilie[`allgemein_${t}_zaehler${suffix}`] ?? '').trim();
+        const nummerNeu = (propertyDraft[`${key}_zaehler`] ?? '').trim();
+        return {
+          key,
+          label: `${getMeterLabel(t)}${suffix ? ' (2)' : ''}`,
+          nummerSpalte: `allgemein_${t}_zaehler${suffix}`,
+          aktuell,
+          aktion: ablesungAktion({ stand: propertyDraft[`${key}_stand`] ?? '', datum: propertyDraft[`${key}_datum`] ?? '' }, aktuell, heute),
+          nummerNeu,
+          nummerGeaendert: nummerNeu !== nummerAlt,
+        };
+      })
+    );
+    const fehler = plan.find((p) => p.aktion.art === 'ungueltig');
+    if (fehler && fehler.aktion.art === 'ungueltig') {
+      toast.error(`${fehler.label}: ${fehler.aktion.grund}`);
+      return;
+    }
+
+    const updates: Record<string, unknown> = Object.fromEntries(
+      plan.filter((p) => p.nummerGeaendert).map((p) => [p.nummerSpalte, p.nummerNeu || null])
+    );
+    for (const t of ['wasser', 'strom', 'gas'] as const) {
+      for (const feld of ['name', 'email'] as const) {
+        const spalte = `versorger_${t}_${feld}`;
+        const neu = (propertyDraft[spalte] ?? '').trim();
+        if (neu !== String(immobilie[spalte] ?? '').trim()) updates[spalte] = neu || null;
+      }
+    }
+    const ablesungen = plan.filter((p) => p.aktion.art !== 'keine');
+    if (Object.keys(updates).length === 0 && ablesungen.length === 0) {
+      cancelEditProperty();
+      return;
+    }
+
     setSavingProperty(true);
     try {
-      const updates: Record<string, unknown> = {};
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const historyInserts: any[] = [];
-
-      for (const t of ['wasser', 'strom', 'gas'] as const) {
-        for (const suffix of ['', '_2'] as const) {
-          const key = suffix ? `${t}_2` : t;
-          const dbBase = `allgemein_${t}`;
-          const origZaehler = immobilie[`${dbBase}_zaehler${suffix}`] ?? '';
-          const origStand   = immobilie[`${dbBase}_stand${suffix}`]?.toString() ?? '';
-          const origDatum   = immobilie[`${dbBase}_datum${suffix}`] ?? '';
-          const newZaehler  = propertyDraft[`${key}_zaehler`] ?? '';
-          const newStand    = propertyDraft[`${key}_stand`] ?? '';
-          const newDatum    = propertyDraft[`${key}_datum`] || '';
-
-          if (newZaehler !== origZaehler) {
-            updates[`${dbBase}_zaehler${suffix}`] = newZaehler || null;
-          }
-          // Numerisch verglichen wie bei den Einheiten (28.10.2026)
-          if (!gleicherStand(newStand, origStand)) {
-            const standValue = newStand ? parseFloat(newStand) : null;
-            const effectiveDatum = newDatum || today;
-            const isNewerOrSame = !newDatum || !origDatum || new Date(effectiveDatum) >= new Date(origDatum);
-            if (isNewerOrSame) {
-              updates[`${dbBase}_stand${suffix}`] = standValue;
-              updates[`${dbBase}_datum${suffix}`] = effectiveDatum;
-            }
-            if (standValue !== null) {
-              historyInserts.push({
-                immobilie_id: immobilie.id,
-                zaehler_typ: key,
-                zaehler_nummer: (updates[`${dbBase}_zaehler${suffix}`] as string ?? newZaehler) || null,
-                stand: standValue,
-                datum: newDatum || today,
-                quelle: 'manuell',
-              });
-            }
-          } else if (newDatum !== origDatum && newDatum) {
-            const isNewerOrSame = !origDatum || new Date(newDatum) >= new Date(origDatum);
-            if (isNewerOrSame) updates[`${dbBase}_datum${suffix}`] = newDatum;
-          }
-        }
-
-        // Versorger
-        const origName  = immobilie[`versorger_${t}_name`] ?? '';
-        const origEmail = immobilie[`versorger_${t}_email`] ?? '';
-        if (propertyDraft[`versorger_${t}_name`] !== origName)
-          updates[`versorger_${t}_name`] = propertyDraft[`versorger_${t}_name`] || null;
-        if (propertyDraft[`versorger_${t}_email`] !== origEmail)
-          updates[`versorger_${t}_email`] = propertyDraft[`versorger_${t}_email`] || null;
-      }
-
-      if (Object.keys(updates).length === 0 && historyInserts.length === 0) {
-        cancelEditProperty();
-        return;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        await updatePropertyMutation.mutateAsync({ immobilieId: immobilie.id, updates });
-      }
-      const historieOk = await schreibeHistorie(historyInserts);
-      if (historyInserts.length > 0) {
-        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-      }
-
+      if (Object.keys(updates).length > 0) await updatePropertyMutation.mutateAsync({ immobilieId: immobilie.id, updates });
+      for (const p of ablesungen) await ablesungSpeichern({ immobilieId: immobilie.id }, p.key, p.aktion, p.nummerNeu || null);
+      await zaehlerAnsichtenAktualisieren(queryClient);
       cancelEditProperty();
-      if (historieOk) toast.success('Hausanschlusszähler gespeichert');
-      else toast.error(HISTORIE_FEHLT.titel, { description: HISTORIE_FEHLT.text });
+      const hinweise = ablesungen.map((p) => ablesungHinweis(p.aktion, p.aktuell)).filter((h): h is string => !!h);
+      if (hinweise.length > 0) toast.info('Hausanschlusszähler gespeichert', { description: hinweise.join(' ') });
+      else toast.success('Hausanschlusszähler gespeichert');
     } catch {
       toast.error('Fehler beim Speichern');
     } finally {
@@ -665,7 +610,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                               {dbZ || <span className="italic">kein Zähler</span>}
                                             </div>
                                             <div className="font-medium">
-                                              {dbS != null ? dbS.toLocaleString('de-DE') : <span className="text-muted-foreground">—</span>}
+                                              {dbS != null ? zaehlerstandAnzeige(dbS) : <span className="text-muted-foreground">—</span>}
                                             </div>
                                           </div>
                                         )}
@@ -710,7 +655,10 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
 
                               return (
                                 <React.Fragment key={einheit.id}>
-                                  <TableRow className={`text-xs${isEditingUnit ? ' bg-muted/20' : ''}`}>
+                                  {/* Ohne Trennlinie zur eigenen Historie: Die Linie steht erst darunter. Bis zum 26.11.2026
+                                      trennte sie Einheit und Historie, und „Historie“ wirkte wie Teil der nächsten
+                                      Einheit (Kundenmeldung 07.11.2026) */}
+                                  <TableRow className={`text-xs border-b-0${isEditingUnit ? ' bg-muted/20' : ''}`}>
                                     <TableCell className="py-1.5 font-medium">
                                       {/* Nummer wie in der Objektübersicht, Lage darunter. Bis zum 24.11.2026 stand
                                           hier das leere Feld zaehler und die Lage in Klammern: „(Linkes Erdgeschoss links)“ */}
@@ -761,7 +709,7 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                                 {currentZaehler || <span className="italic">—</span>}
                                               </div>
                                               <div className="font-medium tabular-nums">
-                                                {currentStand != null ? currentStand.toLocaleString('de-DE') : <span className="text-muted-foreground">—</span>}
+                                                {currentStand != null ? zaehlerstandAnzeige(currentStand) : <span className="text-muted-foreground">—</span>}
                                               </div>
                                               {standDatum && (
                                                 <div className="text-xs text-muted-foreground">{formatStandDatum(standDatum)}</div>
@@ -806,9 +754,9 @@ export const ZaehlerVerwaltung = ({ onBack }: ZaehlerVerwaltungProps) => {
                                     </TableCell>
                                   </TableRow>
 
-                                  <TableRow className="border-0 hover:bg-transparent">
-                                    <TableCell colSpan={getUnitMeterTypes(immobilie).length + 3} className="py-0 px-2">
-                                      <ZaehlerHistorie einheitId={einheit.id} />
+                                  <TableRow className={`hover:bg-transparent${isEditingUnit ? ' bg-muted/20' : ''}`}>
+                                    <TableCell colSpan={getUnitMeterTypes(immobilie).length + 3} className="pt-0 pb-1.5 px-2">
+                                      <ZaehlerHistorie einheitId={einheit.id} label={`Historie Einheit ${einheit.einheitNummer}`} />
                                     </TableCell>
                                   </TableRow>
                                 </React.Fragment>

@@ -85,3 +85,15 @@ export const istGueltigeZaehlerstandEingabe = (value: string | null | undefined)
   if (!text) return true;
   return parseZaehlerstand(text) !== null;
 };
+
+/**
+ * Anzeige eines gespeicherten Stands, überall gleich: deutsches Format mit Tausenderpunkt, bis drei
+ * Nachkommastellen wie auf dem Zähler („6.207,531“). Bis zum 26.11.2026 zeigte der Hausanschluss in
+ * der Objektübersicht die Rohzahl („6207.531“), die Vertragsansicht den Einzug als „16.02“ und die
+ * Historie „4.275,0“, während die Zählerliste „4.275“ zeigte. Leer oder nicht lesbar: "".
+ */
+export const zaehlerstandAnzeige = (stand: number | string | null | undefined): string => {
+  if (stand === null || stand === undefined || stand === "") return "";
+  const zahl = Number(stand);
+  return Number.isFinite(zahl) ? zahl.toLocaleString("de-DE", { maximumFractionDigits: 3 }) : String(stand);
+};

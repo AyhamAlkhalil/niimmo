@@ -13,10 +13,13 @@ import { getCurrentContract, filterActiveAndTerminatedContracts, summiereLaufend
 import { einheitenInReihenfolge, einheitenNummern, sucheTrifftEinheitNummer } from "@/utils/einheitenReihenfolge";
 import { hausanschlussZaehlerarten, hausanschlussZweiterZaehler } from "@/utils/zaehlerarten";
 import { ZaehlerartenAuswahl } from "@/components/dashboard/ZaehlerartenAuswahl";
+import { ablesungAktion, ablesungHinweis } from "@/utils/zaehlerAblesung";
+import { zaehlerstandAnzeige } from "@/utils/zaehlerstandUtils";
+import { ablesungSpeichern, zaehlerAnsichtenAktualisieren } from "@/lib/zaehlerAblesung";
 import { useEditableField } from "@/hooks/useEditableField";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { ImmobilienDocumentsTab } from "./ImmobilienDocumentsTab";
 import { ImmobilienNebenkostenTabNew } from "./nebenkosten/ImmobilienNebenkostenTabNew";
 import { ImmobilienVersicherungenTab } from "./ImmobilienVersicherungenTab";
@@ -412,42 +415,34 @@ export const ImmobilienDetail = ({
                                 </div>
                                 <div className="flex gap-1 justify-end">
                                   <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={async () => {
-                                    const zVal = meterValues[`${key}_zaehler`] ?? zaehlerVal;
-                                    const sVal = meterValues[`${key}_stand`] ?? String(standVal ?? '');
-                                    const dVal = meterValues[`${key}_datum`] ?? datumVal;
-                                    const updates: Record<string, unknown> = {
-                                      [zaehlerField]: zVal || null,
-                                      [standField]: sVal ? parseFloat(sVal) : null,
-                                      [datumField]: dVal || null,
-                                    };
-                                    const { error } = await supabase.from('immobilien').update(updates).eq('id', immobilieId);
-                                    if (error) {
-                                      toast.error('Fehler beim Speichern');
-                                    } else {
-                                      queryClient.invalidateQueries({ queryKey: ['immobilie', immobilieId] });
-                                      const standNum = updates[standField] as number | null;
-                                      // Historie nur bei geändertem Stand, wie in der Zählerverwaltung. Bis zum
-                                      // 28.10.2026 entstand bei jedem Speichern eine Zeile, auch wenn nur die
-                                      // Zählernummer korrigiert wurde — eine Ablesung, die es nie gab.
-                                      const standAlt = standVal == null || standVal === '' ? null : Number(standVal);
-                                      let historieOk = true;
-                                      if (standNum != null && standNum !== standAlt) {
-                                        const { error: historieFehler } = await supabase.from('zaehlerstand_historie').insert({
-                                          immobilie_id: immobilieId,
-                                          zaehler_typ: key,
-                                          zaehler_nummer: (updates[zaehlerField] as string | null) ?? null,
-                                          stand: standNum,
-                                          datum: (updates[datumField] as string | null) ?? format(new Date(), 'yyyy-MM-dd'),
-                                          quelle: 'manuell',
-                                        });
-                                        // Fehler wurde bis zum 28.10.2026 verschluckt (Muster: useMietvertragMutations)
-                                        historieOk = !historieFehler;
-                                        queryClient.invalidateQueries({ queryKey: ['zaehlerstand-historie'] });
-                                      }
-                                      if (historieOk) toast.success('Gespeichert');
-                                      else toast.error('Gespeichert, Historie unvollständig', { description: 'Der Zählerstand ist gespeichert, die Zählerhistorie konnte aber nicht ergänzt werden.' });
+                                    // Seit 26.11.2026 wie Zählerverwaltung und Hausmeister-Ansicht (utils/zaehlerAblesung.ts):
+                                    // Bis dahin überschrieb ein älteres Datum hier den neueren Stand, und der alte Wert war weg.
+                                    const zVal = String(meterValues[`${key}_zaehler`] ?? zaehlerVal ?? '').trim();
+                                    const aktuell = { stand: standVal, datum: datumVal || null };
+                                    const aktion = ablesungAktion(
+                                      { stand: meterValues[`${key}_stand`] ?? String(standVal ?? ''), datum: meterValues[`${key}_datum`] ?? datumVal },
+                                      aktuell,
+                                      format(new Date(), 'yyyy-MM-dd')
+                                    );
+                                    if (aktion.art === 'ungueltig') {
+                                      toast.error(aktion.grund);
+                                      return;
                                     }
-                                    setEditingMeter(null);
+                                    try {
+                                      if (zVal !== String(zaehlerVal ?? '').trim()) {
+                                        const { data, error } = await supabase.from('immobilien').update({ [zaehlerField]: zVal || null }).eq('id', immobilieId).select('id');
+                                        if (error) throw error;
+                                        if (!data || data.length === 0) throw new Error('Nicht gespeichert');
+                                      }
+                                      await ablesungSpeichern({ immobilieId }, key, aktion, zVal || null);
+                                      await zaehlerAnsichtenAktualisieren(queryClient);
+                                      const hinweis = ablesungHinweis(aktion, aktuell);
+                                      if (hinweis) toast.info('Gespeichert', { description: hinweis });
+                                      else toast.success('Gespeichert');
+                                      setEditingMeter(null);
+                                    } catch {
+                                      toast.error('Fehler beim Speichern');
+                                    }
                                   }}>
                                     <Check className="h-3 w-3 text-green-600" />
                                   </Button>
@@ -471,8 +466,8 @@ export const ImmobilienDetail = ({
                                 </div>
                                 <p className="text-xs text-muted-foreground truncate">
                                   {zaehlerVal ? `Nr. ${zaehlerVal}` : 'Kein Zähler'} 
-                                  {standVal != null ? ` · ${standVal}` : ''}
-                                  {datumVal ? ` · ${new Date(datumVal).toLocaleDateString('de-DE')}` : ''}
+                                  {standVal != null && standVal !== '' ? ` · ${zaehlerstandAnzeige(standVal)}` : ''}
+                                  {datumVal ? ` · ${format(parseISO(String(datumVal).slice(0, 10)), 'dd.MM.yyyy')}` : ''}
                                 </p>
                               </div>
                             )}

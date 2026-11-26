@@ -23,6 +23,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { einheitenInReihenfolge } from "@/utils/einheitenReihenfolge";
 import { einheitZaehlerarten, hausanschlussZaehlerarten, hausanschlussZweiterZaehler } from "@/utils/zaehlerarten";
+import { parseZaehlerstand } from "@/utils/zaehlerstandUtils";
+import { ablesungAktion, ablesungHinweis } from "@/utils/zaehlerAblesung";
+import { ablesungSpeichern, zaehlerAnsichtenAktualisieren } from "@/lib/zaehlerAblesung";
 
 interface MeterReading {
   einheitId: string;
@@ -134,12 +137,14 @@ export const HausmeisterDashboard = () => {
 
   const updateMeterMutation = useMutation({
     mutationFn: async ({ einheitId, updates }: { einheitId: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('einheiten')
         .update(updates)
-        .eq('id', einheitId);
-      
+        .eq('id', einheitId)
+        .select('id');
       if (error) throw error;
+      // RLS lässt einen verweigerten Schreibzugriff still ins Leere laufen
+      if (!data || data.length === 0) throw new Error('Nicht gespeichert');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hausmeister-immobilien'] });
@@ -148,12 +153,14 @@ export const HausmeisterDashboard = () => {
 
   const updatePropertyMeterMutation = useMutation({
     mutationFn: async ({ immobilieId, updates }: { immobilieId: string; updates: Record<string, unknown> }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('immobilien')
         .update(updates)
-        .eq('id', immobilieId);
-      
+        .eq('id', immobilieId)
+        .select('id');
       if (error) throw error;
+      // RLS lässt einen verweigerten Schreibzugriff still ins Leere laufen
+      if (!data || data.length === 0) throw new Error('Nicht gespeichert');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['hausmeister-immobilien'] });
@@ -222,38 +229,71 @@ export const HausmeisterDashboard = () => {
     return Object.keys(editedPropertyReadings).some(key => key.startsWith(`${immobilieId}-`));
   };
 
+  /**
+   * Eine Feldänderung als Ablesung (utils/zaehlerAblesung.ts). Bis zum 26.11.2026 schrieb diese Ansicht
+   * den Stand direkt an Einheit bzw. Objekt — ohne Historie und ohne Datumssperre, ein älteres Datum
+   * überschrieb den neueren Stand. Ein neuer Stand ohne eigenes Datum gilt wie bisher für heute;
+   * derselbe Stand noch einmal eingetippt verschiebt nichts.
+   */
+  const ablesungAusAenderung = (
+    change: { stand?: string; datum?: string; zaehlerNummer?: string },
+    aktuell: { stand: unknown; datum: unknown },
+    nummerAlt: unknown,
+    heute: string
+  ) => {
+    const altStand = aktuell.stand == null ? null : Number(aktuell.stand);
+    const altDatum = typeof aktuell.datum === 'string' ? aktuell.datum : '';
+    const standGeaendert = change.stand !== undefined && parseZaehlerstand(change.stand) !== altStand;
+    const aktion = ablesungAktion(
+      {
+        stand: change.stand ?? (altStand == null ? '' : String(altStand)),
+        datum: change.datum ?? (standGeaendert ? heute : altDatum),
+      },
+      { stand: altStand, datum: altDatum || null },
+      heute
+    );
+    const alt = String(nummerAlt ?? '').trim();
+    const nummerNeu = change.zaehlerNummer !== undefined ? change.zaehlerNummer.trim() : alt;
+    return { aktion, aktuellFuerHinweis: { stand: altStand, datum: altDatum || null }, nummerNeu, nummerGeaendert: nummerNeu !== alt };
+  };
+
   const savePropertyChanges = async (immobilieId: string) => {
+    const immobilie = immobilien?.find((i) => i.id === immobilieId) as Record<string, unknown> | undefined;
     const propChanges = Object.entries(editedPropertyReadings)
       .filter(([key]) => key.startsWith(`${immobilieId}-`))
       .map(([, reading]) => reading);
 
-    if (propChanges.length === 0) return;
+    if (propChanges.length === 0 || !immobilie) return;
+
+    const heute = format(new Date(), 'yyyy-MM-dd');
+    const plan = propChanges.map((change) => {
+      const baseType = change.type.replace('_2', '');
+      const suffix = change.type.endsWith('_2') ? '_2' : '';
+      return {
+        typ: change.type as string,
+        label: `${getMeterLabel(baseType)}${suffix ? ' (2)' : ''}`,
+        nummerSpalte: `allgemein_${baseType}_zaehler${suffix}`,
+        ...ablesungAusAenderung(
+          change,
+          { stand: immobilie[`allgemein_${baseType}_stand${suffix}`], datum: immobilie[`allgemein_${baseType}_datum${suffix}`] },
+          immobilie[`allgemein_${baseType}_zaehler${suffix}`],
+          heute
+        ),
+      };
+    });
+    const fehler = plan.find((p) => p.aktion.art === 'ungueltig');
+    if (fehler && fehler.aktion.art === 'ungueltig') {
+      toast.error(`${fehler.label}: ${fehler.aktion.grund}`);
+      return;
+    }
 
     setSavingProperties(prev => new Set(prev).add(immobilieId));
 
     try {
-      const updates: Record<string, unknown> = {};
-      const today = format(new Date(), 'yyyy-MM-dd');
-
-      for (const change of propChanges) {
-        const baseType = change.type.replace('_2', '');
-        const suffix = change.type.endsWith('_2') ? '_2' : '';
-        if (change.zaehlerNummer !== undefined) {
-          updates[`allgemein_${baseType}_zaehler${suffix}`] = change.zaehlerNummer || null;
-        }
-        if (change.stand !== undefined) {
-          const standValue = change.stand ? parseFloat(change.stand) : null;
-          updates[`allgemein_${baseType}_stand${suffix}`] = standValue;
-          if (standValue !== null && change.datum === undefined) {
-            updates[`allgemein_${baseType}_datum${suffix}`] = today;
-          }
-        }
-        if (change.datum !== undefined) {
-          updates[`allgemein_${baseType}_datum${suffix}`] = change.datum || null;
-        }
-      }
-
-      await updatePropertyMeterMutation.mutateAsync({ immobilieId, updates });
+      const nummern = Object.fromEntries(plan.filter((p) => p.nummerGeaendert).map((p) => [p.nummerSpalte, p.nummerNeu || null]));
+      if (Object.keys(nummern).length > 0) await updatePropertyMeterMutation.mutateAsync({ immobilieId, updates: nummern });
+      for (const p of plan) await ablesungSpeichern({ immobilieId }, p.typ, p.aktion, p.nummerNeu || null);
+      await zaehlerAnsichtenAktualisieren(queryClient);
 
       setEditedPropertyReadings(prev => {
         const next = { ...prev };
@@ -263,8 +303,10 @@ export const HausmeisterDashboard = () => {
         return next;
       });
 
-      toast.success("Hausanschlusszähler gespeichert");
-    } catch (error) {
+      const hinweise = plan.map((p) => ablesungHinweis(p.aktion, p.aktuellFuerHinweis)).filter((h): h is string => !!h);
+      if (hinweise.length > 0) toast.info("Hausanschlusszähler gespeichert", { description: hinweise.join(" ") });
+      else toast.success("Hausanschlusszähler gespeichert");
+    } catch {
       toast.error("Fehler beim Speichern");
     } finally {
       setSavingProperties(prev => {
@@ -280,36 +322,36 @@ export const HausmeisterDashboard = () => {
   };
 
   const saveUnitChanges = async (einheitId: string) => {
+    const einheit = immobilien?.flatMap((i) => i.einheiten ?? []).find((e) => e.id === einheitId) as Record<string, unknown> | undefined;
     const unitChanges = Object.entries(editedReadings)
       .filter(([key]) => key.startsWith(`${einheitId}-`))
       .map(([, reading]) => reading);
 
-    if (unitChanges.length === 0) return;
+    if (unitChanges.length === 0 || !einheit) return;
+
+    const heute = format(new Date(), 'yyyy-MM-dd');
+    const plan = unitChanges.map((change) => ({
+      typ: change.type,
+      ...ablesungAusAenderung(
+        change,
+        { stand: einheit[`${change.type}_stand_aktuell`], datum: einheit[`${change.type}_stand_datum`] },
+        einheit[`${change.type}_zaehler`],
+        heute
+      ),
+    }));
+    const fehler = plan.find((p) => p.aktion.art === 'ungueltig');
+    if (fehler && fehler.aktion.art === 'ungueltig') {
+      toast.error(`${getMeterLabel(fehler.typ)}: ${fehler.aktion.grund}`);
+      return;
+    }
 
     setSavingUnits(prev => new Set(prev).add(einheitId));
 
     try {
-      const updates: Record<string, unknown> = {};
-      const today = format(new Date(), 'yyyy-MM-dd');
-
-      for (const change of unitChanges) {
-        if (change.zaehlerNummer !== undefined) {
-          updates[`${change.type}_zaehler`] = change.zaehlerNummer || null;
-        }
-        if (change.stand !== undefined) {
-          const standValue = change.stand ? parseFloat(change.stand) : null;
-          updates[`${change.type}_stand_aktuell`] = standValue;
-          // Only auto-set datum if no explicit datum was provided and stand was changed
-          if (standValue !== null && change.datum === undefined) {
-            updates[`${change.type}_stand_datum`] = today;
-          }
-        }
-        if (change.datum !== undefined) {
-          updates[`${change.type}_stand_datum`] = change.datum || null;
-        }
-      }
-
-      await updateMeterMutation.mutateAsync({ einheitId, updates });
+      const nummern = Object.fromEntries(plan.filter((p) => p.nummerGeaendert).map((p) => [`${p.typ}_zaehler`, p.nummerNeu || null]));
+      if (Object.keys(nummern).length > 0) await updateMeterMutation.mutateAsync({ einheitId, updates: nummern });
+      for (const p of plan) await ablesungSpeichern({ einheitId }, p.typ, p.aktion, p.nummerNeu || null);
+      await zaehlerAnsichtenAktualisieren(queryClient);
 
       setEditedReadings(prev => {
         const next = { ...prev };
@@ -319,8 +361,10 @@ export const HausmeisterDashboard = () => {
         return next;
       });
 
-      toast.success("Zählerstände gespeichert");
-    } catch (error) {
+      const hinweise = plan.map((p) => ablesungHinweis(p.aktion, p.aktuellFuerHinweis)).filter((h): h is string => !!h);
+      if (hinweise.length > 0) toast.info("Zählerstände gespeichert", { description: hinweise.join(" ") });
+      else toast.success("Zählerstände gespeichert");
+    } catch {
       toast.error("Fehler beim Speichern");
     } finally {
       setSavingUnits(prev => {
