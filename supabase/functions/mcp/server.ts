@@ -4,6 +4,7 @@
 import type { ServerBeschreibung } from './protokoll.ts';
 import type { Werkzeug } from './werkzeug.ts';
 import { BESTAND_WERKZEUGE } from './werkzeuge/bestand.ts';
+import { HOCHLADE_WERKZEUGE } from './werkzeuge/hochladen.ts';
 import { MIETKONTO_WERKZEUGE } from './werkzeuge/mietkonto.ts';
 import { PFLEGE_WERKZEUGE } from './werkzeuge/pflege.ts';
 import { VERTRAGS_WERKZEUGE } from './werkzeuge/vertraege.ts';
@@ -17,6 +18,7 @@ export const WERKZEUGE: readonly Werkzeug[] = [
   ...VERTRAGS_WERKZEUGE,
   ...PFLEGE_WERKZEUGE,
   ...VERWALTUNGS_WERKZEUGE,
+  ...HOCHLADE_WERKZEUGE,
 ];
 
 export const SERVER: ServerBeschreibung = {
@@ -36,6 +38,8 @@ export const SERVER: ServerBeschreibung = {
     '  mietkonto_anzeigen bzw. rueckstaende_auflisten übernehmen, nie selbst aus Einzelbuchungen summieren.',
     '- Sammelzahlungen (eine Überweisung für mehrere Verträge) nie selbst aufteilen — den Nutzer entscheiden lassen.',
     '- Die Mahnstufe steigt nur durch den Versand einer Mahnung in der App; hier lässt sie sich nur senken.',
+    '- Dateien hochladen geht über dokument_upload_vorbereiten und dokument_upload_abschliessen: dazwischen die Datei',
+    '  aus der Arbeitsumgebung per HTTP-PUT an die upload_url schicken (curl-Befehl steht in der Antwort).',
     '- Schriftstücke (Mietvertrag, Mahnung, Kündigungsschreiben, Mieterhöhungsverlangen, Betriebskostenabrechnung,',
     '  Übergabeprotokoll), die Vermietung einer Einheit und der Import von Kontoauszügen gehen nur in der App:',
     '  https://dashboard.niimmo.de',

@@ -1456,6 +1456,82 @@ export type Database = {
         }
         Relationships: []
       }
+      mcp_dokument_uploads: {
+        Row: {
+          abgeschlossen_am: string | null
+          created_at: string
+          dateiname: string
+          dokument_id: string | null
+          erstellt_von: string
+          groesse_bytes: number
+          gueltig_bis: string
+          id: string
+          immobilie_id: string | null
+          kategorie: Database["public"]["Enums"]["kategorie"]
+          mietvertrag_id: string | null
+          mime_type: string
+          pfad: string
+          titel: string
+          updated_at: string
+        }
+        Insert: {
+          abgeschlossen_am?: string | null
+          created_at?: string
+          dateiname: string
+          dokument_id?: string | null
+          erstellt_von?: string
+          groesse_bytes: number
+          gueltig_bis: string
+          id?: string
+          immobilie_id?: string | null
+          kategorie: Database["public"]["Enums"]["kategorie"]
+          mietvertrag_id?: string | null
+          mime_type: string
+          pfad: string
+          titel: string
+          updated_at?: string
+        }
+        Update: {
+          abgeschlossen_am?: string | null
+          created_at?: string
+          dateiname?: string
+          dokument_id?: string | null
+          erstellt_von?: string
+          groesse_bytes?: number
+          gueltig_bis?: string
+          id?: string
+          immobilie_id?: string | null
+          kategorie?: Database["public"]["Enums"]["kategorie"]
+          mietvertrag_id?: string | null
+          mime_type?: string
+          pfad?: string
+          titel?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mcp_dokument_uploads_dokument_id_fkey"
+            columns: ["dokument_id"]
+            isOneToOne: false
+            referencedRelation: "dokumente"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mcp_dokument_uploads_immobilie_id_fkey"
+            columns: ["immobilie_id"]
+            isOneToOne: false
+            referencedRelation: "immobilien"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mcp_dokument_uploads_mietvertrag_id_fkey"
+            columns: ["mietvertrag_id"]
+            isOneToOne: false
+            referencedRelation: "mietvertrag"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mieter: {
         Row: {
           aktualisiert_am: string | null
@@ -3068,6 +3144,10 @@ export type Database = {
       }
       loesche_mieter_ohne_vertrag: {
         Args: { p_mieter_ids: string[] }
+        Returns: Json
+      }
+      mcp_dokument_upload_abschliessen: {
+        Args: { p_groesse_bytes: number; p_upload_id: string }
         Returns: Json
       }
       mein_app_benutzer_id: { Args: never; Returns: string }

@@ -37,6 +37,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "1.21.0",
+    datum: "2026-11-27",
+    aenderungen: [
+      { art: "neu", titel: "Claude kann Dateien an Verträgen und Objekten ablegen" },
+    ],
+  },
+  {
     version: "1.20.0",
     datum: "2026-11-26",
     aenderungen: [

@@ -27,7 +27,7 @@ export const DOKUMENT_KATEGORIEN = [
 ] as const;
 
 /** Dauer eines Download-Links: kurz, weil er im Chatverlauf steht */
-const LINK_SEKUNDEN = 600;
+export const LINK_SEKUNDEN = 600;
 
 /**
  * Kategorien ohne Download-Link über MCP: Mieterunterlagen enthalten Ausweiskopien, Gehaltsnachweise und Bankdaten —
